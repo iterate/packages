@@ -1,4 +1,4 @@
-import { installAgents } from "@iterate-com/agents/install";
+import { installAgents } from "iterate/agents/install";
 import { installVoice } from "@iterate-com/voice/install";
 import { EmailContract, type EmailState } from "iterate/email";
 import { errorCode } from "iterate/lib";

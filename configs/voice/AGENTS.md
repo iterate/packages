@@ -2,7 +2,7 @@
 
 This repository is the project's code. A commit to `main` publishes it: the platform loads
 `worker.ts`, the `main` in `package.json`, and every context of the project runs the new code.
-It is the default template with a heartbeat: a schedule that wakes the project every five minutes.
+It is core's default template (core/configs/default in iterate/core) with the voice app.
 
 `worker.ts` extends `IterateConfigEntrypoint` from `iterate/sdk`, which holds the hosts (a
 processor imports `StreamProcessor` and `defineProcessorContract` from `iterate/stream/processor`):
@@ -12,9 +12,8 @@ processor imports `StreamProcessor` and `defineProcessorContract` from `iterate/
   project's root; `itx.cd(event.path)` is the event's own context. Keep no state in the worker:
   read it from the project.
   - The `events.iterate.com/project/worker-updated` case is the init hook. It runs after every
-    published commit: it installs the agents and voice apps and sets an example heartbeat, a
-    schedule that wakes the project every five minutes. Deleting those lines does not stop it:
-    `itx.schedules.cancel("heartbeat")` does, and lets an idle project sleep.
+    published commit: it installs the agents and voice apps. The project sets no schedule, so an
+    idle project sleeps.
   - The `events.iterate.com/email/received` case hands each email a member sends to the project
     to an agent of its own per thread, `/agents/email/t<thread>`, once the `email` facet has
     folded it into its thread; the agent replies with `itx.email.send({ inReplyToOffset })`. An
@@ -27,16 +26,15 @@ processor imports `StreamProcessor` and `defineProcessorContract` from `iterate/
   a fetch route takes never reaches it: the platform sends it to the route's target first
   (`iterate tunnel <port>` sets a route per tunnel; `itx.fetchRoutes.set` sets one by hand).
 
-The agents app is the npm package `@iterate-com/agents`. `agents.ts` re-exports its two classes,
-and every agent runs from that file's own bundle: a commit that only changes `worker.ts` leaves the
-agents running, and pinning another build of the package in `package.json` restarts them on their
-next call. A pkg.pr.new build loads only at a full commit (`…/@iterate-com/agents@<sha>`); the
-Agents app's **Upgrade to the newest** commits main's newest build.
+The agents app is `iterate/agents`, which comes from the platform like the rest of `iterate/*`:
+the project runs the deployment's own build, and a platform deploy upgrades it. `agents.ts`
+re-exports its two classes, and every agent runs from that file's own bundle, so a commit that only
+changes `worker.ts` leaves the agents running.
 
-Voice is the npm package `@iterate-com/voice`, installed the same way beside the agents app, which
-every call runs on: `voice.ts` re-exports the `itx.voice` service and each call's relay class, the
-init case calls `installVoice(itx)`, and pinning another build restarts voice on its next call. A
-call needs the project's OpenAI key (`/secrets/openai`), which Kit and the Voice app ask for; the
+Voice is the npm package `@iterate-com/voice`, and each call runs on the agents app. `voice.ts`
+re-exports the `itx.voice` service and each call's relay class, the init case calls
+`installVoice(itx)`, and pinning another build in `package.json` restarts voice on its next call.
+A pkg.pr.new build loads only at a full commit (`…/@iterate-com/voice@<sha>`). A call needs the project's OpenAI key (`/secrets/openai`), which Kit and the Voice app ask for; the
 Voice app's **Upgrade to the newest** commits main's newest build.
 
 `worker.ts` reaches the project through the `itx` that `processEvent` is handed, or through
