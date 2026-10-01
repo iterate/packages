@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+/* shadcn's own Tailwind layer, which the vendored components are written against: the data-* variants
+   that match Base UI's attributes and skip a "false" value (cmdk renders data-selected="false"),
+   no-scrollbar, scroll-fade and shimmer. The `shadcn` devDependency pins it with the CLI.
+   https://ui.shadcn.com/docs/tailwind-v4 */
+@import "shadcn/tailwind.css";
+
+@source "../**/*.{ts,tsx}";
+
+/* Light mode only (docs/frontend-development.md). Tailwind's default `dark:` follows the OS setting;
+   the vendored shadcn components keep upstream's `dark:` classes (and the Agents app scans
+   Streamdown's dist, which carries its own), so the variant never matches: `@media not all` is false everywhere. Dev
+   CSS keeps those rules inside `@media not all`; the production build's minifier drops the block,
+   so none of them ship, and the vendored files stay byte-identical to upstream.
+   https://tailwindcss.com/docs/dark-mode#toggling-dark-mode-manually */
+@custom-variant dark (@media not all);
+
+/* On a phone every sheet fills the screen (#1883), where upstream's are 3/4 wide. Each SheetContent
+   call site passes `data-[side=right]:w-full` (as wide as its max-width allows from `sm` up, too);
+   below `sm` (40rem) this rule also covers a sheet whose call site doesn't, and the phone's sidebar,
+   a sheet the vendored sidebar.tsx renders with no className to pass, by its slot. Keyed on the
+   sheet's own data-slot: Base UI puts data-side on every positioned popup. Unlayered, so it
+   outranks the utilities layer's `data-[side=…]:w-3/4`. */
+@media (width < 40rem) {
+  [data-slot="sheet-content"]:is([data-side="left"], [data-side="right"]),
+  [data-slot="sidebar"][data-mobile="true"] {
+    width: 100%;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@iterate-com/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./depot-api": "./src/depot-api.ts",
+    "./test-support/e2e-policy": "./src/test-support/e2e-policy/budgets.ts",
+    "./test-support/failing-test": "./src/test-support/failing-test.ts",
+    "./test-support/flake-test": "./src/test-support/flake-test.ts",
+    "./test-support/flake-suite-summary": "./src/test-support/flake-suite-summary.ts",
+    "./test-support/flake-record": "./src/test-support/flake-record.ts",
+    "./test-support/ci-telemetry": "./src/test-support/ci-telemetry.ts",
+    "./test-support/test-evidence": "./src/test-support/test-evidence.ts",
+    "./test-support/fetch-safe-port": "./src/test-support/fetch-safe-port.ts",
+    "./test-support/fixture-slug": "./src/test-support/fixture-slug.ts",
+    "./slugify": "./src/slugify.ts",
+    "./start-app-config": "./src/start-app-config.ts",
+    "./posthog": {
+      "types": "./src/posthog/posthog.ts",
+      "import": "./src/posthog/posthog.ts",
+      "default": "./src/posthog/posthog.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "iterate": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

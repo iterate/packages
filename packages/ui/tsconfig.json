@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "ESNext.Disposable", "DOM", "DOM.Iterable"],
+    // node for the tests.
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "paths": {
+      "@iterate-com/ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/apps/server.ts", "src/apps/server.test.ts"]
+}

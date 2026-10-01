@@ -1,0 +1,249 @@
+import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, mkdtempDisposableSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test, vi } from "vitest";
+import type { TestTelemetryArtifact } from "../ci-telemetry.ts";
+import { RetryTelemetryReporter } from "./retry-telemetry-reporter.ts";
+
+test("writes its pessimistic sentinel only when the Vitest run starts", () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", directory.path);
+
+  const reporter = new RetryTelemetryReporter();
+  expect(readdirSync(directory.path)).toHaveLength(0);
+
+  reporter.onTestRunStart();
+  expect(readdirSync(directory.path)).toHaveLength(1);
+});
+
+test("preserves an interrupted Vitest run instead of reporting a test failure", async () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", directory.path);
+
+  await new RetryTelemetryReporter().onTestRunEnd([], [], "interrupted");
+
+  expect(onlyArtifact(directory.path)).toMatchObject({ run: { status: "interrupted" } });
+});
+
+test("records the first failed attempt when a retry passes", async () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  const telemetryDir = join(directory.path, "telemetry");
+  // Scoped: the flaky fixture below writes an unknown-flake record, which
+  // must land here and never in the CI run's real FLAKE_RECORD_DIR.
+  const flakeRecordDir = join(directory.path, "flake-records");
+  vi.stubEnv("FLAKE_RECORD_DIR", flakeRecordDir);
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", telemetryDir);
+  // a preview's e2e run (scripts/os/preview.ts)
+  vi.stubEnv("TEST_TELEMETRY_KIND", "e2e");
+  vi.stubEnv("TEST_TELEMETRY_SUITE", "vitest");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+  const testCase = {
+    id: "network-test-id",
+    fullName: "network > reconnects",
+    name: "reconnects",
+    options: { mode: "run" as const },
+    tags: ["network"],
+    diagnostic: () => ({ retryCount: 1, flaky: true, duration: 1234.4, startTime: 2_000 }),
+    result: () => ({
+      state: "passed",
+      errors: [{ message: "Network connection\n lost" }],
+    }),
+  };
+  const testModule = {
+    moduleId: "/repo/network.e2e.test.ts",
+    children: { allTests: () => [testCase] },
+  };
+  await new RetryTelemetryReporter().onTestRunEnd([testModule]);
+
+  // The retried-pass also produced an unknown-flake record, keyed on the
+  // BARE test name (what a later createFlake wrap would record) with the
+  // failed attempt's error as the sample.
+  const flakeRecords = readdirSync(flakeRecordDir).flatMap((recordFile) =>
+    readFileSync(join(flakeRecordDir, recordFile), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+  );
+  expect(flakeRecords).toMatchObject([
+    { name: "reconnects", kind: "unknown", outcome: "retried-pass" },
+  ]);
+
+  expect(onlyArtifact(telemetryDir)).toMatchObject({
+    tests: [
+      {
+        fullName: "network > reconnects",
+        leafName: "reconnects",
+        moduleId: "/repo/network.e2e.test.ts",
+        expectedState: "passed",
+        tags: ["network"],
+        retryCount: 1,
+        passedAfterRetry: true,
+        state: "passed",
+        durationMs: 1234,
+        startedAt: new Date(2_000).toISOString(),
+        errors: [{ message: "Network connection\n lost" }],
+        firstFailure: "Network connection lost",
+      },
+    ],
+    context: expect.objectContaining({ framework: "vitest", testKind: "e2e" }),
+    run: { status: "passed", collectionErrors: [] },
+  });
+  expect(log).toHaveBeenCalledWith(
+    "[retry-telemetry] 1 test(s) needed retries: network > reconnects (x1) — Network connection lost",
+  );
+});
+
+test("a plain test that failed every attempt leaves an unexpected-error flake record", async () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  const flakeRecordDir = join(directory.path, "flake-records");
+  vi.stubEnv("FLAKE_RECORD_DIR", flakeRecordDir);
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", join(directory.path, "telemetry"));
+  vi.stubEnv("TEST_TELEMETRY_KIND", "e2e");
+  vi.stubEnv("TEST_TELEMETRY_SUITE", "vitest");
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  const testCase = (name: string, state: string, options?: { fails: boolean }) => ({
+    fullName: `socket > ${name}`,
+    name,
+    ...(options && { options: { ...options, mode: "run" as const } }),
+    diagnostic: () => ({ retryCount: 1, flaky: false, duration: 61_000, startTime: 2_000 }),
+    result: () => ({ state, errors: [{ message: "socket closed before the stream opened" }] }),
+  });
+  const testModule = {
+    moduleId: "/repo/socket.e2e.test.ts",
+    children: {
+      allTests: () => [
+        testCase("opens", "failed"),
+        // A createFailing pin that held: the runner's expected-fail mode, never an unknown flake.
+        testCase("pinned", "passed", { fails: true }),
+      ],
+    },
+  };
+
+  await new RetryTelemetryReporter().onTestRunEnd([testModule], [], "failed");
+
+  const records = readdirSync(flakeRecordDir).flatMap((file) =>
+    readFileSync(join(flakeRecordDir, file), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+  );
+  expect(records).toEqual([
+    {
+      name: "opens",
+      kind: "unknown",
+      outcome: "unexpected-error",
+      durationMs: 61_000,
+      at: new Date(2_000).toISOString(),
+      error: "socket closed before the stream opened",
+    },
+  ]);
+});
+
+// A test that skips itself (its context's `skip()`) keeps its declared mode `run` and no timing:
+// only its result says it skipped.
+test.for([
+  { mode: "skip", state: "skipped", reason: "passed", expectedState: "skip" },
+  { mode: "run", state: "skipped", reason: "passed", expectedState: "skip" },
+  { mode: "run", state: "skipped", reason: "failed", expectedState: "skip" },
+  { mode: "run", state: "passed", reason: "passed", expectedState: "passed" },
+  // a cancelled run cut its tests short: they did not choose to skip
+  { mode: "run", state: "skipped", reason: "interrupted", expectedState: "passed" },
+] as const)(
+  "a test declared $mode that ended $state in a run $reason is recorded as expected to $expectedState",
+  async ({ mode, state, reason, expectedState }) => {
+    using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+    vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", directory.path);
+    vi.stubEnv("TEST_TELEMETRY_KIND", "e2e");
+    vi.stubEnv("TEST_TELEMETRY_SUITE", "vitest");
+    const testCase = {
+      fullName: "sign-in > keeps a connection",
+      name: "keeps a connection",
+      options: { mode },
+      diagnostic: () => undefined,
+      result: () => ({ state }),
+    };
+    const testModule = {
+      moduleId: "/repo/sign-in.e2e.test.ts",
+      children: { allTests: () => [testCase] },
+    };
+
+    await new RetryTelemetryReporter().onTestRunEnd([testModule], [], reason);
+
+    expect(onlyArtifact(directory.path).tests).toMatchObject([{ state, expectedState }]);
+  },
+);
+
+test("writes unit tests without performing network I/O", async () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", directory.path);
+  vi.stubEnv("npm_package_name", "@iterate/example");
+  vi.stubEnv("GITHUB_WORKSPACE", "/repo");
+  // a unit run's own kind, whatever the ambient environment says
+  vi.stubEnv("TEST_TELEMETRY_KIND", undefined);
+  vi.stubEnv("TEST_TELEMETRY_SUITE", undefined);
+  const fetchMock = vi.spyOn(globalThis, "fetch");
+
+  const testCase = {
+    fullName: "math > adds",
+    diagnostic: () => ({ retryCount: 0, flaky: false, duration: 12 }),
+    result: () => ({ state: "passed", errors: [] }),
+  };
+  const testModule = {
+    moduleId: "/repo/packages/example/math.test.ts",
+    children: { allTests: () => [testCase] },
+  };
+
+  await new RetryTelemetryReporter().onTestRunEnd([testModule]);
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(onlyArtifact(directory.path)).toMatchObject({
+    producer: "vitest-retry-telemetry-reporter",
+    context: { framework: "vitest", testKind: "unit", workspace: "@iterate/example" },
+    tests: [expect.objectContaining({ fullName: "math > adds", durationMs: 12 })],
+  });
+});
+
+test("prints the e2e rows that ran past the row budget's warning", async () => {
+  using directory = mkdtempDisposableSync(join(tmpdir(), "iterate-test-"));
+  vi.stubEnv("TEST_TELEMETRY_ARTIFACT_DIR", directory.path);
+  vi.stubEnv("TEST_TELEMETRY_KIND", "e2e");
+  vi.stubEnv("TEST_TELEMETRY_SUITE", "vitest");
+  vi.stubEnv("FLAKE_RECORD_DIR", undefined);
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const row = (name: string, project: string, duration: number, tags: string[] = []) => ({
+    fullName: name,
+    name,
+    tags,
+    project: { name: project },
+    diagnostic: () => ({ retryCount: 0, flaky: false, duration, startTime: 2_000 }),
+    result: () => ({ state: "passed", errors: [] }),
+  });
+  const testModule = {
+    moduleId: "/repo/residency.e2e.test.ts",
+    children: {
+      allTests: () => [
+        row("a quick row", "e2e", 44_000),
+        row("a row past the budget", "e2e", 61_700),
+        row("a quiet minute", "e2e", 181_400),
+        row("a slow row", "e2e", 181_400, ["slow"]),
+        row("a long unit row", "unit", 60_000),
+      ],
+    },
+  };
+
+  await new RetryTelemetryReporter().onTestRunEnd([testModule]);
+
+  expect(log.mock.calls.flat().filter((line) => String(line).startsWith("[row-budget]"))).toEqual([
+    "[row-budget] 2 e2e row(s) ran longer than 45 s; a row that runs on every PR finishes within 60 s at its p95:",
+    "[row-budget] 181.4 s a quiet minute",
+    "[row-budget] 61.7 s a row past the budget",
+  ]);
+});
+
+/** The one telemetry artifact a reporter wrote into `directory`. */
+function onlyArtifact(directory: string) {
+  const files = readdirSync(directory);
+  expect(files).toHaveLength(1);
+  return JSON.parse(readFileSync(join(directory, files[0]!), "utf8")) as TestTelemetryArtifact;
+}
