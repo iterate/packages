@@ -29,7 +29,7 @@ The project needs a GitHub connection whose installation reaches the repository 
 Integrations → Connect GitHub). It installs the linter from a folder of its config repo:
 
 ```text
-ai-linter/package.json   { "main": "index.ts", "dependencies": { "@iterate-com/ai-linter": "https://pkg.pr.new/iterate/iterate/@iterate-com/ai-linter@<sha>" } }
+ai-linter/package.json   { "main": "index.ts", "dependencies": { "@iterate-com/ai-linter": "https://pkg.pr.new/iterate/private/@iterate-com/ai-linter@<sha>" } }
 ai-linter/index.ts       export { AiLinterDurableObject } from "@iterate-com/ai-linter";
 ```
 

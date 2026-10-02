@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { githubSyncFolder, installGithubSync } from "./install.ts";
 
-const version = "https://pkg.pr.new/iterate/iterate/@iterate-com/github-sync@abc1234";
+const version = "https://pkg.pr.new/iterate/private/@iterate-com/github-sync@abc1234";
 const origin =
   'https://x-access-token:getSecret("/secrets/github-c1", { field: "accessToken" })@github.com/Acme/config.git';
 

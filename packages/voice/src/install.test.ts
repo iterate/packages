@@ -3,8 +3,8 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { ensureVoiceAgent, installVoice, upgradeVoice, voiceVersion } from "./install.ts";
 
 const name = "@iterate-com/voice";
-const older = "https://pkg.pr.new/iterate/iterate/@iterate-com/voice@abc1234";
-const newer = "https://pkg.pr.new/iterate/iterate/@iterate-com/voice@def5678";
+const older = "https://pkg.pr.new/iterate/private/@iterate-com/voice@abc1234";
+const newer = "https://pkg.pr.new/iterate/private/@iterate-com/voice@def5678";
 const UPDATED = "events.iterate.com/project/worker-updated";
 const FAILED = "events.iterate.com/project/worker-update-failed";
 const RULE = "events.iterate.com/itx/rewrite-rule-configured";

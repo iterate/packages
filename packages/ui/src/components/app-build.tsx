@@ -152,7 +152,7 @@ function Standing({
             <Commit sha={standing.newest} /> (
             <a
               className="underline underline-offset-2 hover:text-foreground"
-              href={`https://github.com/iterate/iterate/compare/${standing.installed}...${standing.newest}`}
+              href={`https://github.com/iterate/private/compare/${standing.installed}...${standing.newest}`}
               target="_blank"
               rel="noreferrer"
             >
@@ -176,12 +176,13 @@ function Standing({
   }
 }
 
-/** A build's commit, short, linked to it on GitHub. */
+/** A build's commit, short, linked to it on GitHub: in iterate/private, the repository whose builds
+ *  `buildStanding` compares (`pkgPrNewRepository`). */
 function Commit({ sha }: { sha: string }) {
   return (
     <a
       className="font-mono underline underline-offset-2 hover:text-foreground"
-      href={`https://github.com/iterate/iterate/commit/${sha}`}
+      href={`https://github.com/iterate/private/commit/${sha}`}
       target="_blank"
       rel="noreferrer"
       title={sha}

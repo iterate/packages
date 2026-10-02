@@ -15,7 +15,7 @@ A project's config repo depends on the package, re-exports its service and relay
 (configs/voice does all of it):
 
 ```text
-package.json   "dependencies": { "@iterate-com/voice": "https://pkg.pr.new/iterate/iterate/@iterate-com/voice@<sha>" }
+package.json   "dependencies": { "@iterate-com/voice": "https://pkg.pr.new/iterate/private/@iterate-com/voice@<sha>" }
 voice.ts       export { default, VoiceAgentDurableObject } from "@iterate-com/voice";
 ```
 

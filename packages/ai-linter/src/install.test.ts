@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { aiLinterFolder, installAiLinter } from "./install.ts";
 
-const version = "https://pkg.pr.new/iterate/iterate/@iterate-com/ai-linter@abc1234";
+const version = "https://pkg.pr.new/iterate/private/@iterate-com/ai-linter@abc1234";
 
 test("the linter's folder names its main module in package.json", () => {
   const folder = aiLinterFolder(version);

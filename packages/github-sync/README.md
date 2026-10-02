@@ -15,7 +15,7 @@ through a GitHub connection whose installation reaches it (Dash → Integrations
 Then a project installs the sync from a folder of its config repo:
 
 ```text
-github-sync/package.json   { "main": "index.ts", "dependencies": { "@iterate-com/github-sync": "https://pkg.pr.new/iterate/iterate/@iterate-com/github-sync@<sha>" } }
+github-sync/package.json   { "main": "index.ts", "dependencies": { "@iterate-com/github-sync": "https://pkg.pr.new/iterate/private/@iterate-com/github-sync@<sha>" } }
 github-sync/index.ts       export { GithubSyncDurableObject } from "@iterate-com/github-sync";
 ```
 

@@ -52,7 +52,7 @@ test("installing Docs commits docs.ts, the pin beside the config's other depende
   };
 
   expect(
-    await installDocs(project, "https://pkg.pr.new/iterate/iterate/@iterate-com/docs@abc"),
+    await installDocs(project, "https://pkg.pr.new/iterate/private/@iterate-com/docs@abc"),
   ).toBe("c1");
   expect(commits).toMatchObject([
     {
@@ -66,7 +66,7 @@ test("installing Docs commits docs.ts, the pin beside the config's other depende
               name: "config",
               dependencies: {
                 "@iterate-com/voice": "1.0.0",
-                "@iterate-com/docs": "https://pkg.pr.new/iterate/iterate/@iterate-com/docs@abc",
+                "@iterate-com/docs": "https://pkg.pr.new/iterate/private/@iterate-com/docs@abc",
               },
             },
             null,
@@ -83,6 +83,6 @@ test("installing Docs commits docs.ts, the pin beside the config's other depende
 
   // installed again: the pointer is there already, and stays as it is
   files["AGENTS.md"] = commits[0].changes[2].content;
-  await installDocs(project, "https://pkg.pr.new/iterate/iterate/@iterate-com/docs@def");
+  await installDocs(project, "https://pkg.pr.new/iterate/private/@iterate-com/docs@def");
   expect(commits[1].changes.map((change: any) => change.path)).toEqual(["docs.ts", "package.json"]);
 });

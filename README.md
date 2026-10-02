@@ -15,6 +15,6 @@ Licenses: Apache-2.0 for every package with a LICENSE of its own (all but `packa
 This repo is a read-only copy of `packages/` and `configs/` from iterate's own repo, made by [Copybara](https://github.com/google/copybara) after each change to them. Paths are the same in both, and each commit ends in `GitOrigin-RevId: <sha>`, naming the commit it came from.
 
 - Found a bug, or want something? [Open an issue](https://github.com/iterate/packages/issues).
-- Have a fix in mind? Push it to a fork and link the compare view in an issue. Pull requests here would be overwritten by the next copy.
+- Have a fix in mind? Push it to a fork and link the compare view in an issue. Pull requests are turned off here: the next copy would overwrite them.
 
 This README lives in iterate's repo at `copybara/packages/README.md`.
