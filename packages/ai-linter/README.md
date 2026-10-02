@@ -5,8 +5,10 @@ an open, non-draft pull request, against the rules at the pull request's base. F
 lines become one COMMENT review from the GitHub connection's App (`iterate[bot]` for iterate's) with
 inline comments, and every head gets the "Iterate GitHub AI linter" Check Run: success, or neutral
 with findings or with a part that did not run. Never blocking. Userspace: a project installs this
-package; the platform ships none of it. iterate/iterate's `rules/README.md` documents the rule
-format.
+package; the platform ships none of it. iterate's
+[`rules/README.md`](https://github.com/iterate/iterate/blob/3202ce387/rules/README.md) (the public
+archive's copy, from 2026-10-02) documents the rule format, and `src/fixtures/rules/` holds six
+rules written in it.
 
 A rule is decided by one of two engines. An `engine: llm` rule is read by the LLM
 (`openai/gpt-6-astra` unless the install names another model), in one call over the diff, or, for a

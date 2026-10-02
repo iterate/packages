@@ -187,7 +187,7 @@ export function ciTelemetrySourceFromEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
   fallbackRunId = `local-${Date.now()}`,
 ): TestTelemetryArtifact["ci"] {
-  const repository = environment.GITHUB_REPOSITORY || "iterate/iterate";
+  const repository = environment.GITHUB_REPOSITORY || "iterate/private";
   const runId = environment.GITHUB_RUN_ID || fallbackRunId;
   return {
     repository,
