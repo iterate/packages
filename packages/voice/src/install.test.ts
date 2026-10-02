@@ -207,7 +207,8 @@ test.for([
       type: [UPDATED, FAILED],
       payload: { commitOid: "commit-1" },
       afterOffset: 0,
-      timeoutMs: 120_000,
+      // the whole 120 s deadline, less a millisecond when the clock ticks between its two reads
+      timeoutMs: expect.closeTo(120_000, -1),
     });
   },
 );

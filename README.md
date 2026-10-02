@@ -2,6 +2,8 @@
 
 The packages built on [iterate](https://iterate.com)'s platform ([iterate/core](https://github.com/iterate/core)) that anyone can install: the voice app, docs, GitHub sync and more, in `packages/`. Next to them are the apps iterate runs on the platform: the dash, agents, notes, docs, voice and admin apps, the static SPA and the Chrome extension (`packages/dash`, `packages/docs-app` and so on). The project templates that use the packages are in `configs/`. A self-hosted platform offers those templates by building with `--template "github:iterate/packages#main&path:configs/<name>"`; core's own templates, which need no packages, are in iterate/core's `core/configs`.
 
+`pnpm install` installs every package. The `iterate` SDK they depend on is iterate/core's `core/lib`, which this repo doesn't hold: `pnpm-workspace.yaml` pins one build of it.
+
 The rendered components in `packages/ui` are a [shadcn GitHub registry](https://ui.shadcn.com/docs/registry/github): in an app set up with `shadcn init` and a Base UI style such as `base-nova`, install a component as your app's own copy.
 
 ```sh
