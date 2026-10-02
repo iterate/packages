@@ -1,0 +1,133 @@
+import { createFileRoute, useRouterState } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
+import { z } from "zod";
+import { useContextStub, useFacetLiveState } from "iterate/react";
+import { Button } from "@iterate-com/ui/components/ui/button";
+import { Field, FieldLabel } from "@iterate-com/ui/components/ui/field";
+import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
+import { Textarea } from "@iterate-com/ui/components/ui/textarea";
+
+// Notes edits a file in the config repo through a project workspace.
+const REPO = "/repos/config";
+const WORKSPACE = "/workspaces/notes";
+const FILE = `${REPO}/notes/log.md`;
+
+export const Route = createFileRoute("/_auth/projects/$slug")({
+  loader: async ({ context, params }) => {
+    const projects = await context.api.projects.list();
+    // the URL names the project by slug; one this sign-in lacks → sign in again
+    const project = projects.find((item) => item.slug === params.slug);
+    if (!project) return context.signInFor(params.slug);
+    // the project's root context, pipelined: the calls below ride it before it has resolved
+    using itx = context.api.projects.get(project.id);
+    await Promise.all([itx.workspaces.create(WORKSPACE), itx.repos.create(REPO)]);
+    // Both must exist before reading: the workspace discovers mounts from the repo catalog.
+    using workspace = itx.workspaces.get(WORKSPACE);
+    using repo = itx.repos.get(REPO);
+    const [note, tip] = await Promise.all([workspace.readFile(FILE), repo.tip()]);
+    return { projects, project, note: note || "", tip };
+  },
+  component: NotesPage,
+});
+
+function NotesPage() {
+  const data = Route.useLoaderData();
+  const { info, basePath } = Route.useRouteContext();
+  const href = useRouterState({ select: (state) => state.location.href });
+  return (
+    <ProjectAppShell
+      app="Notes"
+      projects={data.projects}
+      project={data.project}
+      basePath={basePath}
+      account={info.principal}
+      locationKey={href}
+    >
+      <Editor key={data.project.id} project={data.project.id} initial={data.note} tip={data.tip} />
+    </ProjectAppShell>
+  );
+}
+
+/** The project facet's live state, the one field this page reads: where the project's own creation
+ *  stands (null until `project/create-requested` lands). */
+const ProjectLive = z.looseObject({
+  creation: z.object({ status: z.enum(["requested", "created", "failed"]) }).nullable(),
+});
+
+function Editor({
+  project,
+  initial,
+  tip,
+}: {
+  project: string;
+  initial: string;
+  tip: string | null;
+}) {
+  const { api } = Route.useRouteContext();
+  const [note, setNote] = useState(initial);
+  const [status, setStatus] = useState(tip ? `At commit ${tip.slice(0, 7)}` : "Not committed yet");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  // A project is usable once its creation saga lands `project/created`: until then the saga is still
+  // seeding the config repo, and a commit here races it ("the commit was refused: stale ref").
+  // The project facet's live state says where creation stands, as the dash's overview reads it.
+  const context = useContextStub(() => api.projects.get(project), [api, project]).stub;
+  const live = useFacetLiveState(context, "project");
+  const creation = ProjectLive.safeParse(live.value).data?.creation;
+  const ready = creation?.status === "created";
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+    setStatus("Committing…");
+    try {
+      using itx = await api.projects.get(project);
+      using workspace = itx.workspaces.get(WORKSPACE);
+      await workspace.writeFile(FILE, note);
+      const committed = await workspace.gitCommit({ message: "notes: save", scope: REPO });
+      // A save that changes nothing commits nothing: the repo answers with its tip and no paths.
+      setStatus(
+        committed.changedPaths.length > 0 && committed.commitOid
+          ? `Committed ${committed.commitOid.slice(0, 7)}`
+          : `Nothing changed — still at ${committed.commitOid ? committed.commitOid.slice(0, 7) : "no commit"}`,
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      setStatus("Could not commit. Your text is still here.");
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <form onSubmit={save} className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 md:p-8">
+      <Field>
+        <FieldLabel htmlFor="note" className="font-mono text-xs text-muted-foreground">
+          {FILE}
+        </FieldLabel>
+        <Textarea
+          id="note"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          className="min-h-80 p-4 font-mono text-sm"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-4">
+        <Button type="submit" disabled={pending || !ready}>
+          Save
+        </Button>
+        <span role="status" className="text-sm text-muted-foreground">
+          {ready
+            ? status
+            : creation?.status === "failed"
+              ? "This project could not be set up."
+              : "Setting up this project…"}
+        </span>
+      </div>
+      {error ? (
+        <p role="alert" data-type="error" className="text-sm break-words text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
