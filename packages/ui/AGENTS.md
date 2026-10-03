@@ -6,6 +6,12 @@ rendered components from, keeping its own copy (`npx shadcn add iterate/packages
 And it is published to npm, built for a no-build page to import from a URL
 ([No-build pages](#no-build-pages-the-npm-package)).
 
+**Which way, from outside this repo** (README.md says the same on npm's page): an app with a build
+step that someone will keep installs items from [the registry](#the-registry); a one-off page with
+no build (an agent's answer to a request) imports [the npm package](#no-build-pages-the-npm-package)
+from esm.sh. `npm install @iterate-com/ui` into an app is not supported: the package bundles its own
+React, so an app with its own has two.
+
 ## Layout and imports
 
 packages/ui is laid out the way an app looks after `shadcn add`, so the registry holds its files
@@ -76,7 +82,9 @@ URL, such as an agent's mini app. Main publishes it with the rest
   modules (`react`, `react/jsx-runtime`, `react-dom/client`, …, `src/browser/`), and `styles.css`
   (Tailwind over all of `src/`). `node scripts/ci/shadcn-registry.ts update` writes them into
   `publishConfig.exports`; esm.sh needs each named, not a wildcard, to keep shared chunks shared.
-- **No declarations**: a page reads none, and an app in another repo installs the registry's copy.
+- **Not for `npm install` into an app**: with React bundled, an app with its own React has two, and
+  our components' hooks fail in its tree ("Invalid hook call"). It ships no declarations either: a
+  page reads none, and an app in another repo installs the registry's copy.
 
 A page names each package once in an import map. React is the package's own, so any other React
 library loads from esm.sh with `?external=react,react-dom` and uses it too (`?external=react` alone
