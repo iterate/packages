@@ -1,6 +1,5 @@
 {
   "name": "@iterate-com/voice-app",
-  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev",

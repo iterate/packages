@@ -3,6 +3,8 @@
 The UI kit every client app in this repo imports as `@iterate-com/ui/*`, as shadcn's own monorepo
 setup shares one `packages/ui`. It is also the shadcn registry an app in another repo installs our
 rendered components from, keeping its own copy (`npx shadcn add iterate/packages/context-view`).
+And it is published to npm, built for a no-build page to import from a URL
+([No-build pages](#no-build-pages-the-npm-package)).
 
 ## Layout and imports
 
@@ -27,7 +29,7 @@ which is why they live in `src/components/ui/`. Files of one item import each ot
 It is a [GitHub registry](https://ui.shadcn.com/docs/registry/github). Copybara copies `packages/`
 to github.com/iterate/packages after each deploy, and `copybara/packages/registry.json` becomes
 that repo's root `registry.json`, which includes this folder's. The CLI reads the items and their
-files straight from GitHub. Nothing is built or published.
+files straight from GitHub. The registry is not built or published.
 
 `registry.json` names each item, describes it and lists its files.
 `node scripts/ci/shadcn-registry.ts update` works out the rest from the files and writes it back:
@@ -57,6 +59,81 @@ npx shadcn@latest add iterate/packages/context-view   # src/components/context-v
   finds it invalid. The shadcn workflow (below) installs every item as this commit has it, before
   it is public, into an app with this package's `components.json`, and fails unless that writes
   these files back.
+
+## No-build pages (the npm package)
+
+`@iterate-com/ui` on npm is this package built for a plain HTML page that imports components from a
+URL, such as an agent's mini app. Main publishes it with the rest
+(`scripts/ci/npm-publish.ts`, under the `main` dist-tag). `pnpm --dir packages/ui build` makes it:
+
+- **tsdown bundles every dependency** (`tsdown.config.ts`), so no import is left for the host to
+  resolve, and React, Base UI and CodeMirror load once whichever components a page imports. Vendor
+  code sits in chunks named by library, which change only when its version does. The runtime
+  dependencies are `devDependencies` for that reason: the published manifest asks for nothing.
+- **Entries** (`browser-entries.ts`): one per registry item (its file named after it) and per
+  vendored shadcn component, by the same names the apps import (`components/context-view/context-view`,
+  `components/ui/button`); `page` (htm's `html`, `render`, React's API); `live` (below); React's own
+  modules (`react`, `react/jsx-runtime`, `react-dom/client`, …, `src/browser/`), and `styles.css`
+  (Tailwind over all of `src/`). `node scripts/ci/shadcn-registry.ts update` writes them into
+  `publishConfig.exports`; esm.sh needs each named, not a wildcard, to keep shared chunks shared.
+- **No declarations**: a page reads none, and an app in another repo installs the registry's copy.
+
+A page names each package once in an import map. React is the package's own, so any other React
+library loads from esm.sh with `?external=react,react-dom` and uses it too (`?external=react` alone
+leaves a library that imports react-dom, such as Floating UI, with esm.sh's own react-dom):
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@<version>/",
+      "react": "https://esm.sh/@iterate-com/ui@<version>/react",
+      "react/": "https://esm.sh/@iterate-com/ui@<version>/react/",
+      "react-dom": "https://esm.sh/@iterate-com/ui@<version>/react-dom",
+      "react-dom/": "https://esm.sh/@iterate-com/ui@<version>/react-dom/",
+      "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5?external=react,react-dom"
+    }
+  }
+</script>
+<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
+<div id="root" class="flex h-screen flex-col"></div>
+<script type="module">
+  import { html, render, useState } from "@iterate-com/ui/page";
+  import { ContextView } from "@iterate-com/ui/components/context-view/context-view";
+
+  function App() {
+    const [state, setState] = useState({});
+    const context = {
+      events: [],
+      caughtUp: true,
+      processors: { rows: [] },
+      presence: { actors: [], rpcStubs: [] },
+      liveState: {},
+    };
+    return html`<${ContextView}
+      title="/agents/demo"
+      context=${context}
+      state=${state}
+      onStateChange=${(patch) => setState((s) => ({ ...s, ...patch }))}
+      className="min-h-0 flex-1"
+    />`;
+  }
+  render(html`<${App} />`, document.getElementById("root"));
+</script>
+```
+
+- **Pin a version**: `<version>` is exact, such as `dist-tags.main` of
+  `https://registry.npmjs.org/@iterate-com/ui` when the page is written.
+- **Path-shaped URLs only.** A `?query` URL can't be prefix-mapped: the browser drops the query
+  when it resolves a subpath against it.
+- **Live data**: `live` is the SDK's browser client built in, so its hooks use this React. On a
+  project's host (which serves `/.auth/*` and `/api`, the worker guarding the page with
+  `this.auth.require(request)`): `const { api } = await createIterateClient().authenticate(location.href)`,
+  then `useIterateContext(useContextStub(() => api.projects.get(project).cd(path), []).stub)` is
+  ContextView's `context`. Not yet run against a platform.
+- **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` project) serves this checkout's
+  build from its folder and holds the shape: one React, nothing React-related from esm.sh,
+  CodeMirror only once an inspector opens, and react-query through `?external=react,react-dom`.
 
 ## Vendored shadcn components
 

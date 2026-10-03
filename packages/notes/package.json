@@ -1,6 +1,5 @@
 {
   "name": "@iterate-com/notes",
-  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev",

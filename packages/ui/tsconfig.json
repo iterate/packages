@@ -9,6 +9,6 @@
       "@iterate-com/ui/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "browser-entries.ts", "tsdown.config.ts"],
   "exclude": ["src/apps/server.ts", "src/apps/server.test.ts"]
 }

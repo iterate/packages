@@ -1,6 +1,5 @@
 {
   "name": "@iterate-com/dash",
-  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev",
