@@ -119,6 +119,7 @@
     "@tanstack/react-virtual": "^3.14.13",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "capnweb": "catalog:",
     "class-variance-authority": "catalog:",
     "cmdk": "^1.1.1",
     "cn": "catalog:",

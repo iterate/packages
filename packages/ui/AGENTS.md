@@ -134,14 +134,74 @@ leaves a library that imports react-dom, such as Floating UI, with esm.sh's own 
   `https://registry.npmjs.org/@iterate-com/ui` when the page is written.
 - **Path-shaped URLs only.** A `?query` URL can't be prefix-mapped: the browser drops the query
   when it resolves a subpath against it.
-- **Live data**: `live` is the SDK's browser client built in, so its hooks use this React. On a
-  project's host (which serves `/.auth/*` and `/api`, the worker guarding the page with
-  `this.auth.require(request)`): `const { api } = await createIterateClient().authenticate(location.href)`,
-  then `useIterateContext(useContextStub(() => api.projects.get(project).cd(path), []).stub)` is
-  ContextView's `context`. Not yet run against a platform.
+- **Live data**: `live` is the SDK's browser client built in, so its hooks use this React. A page
+  reaches a project by [signing in](#signing-in).
 - **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` project) serves this checkout's
   build from its folder and holds the shape: one React, nothing React-related from esm.sh,
   CodeMirror only once an inspector opens, and react-query through `?external=react,react-dom`.
+
+### Signing in
+
+A page reads and changes a project as the person viewing it. How it signs them in depends on where
+it is served:
+
+| Served from                                                          | Signs in with                                                                                                                                       | Example                         |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| The project's own host (`<slug>--<project>.iterate.app`), its worker | The host's session: the worker answers `this.auth.require(request)`, the page calls `createIterateClient().authenticate(location.href)`             | `examples/project-host-page.ts` |
+| Any other website (GitHub Pages, jsfiddle, a file on S3)             | Its own OAuth, written in the page: it registers as a client, sends the person to iterate with PKCE, and opens `/api` with the token                | `examples/any-website.html`     |
+| A Claude artifact                                                    | The viewer's iterate connector (the artifact's CSP blocks iterate itself): the `mcp` capability's `callTool("iterate", "run", { project, script })` | None: it runs only on claude.ai |
+
+An agent building a page for its project serves it from the project's host: no sign-in UI, and the
+worker can write what it knows (the project, its contexts) into the page. On the host and on any
+website the page ends with `api`, the person's own, so `useContextStub(() => api.projects.get(id))`
+is their project.
+
+On the project's host, a route in worker.ts's `fetch`:
+
+```ts
+if (routingSlug === "contexts") {
+  const denied = this.auth.require(request);
+  if (denied) return denied;
+  using itx = this.getItx();
+  return await projectHostPage(itx); // awaited: `using` releases itx when the function returns
+}
+```
+
+On any website the sign-in is the page's own code, about a hundred lines in the example, to copy
+and change. Nothing in `iterate` or this package does it for the page. `live` gives it one thing,
+the socket, from the copy of capnweb the hooks use:
+
+```js
+const api = newWebSocketRpcSession("wss://os.iterate.com/api").authenticate({
+  type: "bearer",
+  token,
+});
+```
+
+- **A page that isn't framed** leaves for iterate and comes back to its own address with the code
+  (the sign-in waits in `sessionStorage`). No popup.
+- **A framed page** (jsfiddle's result pane) can't show iterate's sign-in, and jsfiddle.net's
+  `Cross-Origin-Opener-Policy: same-origin` cuts it off from any window it opens. Its own address
+  answers a window with a 404 there, so its sign-in ends on `https://callback.iterate.com/`
+  instead: a page of iterate's (iterate/config `sign-in-callback.ts`) whose button copies the
+  sign-in, which the person pastes back into the page, and which warns them to send it to no one.
+  The page keeps the sign-in in `sessionStorage` here too: a phone may reload the tab while the
+  person is away.
+- **The token stays in memory**; a reload signs in again. Hosts like jsfiddle share one origin
+  between every page, so a stored token would be every page's. The client id is stored, per
+  address.
+- **A platform on localhost** (`pnpm dev`): Chrome asks the person before a public page reaches it
+  (Local Network Access).
+- **In an artifact**, ui loads from `https://cdn.jsdelivr.net/npm/@iterate-com/ui@<version>/dist/`
+  (its CSP allows that CDN, not esm.sh; the files end `.mjs`) with `styles.css` inlined, and
+  declares `{ "mcp": { "servers": [{ "server": "iterate", "tools": ["run"] }] } }`. Then
+  `(await window.claude.use("mcp")).callTool("iterate", "run", { project, script }, { cache: false })`
+  runs `script` (`async (itx) => …`) as the viewer and answers `{ payload: { result } }`. Nothing
+  is live: the page reads again to refresh.
+- **The spec** (`test/playwright/ui/sign-in.spec.ts`) commits the project-host example to a fresh
+  project and opens it, and serves the any-website example twice: on its own, and as jsfiddle would
+  (an editor with that header, the page in a sandboxed frame from another origin, and a stand-in
+  for callback.iterate.com, which is on prd and not this repo's to test).
 
 ## Vendored shadcn components
 

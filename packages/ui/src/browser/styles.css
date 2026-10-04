@@ -1,4 +1,7 @@
 /* The published stylesheet (dist/styles.css): the apps' globals.css, whose Tailwind scans all of
-   src/, and Streamdown's classes for the repo IDE's markdown preview, as Dash's stylesheet adds. */
+   src/, Streamdown's classes for the repo IDE's markdown preview, as Dash's stylesheet adds, and
+   the example pages'. */
 @import "../styles/globals.css";
 @source "../../node_modules/streamdown/dist/*.js";
+/* the example pages' own classes (examples/), so a page copied from one finds them */
+@source "../../examples/*";

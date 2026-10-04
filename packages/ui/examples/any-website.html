@@ -1,0 +1,306 @@
+<!--
+  A no-build page on any website (GitHub Pages, jsfiddle, a file on S3) that signs in with iterate and
+  shows one of your project's contexts live (packages/ui/AGENTS.md "Signing in"). Everything it takes
+  is in this file: copy it and change it. The page is its own OAuth client of iterate's; the token it
+  gets opens iterate's API. In a frame (jsfiddle's result pane) the sign-in opens in a new window and
+  ends on callback.iterate.com, where the person copies it to paste back here.
+  test/playwright/ui/sign-in.spec.ts runs both ways.
+  A page you keep pins an exact version of @iterate-com/ui in place of `@main`.
+-->
+<script type="importmap">
+  { "imports": { "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@main/" } }
+</script>
+<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@main/styles.css" />
+<div id="app" class="flex h-screen flex-col"></div>
+<script type="module">
+  import { html } from "@iterate-com/ui/page";
+  import { createRoot } from "@iterate-com/ui/react-dom/client";
+  import { ContextView } from "@iterate-com/ui/components/context-view/context-view";
+  import { Button } from "@iterate-com/ui/components/ui/button";
+  import { Input } from "@iterate-com/ui/components/ui/input";
+  import { Spinner } from "@iterate-com/ui/components/ui/spinner";
+  import { newWebSocketRpcSession, useContextStub, useIterateContext } from "@iterate-com/ui/live";
+
+  const ISSUER = "https://os.iterate.com";
+
+  // SIGNING IN. iterate sends the person back to an address with a one-time code in it, which the
+  // page trades for a token for iterate's API. A page that isn't framed is its own return address
+  // (without its query). A framed one has none: iterate's sign-in won't show inside a frame, the
+  // page can't follow the window it opens (jsfiddle cuts it off), and its own address answers a
+  // window with a 404 there. Its sign-in ends on callback.iterate.com, a page of iterate's with a
+  // button that copies the address for the person to bring back.
+  const framed = window.top !== window.self;
+  const redirectUri = framed
+    ? "https://callback.iterate.com/"
+    : location.origin + location.pathname;
+  const resource = ISSUER + "/api";
+
+  /** This page's client id at iterate, which registers any page (RFC 7591). Kept in this browser,
+   *  one per page address: it is no secret. */
+  async function clientId() {
+    const key = "iterate-client-id:" + ISSUER + " " + redirectUri;
+    const kept = read("localStorage", key);
+    if (kept) return kept;
+    const response = await fetch(ISSUER + "/oauth2/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Context viewer on " + location.host, // what iterate's consent page calls this page
+        redirect_uris: [redirectUri],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        scope: "iterate",
+      }),
+    });
+    if (!response.ok)
+      throw new Error("iterate didn't register this page: " + (await response.text()));
+    const { client_id } = await response.json();
+    write("localStorage", key, client_id);
+    return client_id;
+  }
+
+  /** A sign-in to start: iterate's address for it, and what later proves its answer is this page's
+   *  (`state`, and PKCE's `verifier`, RFC 7636). */
+  async function newSignIn() {
+    const verifier = random(32);
+    const state = random(16);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+    const client = await clientId();
+    const url = new URL("/oauth2/auth", ISSUER);
+    url.search = new URLSearchParams({
+      response_type: "code",
+      client_id: client,
+      redirect_uri: redirectUri,
+      scope: "iterate",
+      state,
+      code_challenge: base64url(new Uint8Array(digest)),
+      code_challenge_method: "S256",
+      resource,
+    });
+    return { url: url.href, state, verifier, client };
+  }
+
+  /** The token for the address a sign-in ended on, which carries iterate's code. */
+  async function tokenFor(address, signIn) {
+    const answer = new URLSearchParams(URL.canParse(address) ? new URL(address).search : "");
+    if (answer.get("error"))
+      throw new Error(
+        "iterate refused: " + (answer.get("error_description") || answer.get("error")),
+      );
+    if (answer.get("state") !== signIn.state || answer.get("iss") !== ISSUER || !answer.get("code"))
+      throw new Error(
+        "That isn't this sign-in. Paste what you copied where it ended, or sign in again.",
+      );
+    const response = await fetch(ISSUER + "/oauth2/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: answer.get("code"),
+        redirect_uri: redirectUri,
+        client_id: signIn.client,
+        code_verifier: signIn.verifier,
+        resource,
+      }),
+    });
+    if (!response.ok) throw new Error("iterate didn't issue a token: " + (await response.text()));
+    return (await response.json()).access_token;
+  }
+
+  /** iterate's API as the person. A browser can't put a token on a WebSocket's request, so the
+   *  socket opens bare and the token is its first call. The token stays in memory: a reload signs in
+   *  again (jsfiddle serves every fiddle from one origin, so a stored token would be every fiddle's). */
+  async function sessionWith(token) {
+    const socket = newWebSocketRpcSession(ISSUER.replace(/^http/, "ws") + "/api");
+    const api = socket.authenticate({ type: "bearer", token });
+    return { api, info: await api.info() };
+  }
+
+  // Storage is refused in some frames and private windows: the page then registers, or signs in, again.
+  function read(storage, key) {
+    try {
+      return window[storage].getItem(key);
+    } catch {
+      return null;
+    }
+  }
+  function write(storage, key, value) {
+    try {
+      if (value === null) window[storage].removeItem(key);
+      else window[storage].setItem(key, value);
+    } catch {}
+  }
+  const base64url = (bytes) =>
+    btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  const random = (length) => base64url(crypto.getRandomValues(new Uint8Array(length)));
+
+  // THE PAGE
+  const root = createRoot(document.getElementById("app"));
+  const store = {
+    busy: false,
+    error: "",
+    signIn: null,
+    session: null,
+    projects: [],
+    projectId: "",
+    path: "/",
+    view: {},
+  };
+  const update = (patch) => {
+    Object.assign(store, patch);
+    root.render(html`<${App} ...${store} />`);
+  };
+
+  async function start() {
+    update({ busy: true, error: "" });
+    try {
+      const signIn = await newSignIn();
+      // The sign-in waits in the tab's own storage: this tab leaves for iterate and comes back, or
+      // (framed) a phone reloads it while the person is away in the sign-in's window.
+      write("sessionStorage", "iterate-sign-in", JSON.stringify(signIn));
+      if (!framed) return location.assign(signIn.url);
+      // a browser may refuse a window this long after the click: the page links the address too
+      window.open(signIn.url, "_blank");
+      update({ busy: false, signIn });
+    } catch (error) {
+      update({ busy: false, error: error.message });
+    }
+  }
+
+  async function finish(address, signIn) {
+    update({ busy: true, error: "" });
+    try {
+      const session = await sessionWith(await tokenFor(address, signIn));
+      write("sessionStorage", "iterate-sign-in", null);
+      const projects = await session.api.projects.list();
+      update({
+        busy: false,
+        signIn: null,
+        session,
+        projects,
+        projectId: projects.length ? projects[0].id : "",
+      });
+    } catch (error) {
+      update({ busy: false, error: error.message });
+    }
+  }
+
+  function Start({ error }) {
+    return html`<div class="m-auto flex max-w-md flex-col gap-3 p-4 text-center text-sm">
+      <strong>See one of your iterate projects, live</strong>
+      <${Button} onClick=${start}>Sign in with iterate<//>
+      ${error ? html`<p class="text-destructive" role="alert">${error}</p>` : null}
+    </div>`;
+  }
+
+  // A framed page, while the person signs in in another window.
+  function Waiting({ signIn, error }) {
+    const paste = (event) => {
+      event.preventDefault();
+      finish(String(new FormData(event.currentTarget).get("address")).trim(), signIn);
+    };
+    const cancel = () => {
+      write("sessionStorage", "iterate-sign-in", null);
+      update({ signIn: null, error: "" });
+    };
+    return html`<div class="m-auto flex max-w-md flex-col gap-3 p-4 text-center text-sm">
+      <strong>Signing in with iterate</strong>
+      <p class="text-muted-foreground">
+        Sign in in the window that opened. If none did,${" "}
+        <a class="underline" href=${signIn.url} target="_blank">open iterate's sign-in</a>.
+      </p>
+      <p class="text-muted-foreground">
+        It ends on a page with a Copy button. Copy your sign-in there, come back, and paste it:
+      </p>
+      <form class="flex gap-2" onSubmit=${paste}>
+        <${Input} name="address" aria-label="Your sign-in" className="h-9" />
+        <${Button} type="submit">Continue<//>
+      </form>
+      ${error ? html`<p class="text-destructive" role="alert">${error}</p>` : null}
+      <${Button} variant="ghost" onClick=${cancel}>Cancel<//>
+    </div>`;
+  }
+
+  function Viewer({ api, projectId, path, view }) {
+    const project = useContextStub(() => api.projects.get(projectId), [api, projectId]);
+    const shown = useContextStub(project.stub ? () => project.stub.cd(path) : null, [
+      project.stub,
+      path,
+    ]);
+    const context = useIterateContext(shown.stub);
+    return html`<${ContextView}
+      title=${path}
+      context=${context}
+      error=${project.error || shown.error}
+      state=${view}
+      onStateChange=${(patch) => update({ view: { ...store.view, ...patch } })}
+      onAppend=${shown.stub ? (events) => shown.stub.append(...events) : undefined}
+      className="min-h-0 flex-1"
+    />`;
+  }
+
+  function App(s) {
+    if (s.busy) return html`<${Spinner} className="m-auto" />`;
+    if (s.signIn) return html`<${Waiting} signIn=${s.signIn} error=${s.error} />`;
+    if (!s.session) return html`<${Start} error=${s.error} />`;
+    const open = (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      update({
+        projectId: String(form.get("project")),
+        path: String(form.get("path") || "/").trim() || "/",
+        view: {},
+      });
+    };
+    return html`
+      <form class="flex flex-wrap items-center gap-3 border-b px-4 py-2 text-sm" onSubmit=${open}>
+        <span class="mr-auto"
+          >${s.session.info.principal.email || s.session.info.principal.actor}</span
+        >
+        <select
+          name="project"
+          aria-label="Project"
+          defaultValue=${s.projectId}
+          class="h-8 rounded-lg border px-2"
+        >
+          ${s.projects.map((project) => html`<option key=${project.id} value=${project.id}>${project.slug}</option>`)}
+        </select>
+        <${Input}
+          name="path"
+          aria-label="Context"
+          defaultValue=${s.path}
+          className="h-8 w-64 font-mono"
+        />
+        <${Button} type="submit" size="sm">Open<//>
+      </form>
+      ${
+        s.projectId
+          ? html`<${Viewer}
+              key=${s.projectId + s.path}
+              api=${s.session.api}
+              projectId=${s.projectId}
+              path=${s.path}
+              view=${s.view}
+            />`
+          : html`<p class="m-auto text-sm text-muted-foreground">You have no projects yet.</p>`
+      }
+    `;
+  }
+
+  // A sign-in this tab started and hasn't finished. Back from iterate with its answer in the
+  // address: finish it. Framed, the person is away signing in, or back with what they copied.
+  const kept = read("sessionStorage", "iterate-sign-in");
+  const pending = kept ? JSON.parse(kept) : null;
+  if (!new URLSearchParams(location.search).has("state"))
+    update({ signIn: framed ? pending : null });
+  else if (!pending) update({ error: "This tab didn't start that sign-in. Sign in again." });
+  else {
+    const address = location.href;
+    write("sessionStorage", "iterate-sign-in", null);
+    history.replaceState(null, "", redirectUri); // the code works once: a reload shouldn't send it again
+    finish(address, pending);
+  }
+</script>
