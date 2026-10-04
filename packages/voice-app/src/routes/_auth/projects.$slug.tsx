@@ -11,7 +11,7 @@ import { Field, FieldDescription, FieldLabel } from "@iterate-com/ui/components/
 import { Input } from "@iterate-com/ui/components/ui/input";
 import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
 import { cn } from "cn";
-import { buildStanding } from "iterate/pkg-pr-new";
+import { buildStanding } from "iterate/package-builds";
 import { ensureVoiceAgent, upgradeVoice, voiceVersion } from "@iterate-com/voice/install";
 import { openAudio, type AudioSession } from "../../audio.ts";
 import { startCall, type Call, type CallFact } from "../../call.ts";
@@ -26,8 +26,8 @@ const VoiceLiveView = z.object({
 });
 type VoiceLiveView = z.infer<typeof VoiceLiveView>;
 
-/** Where the project's voice build stands against main's newest (`buildStanding`), asked in the
- *  app's Worker: a page cannot read pkg.pr.new's headers. */
+/** Where the project's voice build stands against main's newest on npm (`buildStanding`), asked in
+ *  the app's Worker: a page cannot read pkg.pr.new's headers, which a pull request's build needs. */
 const voiceBuild = createServerFn({ method: "GET" })
   .inputValidator(z.string())
   .handler(({ data }) => buildStanding("@iterate-com/voice", data));

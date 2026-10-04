@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import type { IterateContextApi } from "iterate/api";
 import { docContextPath } from "@iterate-com/docs/frames";
 import { docsModule, ensureDoc, installDocs } from "@iterate-com/docs/install";
-import { pinPkgPrNewVersion, pkgPrNewVersion } from "iterate/pkg-pr-new";
+import { buildVersion, pinVersion } from "iterate/package-builds";
 import { startAppConfigOf } from "@iterate-com/shared/start-app-config";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
@@ -22,13 +22,14 @@ import { DocSession } from "../../editor/doc-session.ts";
 import { repoPath } from "../../lib/docs-repo.ts";
 import { fileKind } from "../../lib/file-kind.ts";
 
-/** The @iterate-com/docs build this deployment installs in a project (`APP_CONFIG pkgPrNewRef`:
- *  main's newest, pinned at the commit pkg.pr.new serves for it now, or a per-commit deployment's
- *  own). Asked in the app's Worker: a page cannot read pkg.pr.new's headers. */
+/** The @iterate-com/docs build this deployment installs in a project (`APP_CONFIG pkgPrNewRef`):
+ *  production's `main` is the npm version main's dist-tag names now, and a per-commit deployment's
+ *  commit its own pkg.pr.new build (iterate/package-builds `buildVersion`). Asked in the app's Worker,
+ *  as pkg.pr.new's headers are no page's to read. */
 const docsBuild = createServerFn({ method: "GET" }).handler(async () => {
   const { env } = await import("cloudflare:workers");
   const ref = startAppConfigOf(env).pkgPrNewRef;
-  return pinPkgPrNewVersion("@iterate-com/docs", pkgPrNewVersion("@iterate-com/docs", ref));
+  return pinVersion("@iterate-com/docs", buildVersion("@iterate-com/docs", ref));
 });
 
 /** One doc: `/projects/<slug>/<repo name>/<path in the repo>`, read at the repo's tip for the

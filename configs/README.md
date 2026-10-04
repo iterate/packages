@@ -11,11 +11,12 @@ says how a template works.
 iterate's deploys, previews and test runs give the platform's build every folder here
 (`scripts/os/config-templates.ts`, core/os's `scripts/build.ts` `--template`), each under its
 GitHub reference at the checkout's commit in the repository its `origin` names
-(`github:iterate/private#<sha>&path:configs/<name>`), with `@iterate-com/voice` pinned to this
-checkout's own build (`scripts/os/published-package-commit.ts`). Any other template may list a
-pkg.pr.new dependency at a branch (`…@main`): the seed writes it at the commit pkg.pr.new names for
-it then, because the loader loads a pkg.pr.new package only at a full commit
-(`pinPkgPrNewDependencies` in `core/lib/src/pkg-pr-new.ts`).
+(`github:iterate/private#<sha>&path:configs/<name>`). A template lists `@iterate-com/voice` at
+`main`, npm's dist-tag for main's newest build: production keeps it, and a seed writes the version
+npm names then; previews and test runs list this checkout's own pkg.pr.new build instead
+(`scripts/os/published-package-commit.ts`). Any other template may list `main` of one of our
+packages, or a pkg.pr.new dependency at a branch (`…@main`): the seed pins either, because a
+project's source names one build (`pinDependencies` in `core/lib/src/package-builds.ts`).
 
 These are copied to [iterate/packages](https://github.com/iterate/packages) with the packages they
 use, so a self-host can offer one with
