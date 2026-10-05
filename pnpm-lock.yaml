@@ -134,6 +134,9 @@ overrides:
   ws: 8.21.3
 
 patchedDependencies:
+  '@iterate-com/capnweb@0.12.3':
+    hash: 122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567
+    path: patches/@iterate-com__capnweb@0.12.3.patch
   zod@4.6.5:
     hash: 5a57d5a4f788c6fe9e15d60e59511c1f901b7fc1d638126eb2b02cafc9e79a86
     path: patches/zod@4.6.5.patch
@@ -225,7 +228,7 @@ importers:
         version: 1.168.58(crossws@0.4.4(srvx@0.11.22))(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.10)(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       capnweb:
         specifier: 'catalog:'
-        version: '@iterate-com/capnweb@0.12.3'
+        version: '@iterate-com/capnweb@0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)'
       cn:
         specifier: 'catalog:'
         version: 0.4.0
@@ -332,7 +335,7 @@ importers:
     devDependencies:
       capnweb:
         specifier: 'catalog:'
-        version: '@iterate-com/capnweb@0.12.3'
+        version: '@iterate-com/capnweb@0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)'
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -676,7 +679,7 @@ importers:
     dependencies:
       '@iterate-com/capnweb':
         specifier: ^0.12.2
-        version: 0.12.3
+        version: 0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 'catalog:'
@@ -801,7 +804,7 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       capnweb:
         specifier: 'catalog:'
-        version: '@iterate-com/capnweb@0.12.3'
+        version: '@iterate-com/capnweb@0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)'
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -7298,7 +7301,7 @@ snapshots:
       '@types/node': 26.1.1
     optional: true
 
-  '@iterate-com/capnweb@0.12.3': {}
+  '@iterate-com/capnweb@0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -9508,7 +9511,7 @@ snapshots:
 
   iterate@https://pkg.pr.new/iterate/private/iterate@c195c4951835d9ac646c38959f7a1aaff6a04c1b(@orpc/server@1.15.4(@opentelemetry/api@1.9.0)(crossws@0.4.4(srvx@0.11.22))(ws@8.21.3))(@trpc/server@11.12.0(typescript@7.0.2))(@valibot/to-json-schema@1.5.0(valibot@1.2.0(typescript@7.0.2)))(effect@3.19.19)(react@19.3.0)(valibot@1.2.0(typescript@7.0.2)):
     dependencies:
-      capnweb: '@iterate-com/capnweb@0.12.3'
+      capnweb: '@iterate-com/capnweb@0.12.3(patch_hash=122a3b22e77993d4762910c30be819b40cd09d6b7acc19e1578f222c4c8cb567)'
       json5: 2.2.3
       oauth4webapi: 3.8.8
       trpc-cli: 0.17.0(@orpc/server@1.15.4(@opentelemetry/api@1.9.0)(crossws@0.4.4(srvx@0.11.22))(ws@8.21.3))(@trpc/server@11.12.0(typescript@7.0.2))(@valibot/to-json-schema@1.5.0(valibot@1.2.0(typescript@7.0.2)))(effect@3.19.19)(valibot@1.2.0(typescript@7.0.2))(zod@4.6.5(patch_hash=5a57d5a4f788c6fe9e15d60e59511c1f901b7fc1d638126eb2b02cafc9e79a86))
