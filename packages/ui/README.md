@@ -121,4 +121,4 @@ the registry.
 ## Versions
 
 Every commit to iterate's main branch that changes the package publishes
-`<version>-main.<commit date>-<commit>` under the `main` dist-tag.
+`<version>-main.<commit date>-<commit>` under the `main` dist-tag. `latest` names the same version.
