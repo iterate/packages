@@ -20,10 +20,10 @@ state of its own — sessions, projects and organizations belong to the platform
 
 Local dev: `pnpm dev` (Vite, with the Cloudflare plugin's local workerd). It talks to
 `https://os.iterate.com` by default; to use a local OS (`pnpm --dir ../os dev -- --port 8788`)
-put `APP_CONFIG_URLS__OS=http://localhost:8788` in a gitignored `.dev.vars` here. The sidebar's
+put `APP_CONFIG__URLS__OS=http://localhost:8788` in a gitignored `.dev.vars` here. The sidebar's
 directory of apps (`src/apps.ts`) links to the origins in the worker's `APP_CONFIG` `urls`
 (`@iterate-com/shared/start-app-config`) — prd's from `envs.ts` by default, the same PR's app
-previews in a preview; a local one takes, say, `APP_CONFIG_URLS__VOICE=http://localhost:5174` in
+previews in a preview; a local one takes, say, `APP_CONFIG__URLS__VOICE=http://localhost:5174` in
 the same file.
 
 Deploy: `pnpm --dir packages/dash run deploy --env prd` serves `https://dash.iterate.com` (a route on

@@ -1,7 +1,7 @@
 // start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
 // docs, admin and voice, TanStack Start apps that are each an OAuth client of core/os and nothing
-// else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (app-config.ts): one `APP_CONFIG` object, and any key set alone
-// as an `APP_CONFIG_*` var merged on top.
+// else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `APP_CONFIG` object, and any key set alone
+// as an `APP_CONFIG__*` var merged on top.
 //
 //   { urls: { os, dash, agents, notes, docs, admin, voice }, denyZones, posthogProjectKey, pkgPrNewRef }
 //
@@ -11,8 +11,8 @@
 // starts from prd's and names a local platform, or a local app, in the app's gitignored
 // `.dev.vars`:
 //
-//   APP_CONFIG_URLS__OS=http://localhost:8788
-//   APP_CONFIG_URLS__VOICE=http://localhost:5174
+//   APP_CONFIG__URLS__OS=http://localhost:8788
+//   APP_CONFIG__URLS__VOICE=http://localhost:5174
 
 import { z } from "zod";
 import { dnsName, httpOrigin, optionalOrigin, parseAppConfigVars } from "iterate/app-config";
@@ -68,7 +68,7 @@ const startAppConfigByEnv = new WeakMap<object, StartAppConfig>();
 export function startAppConfigOf(env: object): StartAppConfig {
   let config = startAppConfigByEnv.get(env);
   if (!config) {
-    config = parseAppConfigVars(env, StartAppConfig);
+    config = parseAppConfigVars(env, StartAppConfig, { prefix: "APP_CONFIG" });
     startAppConfigByEnv.set(env, config);
   }
   return config;
