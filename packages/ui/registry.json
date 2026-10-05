@@ -523,6 +523,20 @@
           "type": "registry:component"
         }
       ]
+    },
+    {
+      "name": "time-chart",
+      "type": "registry:component",
+      "description": "Telemetry over time, charted with TanStack Charts: the admin app's /telemetry panels and the dash's project Health page.",
+      "dependencies": [
+        "@tanstack/charts"
+      ],
+      "files": [
+        {
+          "path": "src/components/time-chart.tsx",
+          "type": "registry:component"
+        }
+      ]
     }
   ]
 }
