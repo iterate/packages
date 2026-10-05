@@ -43,7 +43,7 @@ publication, throwing why it was refused; `voiceVersion` reads the build the pro
 the pin of its published commit, which a refused upgrade leaves where it was. A device's
 press is the same call either way, so no Kit board needs a reflash for an upgrade.
 
-The backend is the project's normal agent: its system prompt, capability tree and codemode loop.
+The backend is the project's normal agent: its system prompt, capability tree and `run` tool.
 The press adds [voice-context.md](src/voice-context.md), the instructions for spoken answers, as
 a developer message that starts no turn. Keep tool examples in the agents app's prompt; do not
 maintain a separate voice API description. Each hand-over carries the words said since the one

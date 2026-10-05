@@ -22,8 +22,12 @@ type Step =
   | { status: string }
   /** The agents app published that request's message, written beside a script or not. */
   | { answer: string; text: string; besideScript?: true }
+  /** A running script sent the person words (`sendMessage`): no request offset. */
+  | { scriptSends: string }
+  /** A script the context ran failed. */
+  | { scriptFails: string }
   | { agentPaused: string }
-  /** Every wait of this many milliseconds ends. */
+  /** The clock moves on this far, and every wait of exactly this long ends. */
   | { elapseMs: number };
 
 test.for<{
@@ -48,7 +52,7 @@ test.for<{
     ],
   },
   {
-    name: "a script's status reaches the live model quietly, and the prose beside the script is never spoken",
+    name: "a script's status soon after the hand-over reaches the live model quietly, for that hand-over, and the prose beside the script is never spoken",
     steps: [
       { heard: "What time is it in London?", atMs: 0 },
       { delegates: "d1" },
@@ -61,8 +65,90 @@ test.for<{
     toAgent: ["Person: What time is it in London?"],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
-      { type: "session.thinking.append", delegation_id: null, content: "Checking London time" },
+      {
+        type: "session.thinking.append",
+        delegation_id: "d1",
+        content: "Progress: Checking London time",
+      },
       { type: "session.commentary.append", delegation_id: "d1", content: "It is noon in London." },
+    ],
+  },
+  {
+    name: "on a long job a new status is said aloud once the person has waited 10 s; a repeat is no news, the next within 10 s is quiet, and after the answer none is spoken",
+    steps: [
+      { heard: "Add chocolate to my order.", atMs: 0 },
+      { delegates: "d1" },
+      { request: "r1" },
+      { elapseMs: 10_000 },
+      { status: "Checking your trolley" },
+      { status: "Checking your trolley" },
+      { elapseMs: 9_999 },
+      { status: "Adding the chocolate" },
+      { request: "r2" },
+      { answer: "r2", text: "Added the chocolate." },
+      { elapseMs: 20_000 },
+      { status: "Tidying up" },
+    ],
+    toAgent: ["Person: Add chocolate to my order."],
+    toLiveModel: [
+      { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
+      {
+        type: "session.commentary.append",
+        delegation_id: "d1",
+        content: "Progress: Checking your trolley",
+      },
+      {
+        type: "session.thinking.append",
+        delegation_id: "d1",
+        content: "Progress: Adding the chocolate",
+      },
+      { type: "session.commentary.append", delegation_id: "d1", content: "Added the chocolate." },
+      { type: "session.thinking.append", delegation_id: "d1", content: "Progress: Tidying up" },
+    ],
+  },
+  {
+    name: "a failed script is progress the voice hears: said aloud when the person has waited",
+    steps: [
+      { heard: "What's in my trolley?", atMs: 0 },
+      { delegates: "d1" },
+      { request: "r1" },
+      { elapseMs: 11_000 },
+      { scriptFails: "TypeError: waitrose.getTrolly is not a function" },
+    ],
+    toAgent: ["Person: What's in my trolley?"],
+    toLiveModel: [
+      { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
+      {
+        type: "session.commentary.append",
+        delegation_id: "d1",
+        content:
+          "Progress: a script failed (runtime): TypeError: waitrose.getTrolly is not a function",
+      },
+    ],
+  },
+  {
+    name: "words a script sends while it runs are spoken at once, and count as the latest news",
+    steps: [
+      { heard: "Reorder last week's shop.", atMs: 0 },
+      { delegates: "d1" },
+      { request: "r1" },
+      { elapseMs: 20_000 },
+      { scriptSends: "On it, this takes a minute." },
+      { status: "Rebuilding the trolley" },
+    ],
+    toAgent: ["Person: Reorder last week's shop."],
+    toLiveModel: [
+      { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
+      {
+        type: "session.commentary.append",
+        delegation_id: "d1",
+        content: "On it, this takes a minute.",
+      },
+      {
+        type: "session.thinking.append",
+        delegation_id: "d1",
+        content: "Progress: Rebuilding the trolley",
+      },
     ],
   },
   {
@@ -175,13 +261,14 @@ type LoggedEvent = {
 /** A call on a bare relay, `call-started` delivered and the provider's session started. The log is
  *  the call's context: the relay's appends and the agent's events are committed to it in order and
  *  delivered back as the engine delivers them, only what the contract consumes, payloads parsed by
- *  its schemas. The clock stands still, so a wait ends only when a step lets its duration pass.
+ *  its schemas. The clock moves only when a step lets time pass, and a wait ends only then.
  *  `restart` is the next incarnation: the log folded, no socket. */
 async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, number>()) {
   const toAgent: string[] = [];
   const sent: Record<string, unknown>[] = [];
   const onProviderMessage: ((message: { data: string }) => void)[] = [];
   const sleeps: { ms: number; resolve(): void }[] = [];
+  let clockMs = 0;
   const socket = {
     send: (message: string) => sent.push(JSON.parse(message)),
     close() {},
@@ -191,7 +278,7 @@ async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, numb
   };
   const processor = new VoiceAgentProcessor({
     projectContext: async () => JSON.stringify({ projectId: "prj_test", path: PATH }),
-    nowAtFacetMs: () => 0,
+    nowAtFacetMs: () => clockMs,
     sleep: (ms) => new Promise<void>((resolve) => sleeps.push({ ms, resolve })),
     // The relay only listens on, sends on and closes its provider's socket.
     dialProvider: async () => socket as unknown as WebSocket,
@@ -300,9 +387,23 @@ async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, numb
             ...(step.besideScript && { besideScript: true }),
           },
         });
+      } else if ("scriptSends" in step) {
+        commit({
+          type: "events.iterate.com/agent/web-message-sent",
+          payload: { message: step.scriptSends },
+        });
+      } else if ("scriptFails" in step) {
+        commit({
+          type: "events.iterate.com/itx/run-settled",
+          payload: {
+            requestOffset: 1,
+            settlement: { status: "failed", error: step.scriptFails, failureKind: "runtime" },
+          },
+        });
       } else if ("agentPaused" in step) {
         commit({ type: "events.iterate.com/agent/paused", payload: { reason: step.agentPaused } });
       } else {
+        clockMs += step.elapseMs;
         for (const sleep of sleeps.filter(({ ms }) => ms === step.elapseMs)) sleep.resolve();
       }
       await flush();

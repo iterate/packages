@@ -93,6 +93,25 @@ const summaryRows: {
 for (const { name, events, summary } of summaryRows)
   test(name, () => expect(summarizeAgentState(stateAfter(events))).toEqual(summary));
 
+test("an agent's own title names it, and handing back for a person's input reads as waiting on them", () => {
+  const state = stateAfter([
+    ...born,
+    system,
+    user("Hi"),
+    llmRequested(4),
+    assistant("Hello.", 5),
+    settled(5),
+  ]);
+  expect(
+    summarizeAgentState({ ...state, summary: { title: "Weekly shop", waitingFor: "user_input" } }),
+  ).toEqual({ status: "waiting", lastActivityAt: at(7), title: "Weekly shop" });
+  expect(summarizeAgentState({ ...state, summary: { title: null, waitingFor: "timer" } })).toEqual({
+    status: "idle",
+    lastActivityAt: at(7),
+    title: "Hi",
+  });
+});
+
 test("a value that is not an agent's state has no summary", () => {
   expect(summarizeAgentState(undefined)).toBeUndefined();
   expect(summarizeAgentState({ phase: "listening" })).toBeUndefined();

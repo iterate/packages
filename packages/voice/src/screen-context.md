@@ -123,7 +123,7 @@ that the photo depicts the requested subject.
 
 ### Text and layout
 
-Run this code inside your normal `<codemode>` response. Change the content
+Run this code as the script of a `run` call. Change the content
 and layout, keep the font embedding and screen dimensions. Escape any
 untrusted values before inserting them into HTML. The helper accepts at most
 24,000 HTML characters, including the roughly 3.5KB embedded font CSS.

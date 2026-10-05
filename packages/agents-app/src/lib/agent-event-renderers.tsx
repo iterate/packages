@@ -91,11 +91,27 @@ export const agentEventRenderers: EventRenderers = {
       {firstLine(str(record(e.payload).message))}
     </>
   ),
-  "events.iterate.com/agent/summary-updated": (e) => (
-    <>
-      Status: <strong>{firstLine(str(record(e.payload).activity))}</strong>
-    </>
-  ),
+  "events.iterate.com/agent/summary-updated": (e) => {
+    // each field optional: the tag's status, or what the agent says about itself (`setSummary`)
+    const p = record(e.payload);
+    const waitingFor = p.waitingFor === null ? "nothing" : str(p.waitingFor).replaceAll("_", " ");
+    const parts = [
+      ...(p.activity === undefined ? [] : [["Status", firstLine(str(p.activity))]]),
+      ...(p.title === undefined ? [] : [["Title", firstLine(str(p.title))]]),
+      ...(p.waitingFor === undefined ? [] : [["Waiting for", waitingFor]]),
+      ...(p.description === undefined ? [] : [["About", firstLine(str(p.description))]]),
+    ];
+    return (
+      <>
+        {parts.map(([label, text], index) => (
+          <span key={label}>
+            {index > 0 && " · "}
+            {label}: <strong>{text}</strong>
+          </span>
+        ))}
+      </>
+    );
+  },
   "events.iterate.com/agent/llm-request-requested": (e) => {
     const p = record(e.payload);
     return (

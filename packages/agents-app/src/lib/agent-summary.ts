@@ -1,21 +1,24 @@
 // What the sidebar says about an agent, read from the agent facet's live state
 // (iterate/agents contract.ts `stateSchema`): whether it is working, waiting on a
-// person, or idle; when its state last moved; and what it is about — the first thing a person
+// person, or idle; when its state last moved; and what it is about — the title it gave itself
+// (`agent/summary-updated`, an agents app that keeps a `summary`), else the first thing a person
 // said to it. Pure, so the ordering and the status
 // are unit rows (agent-summary.test.ts); use-agent-summaries.ts keeps them live.
 import { z } from "zod";
 import { parseCodemodeResponse } from "iterate/agents/codemode-format";
 
-/** `waiting`: paused — a breaker tripped or an operator paused it, and only a person's next words
- *  resume it. `running`: otherwise, a model request is open or about to be, a script it asked for
- *  has not come back, or its birth is still settling. `idle`: nothing owed. */
+/** `waiting`: on a person — paused (a breaker tripped or an operator paused it, and only a person's
+ *  next words resume it), or it handed back waiting for their input. `running`: otherwise, a model
+ *  request is open or about to be, a script it asked for has not come back, or its birth is still
+ *  settling. `idle`: nothing owed. */
 export type AgentStatus = "running" | "waiting" | "idle";
 
 export type AgentSummary = {
   status: AgentStatus;
   /** ISO time the facet's state last moved; null until it first moves. */
   lastActivityAt: string | null;
-  /** The first line of the first thing a person said to it; null until someone has. */
+  /** The title it gave itself, else the first line of the first thing a person said to it; null
+   *  until either exists. */
   title: string | null;
 };
 
@@ -27,6 +30,13 @@ const AgentLiveState = z.object({
   openRequest: z.object({}).nullable(),
   pendingLlmRequestTrigger: z.object({}).nullable(),
   lastActivityAt: z.string().nullable(),
+  /** What the agent says about itself, when its agents app keeps it. */
+  summary: z
+    .object({
+      title: z.string().nullable().optional(),
+      waitingFor: z.string().nullable().optional(),
+    })
+    .optional(),
   contextItems: z.array(
     z.object({
       role: z.string(),
@@ -51,22 +61,28 @@ export function summarizeAgentState(value: unknown): AgentSummary | undefined {
     parseCodemodeResponse(last.content).kind === "script";
   // A pause reads first, as the conversation's header does: a pause lands mid-turn with the request
   // still open, and it is the person's move from there.
+  const running =
+    state.creation?.status === "requested" ||
+    state.openRequest ||
+    state.pendingLlmRequestTrigger ||
+    scriptRunning;
   const status: AgentStatus = state.paused
     ? "waiting"
-    : state.creation?.status === "requested" ||
-        state.openRequest ||
-        state.pendingLlmRequestTrigger ||
-        scriptRunning
+    : running
       ? "running"
-      : "idle";
+      : state.summary?.waitingFor === "user_input"
+        ? "waiting"
+        : "idle";
   const first = state.contextItems.find(
     (item) => item.role === "user" && (!item.actor || item.actor.type === "user"),
   );
   const title =
-    first?.content
+    state.summary?.title ||
+    (first?.content
       .split("\n")
       .map((line) => line.trim())
-      .find(Boolean) ?? null;
+      .find(Boolean) ??
+      null);
   return { status, lastActivityAt: state.lastActivityAt, title };
 }
 
