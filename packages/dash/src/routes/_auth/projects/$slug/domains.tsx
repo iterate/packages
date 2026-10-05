@@ -27,6 +27,7 @@ import {
   FieldLabel,
 } from "@iterate-com/ui/components/ui/field";
 import { Input } from "@iterate-com/ui/components/ui/input";
+import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import {
   Sheet,
   SheetClose,
@@ -37,7 +38,7 @@ import {
   SheetTitle,
 } from "@iterate-com/ui/components/ui/sheet";
 import { cn } from "cn";
-import { useContextStub, useFacetLiveState } from "iterate/react";
+import { facetSnapshotOf, useContextStub, useFacetLiveState } from "iterate/react";
 import type { IngressRouting } from "iterate/project-ingress";
 import { DNS_PROVIDER_GUIDES, type DnsProviderGuide } from "../../../../lib/dns-provider-guides.ts";
 import { projectHostOf } from "../../../../lib/origins.ts";
@@ -110,6 +111,14 @@ export const Route = createFileRoute("/_auth/projects/$slug/domains")({
     error: z.string().optional().catch(undefined),
     error_description: z.string().optional().catch(undefined),
   }),
+  // `useFacetLiveState`'s `initial`; a failed read leaves the page waiting on its subscription
+  loader: ({ context }) =>
+    context
+      .read(async (api) => {
+        using project = api.projects.get(context.project.id);
+        return await facetSnapshotOf(project, "project");
+      })
+      .catch(() => undefined),
   staticData: { page: "Domains" },
   head: ({ params }) => ({ meta: [{ title: `Domains · ${params.slug} · Dash` }] }),
   component: ProjectDomains,
@@ -121,7 +130,7 @@ function ProjectDomains() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const context = useContextStub(() => api.projects.get(project.id), [api, project.id]).stub;
-  const live = useFacetLiveState(context, "project");
+  const live = useFacetLiveState(context, "project", Route.useLoaderData());
   const read = live.value ? HostnamesLive.safeParse(live.value) : undefined;
   const hostnames = Object.entries(read?.data?.hostnames || {});
   const primaryHostname = read?.data?.primaryHostname || null;
@@ -217,7 +226,10 @@ function ProjectDomains() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">Domains</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            Domains
+            {live.status === "connecting" && live.value ? <Spinner /> : null}
+          </h1>
           <Button disabled={!context} onClick={() => void navigate({ search: { add: 1 } })}>
             <Plus data-icon="inline-start" />
             Add domain

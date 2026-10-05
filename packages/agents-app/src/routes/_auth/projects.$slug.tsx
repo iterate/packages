@@ -58,15 +58,17 @@ import { useAgentSummaries } from "../../lib/use-agent-summaries.ts";
 // stub is held for the page's life; the agent's context is `project.cd(path)`, subscribed for
 // every committed event and caught up with `readEvents`. The header's status is the agent facet's
 // LIVE STATE.
-type Project = Awaited<ReturnType<AuthenticatedApp["api"]["projects"]["get"]>>;
+type ProjectPromise = ReturnType<AuthenticatedApp["api"]["projects"]["get"]>;
+type Project = Awaited<ProjectPromise>;
 type Context = Awaited<ReturnType<Project["cd"]>>;
 
-/** The project with its `itx.agents` root typed (iterate/agents api.ts). The root is there
- *  only by the project's rewrite rule, so the session's project stub cannot name it; the page calls
- *  it only where the rule is known to be there: the loader after reading it, the sidebar's create
- *  only when the loader found it, the composer only beside an agent. */
-const withAgents = (itx: Project) =>
-  itx as Project & Pick<IterateContextApiWith<"agents">, "agents">;
+/** The project — its stub, or the pipelined one a loader's `read` holds — with its `itx.agents`
+ *  root typed (iterate/agents api.ts). The root is there only by the project's rewrite rule, so the
+ *  session's project stub cannot name it; the page calls it only where the rule is known to be
+ *  there: the loader after reading it, the sidebar's create only when the loader found it, the
+ *  composer only beside an agent. */
+const withAgents = <P extends Project | ProjectPromise>(itx: P) =>
+  itx as P & Pick<IterateContextApiWith<"agents">, "agents">;
 
 /** What the page's subscription receives: every durable event (the Events view is the whole log)
  *  and, named — a wildcard never sweeps an ephemeral — the streamed chunk windows the feed folds
@@ -85,12 +87,15 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
   }),
   loaderDeps: ({ search }) => ({ agent: search.agent }),
   loader: async ({ context, params, deps }) => {
-    const projects = await context.api.projects.list();
+    const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
     const project = projects.find((item) => item.slug === params.slug);
     if (!project) return context.signInFor(params.slug);
-    using itx = await context.api.projects.get(project.id);
-    const rule = await itx.rewriteRules.get("itx.agents");
+    // a read each: `itx.agents` is called only once the rule that adds it is known to be there
+    const rule = await context.read(async (api) => {
+      using itx = api.projects.get(project.id);
+      return await itx.rewriteRules.get("itx.agents");
+    });
     if (!rule?.target)
       return {
         projects,
@@ -99,7 +104,10 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
         agent: undefined,
         installed: false,
       };
-    const agents = await withAgents(itx).agents.list();
+    const agents = await context.read(async (api) => {
+      using itx = api.projects.get(project.id);
+      return await withAgents(itx).agents.list();
+    });
     return {
       projects,
       project,

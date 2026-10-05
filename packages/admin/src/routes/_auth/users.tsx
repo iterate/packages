@@ -4,7 +4,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_auth/users")({
-  loader: async ({ context }) => ({ users: await context.api.users.list() }),
+  loader: async ({ context }) => ({ users: await context.read((api) => api.users.list()) }),
   head: () => ({ meta: [{ title: "Users · Admin" }] }),
   component: UsersPage,
 });

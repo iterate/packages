@@ -46,7 +46,7 @@ import {
   type SignInProvider,
 } from "iterate/api";
 import { errorCode } from "iterate/lib";
-import { useContextStub, useFacetLiveState } from "iterate/react";
+import { facetSnapshotOf, useContextStub, useFacetLiveState } from "iterate/react";
 import { freshConnectionName } from "../../../../lib/connections.ts";
 import { addGithubSignInHref, httpOriginOf } from "../../../../lib/origins.ts";
 import { stepUpUrl } from "../../../../lib/scopes.ts";
@@ -111,6 +111,20 @@ export const Route = createFileRoute("/_auth/projects/$slug/integrations")({
     /** Why the issuer refused to add a GitHub sign-in (core/os identity.ts, "ADD A SIGN-IN"). */
     error: z.string().optional().catch(undefined),
   }),
+  // `useFacetLiveState`'s `initial` for the project and, with `account`, the person; a failed read
+  // leaves the page waiting on its subscriptions
+  loader: ({ context }) =>
+    context
+      .read(async (api) => {
+        using project = api.projects.get(context.project.id);
+        return await Promise.all([
+          facetSnapshotOf(project, "project"),
+          context.info.scopes.includes("account")
+            ? facetSnapshotOf(api.user, "account")
+            : undefined,
+        ]);
+      })
+      .catch(() => [undefined, undefined] as const),
   staticData: { page: "Integrations" },
   head: ({ params }) => ({ meta: [{ title: `Integrations · ${params.slug} · Dash` }] }),
   component: ProjectIntegrations,
@@ -126,7 +140,8 @@ function ProjectIntegrations() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const context = useContextStub(() => api.projects.get(project.id), [api, project.id]).stub;
-  const live = useFacetLiveState(context, "project");
+  const [initialProject, initialPerson] = Route.useLoaderData();
+  const live = useFacetLiveState(context, "project", initialProject);
   const projectRead = live.value ? IntegrationsLive.safeParse(live.value) : undefined;
   const projectState = projectRead?.data;
   const loadError = live.error || (projectRead?.error && z.prettifyError(projectRead.error));
@@ -139,7 +154,7 @@ function ProjectIntegrations() {
     info.scopes.includes("account") ? () => Promise.resolve(api.user) : null,
     [api, info.scopes],
   );
-  const personLive = useFacetLiveState(personStub.stub, "account");
+  const personLive = useFacetLiveState(personStub.stub, "account", initialPerson);
   const personRead = personLive.value ? IntegrationsLive.safeParse(personLive.value) : undefined;
   const yourAccounts = Object.values(personRead?.data?.integrations || {});
   const yourAccountsStatus = !info.scopes.includes("account")
@@ -250,7 +265,10 @@ function ProjectIntegrations() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+        Integrations
+        {live.status === "connecting" && live.value ? <Spinner /> : null}
+      </h1>
       {error && !own && !connecting && !moveOffer && (
         <p role="alert" data-type="error" className="text-sm text-destructive">
           {error}

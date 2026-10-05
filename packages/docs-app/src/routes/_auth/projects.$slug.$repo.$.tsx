@@ -41,16 +41,17 @@ export const Route = createFileRoute("/_auth/projects/$slug/$repo/$")({
     const kind = fileKind(path);
     // a binary file isn't read: Docs edits text
     if (kind === "binary") return { repo: params.repo, path, kind, text: "", installed: true };
-    using itx = context.api.projects.get(context.project.id);
-    using repo = itx.repos.get(repoPath(params.repo));
-    const tip = await repo.tip();
-    const text = tip ? await repo.readFile(path, { commitOid: tip }) : null;
+    // one read: a file read that names no commit is of the tip, and null in a repo without one
+    const [text, docsModuleSource] = await context.read(async (api) => {
+      using itx = api.projects.get(context.project.id);
+      using repo = itx.repos.get(repoPath(params.repo));
+      // the processors' code is the project's own, from its config
+      using config = itx.repos.get("/repos/config");
+      return await Promise.all([repo.readFile(path), config.readFile(docsModule.path)]);
+    });
     // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty doc is "" and a real doc; a missing one is null
-    if (!tip || text === null) throw notFound();
-    // the processors' code is the project's own, from its config
-    using config = itx.repos.get("/repos/config");
-    const installed = Boolean(await config.readFile(docsModule.path));
-    return { repo: params.repo, path, kind, text, installed };
+    if (text === null) throw notFound();
+    return { repo: params.repo, path, kind, text, installed: Boolean(docsModuleSource) };
   },
   component: DocPage,
 });

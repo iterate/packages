@@ -49,7 +49,7 @@ import {
   AlertDialogTrigger,
 } from "@iterate-com/ui/components/ui/alert-dialog";
 import { ConnectButton } from "@iterate-com/ui/components/connect-button";
-import { useContextStub, useFacetLiveState } from "iterate/react";
+import { facetSnapshotOf, useContextStub, useFacetLiveState } from "iterate/react";
 import { Identifier } from "../../components/identifier.tsx";
 import { addGithubSignInHref } from "../../lib/origins.ts";
 import { dateOf } from "../../lib/dates.ts";
@@ -73,9 +73,18 @@ export const Route = createFileRoute("/_auth/sessions")({
   loaderDeps: ({ search }) => ({ cursor: search.cursor }),
   staticData: { page: "Sessions" },
   // `account` is optional at consent: without it there is no list to load — the page offers the
-  // step-up instead of the error the API would answer with.
-  loader: async ({ context, deps }) =>
-    context.info.scopes.includes("account") ? await context.api.grants.list(deps.cursor) : null,
+  // step-up instead of the error the API would answer with. The person's account state comes with
+  // it, as `useFacetLiveState`'s `initial`.
+  loader: async ({ context, deps }) => {
+    if (!context.info.scopes.includes("account")) return null;
+    const [page, account] = await context.read((api) =>
+      Promise.all([
+        api.grants.list(deps.cursor),
+        facetSnapshotOf(api.user, "account").catch(() => undefined),
+      ]),
+    );
+    return { ...page, account };
+  },
   head: () => ({ meta: [{ title: "Sessions · Dash" }] }),
   component: SessionsPage,
 });
@@ -492,7 +501,7 @@ const AccountConnections = z.looseObject({
 function ConnectedAccounts({ projects }: { projects: { id: string; slug: string }[] }) {
   const { api, info } = Route.useRouteContext();
   const person = useContextStub(() => Promise.resolve(api.user), [api]);
-  const live = useFacetLiveState(person.stub, "account");
+  const live = useFacetLiveState(person.stub, "account", Route.useLoaderData()?.account);
   const read = live.value ? AccountConnections.safeParse(live.value) : undefined;
   const state = read?.data;
   const accounts = Object.values(state?.integrations || {});
@@ -516,8 +525,9 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
   return (
     <section className="flex flex-col gap-2" aria-labelledby="connected-accounts-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="connected-accounts-heading" className="font-medium">
+        <h2 id="connected-accounts-heading" className="flex items-center gap-2 font-medium">
           Connected accounts
+          {live.status === "connecting" && live.value ? <Spinner /> : null}
         </h2>
         <div className="flex flex-wrap gap-2">
           {PERSONAL_CONNECT_PROVIDERS.filter((provider) =>

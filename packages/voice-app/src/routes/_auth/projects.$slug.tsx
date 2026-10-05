@@ -34,7 +34,7 @@ const voiceBuild = createServerFn({ method: "GET" })
 
 export const Route = createFileRoute("/_auth/projects/$slug")({
   loader: async ({ context, params }) => {
-    const projects = await context.api.projects.list();
+    const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
     const project = projects.find((item) => item.slug === params.slug);
     if (!project) return context.signInFor(params.slug);

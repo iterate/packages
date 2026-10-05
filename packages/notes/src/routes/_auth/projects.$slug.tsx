@@ -1,7 +1,12 @@
 import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { z } from "zod";
-import { useContextStub, useFacetLiveState } from "iterate/react";
+import {
+  facetSnapshotOf,
+  useContextStub,
+  useFacetLiveState,
+  type FacetLiveSnapshot,
+} from "iterate/react";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Field, FieldLabel } from "@iterate-com/ui/components/ui/field";
 import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
@@ -14,18 +19,28 @@ const FILE = `${REPO}/notes/log.md`;
 
 export const Route = createFileRoute("/_auth/projects/$slug")({
   loader: async ({ context, params }) => {
-    const projects = await context.api.projects.list();
+    const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
     const project = projects.find((item) => item.slug === params.slug);
     if (!project) return context.signInFor(params.slug);
     // the project's root context, pipelined: the calls below ride it before it has resolved
-    using itx = context.api.projects.get(project.id);
-    await Promise.all([itx.workspaces.create(WORKSPACE), itx.repos.create(REPO)]);
+    await context.read(async (api) => {
+      using itx = api.projects.get(project.id);
+      return await Promise.all([itx.workspaces.create(WORKSPACE), itx.repos.create(REPO)]);
+    });
     // Both must exist before reading: the workspace discovers mounts from the repo catalog.
-    using workspace = itx.workspaces.get(WORKSPACE);
-    using repo = itx.repos.get(REPO);
-    const [note, tip] = await Promise.all([workspace.readFile(FILE), repo.tip()]);
-    return { projects, project, note: note || "", tip };
+    const [note, tip, projectFacetSnapshot] = await context.read(async (api) => {
+      using itx = api.projects.get(project.id);
+      using workspace = itx.workspaces.get(WORKSPACE);
+      using repo = itx.repos.get(REPO);
+      return await Promise.all([
+        workspace.readFile(FILE),
+        repo.tip(),
+        // `useFacetLiveState`'s `initial`; a failed read leaves the editor waiting on its subscription
+        facetSnapshotOf(itx, "project").catch(() => undefined),
+      ]);
+    });
+    return { projects, project, note: note || "", tip, projectFacetSnapshot };
   },
   component: NotesPage,
 });
@@ -43,7 +58,13 @@ function NotesPage() {
       account={info.principal}
       locationKey={href}
     >
-      <Editor key={data.project.id} project={data.project.id} initial={data.note} tip={data.tip} />
+      <Editor
+        key={data.project.id}
+        project={data.project.id}
+        initial={data.note}
+        tip={data.tip}
+        projectFacetSnapshot={data.projectFacetSnapshot}
+      />
     </ProjectAppShell>
   );
 }
@@ -58,10 +79,13 @@ function Editor({
   project,
   initial,
   tip,
+  projectFacetSnapshot,
 }: {
   project: string;
   initial: string;
   tip: string | null;
+  /** the project facet as the loader read it, shown until the subscription is live */
+  projectFacetSnapshot: FacetLiveSnapshot | undefined;
 }) {
   const { api } = Route.useRouteContext();
   const [note, setNote] = useState(initial);
@@ -72,7 +96,7 @@ function Editor({
   // seeding the config repo, and a commit here races it ("the commit was refused: stale ref").
   // The project facet's live state says where creation stands, as the dash's overview reads it.
   const context = useContextStub(() => api.projects.get(project), [api, project]).stub;
-  const live = useFacetLiveState(context, "project");
+  const live = useFacetLiveState(context, "project", projectFacetSnapshot);
   const creation = ProjectLive.safeParse(live.value).data?.creation;
   const ready = creation?.status === "created";
   async function save(event: FormEvent) {

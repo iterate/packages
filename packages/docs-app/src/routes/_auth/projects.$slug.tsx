@@ -16,7 +16,7 @@ import { repoNames, repoPath } from "../../lib/docs-repo.ts";
  *  project's repos and the picked repo's docs as a tree. */
 export const Route = createFileRoute("/_auth/projects/$slug")({
   beforeLoad: async ({ context, params }) => {
-    const projects = await context.api.projects.list();
+    const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
     const project = projects.find((item) => item.slug === params.slug);
     if (!project) return context.signInFor(params.slug);

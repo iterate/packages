@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { FirstProjectRedirect } from "@iterate-com/ui/components/first-project-redirect";
 
 export const Route = createFileRoute("/_auth/projects/")({
-  loader: async ({ context }) => (await context.api.projects.list())[0] || null,
+  loader: async ({ context }) => (await context.read((api) => api.projects.list()))[0] || null,
   component: ProjectsIndex,
 });
 

@@ -10,7 +10,7 @@ import { ArrowUpRight, CheckIcon, CircleXIcon, MoreHorizontalIcon } from "lucide
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { errorCode } from "iterate/lib";
-import { useContextStub, useFacetLiveState } from "iterate/react";
+import { facetSnapshotOf, useContextStub, useFacetLiveState } from "iterate/react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -84,6 +84,14 @@ export const Route = createFileRoute("/_auth/projects/$slug/")({
     /** The sheet that links the config repo to a remote. */
     configRepo: z.literal("link").optional().catch(undefined),
   }),
+  // `useFacetLiveState`'s `initial`; a failed read leaves the page waiting on its subscription
+  loader: ({ context }) =>
+    context
+      .read(async (api) => {
+        using project = api.projects.get(context.project.id);
+        return await facetSnapshotOf(project, "project");
+      })
+      .catch(() => undefined),
   component: ProjectOverview,
 });
 
@@ -99,13 +107,15 @@ function ProjectOverview() {
   // so a refusal leaves the plain overview
   const opened = useContextStub(() => api.projects.get(project.id), [api, project.id]);
   const context = opened.stub;
-  const live = useFacetLiveState(context, "project");
+  const live = useFacetLiveState(context, "project", Route.useLoaderData());
   const parsed = ProjectLive.safeParse(live.value).data;
   const creation = parsed?.creation || null;
-  // Until the facet's first value lands the page cannot tell a project still being created from
-  // one that is done: `projects.create` answers before its saga does. A refused context, or a live
-  // state that failed or does not parse, leaves the plain overview.
-  const creationKnown = live.status !== "connecting" || Boolean(opened.error);
+  // Until the facet's first value lands — the loader's snapshot or the subscription's — the page
+  // cannot tell a project still being created from one that is done: `projects.create` answers
+  // before its saga does. A refused context, or a live state that failed or does not parse, leaves
+  // the plain overview.
+  const creationKnown =
+    Boolean(live.value) || live.status !== "connecting" || Boolean(opened.error);
   const creating = creation?.status === "requested" || creation?.status === "failed";
   const configRepoSeeded = Boolean(parsed?.repos["/repos/config"]);
   const githubConnections = Object.values(parsed?.integrations || {}).filter(

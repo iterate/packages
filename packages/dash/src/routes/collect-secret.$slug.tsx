@@ -49,7 +49,7 @@ export const Route = createFileRoute("/collect-secret/$slug")({
   ssr: false,
   beforeLoad: async ({ location, params }) => {
     const session = await iterateClient.authenticate(location.href);
-    const project = (await session.api.projects.list()).find(
+    const project = (await session.read((api) => api.projects.list())).find(
       (candidate) => candidate.slug === params.slug,
     );
     if (!project) return session.signInFor(params.slug);

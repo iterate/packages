@@ -28,7 +28,7 @@ const iterate = createIterateClient({ scopes: adminScopes });
 export const Route = createFileRoute("/_auth")({
   ssr: false,
   beforeLoad: ({ location }) => iterate.authenticate(location.href),
-  loader: async ({ context }) => ({ projects: await context.api.projects.list() }),
+  loader: async ({ context }) => ({ projects: await context.read((api) => api.projects.list()) }),
   component: Shell,
 });
 
