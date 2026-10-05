@@ -42,7 +42,8 @@ as ${docsAgentGuide} says.
 /** Install Docs in a project's config at `version` (a pkg.pr.new build at its commit, or an npm
  *  version): `docs.ts` and the root package.json's pin, one commit, then the config's publication
  *  of it. Resolves once the project runs it; throws with the platform's reason when it refused the
- *  commit. `upgradeVoice` (@iterate-com/voice/install) does the same for voice. */
+ *  commit or gave up on it for now. `upgradeVoice` (@iterate-com/voice/install) commits voice's pin
+ *  the same way. */
 export async function installDocs(
   project: Pick<IterateContextApi, "waitForEvent"> & {
     repos: { get(path: string): Pick<RepoHandle, "tip" | "readFile" | "commitFiles"> };
@@ -75,24 +76,34 @@ export async function installDocs(
           ]),
     ],
   });
-  // one deadline for the whole wait: a give-up for now does not restart it
-  const deadline = Date.now() + 120_000;
-  for (let afterOffset = 0; ;) {
-    const outcome = await project.waitForEvent({
+  const outcomeAfter = (afterOffset: number, timeoutMs: number) =>
+    project.waitForEvent({
       type: [
         "events.iterate.com/project/worker-updated",
         "events.iterate.com/project/worker-update-failed",
       ],
       payload: { commitOid },
       afterOffset,
-      timeoutMs: Math.max(1, deadline - Date.now()),
+      timeoutMs,
     });
-    if (outcome.type === "events.iterate.com/project/worker-updated") return commitOid;
-    if (!outcome.payload?.unavailable)
-      throw new Error(`Docs was not installed: ${String(outcome.payload?.error)}`);
-    // the platform gave up for now and still owes the commit: its outcome comes after this one
-    afterOffset = outcome.offset;
+  let outcome = await outcomeAfter(0, 120_000);
+  // the commit's newest outcome: a give-up a later incarnation followed with its publication is not
+  // the answer (installing the same pin again commits nothing), so the log after each give-up is
+  // read once more without waiting; nothing there leaves the give-up as the answer
+  while (outcome.payload?.unavailable) {
+    const later = await outcomeAfter(outcome.offset, 1).catch(() => null);
+    if (!later) break;
+    outcome = later;
   }
+  if (outcome.type === "events.iterate.com/project/worker-updated") return commitOid;
+  // A give-up for now (`unavailable`) leaves the commit owed to the project's next incarnation
+  // (core/os project/contract.ts), which comes only once this one has gone idle and something wakes
+  // `/` again: no wait here can bound that, so the give-up's reason is the answer.
+  throw new Error(
+    outcome.payload?.unavailable
+      ? `Docs is committed, but the platform could not publish it for now and publishes it later: ${String(outcome.payload.error)}`
+      : `Docs was not installed: ${String(outcome.payload?.error)}`,
+  );
 }
 
 /** One of the processors: `className` from `docs.ts` of the project's published config. */

@@ -127,7 +127,7 @@ function DocPage() {
 
 /** A project whose config doesn't install Docs, whose processors have no code to run yet: one
  *  click installs this deployment's build (`installDocs`), and the doc opens once the project runs
- *  it. */
+ *  it, or the page says why the platform didn't. */
 function NotInstalled({ project }: { project: string }) {
   const { api } = Route.useRouteContext();
   const router = useRouter();
@@ -160,7 +160,11 @@ function NotInstalled({ project }: { project: string }) {
             "Install Docs in this project"
           )}
         </Button>
-        {install.error ? <p className="text-sm text-destructive">{install.error.message}</p> : null}
+        {install.error ? (
+          <p role="alert" data-type="error" className="text-sm text-destructive">
+            {install.error.message}
+          </p>
+        ) : null}
       </EmptyContent>
     </Empty>
   );

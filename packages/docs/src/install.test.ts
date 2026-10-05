@@ -86,3 +86,71 @@ test("installing Docs commits docs.ts, the pin beside the config's other depende
   await installDocs(project, "https://pkg.pr.new/iterate/private/@iterate-com/docs@def");
   expect(commits[1].changes.map((change: any) => change.path)).toEqual(["docs.ts", "package.json"]);
 });
+
+test("a publication the platform gave up on for now ends the install with its reason, rather than a wait for an outcome only the project's next incarnation gives", async () => {
+  const waits: any[] = [];
+  const project: any = {
+    repos: {
+      get: () => ({
+        tip: async () => "c0",
+        readFile: async () => null,
+        commitFiles: async () => ({ commitOid: "c1" }),
+      }),
+    },
+    waitForEvent: async (input: any) => {
+      waits.push(input);
+      // nothing after the give-up: the look-ahead finds no later outcome, as a real wait times out
+      if (waits.length > 1) throw new Error("no event within 1ms");
+      return {
+        type: "events.iterate.com/project/worker-update-failed",
+        payload: {
+          commitOid: "c1",
+          generation: 35,
+          error:
+            "the config repo's docs.ts: resolving @iterate-com/docs failed: esm.sh answered 500",
+          unavailable: true,
+        },
+        offset: 39,
+      };
+    },
+  };
+
+  await expect(
+    installDocs(project, "https://pkg.pr.new/iterate/private/@iterate-com/docs@abc"),
+  ).rejects.toThrow(
+    "Docs is committed, but the platform could not publish it for now and publishes it later: the config repo's docs.ts: resolving @iterate-com/docs failed: esm.sh answered 500",
+  );
+  expect(waits).toMatchObject([
+    { payload: { commitOid: "c1" }, afterOffset: 0, timeoutMs: 120_000 },
+    { payload: { commitOid: "c1" }, afterOffset: 39, timeoutMs: 1 },
+  ]);
+});
+
+test("installing a pin again after a give-up a later incarnation followed with its publication resolves: the newest outcome is the answer", async () => {
+  const log = [
+    {
+      type: "events.iterate.com/project/worker-update-failed",
+      payload: { commitOid: "c0", error: "esm.sh answered 500", unavailable: true },
+      offset: 39,
+    },
+    { type: "events.iterate.com/project/worker-updated", payload: { commitOid: "c0" }, offset: 52 },
+  ];
+  const project: any = {
+    repos: {
+      get: () => ({
+        tip: async () => "c0",
+        readFile: async () => null,
+        // the same files as the install that gave up: the same commit
+        commitFiles: async () => ({ commitOid: "c0" }),
+      }),
+    },
+    waitForEvent: async (input: any) => {
+      const event = log.find((candidate) => candidate.offset > input.afterOffset);
+      if (!event) throw new Error(`no event within ${input.timeoutMs}ms`);
+      return event;
+    },
+  };
+  await expect(
+    installDocs(project, "https://pkg.pr.new/iterate/private/@iterate-com/docs@abc"),
+  ).resolves.toBe("c0");
+});
