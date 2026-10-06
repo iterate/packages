@@ -86,9 +86,9 @@ URL, such as an agent's mini app. Main publishes it with the rest
   our components' hooks fail in its tree ("Invalid hook call"). It ships no declarations either: a
   page reads none, and an app in another repo installs the registry's copy.
 
-A page names each package once in an import map. React is the package's own, so any other React
-library loads from esm.sh with `?external=react,react-dom` and uses it too (`?external=react` alone
-leaves a library that imports react-dom, such as Floating UI, with esm.sh's own react-dom):
+A page names each package once in an import map. React is the package's own, so
+[another React library](#another-react-library) loads from esm.sh with `?external=react,react-dom`
+and uses it too:
 
 ```html
 <script type="importmap">
@@ -139,6 +139,39 @@ leaves a library that imports react-dom, such as Floating UI, with esm.sh's own 
 - **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` project) serves this checkout's
   build from its folder and holds the shape: one React, nothing React-related from esm.sh,
   CodeMirror only once an inspector opens, and react-query through `?external=react,react-dom`.
+
+### Another React library
+
+A page can use any React library beside ours: a chart, a data fetcher, a date picker. It loads from
+esm.sh with `?external=react,react-dom`, which leaves its `react` and `react-dom` imports, and those
+of the packages it brings, for the page's import map:
+
+```json
+"recharts": "https://esm.sh/recharts@3.10.1?external=react,react-dom"
+```
+
+`examples/events-chart-page.ts` is a whole page: a context's events charted by recharts, above the
+same context in ContextView, from one `useIterateContext`.
+
+- **Without the flag** esm.sh gives the library a React of its own. The page is blank and the
+  console says "Cannot read properties of null (reading 'useContext')" (or `'useState'`, whichever
+  hook runs first): a second React, which isn't the one rendering.
+- **`?external=react` alone** leaves a library that imports react-dom (recharts, Floating UI) with
+  esm.sh's copy of it, beside the one rendering the page.
+- **React is 19**, and only these of its modules: `react`, `react/jsx-runtime`,
+  `react/compiler-runtime`, `react-dom`, `react-dom/client`. A library that imports another
+  (`react-dom/server`) fails to load, on a 404 from under `@iterate-com/ui`.
+- **Only React is shared.** A library built on Base UI or CodeMirror brings its own copy beside
+  ours. That works while nothing of one copy is handed to the other (a CodeMirror extension to
+  our editor).
+- **The library's styles are its own.** Give it the stylesheet's variables for colours
+  (`var(--border)`, `var(--muted-foreground)`) and it matches our components.
+- **For telemetry over time we have a chart**: `components/time-chart`, which Dash's Analytics
+  page uses. A page reads a project's telemetry as SQL, where the deployment has a warehouse (prd
+  and previews; not `pnpm dev`), and rows trail their events:
+  `await api.projects.get(id).telemetry.query(sql, { hours: 48 })`.
+- **The spec** (`test/playwright/ui/third-party-library.spec.ts`) commits the example to a fresh
+  project, appends an event in ContextView and sees the chart count it, with no React from esm.sh.
 
 ### Signing in
 
@@ -199,7 +232,8 @@ const api = newWebSocketRpcSession("wss://os.iterate.com/api").authenticate({
   runs `script` (`async (itx) => …`) as the viewer and answers `{ payload: { result } }`. Nothing
   is live: the page reads again to refresh.
 - **The spec** (`test/playwright/ui/sign-in.spec.ts`) commits the project-host example to a fresh
-  project and opens it, and serves the any-website example twice: on its own, and as jsfiddle would
+  project, on the route its own header comment gives, and opens it, and serves the any-website
+  example twice: on its own, and as jsfiddle would
   (an editor with that header, the page in a sandboxed frame from another origin, and a stand-in
   for callback.iterate.com, which is on prd and not this repo's to test).
 
