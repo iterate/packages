@@ -121,6 +121,10 @@ export const UNIT_ROW_WARN_EXEMPTIONS: Record<string, string> = {
     "waits the facet start watchdog's real 10 s clock",
   "a timer set inside blockConcurrencyWhile fires while one the object set before it is due":
     "waits the facet start watchdog's real 10 s clock",
+  "a refresh whose token request never answers fails at its 10 s timeout while a timer the session set before it is due, and the session stays":
+    "waits the token request's real 10 s timeout",
+  "a root's first birth whose question to the control plane goes unanswered fails UNAVAILABLE (overloaded) at its 10 s deadline, stores nothing, and the next call bears the root":
+    "waits the birth's real 10 s deadline on the control plane",
   "a commit that changes only AGENTS.md and a module agents.ts does not import publishes agents.ts under the identity it had, and the facet answers from the same instance; a commit to a module it imports restarts it":
     "waits out two re-points of the config pointer, each the real 5 s rule-snapshot lifetime",
 };
