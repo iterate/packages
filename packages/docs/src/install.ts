@@ -86,19 +86,18 @@ export async function installDocs(
       afterOffset,
       timeoutMs,
     });
-  let outcome = await outcomeAfter(0, 120_000);
-  // the commit's newest outcome: a give-up a later incarnation followed with its publication is not
-  // the answer (installing the same pin again commits nothing), so the log after each give-up is
-  // read once more without waiting; nothing there leaves the give-up as the answer
-  while (outcome.payload?.unavailable) {
-    const later = await outcomeAfter(outcome.offset, 1).catch(() => null);
+  // one deadline for the whole wait: the platform runs a publication it gave up on for now again
+  // (core/os project/processor.ts PUBLICATION_RERUN_WAITS_MS), so the outcome after a give-up is
+  // waited for too, and the commit's newest outcome is the answer — a later incarnation's included
+  const deadline = Date.now() + 120_000;
+  let outcome = await outcomeAfter(0, deadline - Date.now());
+  while (outcome.payload?.unavailable && deadline > Date.now()) {
+    const later = await outcomeAfter(outcome.offset, deadline - Date.now()).catch(() => null);
     if (!later) break;
     outcome = later;
   }
   if (outcome.type === "events.iterate.com/project/worker-updated") return commitOid;
-  // A give-up for now (`unavailable`) leaves the commit owed to the project's next incarnation
-  // (core/os project/contract.ts), which comes only once this one has gone idle and something wakes
-  // `/` again: no wait here can bound that, so the give-up's reason is the answer.
+  // a give-up the deadline found still standing: the commit stays owed to the next incarnation
   throw new Error(
     outcome.payload?.unavailable
       ? `Docs is committed, but the platform could not publish it for now and publishes it later: ${String(outcome.payload.error)}`

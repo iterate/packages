@@ -87,7 +87,7 @@ test("installing Docs commits docs.ts, the pin beside the config's other depende
   expect(commits[1].changes.map((change: any) => change.path)).toEqual(["docs.ts", "package.json"]);
 });
 
-test("a publication the platform gave up on for now ends the install with its reason, rather than a wait for an outcome only the project's next incarnation gives", async () => {
+test("a give-up still standing at the deadline ends the install with its reason, after waiting for the outcome of the platform's run again", async () => {
   const waits: any[] = [];
   const project: any = {
     repos: {
@@ -99,8 +99,8 @@ test("a publication the platform gave up on for now ends the install with its re
     },
     waitForEvent: async (input: any) => {
       waits.push(input);
-      // nothing after the give-up: the look-ahead finds no later outcome, as a real wait times out
-      if (waits.length > 1) throw new Error("no event within 1ms");
+      // nothing after the give-up before the deadline: the wait times out, as a real one does
+      if (waits.length > 1) throw new Error("no event within the deadline");
       return {
         type: "events.iterate.com/project/worker-update-failed",
         payload: {
@@ -122,7 +122,7 @@ test("a publication the platform gave up on for now ends the install with its re
   );
   expect(waits).toMatchObject([
     { payload: { commitOid: "c1" }, afterOffset: 0, timeoutMs: 120_000 },
-    { payload: { commitOid: "c1" }, afterOffset: 39, timeoutMs: 1 },
+    { payload: { commitOid: "c1" }, afterOffset: 39 },
   ]);
 });
 
