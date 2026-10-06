@@ -26,7 +26,7 @@ The base path handling is Notes', shared in
 - Co-editing: opening a doc enables its processor (`ensureDoc`) from the
   [`@iterate-com/docs`](../../packages/docs/README.md) build the project's config pins; a project
   without one gets an "Install Docs in this project" button (`installDocs`, this deployment's
-  build: `APP_CONFIG pkgPrNewRef`). The editor is bound to the doc's shared Y.Text (y-codemirror.next); edits and
+  build: `ITERATE_APP pkgPrNewRef`). The editor is bound to the doc's shared Y.Text (y-codemirror.next); edits and
   cursors go to the other tabs as ephemeral events on the doc's context
   ([src/editor/collab.ts](src/editor/collab.ts)). The processor commits a minute after the first
   unsaved edit, or once the last tab has left, and merges in commits made elsewhere; the status

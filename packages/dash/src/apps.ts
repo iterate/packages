@@ -19,7 +19,7 @@ const APPS = [
   },
 ] as const;
 
-/** The directory as this deployment has it: each app at the origin the worker's `APP_CONFIG
+/** The directory as this deployment has it: each app at the origin the worker's `ITERATE_APP
  *  urls` names (scripts/lib/start-app.ts: prd's from envs.ts; a per-PR preview's, the same PR's
  *  app previews). An app it names no origin for — a preview run that did not deploy it — is not
  *  listed: its production origin would not know the preview's projects. */

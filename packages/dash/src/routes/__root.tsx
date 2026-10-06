@@ -5,7 +5,7 @@ import { appHead } from "@iterate-com/ui/apps/head";
 import { startAppConfigOf } from "@iterate-com/shared/start-app-config";
 import { appDirectory } from "../apps.ts";
 import css from "../styles.css?url";
-/** What the worker's `APP_CONFIG` says about this deployment: its PostHog project key (envs.ts,
+/** What the worker's `ITERATE_APP` says about this deployment: its PostHog project key (envs.ts,
  *  prd only) and its directory of apps (`urls`, apps.ts). */
 const deployment = createServerFn().handler(async () => {
   const { env } = await import("cloudflare:workers");

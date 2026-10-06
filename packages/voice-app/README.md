@@ -34,7 +34,7 @@ pin and waits for its publication. The agents app keeps its build; the Agents ap
 ## Run
 
 ```bash
-pnpm --filter @iterate-com/voice-app dev      # against APP_CONFIG__URLS__OS in .dev.vars
+pnpm --filter @iterate-com/voice-app dev      # against ITERATE_APP__URLS__OS in .dev.vars
 pnpm --filter @iterate-com/voice-app test     # the PCM helpers
 pnpm --dir packages/voice-app run deploy --env prd
 ```

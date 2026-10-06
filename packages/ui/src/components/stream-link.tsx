@@ -3,7 +3,7 @@
  *  live state. The convention for a page that is one context's events (a doc, an agent): this one
  *  quiet link, beside the page's path. It goes through the dash's `/.auth/connect` for the page's
  *  platform, as Agents' link to the config repo does: straight through for the dash's own, a
- *  confirmation for another. Nothing when the deployment names no dash (`APP_CONFIG urls.dash`). */
+ *  confirmation for another. Nothing when the deployment names no dash (`ITERATE_APP urls.dash`). */
 export function StreamLink({
   dashOrigin,
   platformOrigin,

@@ -14,7 +14,7 @@ declare global {
       BROWSER_SESSION: DurableObjectNamespace<BrowserSession>;
       /** THE APP'S CONFIGURATION, JSON (@iterate-com/shared/start-app-config): its platform, the
        *  other apps' origins, our own zones and its PostHog key — from envs.ts (startAppWorkerConfig) */
-      APP_CONFIG: string;
+      ITERATE_APP: string;
     }
   }
 }

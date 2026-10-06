@@ -4,7 +4,7 @@ import { AppDocument } from "@iterate-com/ui/apps/document";
 import { appHead } from "@iterate-com/ui/apps/head";
 import { startAppConfigOf } from "@iterate-com/shared/start-app-config";
 import css from "../styles.css?url";
-/** The worker's PostHog project key (`APP_CONFIG posthogProjectKey`: envs.ts, prd only). */
+/** The worker's PostHog project key (`ITERATE_APP posthogProjectKey`: envs.ts, prd only). */
 const posthogProjectKey = createServerFn().handler(async () => {
   const { env } = await import("cloudflare:workers");
   return startAppConfigOf(env).posthogProjectKey || null;

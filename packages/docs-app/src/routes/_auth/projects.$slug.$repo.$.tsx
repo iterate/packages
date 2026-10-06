@@ -22,7 +22,7 @@ import { DocSession } from "../../editor/doc-session.ts";
 import { repoPath } from "../../lib/docs-repo.ts";
 import { fileKind } from "../../lib/file-kind.ts";
 
-/** The @iterate-com/docs build this deployment installs in a project (`APP_CONFIG pkgPrNewRef`):
+/** The @iterate-com/docs build this deployment installs in a project (`ITERATE_APP pkgPrNewRef`):
  *  production's `main` is the npm version main's dist-tag names now, and a per-commit deployment's
  *  commit its own pkg.pr.new build (iterate/package-builds `buildVersion`). Asked in the app's Worker,
  *  as pkg.pr.new's headers are no page's to read. */

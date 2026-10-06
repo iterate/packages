@@ -115,7 +115,7 @@ const SIGNED_IN = "00000000-0000-4000-8000-000000000001";
  *  and one browser session, signed in, whose cookie is `SIGNED_IN`. */
 function testEntry(app: Parameters<typeof appServerEntry>[1]) {
   Object.assign(env, {
-    APP_CONFIG: JSON.stringify({ urls: { os: "https://os.example" }, denyZones: ["example"] }),
+    ITERATE_APP: JSON.stringify({ urls: { os: "https://os.example" }, denyZones: ["example"] }),
     ASSETS: {
       fetch: async (request: Request) =>
         new URL(request.url).pathname === "/client-logo.svg"

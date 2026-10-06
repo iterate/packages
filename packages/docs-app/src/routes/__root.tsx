@@ -5,7 +5,7 @@ import { appHead } from "@iterate-com/ui/apps/head";
 import { startAppConfigOf } from "@iterate-com/shared/start-app-config";
 import { underBasePath } from "@iterate-com/ui/apps/base-path";
 import css from "../styles.css?url";
-/** What the worker's `APP_CONFIG` says about this deployment: its PostHog project key (envs.ts,
+/** What the worker's `ITERATE_APP` says about this deployment: its PostHog project key (envs.ts,
  *  prd only) and its dash, where a doc's "Stream ↗" goes (`urls.dash`; null when it names none). */
 const deployment = createServerFn().handler(async () => {
   const { env } = await import("cloudflare:workers");

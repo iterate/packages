@@ -13,7 +13,7 @@ which it has where its platform has telemetry; elsewhere, and in local dev, the 
 
 Local dev: `pnpm dev` (Vite, with the Cloudflare plugin's local workerd). It talks to
 `https://os.iterate.com` by default; to use a local OS (`pnpm --dir ../os dev -- --port 8788`)
-put `APP_CONFIG__URLS__OS=http://localhost:8788` in a gitignored `.dev.vars` here.
+put `ITERATE_APP__URLS__OS=http://localhost:8788` in a gitignored `.dev.vars` here.
 
 Deploy: `pnpm --dir packages/admin run deploy --env prd` (`.depot/workflows/deploy-admin.yml` on every
 merge to main). Deployment configuration lives in `adminEnvs` in the root `envs.ts`.

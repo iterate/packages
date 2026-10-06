@@ -1,18 +1,18 @@
 // start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
 // docs, admin and voice, TanStack Start apps that are each an OAuth client of core/os and nothing
-// else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `APP_CONFIG` object, and any key set alone
-// as an `APP_CONFIG__*` var merged on top.
+// else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
+// as an `ITERATE_APP__*` var merged on top.
 //
 //   { urls: { os, dash, agents, notes, docs, admin, voice }, denyZones, posthogProjectKey, pkgPrNewRef }
 //
-// scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `APP_CONFIG` var
+// scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
 // (`startAppPreviewConfig`). The apps hold no secrets, so nothing comes from Doppler. Local dev
 // starts from prd's and names a local platform, or a local app, in the app's gitignored
 // `.dev.vars`:
 //
-//   APP_CONFIG__URLS__OS=http://localhost:8788
-//   APP_CONFIG__URLS__VOICE=http://localhost:5174
+//   ITERATE_APP__URLS__OS=http://localhost:8788
+//   ITERATE_APP__URLS__VOICE=http://localhost:5174
 
 import { z } from "zod";
 import { dnsName, httpOrigin, optionalOrigin, parseAppConfigVars } from "iterate/app-config";
@@ -68,7 +68,7 @@ const startAppConfigByEnv = new WeakMap<object, StartAppConfig>();
 export function startAppConfigOf(env: object): StartAppConfig {
   let config = startAppConfigByEnv.get(env);
   if (!config) {
-    config = parseAppConfigVars(env, StartAppConfig, { prefix: "APP_CONFIG" });
+    config = parseAppConfigVars(env, StartAppConfig, { prefix: "ITERATE_APP" });
     startAppConfigByEnv.set(env, config);
   }
   return config;
