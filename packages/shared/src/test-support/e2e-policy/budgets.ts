@@ -117,6 +117,12 @@ export const UNIT_ROW_WARN_EXEMPTIONS: Record<string, string> = {
     "a heap-capped child process",
   "a revocation answers the very next call from another context: a mask on a warm child's parent, a provide withdrawn, a route made private":
     "waits out two revocation fences, each the real 5 s rule-snapshot lifetime",
+  "a facet restart ends at the start watchdog even while a timer the context set before it comes due — the context is not reset":
+    "waits the facet start watchdog's real 10 s clock",
+  "a timer set inside blockConcurrencyWhile fires while one the object set before it is due":
+    "waits the facet start watchdog's real 10 s clock",
+  "a commit that changes only AGENTS.md and a module agents.ts does not import publishes agents.ts under the identity it had, and the facet answers from the same instance; a commit to a module it imports restarts it":
+    "waits out two re-points of the config pointer, each the real 5 s rule-snapshot lifetime",
 };
 
 /**
