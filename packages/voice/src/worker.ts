@@ -5,16 +5,15 @@
  *
  *   await root.voice.setupVoiceAgent({ streamPath, activation, screen? })   // → { streamPath }
  *
- * The call is an agent: normal agent creation establishes the parent link, catalog entry
- * and the agents app's processor, which answers every delegation. Then one append installs the
- * voice relay's subscription, starts the call (so the relay dials the provider before the first
- * microphone frame arrives) and gives the agent its spoken-conversation instructions. The device
- * carries no source or class name: the relay is `voice.ts`'s class of the project's published
- * config, the module this worker is (install.ts `voiceAgentFacetSpec`).
+ * The call is an agent: normal agent creation establishes the parent link (to the context that
+ * pressed), catalog entry and the agents app's processor, which answers every delegation. Then one
+ * append installs the voice relay's subscription, starts the call (so the relay dials the provider
+ * before the first microphone frame arrives) and gives the agent its spoken-conversation
+ * instructions. The device carries no source or class name: the relay is `voice.ts`'s class of
+ * the project's published config, the module this worker is (install.ts `voiceAgentFacetSpec`).
  */
-// registers `itx.agents` on InstalledAppRoots
-import type {} from "iterate/agents";
-import type { IterateContextApiWith } from "iterate/api";
+import type { AgentsRootApi } from "iterate/agents";
+import type { IterateContextApi } from "iterate/api";
 import { bytesToBase64 } from "iterate/lib";
 import { IterateConfigEntrypoint } from "iterate/sdk";
 import type { VoiceApi } from "./api.ts";
@@ -159,11 +158,14 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
     const screenDevice = options.screen
       ? ScreenImageInput.shape.device.parse(options.screen)
       : undefined;
-    // `itx.agents` is the rewrite rule the agents app mounts, installed by the same init case.
-    using itx = this.getItx() as IterateContextApiWith<"agents"> & Disposable;
-    // Normal agent creation establishes the creator link and the agent
-    // that answers the call's delegations, before the relay needs project code or egress.
-    await itx.agents.create(streamPath);
+    // `itx.agents` is the rewrite rule the agents app mounts on the root, installed by the same init
+    // case, and this scope is the root's, so it is the root collection, `at` included.
+    using itx = this.getItx() as IterateContextApi & { agents: AgentsRootApi } & Disposable;
+    // Normal agent creation establishes the parent link and the agent that answers the call's
+    // delegations, before the relay needs project code or egress. The link goes to the context
+    // that asked (`callerPath`), not to the root this worker runs as: every context linked to the
+    // root inherits `itx.voice`, and a call's agent holds no more than the context that placed it.
+    await itx.agents.at(this.callerPath()).create(streamPath);
     /* The agent's instructions are its own `context-added` items, which start no turn: the
      * first turn is the first hand-over (voice-agent.ts). */
     const instruction = (key: string, content: string) => ({

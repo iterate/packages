@@ -2,7 +2,7 @@
  * One GPT-Live voice call as a facet processor, one facet per conversation
  * context: it holds the provider socket, forwards microphone frames in and
  * speaker frames out, and folds the transcript. The context is an agent
- * (`itx.agents.create` in worker.ts), and the agents app's processor runs on
+ * (`itx.agents.at(caller).create` in worker.ts), and the agents app's processor runs on
  * it beside this one: each delegation the live model raises is handed to that
  * agent as a message (`itx.agents.get(path).message(words)`), and the agent's
  * answers go back to the live model to speak.
@@ -1400,7 +1400,7 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
     projectContext: async () => JSON.stringify(await this.#identity()),
     messageAgent: async (words) => {
       const { path } = await this.#identity();
-      // This context's own `itx.agents` rule, which the press's `itx.agents.create` wrote
+      // This context's own `itx.agents` rule, which the press's agent creation wrote
       // (worker.ts): loaded code reaches no collection above it, so the agent reads the words as
       // sent from this context, `[from <path>]`.
       using itx = this.getItx() as IterateContextApiWith<"agents"> & Disposable;

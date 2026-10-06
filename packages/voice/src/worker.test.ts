@@ -60,7 +60,7 @@ test("an incorrect device acknowledgment stops the upload", async () => {
 test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_edition"])(
   "%s: the press puts the relay beside the call's agent and gives the agent its instructions, the screen guide only to a screen",
   async (device) => {
-    const { worker, append, create } = await harness();
+    const { worker, append, at, create } = await harness();
     const screen = device !== "home_assistant_voice_preview_edition";
     const streamPath = `/agents/voice/${device}/2026-09-28-101500-test`;
     await worker.setupVoiceAgent({
@@ -68,6 +68,7 @@ test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_e
       activation: "test",
       ...(screen && { screen: device }),
     });
+    expect(at).toHaveBeenCalledExactlyOnceWith("/");
     expect(create).toHaveBeenCalledExactlyOnceWith(streamPath);
     expect(create.mock.invocationCallOrder[0]).toBeLessThan(append.mock.invocationCallOrder[0]!);
     expect(append).toHaveBeenCalledTimes(1);
@@ -132,6 +133,13 @@ test("a screen that is not an itx.clients name is refused before the agent exist
     }),
   ).rejects.toThrow();
   expect(create).not.toHaveBeenCalled();
+});
+
+test("the press's agent is created by the collection as the context that asked sees it: its parent link is that context, not the root this worker runs as", async () => {
+  const { worker, at, create } = await harness(png(3, 0), {}, "/child");
+  await worker.setupVoiceAgent({ streamPath: "/child/v", activation: "pin" });
+  expect(at).toHaveBeenCalledExactlyOnceWith("/child");
+  expect(create).toHaveBeenCalledExactlyOnceWith("/child/v");
 });
 
 // Regression: a photo URL in the September 21 voice stream returned HTTP 404.
@@ -268,7 +276,8 @@ function loadVoiceWorker(): Promise<any> {
             builder.onLoad({ filter: /.*/, namespace: "test-runtime" }, () => ({
               contents: [
                 `import { itxScope } from ${JSON.stringify(itxScopeModule)};`,
-                "export class IterateConfigEntrypoint { constructor(env) { this.env = env; } getItx() { return itxScope(this.env.ITX); } }",
+                // `callerPath` as the platform hands it: the context the call came from
+                "export class IterateConfigEntrypoint { constructor(env, callerPath) { this.env = env; this.callerPath = () => callerPath; } getItx() { return itxScope(this.env.ITX); } }",
               ].join("\n"),
               resolveDir: new URL(".", import.meta.url).pathname,
             }));
@@ -332,7 +341,7 @@ function png(channels: 3 | 4, filter: number) {
   ]);
 }
 
-async function harness(image = png(3, 0), infoOverride = {}) {
+async function harness(image = png(3, 0), infoOverride = {}, callerPath = "/") {
   const VoiceWorker = await loadVoiceWorker();
   const info = {
     width: 400,
@@ -354,17 +363,20 @@ async function harness(image = png(3, 0), infoOverride = {}) {
     for (const event of events) admitLoadedCodeRow(event, "/agents/voice/test");
     return [];
   });
+  const create = vi.fn(async (_path: string) => ({}));
+  const at = vi.fn((_base: string) => ({ create }));
   const itx = {
-    agents: { create: vi.fn(async () => ({})) },
+    agents: { at },
     browser: { quickAction },
     clients: { waveshare_rlcd_4_2: { screen }, zectrix_note4: { screen }, tiny: { screen } },
     cd: vi.fn(() => ({ append })),
   };
   return {
-    worker: new VoiceWorker({ ITX: { get: () => itx } }),
+    worker: new VoiceWorker({ ITX: { get: () => itx } }, callerPath),
     quickAction,
     setImage,
     append,
-    create: itx.agents.create,
+    at,
+    create,
   };
 }
