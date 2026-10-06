@@ -57,6 +57,17 @@ const PANELS: { title: string; sql: (hours: number) => string }[] = [
       `SELECT ${bucket(hours)}, sum(double1) / ${hours} AS retries FROM events.analyticsEngine.iterate_metrics WHERE blob1 = 'subscription.retries' AND timestamp >= $start GROUP BY t ORDER BY t LIMIT 61`,
   },
   {
+    // each context measures itself at its wakes (core/os iterate-context-durable-object.ts)
+    title: "The largest contexts, SQLite bytes (Cloudflare caps a Durable Object at 10 GB)",
+    sql: () =>
+      "SELECT blob2 AS worker, blob3 AS project_id, blob4 AS path, APPROX_MAX(double1) AS bytes FROM events.analyticsEngine.iterate_metrics WHERE blob1 = 'context.size' AND timestamp >= $start GROUP BY worker, project_id, path ORDER BY bytes DESC LIMIT 10",
+  },
+  {
+    title: "The longest streams, head offset (events committed, ephemeral ones included)",
+    sql: () =>
+      "SELECT blob2 AS worker, blob3 AS project_id, blob4 AS path, APPROX_MAX(double2) AS events FROM events.analyticsEngine.iterate_metrics WHERE blob1 = 'context.size' AND timestamp >= $start GROUP BY worker, project_id, path ORDER BY events DESC LIMIT 10",
+  },
+  {
     title: "Data points per Worker",
     sql: () =>
       "SELECT blob2 AS worker, count() AS data_points FROM events.analyticsEngine.iterate_metrics WHERE timestamp >= $start GROUP BY worker ORDER BY data_points DESC LIMIT 20",

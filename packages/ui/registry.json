@@ -527,7 +527,7 @@
     {
       "name": "time-chart",
       "type": "registry:component",
-      "description": "Telemetry over time, charted with TanStack Charts: the admin app's /telemetry panels and the dash's project Health page.",
+      "description": "Telemetry over time, charted with TanStack Charts: the admin app's /telemetry panels and the dash's project Analytics page.",
       "dependencies": [
         "@tanstack/charts"
       ],

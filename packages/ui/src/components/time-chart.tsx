@@ -1,6 +1,6 @@
 // time-chart.tsx — telemetry over time, charted with TanStack Charts: the admin app's /telemetry
-// panels and the dash's project Health page. One component, so both read alike.
-import { colorLegend, defineChart, lineY, rect } from "@tanstack/charts";
+// panels and the dash's project Analytics page. One component, so both read alike.
+import { colorLegend, colorLegendItems, defineChart, lineY, rect } from "@tanstack/charts";
 import { Chart } from "@tanstack/charts/react";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { scaleOrdinal } from "@tanstack/charts/scales/ordinal";
@@ -8,8 +8,8 @@ import { tooltip } from "@tanstack/charts/tooltip";
 import { useMemo } from "react";
 
 /** Rows with a bucket `t` (unix seconds), charted from `from` to `to` (milliseconds): a series per
- *  other column, as lines, or as columns `bucket` seconds wide. A null is a gap; a missing bucket is
- *  none.
+ *  other column, at most five, as lines, or as columns `bucket` seconds wide. A null is a gap; a
+ *  missing bucket is none.
  *  Ticks fall on round UTC times. The window is fixed, so a live chart slides as `to` moves. */
 export function TimeChart({
   rows,
@@ -81,8 +81,9 @@ export function TimeChart({
         color: {
           scale: scaleOrdinal<string, string>()
             .domain(series)
-            .range(["var(--ts-chart-1)", "var(--ts-chart-2)"]),
-          legend: colorLegend(),
+            .range([1, 2, 3, 4, 5].map((slot) => `var(--ts-chart-${slot})`)),
+          // labels at their own width, wrapping, so a long one (a context path) is not cut
+          legend: colorLegend({ items: colorLegendItems({ justify: "start" }) }),
         },
       }),
       tooltip: {
@@ -94,8 +95,10 @@ export function TimeChart({
   }, [rows, from, to, bucket]);
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No data yet.</p>;
   return (
-    // categorical slots 1 and 2 of the validated default data-viz palette
-    <div className="min-w-0 [--ts-chart-1:#2a78d6] [--ts-chart-2:#eb6834]">
+    // categorical slots 1 to 5 of the validated default data-viz palette, in its order: every
+    // adjacent pair passes the colorblind checks on white, but slots 3 to 5 are under 3:1 contrast,
+    // so a chart of more than two series has a table of its values beside it
+    <div className="min-w-0 [--ts-chart-1:#2a78d6] [--ts-chart-2:#eb6834] [--ts-chart-3:#1baf7a] [--ts-chart-4:#eda100] [--ts-chart-5:#e87ba4]">
       <Chart
         definition={definition}
         height={height}
