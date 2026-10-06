@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { useParams, useRouterState } from "@tanstack/react-router";
 import type { Principal } from "iterate/principal";
 import type { AppPaletteEntry } from "#/components/app-shell-palette-entries.ts";
 import { AppShell, type AppShellProject } from "#/components/app-shell.tsx";
+import { DefaultPendingComponent } from "#/components/route-defaults.tsx";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,7 +31,8 @@ export function ProjectAppShell({
   project: AppShellProject;
   /** the path the page is served under when a project proxies the app (packages/ui/src/apps/base-path.ts) */
   basePath?: string;
-  account: Principal;
+  /** the person signed in; a placeholder until the session has answered (`ProjectAppFrame`) */
+  account?: Principal;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
   /** the app's own navigation in the sidebar, its `SidebarGroup`s (`AppShell`'s `nav`, which ⌘K
@@ -63,5 +66,28 @@ export function ProjectAppShell({
     >
       {children}
     </AppShell>
+  );
+}
+
+/** A project's page before it has loaded, drawn from the URL alone: `ProjectAppShell` with the
+ *  project by its slug, a placeholder for the account and a spinner for the page. An app names it
+ *  as the `pendingComponent` of its `_auth` route, whose `ssr: false` makes it the server's HTML
+ *  and the page until the browser has signed in, and of its project route, so the frame stays
+ *  while that route reads. A path without a project shows the spinner alone. */
+export function ProjectAppFrame({ app, basePath }: { app: string; basePath?: string }) {
+  const { slug } = useParams({ strict: false });
+  const locationKey = useRouterState({ select: (state) => state.location.href });
+  if (!slug) return <DefaultPendingComponent />;
+  const project = { id: slug, slug };
+  return (
+    <ProjectAppShell
+      app={app}
+      projects={[project]}
+      project={project}
+      basePath={basePath}
+      locationKey={locationKey}
+    >
+      <DefaultPendingComponent />
+    </ProjectAppShell>
   );
 }

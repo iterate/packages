@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { useFacetLiveState, useIterateContext } from "iterate/react";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
+import { ProjectAppFrame } from "@iterate-com/ui/components/project-app-shell";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -116,6 +117,8 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
       installed: true,
     };
   },
+  // the project's frame from the URL while the page reads
+  pendingComponent: () => <ProjectAppFrame app="Agents" />,
   component: AgentsPage,
 });
 

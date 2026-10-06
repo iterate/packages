@@ -9,7 +9,7 @@ import {
 } from "iterate/react";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Field, FieldLabel } from "@iterate-com/ui/components/ui/field";
-import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
+import { ProjectAppFrame, ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
 import { Textarea } from "@iterate-com/ui/components/ui/textarea";
 
 // Notes edits a file in the config repo through a project workspace.
@@ -42,8 +42,15 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
     });
     return { projects, project, note: note || "", tip, projectFacetSnapshot };
   },
+  // the project's frame from the URL while the page reads
+  pendingComponent: Frame,
   component: NotesPage,
 });
+
+/** The project's frame from the URL (`ProjectAppFrame`), its links under the page's base path. */
+function Frame() {
+  return <ProjectAppFrame app="Notes" basePath={Route.useRouteContext().basePath} />;
+}
 
 function NotesPage() {
   const data = Route.useLoaderData();

@@ -7,7 +7,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useMemo, useSyncExternalStore } from "react";
-import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
+import { ProjectAppFrame, ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
 import { DocsNav } from "../../components/docs-nav.tsx";
 import { DocList, DocListContext } from "../../lib/doc-list.ts";
 import { repoNames, repoPath } from "../../lib/docs-repo.ts";
@@ -22,8 +22,15 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
     if (!project) return context.signInFor(params.slug);
     return { projects, project };
   },
+  // the project's frame from the URL while the page reads
+  pendingComponent: Frame,
   component: ProjectDocs,
 });
+
+/** The project's frame from the URL (`ProjectAppFrame`), its links under the page's base path. */
+function Frame() {
+  return <ProjectAppFrame app="Docs" basePath={Route.useRouteContext().basePath} />;
+}
 
 function ProjectDocs() {
   const { projects, project, info, basePath, api } = Route.useRouteContext();

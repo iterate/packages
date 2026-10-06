@@ -9,7 +9,7 @@ import { AppBuild } from "@iterate-com/ui/components/app-build";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@iterate-com/ui/components/ui/field";
 import { Input } from "@iterate-com/ui/components/ui/input";
-import { ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
+import { ProjectAppFrame, ProjectAppShell } from "@iterate-com/ui/components/project-app-shell";
 import { cn } from "cn";
 import { buildStanding } from "iterate/package-builds";
 import { ensureVoiceAgent, upgradeVoice, voiceVersion } from "@iterate-com/voice/install";
@@ -58,6 +58,8 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
     };
     return { projects, project, voice };
   },
+  // the project's frame from the URL while the page reads
+  pendingComponent: () => <ProjectAppFrame app="Voice" />,
   component: CallPage,
 });
 

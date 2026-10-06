@@ -365,13 +365,15 @@
     {
       "name": "project-app-shell",
       "type": "registry:component",
-      "description": "The app shell for a page inside one project, with its breadcrumb.",
+      "description": "The app shell for a page inside one project, with its breadcrumb, and the frame it shows while the page loads.",
       "dependencies": [
+        "@tanstack/react-router",
         "iterate"
       ],
       "registryDependencies": [
         "breadcrumb",
-        "iterate/packages/app-shell"
+        "iterate/packages/app-shell",
+        "iterate/packages/route-defaults"
       ],
       "files": [
         {
