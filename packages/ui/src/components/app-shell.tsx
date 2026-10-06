@@ -23,6 +23,7 @@ import {
   ServerIcon,
   UsersIcon,
 } from "lucide-react";
+import { cn } from "cn";
 import type { Principal } from "iterate/principal";
 import {
   AppShellPalette,
@@ -62,6 +63,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "#/components/ui/sidebar.tsx";
+import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { resetPosthog } from "#/components/posthog.tsx";
 
 /** A project as the switcher lists it; `org` is its organization, when the app knows it — grouped
@@ -74,8 +76,8 @@ const subscribeToNothing = () => () => {};
 
 /** Frames a signed-in page. It reads the `sidebar_state` cookie shadcn's provider writes, so the
  *  sidebar reopens the way it was left — through `useSyncExternalStore`, which keeps the read out
- *  of render: a server render (no page frames itself here under SSR today) gets shadcn's default,
- *  open. */
+ *  of render: a server render (the dash's frame before sign-in, routes/_auth.tsx) gets shadcn's
+ *  default, open, until the page hydrates. */
 export function AppShell({
   app,
   projects,
@@ -115,8 +117,9 @@ export function AppShell({
   /** who the app is signed in as (`info.principal`); "Sign out" posts to the SDK's `/.auth/logout`,
    *  "Switch account…" signs in again through the issuer's consent. A platform admin signed in as
    *  someone (`impersonatedBy`) sees whom and who they are, above the account menu, with Stop
-   *  impersonating, which signs in again the same way (the issuer still knows them). */
-  account: Principal;
+   *  impersonating, which signs in again the same way (the issuer still knows them). None while the
+   *  app is still signing in: a placeholder of the menu's height holds its place. */
+  account?: Principal;
   /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s */
   accountActions?: ReactNode;
   /** the router's current href — a change closes the phone's sidebar sheet */
@@ -155,13 +158,21 @@ export function AppShell({
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>
         <SidebarFooter>
           <CollapseButton />
-          {account.impersonatedBy ? (
+          {account?.impersonatedBy ? (
             <ImpersonationMarker
               email={account.email || account.actor}
               admin={account.impersonatedBy.email}
             />
           ) : null}
-          <AccountMenu email={account.email || account.actor} actions={accountActions} />
+          {account ? (
+            <AccountMenu email={account.email || account.actor} actions={accountActions} />
+          ) : (
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarRowSkeleton className="h-12" />
+              </SidebarMenuItem>
+            </SidebarMenu>
+          )}
           <PlatformLine />
         </SidebarFooter>
         <SidebarRail />
@@ -184,6 +195,17 @@ export function AppShell({
         onNavigate={onNavigate}
       />
     </SidebarProvider>
+  );
+}
+
+/** A sidebar row while what it names loads: `SidebarMenuSkeleton`'s shape at a fixed width, so a
+ *  server render hydrates as it was drawn (the vendored one picks its width at random). */
+export function SidebarRowSkeleton({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex h-8 items-center gap-2 px-2", className)}>
+      <Skeleton className="size-4 rounded-md" />
+      <Skeleton className="h-4 w-2/3" />
+    </div>
   );
 }
 
@@ -363,17 +385,29 @@ function CollapseButton() {
   );
 }
 
+/** The page's one read of the gate (`PlatformLine`), and its answer once it has one. */
+let platformRead: Promise<void> | undefined;
+let platformAnswer: ConnectedPlatform | null = null;
+
 /** WHICH PLATFORM this app talks to (app-shell-platform.ts), so a person can tell a self-hosted
  *  platform from the app's own: quiet on the app's own platform, orange on any other, where a
  *  collapsed sidebar keeps the icon. Connecting to another platform is a full page load
- *  (`/.auth/connect`), so one read when the shell mounts holds for the page. A gate that does not
- *  answer leaves the line off. */
+ *  (`/.auth/connect`), so the page reads once, and a shell mounted again (the dash's frame, then
+ *  its signed-in shell) shows the answer at once. A gate that does not answer leaves the line off. */
 function PlatformLine() {
-  const [platform, setPlatform] = useState<ConnectedPlatform | null>(null);
+  const [platform, setPlatform] = useState(platformAnswer);
   useEffect(() => {
-    const abort = new AbortController();
-    void readConnectedPlatform(abort.signal).then(setPlatform, () => {});
-    return () => abort.abort();
+    let mounted = true;
+    platformRead ||= readConnectedPlatform(AbortSignal.timeout(10_000)).then(
+      (answer) => {
+        platformAnswer = answer;
+      },
+      () => {},
+    );
+    void platformRead.then(() => mounted && setPlatform(platformAnswer));
+    return () => {
+      mounted = false;
+    };
   }, []);
   if (!platform) return null;
   if (platform.isDefault)

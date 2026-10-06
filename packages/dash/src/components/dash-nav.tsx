@@ -25,11 +25,11 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@iterate-com/ui/components/ui/sidebar";
+import { SidebarRowSkeleton } from "@iterate-com/ui/components/app-shell";
 import { useOrganizationTree } from "./organization-tree.tsx";
 
 /** The root loader's: the directory of apps this deployment has (apps.ts `appDirectory`). */
@@ -60,9 +60,14 @@ const ACCOUNT_PAGES = [
 export function ProjectNav({
   project,
   host,
+  signingIn,
 }: {
-  project: { id: string; slug: string };
+  project: { slug: string };
+  /** the project's own site; null when this deployment serves none */
   host: string | null;
+  /** before sign-in (the shell's frame, routes/_auth.tsx) the site is not known yet: a placeholder
+   *  holds its row */
+  signingIn?: boolean;
 }) {
   const matchRoute = useMatchRoute();
   const { apps } = root.useLoaderData();
@@ -91,6 +96,11 @@ export function ProjectNav({
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
+          {signingIn ? (
+            <SidebarMenuItem>
+              <SidebarRowSkeleton />
+            </SidebarMenuItem>
+          ) : null}
           {host ? (
             <SidebarMenuItem>
               <SidebarMenuButton
@@ -197,7 +207,7 @@ function OrganizationTreeNav() {
         <SidebarMenu>
           {!tree.loaded && !tree.organizations.length ? (
             <SidebarMenuItem>
-              <SidebarMenuSkeleton showIcon />
+              <SidebarRowSkeleton />
             </SidebarMenuItem>
           ) : null}
           {tree.error ? (

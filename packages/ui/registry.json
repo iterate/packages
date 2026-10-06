@@ -27,6 +27,7 @@
       "description": "The client apps' shell: the sidebar with the project switcher, the app's pages, the account menu and the platform the app is connected to, and ⌘K over the projects and pages.",
       "dependencies": [
         "cmdk",
+        "cn",
         "iterate",
         "lucide-react",
         "zod"
@@ -40,7 +41,8 @@
         "iterate/packages/iterate-logo",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
-        "sidebar"
+        "sidebar",
+        "skeleton"
       ],
       "files": [
         {

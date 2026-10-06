@@ -3,19 +3,23 @@
 // again as they change (components/organization-tree.tsx) — and frame every child in the shared `AppShell` (packages/ui,
 // the same frame agents, notes and voice use). Consent is task-based: the dash asks for `iterate`,
 // `account` and `organizations:write`, the person may untick the optional two, and the pages read
-// `info.scopes` for what they may do.
+// `info.scopes` for what they may do. Until the browser has signed in — and in the server's HTML,
+// since signing in happens in the browser — the route shows `Frame`: the same shell, drawn from the
+// URL alone.
 import {
   createFileRoute,
   Link,
   Outlet,
   useMatch,
   useMatches,
+  useParams,
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
 import { ArrowLeft, KeyRound, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
+import { DefaultPendingComponent } from "@iterate-com/ui/components/route-defaults";
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -32,8 +36,40 @@ import { iterateClient } from "../lib/iterate-client.ts";
 export const Route = createFileRoute("/_auth")({
   ssr: false,
   beforeLoad: ({ location }) => iterateClient.authenticate(location.href),
+  pendingComponent: Frame,
   component: Shell,
 });
+
+/** The label the deepest page that names itself gives (`staticData: { page }`), for the header. */
+function usePageLabel() {
+  return useMatches()
+    .map((match) => match.staticData.page)
+    .filter((label): label is string => Boolean(label))
+    .at(-1);
+}
+
+/** The shell before sign-in, from what the URL says: the navigation, the header, and the project by
+ *  its slug, which is all the switcher shows of it. What only the session knows (the person, their
+ *  projects, the project's site) is a placeholder, and the page a spinner, until `Shell` replaces
+ *  it in place. */
+function Frame() {
+  const href = useRouterState({ select: (state) => state.location.href });
+  const { slug } = useParams({ strict: false });
+  const page = usePageLabel();
+  return (
+    <AppShell
+      app="iterate"
+      projects={slug ? [{ id: slug, slug }] : []}
+      activeProjectId={slug || null}
+      projectHref={(project) => `/projects/${project.slug}`}
+      nav={slug ? <ProjectNav project={{ slug }} host={null} signingIn /> : <TopLevelNav />}
+      header={<DashBreadcrumbs project={null} page={page} />}
+      locationKey={href}
+    >
+      <DefaultPendingComponent />
+    </AppShell>
+  );
+}
 
 function Shell() {
   const { api, info } = Route.useRouteContext();
@@ -42,11 +78,7 @@ function Shell() {
   const tree = useOrganizationTree();
   // inside a project: the one its route resolved (projects/$slug/route.tsx)
   const active = useMatch({ from: "/_auth/projects/$slug", shouldThrow: false })?.context.project;
-  const matches = useMatches();
-  const page = matches
-    .map((match) => match.staticData.page)
-    .filter((label): label is string => Boolean(label))
-    .at(-1);
+  const page = usePageLabel();
   // PostHog: the person is the platform user id (the same person in every app); the groups are the
   // project on screen and its organization, keyed by id (docs: organization, then project).
   const activeOrg = active && tree.organizations.find((org) => org.id === active.orgId);

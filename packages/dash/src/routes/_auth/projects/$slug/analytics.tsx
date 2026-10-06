@@ -4,7 +4,7 @@
 // context stores; a search of its log lines; and a box that runs any SELECT over the same tables,
 // cut to this project. Every row of a result opens the raw data under it in the page's sheet.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { Await, createFileRoute } from "@tanstack/react-router";
 import { cn } from "cn";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@iterate-com/ui/components/ui/card";
 import { Input } from "@iterate-com/ui/components/ui/input";
+import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import {
   Sheet,
   SheetContent,
@@ -107,17 +108,21 @@ const CONTEXT_STORAGE_LIMIT = 10e9;
 const JSON_COLUMNS = new Set(["payload", "body", "attributes", "actor", "cause_chain"]);
 
 export const Route = createFileRoute("/_auth/projects/$slug/analytics")({
-  // the day's charts and the storage table; the Activity section reads once the page shows
-  loader: ({ context }) =>
-    context.read(async (api) => {
-      using project = api.projects.get(context.project.id);
-      const at = Date.now();
-      const [day, storage] = await Promise.all([
-        Promise.all(DAY.map(({ sql }) => queryOf(project, sql))),
-        queryOf(project, STORAGE_SQL, 720),
-      ]);
-      return { at, day, storage };
-    }),
+  // the day's charts and the storage table, unawaited: the page shows at once, and each card awaits
+  // its own answer. Each query is a `read` of its own: a read's HTTP batch ends when its callback
+  // returns. The Activity section reads once the page shows.
+  loader: ({ context }) => {
+    const query = (sql: string, hours?: number) =>
+      context.read(async (api) => {
+        using project = api.projects.get(context.project.id);
+        return await queryOf(project, sql, hours);
+      });
+    return {
+      at: Date.now(),
+      day: DAY.map(({ sql }) => query(sql)),
+      storage: query(STORAGE_SQL, 720),
+    };
+  },
   staticData: { page: "Analytics" },
   head: ({ params }) => ({ meta: [{ title: `Analytics · ${params.slug} · Dash` }] }),
   component: ProjectAnalytics,
@@ -219,22 +224,36 @@ function ProjectAnalytics() {
         </p>
         <div className="grid gap-4 md:grid-cols-3">
           {DAY.map(({ title, unit, column }, index) => (
+            // the card at once; its number and its chart once its query answers
             <Chart
               key={title}
               title={title}
               unit={unit}
-              error={day[index]!.error}
-              headline={`${format(sum(day[index]!.rows, column))} in the last 24 hours`}
+              headline={
+                <Await promise={day[index]!} fallback={<Spinner />}>
+                  {({ rows, error }) =>
+                    error ? null : `${format(sum(rows, column))} in the last 24 hours`
+                  }
+                </Await>
+              }
             >
-              <TimeChart
-                rows={day[index]!.rows}
-                from={at - 86_400_000}
-                to={at}
-                label={`${title}, ${unit}`}
-                bucket={3600}
-                height={160}
-                initialWidth={300}
-              />
+              <Await promise={day[index]!} fallback={<div className="h-40" />}>
+                {({ rows, error }) =>
+                  error ? (
+                    <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+                  ) : (
+                    <TimeChart
+                      rows={rows}
+                      from={at - 86_400_000}
+                      to={at}
+                      label={`${title}, ${unit}`}
+                      bucket={3600}
+                      height={160}
+                      initialWidth={300}
+                    />
+                  )
+                }
+              </Await>
             </Chart>
           ))}
         </div>
@@ -314,7 +333,7 @@ function Chart({
 }: {
   title: string;
   unit: string;
-  headline?: string;
+  headline?: ReactNode;
   error?: string;
   children: ReactNode;
 }) {
@@ -460,8 +479,8 @@ function Busiest({ dimension, at, answer }: { dimension: Dimension; at: number; 
 }
 
 /** Each context's database, the 20 largest of the last 30 days, against what a context can store;
- *  a row opens the context's latest events. */
-function Storage({ answer }: { answer: Answer }) {
+ *  a row opens the context's latest events. The card shows at once, its table once `answer` has. */
+function Storage({ answer }: { answer: Promise<Answer> }) {
   return (
     <Card data-testid="storage">
       <CardHeader>
@@ -474,21 +493,25 @@ function Storage({ answer }: { answer: Answer }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {answer.error ? (
-          <p className="text-sm text-muted-foreground">Unavailable: {answer.error}</p>
-        ) : (
-          <ResultTable
-            rows={answer.rows}
-            empty="No context has measured its size yet."
-            target={(row) => ({ column: "path", value: String(row.path) })}
-            columns={[
-              { head: "Context path", cell: (row) => String(row.path) },
-              { head: "Size", numeric: true, cell: (row) => bytesOf(Number(row.bytes)) },
-              { head: "Of 10 GB", cell: (row) => <Share bytes={Number(row.bytes)} /> },
-              count("Events", "events"),
-            ]}
-          />
-        )}
+        <Await promise={answer} fallback={<Spinner />}>
+          {({ rows, error }) =>
+            error ? (
+              <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+            ) : (
+              <ResultTable
+                rows={rows}
+                empty="No context has measured its size yet."
+                target={(row) => ({ column: "path", value: String(row.path) })}
+                columns={[
+                  { head: "Context path", cell: (row) => String(row.path) },
+                  { head: "Size", numeric: true, cell: (row) => bytesOf(Number(row.bytes)) },
+                  { head: "Of 10 GB", cell: (row) => <Share bytes={Number(row.bytes)} /> },
+                  count("Events", "events"),
+                ]}
+              />
+            )
+          }
+        </Await>
       </CardContent>
     </Card>
   );
