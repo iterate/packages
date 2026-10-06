@@ -8,23 +8,28 @@ import type { RepoLogEntry } from "iterate/api";
 
 export type RepoProject = Awaited<ReturnType<AuthenticatedApp["api"]["projects"]["get"]>>;
 
+/** `refreshing`: a newer read is in flight, and `value` is the one before it. */
 export type Read<T> =
   | { status: "pending" }
   | { status: "failed"; message: string }
-  | { status: "loaded"; value: T };
+  | { status: "loaded"; value: T; refreshing: boolean };
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** One async read as render state, made again when `deps` change: the earlier read's answer is
- *  dropped, and until the new one lands the last loaded value stays (a file read again after a
- *  commit does not blink to a spinner and lose the reader's place). */
-export function useRead<T>(read: () => Promise<T>, deps: DependencyList): Read<T> {
+ *  dropped, and until the new one lands the last loaded value stays, marked `refreshing` (a file
+ *  read again after a commit does not blink to a spinner and lose the reader's place). No `read`
+ *  reads nothing and leaves the state as it is. */
+export function useRead<T>(read: (() => Promise<T>) | undefined, deps: DependencyList): Read<T> {
   const [state, setState] = useState<Read<T>>({ status: "pending" });
   useEffect(() => {
+    if (!read) return;
     let current = true;
-    setState((previous) => (previous.status === "loaded" ? previous : { status: "pending" }));
+    setState((previous) =>
+      previous.status === "loaded" ? { ...previous, refreshing: true } : { status: "pending" },
+    );
     read().then(
-      (value) => current && setState({ status: "loaded", value }),
+      (value) => current && setState({ status: "loaded", value, refreshing: false }),
       (error: unknown) => current && setState({ status: "failed", message: messageOf(error) }),
     );
     return () => {
@@ -85,10 +90,13 @@ export function useRepoFiles(project: RepoProject | undefined, repoPath: string)
   const read = useCallback(async () => {
     if (!project) return;
     const mine = ++newestRead.current;
+    setState((previous) =>
+      previous.status === "loaded" ? { ...previous, refreshing: true } : previous,
+    );
     try {
       using repo = project.repos.get(repoPath);
       const value = await repo.listFiles();
-      if (mine === newestRead.current) setState({ status: "loaded", value });
+      if (mine === newestRead.current) setState({ status: "loaded", value, refreshing: false });
     } catch (error) {
       if (mine === newestRead.current) setState({ status: "failed", message: messageOf(error) });
     }
@@ -108,18 +116,23 @@ export function useRepoFiles(project: RepoProject | undefined, repoPath: string)
 }
 
 /** The repo's newest commits, read while `enabled` (the History sidebar is open) and again when
- *  HEAD moves. */
+ *  HEAD moves. Closed, it reads nothing: History first opens on its loading state, not on an empty
+ *  list. */
 export function useRepoLog(
   project: RepoProject,
   repoPath: string,
   enabled: boolean,
   headOid: string | null,
 ) {
-  return useRead(async (): Promise<RepoLogEntry[]> => {
-    if (!enabled) return [];
-    using repo = project.repos.get(repoPath);
-    return await repo.log({ limit: 50 });
-  }, [project, repoPath, enabled, headOid]);
+  return useRead(
+    enabled
+      ? async (): Promise<RepoLogEntry[]> => {
+          using repo = project.repos.get(repoPath);
+          return await repo.log({ limit: 50 });
+        }
+      : undefined,
+    [project, repoPath, enabled, headOid],
+  );
 }
 
 /** A file's text at a commit, or at the tip with no commit; undefined when the repo has no such

@@ -1,4 +1,4 @@
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import type { RepoLogEntry } from "iterate/api";
 import { readChangedFiles, useRead, type RepoProject } from "./repo-client.ts";
 
@@ -28,6 +28,7 @@ function timeAgo(timestamp: number) {
  */
 export function CommitHistoryPanel({
   commits,
+  refreshing,
   project,
   repoPath,
   expandedOid,
@@ -36,6 +37,8 @@ export function CommitHistoryPanel({
   onOpenFile,
 }: {
   commits: RepoLogEntry[];
+  /** A newer read of the commits is in flight: the list shown is the one before it. */
+  refreshing: boolean;
   project: RepoProject;
   repoPath: string;
   /** The commit whose row is expanded (URL-owned view state). */
@@ -48,8 +51,16 @@ export function CommitHistoryPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           History
+          {refreshing ? (
+            <Loader2Icon
+              className="size-3 animate-spin"
+              role="status"
+              aria-label="Refreshing history"
+              data-spinner="true"
+            />
+          ) : null}
         </span>
         <span className="text-[11px] text-muted-foreground">
           main · {commits.length} commit{commits.length === 1 ? "" : "s"}

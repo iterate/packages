@@ -174,6 +174,7 @@ function RepoIdeSidebar({
     return (
       <CommitHistoryPanel
         commits={commits.value}
+        refreshing={commits.refreshing}
         project={project}
         repoPath={repoPath}
         expandedOid={search.commit}
