@@ -181,6 +181,7 @@ const ORGANIZATION_FACTS = [
   "events.iterate.com/organization/invitation-accepted",
   "events.iterate.com/organization/invitation-revoked",
   "events.iterate.com/organization/project-added",
+  "events.iterate.com/organization/project-renamed",
   "events.iterate.com/organization/project-removed",
 ];
 

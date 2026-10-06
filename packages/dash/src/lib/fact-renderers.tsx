@@ -77,6 +77,15 @@ const platformFactRenderers: EventRenderers = {
       </>
     );
   },
+  "events.iterate.com/organization/project-renamed": (e) => {
+    const p = record(e.payload);
+    return (
+      <>
+        Renamed the project <strong>{str(p.from)}</strong> to <strong>{str(p.to)}</strong>{" "}
+        {mono(str(p.projectId))}
+      </>
+    );
+  },
   "events.iterate.com/organization/project-removed": (e) => {
     const p = record(e.payload);
     return (
