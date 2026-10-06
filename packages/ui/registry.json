@@ -24,11 +24,12 @@
     {
       "name": "app-shell",
       "type": "registry:component",
-      "description": "The client apps' shell: the sidebar with the project switcher, the app's pages and the account menu, and ⌘K over both.",
+      "description": "The client apps' shell: the sidebar with the project switcher, the app's pages, the account menu and the platform the app is connected to, and ⌘K over the projects and pages.",
       "dependencies": [
         "cmdk",
         "iterate",
-        "lucide-react"
+        "lucide-react",
+        "zod"
       ],
       "registryDependencies": [
         "avatar",
@@ -52,6 +53,10 @@
         },
         {
           "path": "src/components/app-shell-palette-entries.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/app-shell-platform.ts",
           "type": "registry:component"
         }
       ]

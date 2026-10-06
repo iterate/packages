@@ -15,7 +15,6 @@ import {
 } from "@tanstack/react-router";
 import { ArrowLeft, KeyRound, Plus } from "lucide-react";
 import { useMemo } from "react";
-import { z } from "zod";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
 import {
   DropdownMenuGroup,
@@ -33,27 +32,10 @@ import { iterateClient } from "../lib/iterate-client.ts";
 export const Route = createFileRoute("/_auth")({
   ssr: false,
   beforeLoad: ({ location }) => iterateClient.authenticate(location.href),
-  // which issuer this browser is connected to (the gate's `/.auth/session.json`): the shell says
-  // so whenever it is not the deployment's own, so a person can tell their self-host from ours;
-  // a gate that does not answer leaves the label off
-  loader: async () => ({
-    issuerHost: await fetch("/.auth/session.json", { headers: { accept: "application/json" } })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const session = z
-          .object({ issuer: z.string().nullable(), defaultIssuer: z.string() })
-          .parse(await response.json());
-        return session.issuer && session.issuer !== session.defaultIssuer
-          ? new URL(session.issuer).host
-          : null;
-      })
-      .catch(() => null),
-  }),
   component: Shell,
 });
 
 function Shell() {
-  const { issuerHost } = Route.useLoaderData();
   const { api, info } = Route.useRouteContext();
   const router = useRouter();
   const href = useRouterState({ select: (state) => state.location.href });
@@ -133,16 +115,7 @@ function Shell() {
             <TopLevelNav />
           )
         }
-        header={
-          <>
-            <DashBreadcrumbs project={active || null} page={page} />
-            {issuerHost && (
-              <span className="ml-auto text-xs text-muted-foreground">
-                Connected to {issuerHost}
-              </span>
-            )}
-          </>
-        }
+        header={<DashBreadcrumbs project={active || null} page={page} />}
         account={info.principal}
         accountActions={
           <>

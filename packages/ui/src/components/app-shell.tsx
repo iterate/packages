@@ -1,9 +1,9 @@
-// The one shell for the client apps (agents, notes, voice, dash): the sidebar (the project
-// switcher in its header, the app's own navigation in its body, the collapse button and the account
-// menu in its footer, the rail) and the page beside it under a header row that carries the phone's
-// sidebar trigger — and ⌘K, a palette over the projects and the sidebar's pages
-// (app-shell-palette.tsx). Router-agnostic on purpose:
-// the app hands over hrefs and its current location, nothing from TanStack comes in here.
+// The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
+// project switcher in its header, the app's own navigation in its body, the collapse button, the
+// account menu and the platform the app is connected to in its footer, the rail) and the page
+// beside it under a header row that carries the phone's sidebar trigger — and ⌘K, a palette over
+// the projects and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
+// hands over hrefs and its current location, nothing from TanStack comes in here.
 import {
   useCallback,
   useEffect,
@@ -20,6 +20,7 @@ import {
   ChevronsUpDownIcon,
   EyeIcon,
   LogOutIcon,
+  ServerIcon,
   UsersIcon,
 } from "lucide-react";
 import type { Principal } from "iterate/principal";
@@ -34,6 +35,7 @@ import {
   type AppPaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
+import { readConnectedPlatform, type ConnectedPlatform } from "./app-shell-platform.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import {
@@ -160,6 +162,7 @@ export function AppShell({
             />
           ) : null}
           <AccountMenu email={account.email || account.actor} actions={accountActions} />
+          <PlatformLine />
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
@@ -357,6 +360,38 @@ function CollapseButton() {
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>
+  );
+}
+
+/** WHICH PLATFORM this app talks to (app-shell-platform.ts), so a person can tell a self-hosted
+ *  platform from the app's own: quiet on the app's own platform, orange on any other, where a
+ *  collapsed sidebar keeps the icon. Connecting to another platform is a full page load
+ *  (`/.auth/connect`), so one read when the shell mounts holds for the page. A gate that does not
+ *  answer leaves the line off. */
+function PlatformLine() {
+  const [platform, setPlatform] = useState<ConnectedPlatform | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    void readConnectedPlatform(abort.signal).then(setPlatform, () => {});
+    return () => abort.abort();
+  }, []);
+  if (!platform) return null;
+  if (platform.isDefault)
+    return (
+      <p className="px-2 text-xs wrap-anywhere text-muted-foreground group-data-[collapsible=icon]:hidden">
+        Connected to {platform.host}
+      </p>
+    );
+  return (
+    <p
+      title={`Connected to ${platform.host}. This app's own platform is ${platform.defaultHost}.`}
+      className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-xs text-orange-900 group-data-[collapsible=icon]:border-0"
+    >
+      <ServerIcon className="size-4 shrink-0 text-orange-600" aria-hidden />
+      <span className="min-w-0 wrap-anywhere group-data-[collapsible=icon]:sr-only">
+        Connected to <strong className="font-semibold">{platform.host}</strong>
+      </span>
+    </p>
   );
 }
 
