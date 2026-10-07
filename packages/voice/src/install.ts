@@ -70,7 +70,7 @@ export async function ensureVoiceAgent(
     repo.tip().then(
       (tip) => ({ tip }),
       (error: unknown) => {
-        if (/: not created —/.test(String(error))) return undefined;
+        if (errorCode(error) === "NOT_CREATED") return undefined;
         throw error;
       },
     ),

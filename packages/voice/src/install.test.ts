@@ -261,7 +261,11 @@ function project({
   let publishedCommit = published;
   // every verb of a repo whose certificate has not landed refuses (core/os entity-lifecycle.ts)
   const notCreated = () =>
-    new Error('repo /repos/config: not created — itx.repos.create("/repos/config") first');
+    codedError(
+      "NOT_CREATED",
+      'repo /repos/config: not created — itx.repos.create("/repos/config") first',
+      { path: "/repos/config" },
+    );
   const repo = {
     tip: async () => {
       if (!seeded) throw notCreated();
