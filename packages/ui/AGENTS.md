@@ -414,6 +414,11 @@ const log = useIterateContext(agent.stub, agentChatContextOptions);
   installs the item from the registry copies those lines, or its tokens appear without it.
 - **Tests** sit beside the files: the reducer's (`agent-ui-reducer.test.ts`) and the log's
   (`agent-events.test.ts`). `.agents/skills/fix-stream` says which a broken chat adds a row to.
+- **A page to copy**: `examples/agent-chat-page.ts`, a member's page on a project's own host. Its
+  `itemFooter` puts a link under each thing a person said, which opens that event in the Events tab.
+- **The spec** (`test/playwright/ui/agent-chat.spec.ts`) commits the example to a fresh project,
+  lends the agent a scripted model, and drives the chat: a message, the answer, its trace, the
+  page's own row.
 
 ## Every app's shell
 
