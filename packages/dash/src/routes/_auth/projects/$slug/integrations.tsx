@@ -173,7 +173,7 @@ function ProjectIntegrations() {
   const firstField = useRef<HTMLInputElement>(null);
 
   /** One verb at a time. A connect that leaves for the provider keeps its spinner up until the
-   *  browser has gone, and a Disconnect until the project's live state drops the connection. */
+   *  browser has gone, and a Disconnect or a Remove until the project's live state drops its row. */
   const run = async (key: string, work: () => Promise<"leaving" | "dropping" | void>) => {
     setError(null);
     setBusy(key);
@@ -184,13 +184,16 @@ function ProjectIntegrations() {
       setBusy(null);
     }
   };
-  // A Disconnect's call can answer before the project's live state drops the connection. Its
-  // spinner goes with the row, in the same render, or when that live state fails (its error shows).
-  const disconnectingListed = rows.some((row) => busy === disconnectKeyOf(row));
+  // A Disconnect's or a Remove's call can answer before the project's live state drops its row.
+  // Its spinner goes with the row, in the same render, or when that live state fails (its error
+  // shows).
+  const dropping = busy?.startsWith("disconnect:") || busy?.startsWith("remove:");
+  const droppingListed =
+    rows.some((row) => busy === disconnectKeyOf(row)) ||
+    fromDeployment.some((path) => busy === removeKeyOf(path));
   useEffect(() => {
-    if (busy?.startsWith("disconnect:") && (!disconnectingListed || live.status === "error"))
-      setBusy(null);
-  }, [busy, disconnectingListed, live.status]);
+    if (dropping && (!droppingListed || live.status === "error")) setBusy(null);
+  }, [dropping, droppingListed, live.status]);
   const closeSheet = () => navigate({ search: {}, replace: true });
   const here = `${window.location.origin}/projects/${project.slug}/integrations`;
   const askedScopes = search.scopes?.split(" ").filter(Boolean);
@@ -367,42 +370,49 @@ function ProjectIntegrations() {
             Shared by this deployment
           </h2>
           <ul className="flex flex-col divide-y border-y" aria-label="Shared by this deployment">
-            {fromDeployment.map((path) => (
-              <li key={path} className="flex items-center gap-3 py-2">
-                <code className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{path}</code>
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={<Button variant="ghost" size="sm" />}
-                    disabled={Boolean(busy)}
-                  >
-                    {busy === `remove:${path}` ? <Spinner data-icon="inline-start" /> : null}
-                    Remove
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Remove {path}?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Agents here stop using it. Only this deployment's operator can share it
-                        again.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        variant="destructive"
-                        onClick={() =>
-                          void run(`remove:${path}`, async () => {
-                            await api.projects.get(project.id).secrets.delete(path);
-                          })
-                        }
-                      >
-                        Remove
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </li>
-            ))}
+            {fromDeployment.map((path) => {
+              const removing = busy === removeKeyOf(path);
+              return (
+                <li key={path} className="flex items-center gap-3 py-2">
+                  <code className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{path}</code>
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={<Button variant="ghost" size="sm" />}
+                      disabled={Boolean(busy)}
+                    >
+                      {removing ? <Spinner data-icon="inline-start" /> : null}
+                      Remove
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove {path}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Agents here stop using it. Only this deployment's operator can share it
+                          again.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        {/* the dialog stays open until the row goes, so the spinner is here too */}
+                        <AlertDialogAction
+                          variant="destructive"
+                          disabled={removing}
+                          onClick={() =>
+                            void run(removeKeyOf(path), async () => {
+                              await api.projects.get(project.id).secrets.delete(path);
+                              return "dropping";
+                            })
+                          }
+                        >
+                          {removing ? <Spinner data-icon="inline-start" /> : null}
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -769,6 +779,11 @@ function YourAccounts({
  *  name one connection. */
 function disconnectKeyOf(row: Connection) {
   return `disconnect:${row.provider}/${row.connection}`;
+}
+
+/** The page's `busy` while Remove takes a key the deployment shares out of the project: its path. */
+function removeKeyOf(path: string) {
+  return `remove:${path}`;
 }
 
 /** One of the project's connections: its account, whose it is and what it holds, and Disconnect —

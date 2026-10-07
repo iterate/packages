@@ -495,6 +495,11 @@ const AccountConnections = z.looseObject({
   ),
 });
 
+/** One of the person's connections: its provider and name, which together name it. */
+function connectionKeyOf(row: { provider: string; connection: string }) {
+  return `${row.provider}/${row.connection}`;
+}
+
 /** THE PERSON'S CONNECTED ACCOUNTS: listed live with the projects using each, disconnected (every
  *  project's use ends with it), or connected here through iterate's app (Google, Cloudflare; and
  *  GitHub, until they have one, as a sign-in added to their account). */
@@ -512,7 +517,14 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
       (lend) => slugOf.get(lend.to) || lend.to,
     );
   const [error, setError] = useState<string | null>(null);
+  /** The connection whose Disconnect runs (`connectionKeyOf`). */
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  // Disconnect stays busy until the account's live state drops the row, or fails, for the reason
+  // given beside `run` in projects/$slug/integrations.tsx.
+  const disconnectingListed = accounts.some((row) => disconnecting === connectionKeyOf(row));
+  useEffect(() => {
+    if (disconnecting && (!disconnectingListed || live.status === "error")) setDisconnecting(null);
+  }, [disconnecting, disconnectingListed, live.status]);
   const next = `${window.location.origin}/sessions`;
   const loadError = person.error || live.error || (read?.error && z.prettifyError(read.error));
   const { error: addError } = Route.useSearch();
@@ -576,11 +588,9 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
         <ul className="flex flex-col divide-y border-y" aria-label="Connected accounts">
           {accounts.map((row) => {
             const projectsUsing = usedBy(row);
+            const rowDisconnecting = disconnecting === connectionKeyOf(row);
             return (
-              <li
-                key={`${row.provider}-${row.connection}`}
-                className="flex items-center gap-3 py-3"
-              >
+              <li key={connectionKeyOf(row)} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium [overflow-wrap:anywhere]">{row.account}</p>
                   <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
@@ -593,7 +603,7 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
                     render={<Button variant="ghost" size="sm" />}
                     disabled={Boolean(disconnecting)}
                   >
-                    {disconnecting === row.connection ? <Spinner data-icon="inline-start" /> : null}
+                    {rowDisconnecting ? <Spinner data-icon="inline-start" /> : null}
                     Disconnect
                   </AlertDialogTrigger>
                   <AlertDialogContent>
@@ -608,20 +618,22 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      {/* the dialog stays open until the row goes, so the spinner is here too */}
                       <AlertDialogAction
                         variant="destructive"
+                        disabled={rowDisconnecting}
                         onClick={async () => {
                           setError(null);
-                          setDisconnecting(row.connection);
+                          setDisconnecting(connectionKeyOf(row));
                           try {
                             await api.user.integrations.disconnect(row.provider, row.connection);
                           } catch (caught) {
                             setError(caught instanceof Error ? caught.message : String(caught));
-                          } finally {
                             setDisconnecting(null);
                           }
                         }}
                       >
+                        {rowDisconnecting ? <Spinner data-icon="inline-start" /> : null}
                         Disconnect
                       </AlertDialogAction>
                     </AlertDialogFooter>
