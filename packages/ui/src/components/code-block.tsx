@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { cn } from "cn";
-import type { CodeBlockProps, SerializedObjectCodeBlockProps } from "./code-block.client.tsx";
+import type { SerializedObjectCodeBlockProps } from "./code-block.client.tsx";
+import type { SourceCodeBlockProps } from "./source-code-block.client.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 
 // Keep CodeMirror (languages, theme, search) out of the server bundle: the
@@ -8,33 +9,17 @@ import { Spinner } from "#/components/ui/spinner.tsx";
 // browser anyway. The type-only imports leave no runtime edge.
 const LazyCodeBlock = import.meta.env.SSR
   ? () => null
-  : lazy(async () => {
-      // The grammars load with CodeBlock alone: markdown brings html, css and javascript, which
-      // serialized data's chunk (yaml, json) would otherwise carry to the dash's event inspector.
-      const [{ CodeBlock }, { javascript }, { markdown }] = await Promise.all([
-        import("./code-block.client.tsx"),
-        import("@codemirror/lang-javascript"),
-        import("@codemirror/lang-markdown"),
-      ]);
-      const languages = {
-        typescript: javascript({ jsx: true, typescript: true }),
-        markdown: markdown(),
-      };
-      return {
-        default: ({ language, ...props }: SourceCodeBlockProps) => (
-          <CodeBlock {...props} language={languages[language]} />
-        ),
-      };
-    });
+  : // The grammars load with CodeBlock alone, in source-code-block.client.tsx: markdown brings html,
+    // css and javascript, which serialized data's chunk (yaml, json) would otherwise carry to the
+    // dash's event inspector.
+    lazy(async () => ({
+      default: (await import("./source-code-block.client.tsx")).SourceCodeBlock,
+    }));
 const LazySerializedBlock = import.meta.env.SSR
   ? () => null
   : lazy(async () => ({
       default: (await import("./code-block.client.tsx")).SerializedObjectCodeBlock,
     }));
-
-type SourceCodeBlockProps = Omit<CodeBlockProps, "language" | "toolbar"> & {
-  language: "typescript" | "markdown";
-};
 
 /** Read-only code with search, folding and a copy button (code-block.client.tsx). */
 export function CodeBlock(props: SourceCodeBlockProps) {

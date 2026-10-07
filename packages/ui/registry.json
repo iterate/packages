@@ -205,6 +205,10 @@
         {
           "path": "src/components/code-block.client.tsx",
           "type": "registry:component"
+        },
+        {
+          "path": "src/components/source-code-block.client.tsx",
+          "type": "registry:component"
         }
       ]
     },

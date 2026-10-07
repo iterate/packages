@@ -138,7 +138,8 @@ and uses it too:
   reaches a project by [signing in](#signing-in).
 - **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` project) serves this checkout's
   build from its folder and holds the shape: one React, nothing React-related from esm.sh,
-  CodeMirror only once an inspector opens, and react-query through `?external=react,react-dom`.
+  CodeMirror only once an inspector opens, a source file's code block drawn with its grammar, and
+  react-query through `?external=react,react-dom`.
 
 ### Another React library
 
