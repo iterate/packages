@@ -1,35 +1,35 @@
-// The traces, inspector sheets built over the page's own event array: the LLM request (what the
+// The traces, inspector sheets built over the chat's own event array: the LLM request (what the
 // model was sent, what it answered, what the loop derived) and the script run (the code, its
-// settlement, what the agent was told). One Sheet, URL-backed by the route's search params, so any
+// settlement, what the agent was told). One Sheet, opened by the chat's state (agent-chat-search.ts), so any
 // trace is a shareable link. The Events view is the raw log: one row per event, click to inspect.
 import { useState } from "react";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
-import { Button } from "@iterate-com/ui/components/ui/button";
-import { CodeBlock, SerializedObjectCodeBlock } from "@iterate-com/ui/components/code-block";
+import { toast } from "sonner";
+import { cn } from "cn";
+import { parseCodemodeResponse } from "iterate/agents/codemode-format";
+import type { StreamEvent } from "./stream-event.ts";
+import {
+  formatAgentUiDuration,
+  type AgentUiActivity,
+  type AgentUiLlmStep,
+} from "./agent-ui-reducer.ts";
+import { sliceText } from "./chunked-text.ts";
+import { formatDateTime, llmTrace, scriptTrace, type LlmTrace } from "./agent-events.ts";
+import { MessageResponse } from "./message.tsx";
+import { StreamingCursor, StreamingText } from "./streaming-text.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
+import { Spinner } from "#/components/ui/spinner.tsx";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@iterate-com/ui/components/ui/sheet";
-import { toast } from "sonner";
-import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@iterate-com/ui/components/ui/tabs";
-import { cn } from "cn";
-import { parseCodemodeResponse } from "iterate/agents/codemode-format";
-import type { StreamEvent } from "../lib/events/stream-event.ts";
-import {
-  formatAgentUiDuration,
-  type AgentUiActivity,
-  type AgentUiLlmStep,
-} from "../lib/events/agent-ui-reducer.ts";
-import { sliceText } from "../lib/chunked-text.ts";
-import { formatDateTime, llmTrace, scriptTrace, type LlmTrace } from "../lib/agent-events.ts";
-import { MessageResponse } from "./message.tsx";
-import { StreamingCursor, StreamingText } from "./streaming-text.tsx";
+} from "#/components/ui/sheet.tsx";
+import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
+import { Button } from "#/components/ui/button.tsx";
 
-/** Which trace the sheet shows — at most one; the route's search params carry it. */
+/** Which trace the sheet shows — at most one; the chat's state carries it. */
 export type Inspected =
   | { kind: "llmRequest"; llmRequestOffset: number }
   | { kind: "scriptRun"; requestOffset: number }

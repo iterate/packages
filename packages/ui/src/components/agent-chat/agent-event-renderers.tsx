@@ -1,12 +1,9 @@
 // How the Events tab reads an agent's log: one sentence per event type the agent loop records
-// (iterate/agents contract.ts) — the context view's renderer registry for this app. The
+// (iterate/agents contract.ts) — the context view's renderer registry for the agent chat. The
 // platform's own events (born, woke, script runs) come with the view; anything else falls back to
 // the view's default row.
-import type {
-  EventInspectors,
-  EventRenderers,
-} from "@iterate-com/ui/components/context-view/types";
-import { mono, record, str } from "@iterate-com/ui/components/context-view/renderer-helpers";
+import type { EventInspectors, EventRenderers } from "#/components/context-view/types.tsx";
+import { mono, record, str } from "#/components/context-view/renderer-helpers.tsx";
 
 const num = (value: unknown) => (typeof value === "number" ? String(value) : "?");
 /** The first line of a text, cut for a row. */

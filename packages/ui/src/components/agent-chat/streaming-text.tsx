@@ -3,7 +3,7 @@
 // blinking caret marks the tail.
 import { memo, useLayoutEffect, useRef } from "react";
 import { cn } from "cn";
-import { textGroupSize, type StreamText } from "../lib/chunked-text.ts";
+import { textGroupSize, type StreamText } from "./chunked-text.ts";
 import { FullTextSnapshot } from "./full-text-snapshot.tsx";
 
 /** Sealed groups keep their React subtree; only the small append tail changes. */

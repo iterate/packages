@@ -1,7 +1,7 @@
 // The feed rows: a person's message, the assistant's prose, and the quiet "Ran code 2× · 3
 // requests · 7.4 s" activity row that opens into rounds — the LLM step that wrote a script and the
 // code step that ran it, each a `Script | Result | Meta` tab group. Items come from the shared
-// reducer (lib/events/agent-ui-reducer.ts); this file owns only their look.
+// reducer (agent-ui-reducer.ts); this file owns only their look.
 import { useCallback, useEffect, useState } from "react";
 import {
   BanIcon,
@@ -12,10 +12,6 @@ import {
   PauseIcon,
   PlayIcon,
 } from "lucide-react";
-import { Button } from "@iterate-com/ui/components/ui/button";
-import { CodeBlock, SerializedObjectCodeBlock } from "@iterate-com/ui/components/code-block";
-import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@iterate-com/ui/components/ui/tabs";
 import { cn } from "cn";
 import {
   deriveAgentUiLiveStatus,
@@ -33,8 +29,8 @@ import {
   type AgentUiMessageItem,
   type AgentUiState,
   type AgentUiStep,
-} from "../lib/events/agent-ui-reducer.ts";
-import { sliceText } from "../lib/chunked-text.ts";
+} from "./agent-ui-reducer.ts";
+import { sliceText } from "./chunked-text.ts";
 import {
   formatClockTime,
   formatDateTime,
@@ -42,10 +38,14 @@ import {
   formatFileSize,
   liveActivityLabel,
   looksLikeCode,
-} from "../lib/agent-events.ts";
-import { useTickingNowMs } from "../lib/use-ticking-now-ms.ts";
+} from "./agent-events.ts";
+import { useTickingNowMs } from "./use-ticking-now-ms.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
+import { Spinner } from "#/components/ui/spinner.tsx";
+import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
+import { Button } from "#/components/ui/button.tsx";
 
 /** The two traces a row can open: an LLM request and a script run, each by its request's offset. */
 export type Inspect = {

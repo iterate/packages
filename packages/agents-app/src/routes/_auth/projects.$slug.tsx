@@ -9,10 +9,9 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CircleIcon } from "lucide-react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
-import { useFacetLiveState, useIterateContext } from "iterate/react";
+import { useIterateContext } from "iterate/react";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
 import { ProjectAppFrame } from "@iterate-com/ui/components/project-app-shell";
 import {
@@ -28,37 +27,18 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@iterate-com/ui/components/ui/empty";
-import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@iterate-com/ui/components/ui/tabs";
-import { cn } from "cn";
-import { ContextView } from "@iterate-com/ui/components/context-view/context-view";
 import {
-  ContextViewState,
-  RIGHT_EDGE_CLOSED,
-} from "@iterate-com/ui/components/context-view/context-view-search";
-import type { AgentUiLlmStep } from "../../lib/events/agent-ui-reducer.ts";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "../../components/conversation.tsx";
-import { AgentFeedItemRow, AgentLiveActivity, type Inspect } from "../../components/agent-feed.tsx";
-import { InspectorSheet, type Inspected } from "../../components/agent-inspectors.tsx";
-import { agentEventInspectors, agentEventRenderers } from "../../lib/agent-event-renderers.tsx";
+  AgentChat,
+  agentChatContextOptions,
+} from "@iterate-com/ui/components/agent-chat/agent-chat";
+import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 import { AgentsNav } from "../../components/agents-nav.tsx";
-import { AgentComposer, type StreamInterrupt } from "../../components/composer.tsx";
-import { QueuedMessagesPanel } from "../../components/queued-messages.tsx";
-import { reduceAgentFeed, toAgentEvent, traceOffsetByMessage } from "../../lib/agent-events.ts";
 import { newWebAgentPath } from "../../lib/web-agent.ts";
 import { useAgentSummaries } from "../../lib/use-agent-summaries.ts";
 
-// An agent is a conversation on its own path (`/agents/...`); everything it does is an event
-// there. This page is a window onto that log: the CHAT (the shared agent-UI reducer's items:
-// messages, and the activities that open into rounds of script + result), the EVENTS (the raw
-// log), and the TRACES (one sheet, URL-backed: an LLM request or a script run). The project
-// stub is held for the page's life; the agent's context is `project.cd(path)`, subscribed for
-// every committed event and caught up with `readEvents`. The header's status is the agent facet's
-// LIVE STATE.
+// The project's agents in the sidebar, and one agent's chat (`AgentChat`, whose file says what a
+// chat is) beside them. The project stub is held for the page's life; the agent's context is
+// `project.cd(path)`.
 type ProjectPromise = ReturnType<AuthenticatedApp["api"]["projects"]["get"]>;
 type Project = Awaited<ProjectPromise>;
 type Context = Awaited<ReturnType<Project["cd"]>>;
@@ -71,21 +51,11 @@ type Context = Awaited<ReturnType<Project["cd"]>>;
 const withAgents = <P extends Project | ProjectPromise>(itx: P) =>
   itx as P & Pick<IterateContextApiWith<"agents">, "agents">;
 
-/** What the page's subscription receives: every durable event (the Events view is the whole log)
- *  and, named — a wildcard never sweeps an ephemeral — the streamed chunk windows the feed folds
- *  into the answer being written. */
-const FEED_SUBSCRIPTION = ["*", "events.iterate.com/agent/llm-response-frame"];
-
 export const Route = createFileRoute("/_auth/projects/$slug")({
-  // THE PAGE IS A LINK: the agent, the tab, the two trace inspectors — and the context view's every
-  // choice (mode, filter, the inspected event, the open sheet) on the Events tab. A hand-edited value
-  // is an absent key, never an error page.
-  validateSearch: ContextViewState.extend({
-    agent: z.string().optional().catch(undefined),
-    view: z.enum(["chat", "events"]).optional().catch(undefined),
-    llmRequest: z.number().int().positive().optional().catch(undefined),
-    scriptRun: z.number().int().positive().optional().catch(undefined),
-  }),
+  // THE PAGE IS A LINK: the agent, and the chat's every choice (the tab, the open trace, the Events
+  // tab's mode, filter, inspected event and open sheet). A hand-edited value is an absent key,
+  // never an error page.
+  validateSearch: AgentChatState.extend({ agent: z.string().optional().catch(undefined) }),
   loaderDeps: ({ search }) => ({ agent: search.agent }),
   loader: async ({ context, params, deps }) => {
     const projects = await context.read((api) => api.projects.list());
@@ -263,136 +233,25 @@ function useAgentContext(
   return { context, error };
 }
 
-/** The agent's log, from the SDK's ONE `useIterateContext` over its context (subscribed for every
- *  committed event and the streamed chunk windows, caught up with `readEvents`; the processors
- *  table, who is here, and the live state of `core` and every hosted facet ride the same
- *  subscription), then — for the chat and its traces — each committed row as the shared reducer
- *  reads it (agent-events.ts). The raw log itself feeds the Events view untouched. */
-function useAgentLog(context: Context | undefined) {
-  // "all": the chat folds the whole log, so it reads every page, not only the newest
-  const iterateContext = useIterateContext(context, {
-    consumes: FEED_SUBSCRIPTION,
-    history: "all",
-  });
-  const events = useMemo(
-    () =>
-      iterateContext.events.flatMap((event) => {
-        const committed = toAgentEvent(event);
-        return committed ? [committed] : [];
-      }),
-    [iterateContext.events],
-  );
-  return {
-    iterateContext,
-    events,
-    caughtUp: iterateContext.caughtUp,
-    error: iterateContext.error || null,
-  };
-}
-
-/** The interrupt affordance for the running turn, shared by the composer and the queued
- *  panel. Null while nothing is running, so consumers gate on existence. */
-function useAgentInterrupt(args: {
-  onInterrupt: (() => Promise<void>) | undefined;
-  runningLlmRequestId: number | undefined;
-}): StreamInterrupt | null {
-  const [isInterrupting, setIsInterrupting] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-  const { onInterrupt, runningLlmRequestId } = args;
-  // An interrupt error belongs to the turn it failed against; without this a stale error would
-  // resurface on the NEXT turn. State-adjust-during-render per react.dev — no effect.
-  const [errorRequestId, setErrorRequestId] = useState(runningLlmRequestId);
-  if (errorRequestId !== runningLlmRequestId) {
-    setErrorRequestId(runningLlmRequestId);
-    setError(undefined);
-  }
-  if (!onInterrupt || runningLlmRequestId === undefined) return null;
-  return {
-    isInterrupting,
-    error,
-    run: async () => {
-      if (isInterrupting) return;
-      setIsInterrupting(true);
-      setError(undefined);
-      try {
-        await onInterrupt();
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      } finally {
-        setIsInterrupting(false);
-      }
-    },
-  };
-}
-
-/** The agent facet's live state, the fields the header reads
- *  (iterate/agents contract.ts `stateSchema`): a pause, the one open request, the one
- *  pending trigger. A script the agent asked for is the
- *  CONTEXT's obligation, not in this state — the feed's running code step says so. */
-const AgentLive = z.object({
-  paused: z.object({ reason: z.string() }).nullable(),
-  openRequest: z.object({ model: z.string() }).nullable(),
-  pendingLlmRequestTrigger: z.object({}).nullable(),
-});
-
+/** One agent's chat: the route holds the agent's context and reads it live with the SDK's ONE
+ *  `useIterateContext`; `AgentChat` draws everything inside. The chat's state is this route's
+ *  search, so every view of it is a link. */
 function AgentConversation({ project, path }: { project: string; path: string }) {
   const { api } = Route.useRouteContext();
   const search = Route.useSearch();
   const navigate = useNavigate();
   const { slug } = Route.useParams();
-  const { context, error: connectError } = useAgentContext(api, project, path);
-  const { iterateContext, events, caughtUp, error: logError } = useAgentLog(context);
-  const error = connectError || logError;
-  const live = useFacetLiveState(context, "agent");
-  const facet = AgentLive.safeParse(live.value);
-  // The turn is over when the facet holds no obligation — a pause included (a paused loop owes no
-  // follow-up round). Without live state at all (the read failed), the log alone decides: the
-  // reducer settles only once no step is running, and a follow-up round reopens an activity.
-  const idle = facet.success
-    ? !facet.data.openRequest && !facet.data.pendingLlmRequestTrigger
-    : live.status === "error";
-  const feed = useMemo(() => reduceAgentFeed(events, idle), [events, idle]);
-  // A script still running is the context's, read from the log: the feed's running code step.
-  const runningScript =
-    feed.state.live?.steps.some((step) => step.kind === "code" && step.status === "running") ??
-    false;
-  const traceOffsets = useMemo(() => traceOffsetByMessage(events), [events]);
-  const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set());
-  const onToggle = useCallback(
-    (id: string) =>
-      setToggled((held) => {
-        const next = new Set(held);
-        if (!next.delete(id)) next.add(id);
-        return next;
-      }),
-    [],
-  );
-  const inspected: Inspected = search.llmRequest
-    ? { kind: "llmRequest", llmRequestOffset: search.llmRequest }
-    : search.scriptRun
-      ? { kind: "scriptRun", requestOffset: search.scriptRun }
-      : null;
-  const onInspect = useCallback(
-    (next: Inspected) =>
+  const { context, error } = useAgentContext(api, project, path);
+  const log = useIterateContext(context, agentChatContextOptions);
+  const onStateChange = useCallback(
+    (patch: Partial<AgentChatState>) =>
       void navigate({
         to: "/projects/$slug",
         params: { slug },
-        search: (prev) => ({
-          ...prev,
-          ...RIGHT_EDGE_CLOSED, // one right edge: a trace closes the Events tab's inspector and sheet
-          llmRequest: next?.kind === "llmRequest" ? next.llmRequestOffset : undefined,
-          scriptRun: next?.kind === "scriptRun" ? next.requestOffset : undefined,
-        }),
+        search: (previous) => ({ ...previous, ...patch }),
         replace: true,
       }),
     [navigate, slug],
-  );
-  const inspect = useMemo<Inspect>(
-    () => ({
-      llmRequest: (llmRequestOffset) => onInspect({ kind: "llmRequest", llmRequestOffset }),
-      scriptRun: (requestOffset) => onInspect({ kind: "scriptRun", requestOffset }),
-    }),
-    [onInspect],
   );
   const signedUrl = useCallback(
     async (filePath: string) => {
@@ -401,198 +260,26 @@ function AgentConversation({ project, path }: { project: string; path: string })
     },
     [context],
   );
-  const view = search.view || "chat";
-  // THE INTERRUPT: cancellation is a property of new input, never a command — a
-  // developer item that tells the model why its answer stopped, marked as the person's so it
-  // counts as external input; the agent settles the open request as cancelled when it lands.
-  const runningLlmRequestId = feed.state.live?.steps.findLast(
-    (step): step is AgentUiLlmStep => step.kind === "llm" && step.status === "running",
-  )?.llmRequestOffset;
-  const interrupt = useAgentInterrupt({
-    runningLlmRequestId,
-    onInterrupt: context
-      ? async () => {
-          await context.append({
-            type: "events.iterate.com/agent/context-added",
-            payload: {
-              role: "developer",
-              content: "The user interrupted the in-progress response from the web chat.",
-              actor: { type: "user" },
-              llmRequestPolicy: { behaviour: "interrupt-current-request" },
-            },
-          });
-        }
-      : undefined,
-  });
-  const status = !facet.success
-    ? {
-        text: live.status === "error" ? "Live state unavailable" : "Connecting…",
-        tone: "muted" as const,
-      }
-    : facet.data.paused
-      ? { text: `Paused — ${facet.data.paused.reason}`, tone: "amber" as const }
-      : runningScript
-        ? {
-            text: `Running a script${feed.state.summaryActivity ? ` · ${feed.state.summaryActivity}` : ""}`,
-            tone: "live" as const,
-          }
-        : facet.data.openRequest
-          ? { text: `Thinking · ${facet.data.openRequest.model}`, tone: "live" as const }
-          : facet.data.pendingLlmRequestTrigger
-            ? { text: "About to think", tone: "live" as const }
-            : { text: "Idle", tone: "muted" as const };
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* the shell's header names the agent; this strip is its live status and the two views */}
-      <div className="flex shrink-0 items-center gap-3 px-4 py-1">
-        <span
-          className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
-          title={live.error}
-          data-status={status.tone}
-        >
-          <CircleIcon
-            className={cn(
-              "size-2 shrink-0",
-              status.tone === "live" && "animate-pulse fill-emerald-500 text-emerald-500",
-              status.tone === "amber" && "fill-amber-500 text-amber-500",
-              status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
-            )}
-          />
-          <span className="truncate">{status.text}</span>
-        </span>
-        <Tabs
-          value={view}
-          onValueChange={(value) =>
-            void navigate({
-              to: "/projects/$slug",
-              params: { slug },
-              search: (prev) => ({ ...prev, view: value === "chat" ? undefined : "events" }),
-              replace: true,
-            })
-          }
-          className="ml-auto"
-        >
-          <TabsList className="h-8">
-            <TabsTrigger value="chat" className="text-xs">
-              Chat
-            </TabsTrigger>
-            <TabsTrigger value="events" className="text-xs">
-              Events
-              <span className="font-mono text-[10px] text-muted-foreground/70">
-                {events.length}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-      {error ? (
-        <p data-type="error" className="px-4 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      {view === "events" ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <ContextView
-            // the view scrolls its own feed: it fills the tab
-            className="mx-auto min-h-0 w-full max-w-3xl flex-1 px-4 py-2 md:px-6"
-            title={<span className="font-mono text-xs">{path}</span>}
-            context={iterateContext}
-            error={connectError}
-            renderers={agentEventRenderers}
-            inspectors={agentEventInspectors}
-            onAppend={context ? (events) => context.append(...events) : undefined}
-            state={search}
-            onStateChange={(patch) =>
-              void navigate({
-                to: "/projects/$slug",
-                params: { slug },
-                search: (previous) => ({
-                  ...previous,
-                  // one right edge: the view's inspector or sheet opening closes the page's traces
-                  ...((patch.event !== undefined || patch.processors) && {
-                    llmRequest: undefined,
-                    scriptRun: undefined,
-                  }),
-                  ...patch,
-                }),
-                replace: true,
-              })
-            }
-            emptyText="Nothing has happened on this agent yet."
-          />
-        </div>
-      ) : (
-        <>
-          <Conversation className="min-h-0 flex-1">
-            <ConversationContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-2 md:px-6">
-              {!caughtUp ? (
-                <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-                  <Spinner className="size-4" /> Reading the log…
-                </div>
-              ) : feed.items.length === 0 && !feed.state.live ? (
-                <Empty className="py-16">
-                  <EmptyHeader>
-                    <EmptyTitle>Nothing said yet</EmptyTitle>
-                    <EmptyDescription>
-                      Say something below. The agent answers with prose, or with a script it runs
-                      against the project.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : null}
-              {feed.items.map((item) => (
-                <AgentFeedItemRow
-                  key={item.id}
-                  item={item}
-                  expanded={toggled.has(item.id)}
-                  onToggle={onToggle}
-                  inspect={inspect}
-                  traceOffset={item.kind === "assistant" ? traceOffsets.get(item.id) : undefined}
-                  signedUrl={signedUrl}
-                />
-              ))}
-              <AgentLiveActivity
-                state={feed.state}
-                toggledIds={toggled}
-                onToggle={onToggle}
-                inspect={inspect}
-              />
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
-          <div className="shrink-0 px-4 pb-4 pt-2 md:px-6">
-            <div className="mx-auto w-full max-w-3xl">
-              {/* Queued input grows the composer column; the feed follows on resize. */}
-              <QueuedMessagesPanel
-                messages={feed.state.queuedUserMessages}
-                isInterrupting={interrupt?.isInterrupting || false}
-                onInterrupt={interrupt?.run}
-                signedUrl={signedUrl}
-              />
-              <AgentComposer
-                autoFocusMessage
-                interrupt={interrupt}
-                onSubmit={async ({ message, files }) => {
-                  using itx = await api.projects.get(project);
-                  await withAgents(itx).agents.get(path).message({ message, files });
-                }}
-                onAppendRaw={async (events) => {
-                  if (!context) throw new Error("not connected");
-                  // The raw editor parsed each event with the stream's own input schema; `append` is
-                  // typed as the SDK's tuple of inputs, a shape a parsed array cannot spell.
-                  await context.append(...(events as Parameters<Context["append"]>));
-                }}
-              />
-            </div>
-          </div>
-        </>
-      )}
-      <InspectorSheet
-        events={events}
-        live={feed.state.live}
-        inspected={inspected}
-        onInspect={onInspect}
-      />
-    </div>
+    <AgentChat
+      path={path}
+      context={log}
+      error={error}
+      state={search}
+      onStateChange={onStateChange}
+      onMessage={async ({ message, files }) => {
+        using itx = await api.projects.get(project);
+        await withAgents(itx).agents.get(path).message({ message, files });
+      }}
+      onAppend={
+        context
+          ? // The chat hands over events as a person wrote them (the raw composer's parsed YAML,
+            // the Events tab's draft). `append` is typed as the SDK's tuple of inputs, a shape an
+            // array cannot spell, and the platform parses each event.
+            (events) => context.append(...(events as Parameters<Context["append"]>))
+          : undefined
+      }
+      signedUrl={signedUrl}
+    />
   );
 }

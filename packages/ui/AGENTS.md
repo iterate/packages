@@ -363,6 +363,57 @@ const context = useContextStub(() => api.projects.get(project.id), [api, project
 - **React Doctor**: `npx react-doctor@latest --yes src/components/repo-ide/*.tsx src/components/repo-ide/*.ts`
   from this package scores 100; keep it there.
 
+## The agent chat
+
+`src/components/agent-chat/` is one agent's conversation: its chat with a composer, its events
+(`ContextView`), and the traces of its LLM requests and script runs. The Agents app's
+`/projects/<slug>` is the first host; any page that holds the agent's context mounts it the same way:
+
+```tsx
+import {
+  AgentChat,
+  agentChatContextOptions,
+} from "@iterate-com/ui/components/agent-chat/agent-chat";
+import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
+
+// route: `validateSearch: AgentChatState`, so the tab and the open trace are the URL
+const agent = useContextStub(() => project.cd(path), [project, path]);
+const log = useIterateContext(agent.stub, agentChatContextOptions);
+// in a flex column with a bounded height; the chat fills it
+<AgentChat
+  path={path}
+  context={log}
+  error={agent.error}
+  state={search}
+  onStateChange={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
+  onMessage={async ({ message, files }) => {
+    await project.agents.get(path).message({ message, files });
+  }}
+  onAppend={agent.stub ? (events) => agent.stub.append(...events) : undefined}
+  signedUrl={async (file) => (await agent.stub.files.get(file).url()).url}
+/>;
+```
+
+- **The host owns** the agent's context, the hook and the route; the chat owns everything inside its
+  box. It imports no router and none of the SDK's client. Its view state is the `state` prop, so a
+  host without a router keeps it in state.
+- **It reads the agent's own events**, so it imports three of the SDK's pure modules at runtime
+  (`iterate/agents/contract`, `iterate/agents/codemode-format`, `iterate/stream/run`).
+- **`agentChatContextOptions`** is what the chat asks of `useIterateContext`: the streamed chunk
+  windows by name (a wildcard never matches an ephemeral) and every page of the log. Without them
+  an answer does not stream, and a long chat shows only its newest page.
+- **A row of the page's own** goes under a feed item: `itemFooter={(item) => …}`. `renderers` and
+  `inspectors` name the page's own event types in the Events tab, over the agent's.
+- **For the project's own people**: it shows the raw log, scripts and traces, and its composer
+  appends raw events.
+- **Toasts**: the copy buttons call sonner's `toast`, so the page renders this package's `Toaster` once
+  (`AppProviders` does in the apps).
+- **Markdown** renders through streamdown, whose classes an app's stylesheet scans as for the repo
+  IDE's preview. The streamed-token reveal is `.animate-token-in` in `globals.css`; an app that
+  installs the item from the registry copies those lines, or its tokens appear without it.
+- **Tests** sit beside the files: the reducer's (`agent-ui-reducer.test.ts`) and the log's
+  (`agent-events.test.ts`). `.agents/skills/fix-stream` says which a broken chat adds a row to.
+
 ## Every app's shell
 
 `src/apps/` is what each TanStack Start app's own shell files call with only what the app does

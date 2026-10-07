@@ -2,7 +2,7 @@
 // identity, and the hidden picker input (render `AttachmentFileInput` from
 // composer-attachments.tsx once next to the composer).
 import { useRef, useState } from "react";
-import { formatFileSize } from "../lib/agent-events.ts";
+import { formatFileSize } from "./agent-events.ts";
 
 const MAX_MESSAGE_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 

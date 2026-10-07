@@ -1,4 +1,4 @@
-// The agent's log as the agent-UI reducer (events/agent-ui-reducer.ts) reads it: `reduceAgentUi`
+// The agent's log as the agent-UI reducer (agent-ui-reducer.ts) reads it: `reduceAgentUi`
 // folds every committed event, the agent's and the context's script runs (`itx/run-requested` /
 // `itx/run-settled`, identified by the request's offset) alike, into messages and activities (an
 // LLM step that wrote a script, the code step that ran it, grouped into rounds).
@@ -13,8 +13,8 @@ import {
   type AgentUiItem,
   type AgentUiState,
   type AgentUiStep,
-} from "./events/agent-ui-reducer.ts";
-import type { StreamEvent } from "./events/stream-event.ts";
+} from "./agent-ui-reducer.ts";
+import type { StreamEvent } from "./stream-event.ts";
 
 // Loose: the Events view is the raw log, so every envelope field the wire carries survives.
 const Committed = z.looseObject({

@@ -29,6 +29,23 @@
   }
 }
 
+/* The agent chat's streamed-token reveal (agent-chat/streaming-text.tsx): `both` keeps a token invisible until its
+   animation-delay elapses, so a window's tokens fan in across the ~150ms between coalesced
+   chunk events. */
+@keyframes token-in {
+  from {
+    opacity: 0;
+  }
+}
+.animate-token-in {
+  animation: token-in 120ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-token-in {
+    animation: none;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

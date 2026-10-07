@@ -4,7 +4,7 @@
 // chat items and live active-work tail the agent feed renders.
 import { expect, test } from "vitest";
 import { RUN_DEADLINE_MS, type RunSettlement } from "iterate/stream/run";
-import { appendText } from "../chunked-text.ts";
+import { appendText } from "./chunked-text.ts";
 import type { StreamEvent } from "./stream-event.ts";
 import {
   deriveAgentUiLiveStatus,

@@ -208,12 +208,6 @@ importers:
 
   packages/agents-app:
     dependencies:
-      '@codemirror/state':
-        specifier: ^6.7.6
-        version: 6.7.6
-      '@codemirror/view':
-        specifier: 'catalog:'
-        version: 6.43.13
       '@iterate-com/shared':
         specifier: workspace:*
         version: link:../shared
@@ -256,12 +250,6 @@ importers:
       tailwindcss:
         specifier: 'catalog:'
         version: 4.3.3
-      use-stick-to-bottom:
-        specifier: ^1.1.6
-        version: 1.1.6(react@19.3.0)
-      yaml:
-        specifier: 'catalog:'
-        version: 2.9.1
       zod:
         specifier: 'catalog:'
         version: 4.6.5(patch_hash=5a57d5a4f788c6fe9e15d60e59511c1f901b7fc1d638126eb2b02cafc9e79a86)
@@ -868,6 +856,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      use-stick-to-bottom:
+        specifier: ^1.1.6
+        version: 1.1.6(react@19.3.0)
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.1.1)(jsdom@30.1.1(@noble/hashes@2.2.0))(msw@2.13.3(@types/node@26.1.1)(typescript@7.0.2))(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))

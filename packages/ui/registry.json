@@ -4,6 +4,116 @@
   "homepage": "https://github.com/iterate/packages/tree/main/packages/ui",
   "items": [
     {
+      "name": "agent-chat",
+      "type": "registry:component",
+      "description": "One agent's conversation: its chat with a composer, its events, and the traces of its LLM requests and script runs, for a page that holds the agent's context.",
+      "dependencies": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "cn",
+        "iterate",
+        "lucide-react",
+        "sonner",
+        "streamdown",
+        "use-stick-to-bottom",
+        "yaml",
+        "zod"
+      ],
+      "registryDependencies": [
+        "button",
+        "dropdown-menu",
+        "empty",
+        "iterate/packages/code-block",
+        "iterate/packages/code-editor",
+        "iterate/packages/context-view",
+        "sheet",
+        "spinner",
+        "tabs"
+      ],
+      "files": [
+        {
+          "path": "src/components/agent-chat/agent-chat.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-chat-search.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-event-renderers.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-events.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-feed.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-inspectors.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-ui-reducer.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/chunked-text.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/composer-attachments.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/composer-textarea.client.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/composer-textarea.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/composer.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/conversation.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/full-text-snapshot.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/message.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/queued-messages.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/stream-event.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/streaming-text.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/use-composer-attachments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/use-ticking-now-ms.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "app-build",
       "type": "registry:component",
       "description": "One installed version of an app: its build's state, and Check to ask again.",

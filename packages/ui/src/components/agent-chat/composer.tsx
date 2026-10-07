@@ -12,7 +12,11 @@ import {
   PlusIcon,
   SquareIcon,
 } from "lucide-react";
-import { Button } from "@iterate-com/ui/components/ui/button";
+import { cn } from "cn";
+import { AttachmentChips, AttachmentFileInput } from "./composer-attachments.tsx";
+import { ComposerTextarea } from "./composer-textarea.tsx";
+import { useComposerAttachments } from "./use-composer-attachments.ts";
+import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,13 +25,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@iterate-com/ui/components/ui/dropdown-menu";
-import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { cn } from "cn";
-import { CodeEditor } from "@iterate-com/ui/components/code-editor";
-import { AttachmentChips, AttachmentFileInput } from "./composer-attachments.tsx";
-import { ComposerTextarea } from "./composer-textarea.tsx";
-import { useComposerAttachments } from "./use-composer-attachments.ts";
+} from "#/components/ui/dropdown-menu.tsx";
+import { Spinner } from "#/components/ui/spinner.tsx";
+import { CodeEditor } from "#/components/code-editor.tsx";
 
 type AgentComposerMode = "message" | "raw";
 
@@ -252,7 +252,7 @@ function AgentPillComposer({
   );
 }
 
-/** An in-flight turn's interrupt affordance, owned by the page (the queued-messages panel shows
+/** An in-flight turn's interrupt affordance, owned by the chat (the queued-messages panel shows
  *  the same one). `error` surfaces in the composer's error line beside submit failures. */
 export type StreamInterrupt = {
   run: () => Promise<void>;

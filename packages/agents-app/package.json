@@ -14,8 +14,6 @@
     "voice:board": "node scripts/voice-board.ts"
   },
   "dependencies": {
-    "@codemirror/state": "catalog:",
-    "@codemirror/view": "catalog:",
     "@iterate-com/shared": "workspace:*",
     "@iterate-com/ui": "workspace:*",
     "@iterate-com/voice": "workspace:*",
@@ -30,8 +28,6 @@
     "sonner": "catalog:",
     "streamdown": "catalog:",
     "tailwindcss": "catalog:",
-    "use-stick-to-bottom": "^1.1.6",
-    "yaml": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
