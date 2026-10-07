@@ -173,17 +173,24 @@ function ProjectIntegrations() {
   const firstField = useRef<HTMLInputElement>(null);
 
   /** One verb at a time. A connect that leaves for the provider keeps its spinner up until the
-   *  browser has gone. */
-  const run = async (key: string, work: () => Promise<"leaving" | void>) => {
+   *  browser has gone, and a Disconnect until the project's live state drops the connection. */
+  const run = async (key: string, work: () => Promise<"leaving" | "dropping" | void>) => {
     setError(null);
     setBusy(key);
     try {
-      if ((await work()) !== "leaving") setBusy(null);
+      if (!(await work())) setBusy(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       setBusy(null);
     }
   };
+  // A Disconnect's call can answer before the project's live state drops the connection. Its
+  // spinner goes with the row, in the same render, or when that live state fails (its error shows).
+  const disconnectingListed = rows.some((row) => busy === disconnectKeyOf(row));
+  useEffect(() => {
+    if (busy?.startsWith("disconnect:") && (!disconnectingListed || live.status === "error"))
+      setBusy(null);
+  }, [busy, disconnectingListed, live.status]);
   const closeSheet = () => navigate({ search: {}, replace: true });
   const here = `${window.location.origin}/projects/${project.slug}/integrations`;
   const askedScopes = search.scopes?.split(" ").filter(Boolean);
@@ -322,11 +329,12 @@ function ProjectIntegrations() {
                       noun={noun}
                       busy={busy}
                       onDisconnect={() =>
-                        run(`disconnect:${row.connection}`, () =>
-                          api.projects
+                        run(disconnectKeyOf(row), async () => {
+                          await api.projects
                             .get(project.id)
-                            .integrations.disconnect(provider, row.connection),
-                        )
+                            .integrations.disconnect(provider, row.connection);
+                          return "dropping";
+                        })
                       }
                     />
                   ))}
@@ -757,6 +765,12 @@ function YourAccounts({
   );
 }
 
+/** The page's `busy` while a connection's Disconnect runs: its provider and name, which together
+ *  name one connection. */
+function disconnectKeyOf(row: Connection) {
+  return `disconnect:${row.provider}/${row.connection}`;
+}
+
 /** One of the project's connections: its account, whose it is and what it holds, and Disconnect —
  *  which, for a member's account, takes it out of this project alone. */
 function ConnectionItem({
@@ -778,6 +792,7 @@ function ConnectionItem({
       ? "Your own app"
       : [...new Set((row.scopes || []).flatMap((scope) => scopeLabelOf(scope) || []))].join(", ");
   const meta = [whose, detail].filter(Boolean).join(" · ");
+  const disconnecting = busy === disconnectKeyOf(row);
   return (
     <li className="flex items-center gap-3 py-2" data-connection={row.connection}>
       <div className="min-w-0 flex-1">
@@ -786,7 +801,7 @@ function ConnectionItem({
       </div>
       <AlertDialog>
         <AlertDialogTrigger render={<Button variant="ghost" size="sm" />} disabled={Boolean(busy)}>
-          {busy === `disconnect:${row.connection}` ? <Spinner data-icon="inline-start" /> : null}
+          {disconnecting ? <Spinner data-icon="inline-start" /> : null}
           Disconnect
         </AlertDialogTrigger>
         <AlertDialogContent>
@@ -802,7 +817,13 @@ function ConnectionItem({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void onDisconnect()}>
+            {/* the dialog stays open until the row goes, so the spinner is here too */}
+            <AlertDialogAction
+              variant="destructive"
+              disabled={disconnecting}
+              onClick={() => void onDisconnect()}
+            >
+              {disconnecting ? <Spinner data-icon="inline-start" /> : null}
               Disconnect
             </AlertDialogAction>
           </AlertDialogFooter>
