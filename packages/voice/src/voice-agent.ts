@@ -481,7 +481,20 @@ type VoiceAgentDeps = {
   /** Hand words to the agent on this context through the agents app
    *  (`itx.agents.get(path).message(words)`), answered with the `context-added` it appended. */
   messageAgent(words: string): Promise<{ offset: number }>;
+  /** This call's agent path, the context the relay lives on. */
+  callPath(): Promise<string>;
+  /** The project's voice for the live model, read at each dial: the facet class's `liveVoice`. */
+  liveVoice?: () => string | undefined;
+  /** The project's instructions for the live model, read at each dial: the facet class's `liveInstructions`. */
+  liveInstructions?: () => LiveInstructions | undefined;
 };
+
+/** What a project's `liveInstructions` answers: the instructions the live model gets, from this
+ *  call's agent path and the default (the delegation policy and the project). */
+export type LiveInstructions = (call: {
+  path: string;
+  instructions: string;
+}) => string | Promise<string>;
 
 type VoiceArgs = ProcessEventArgs<VoiceState, ConsumedEvent<VoiceAgentContract>>;
 
@@ -887,18 +900,25 @@ export class VoiceAgentProcessor extends StreamProcessor<
         event_id: `start_${dial.dialId}`,
         session: {
           model: LIVE.model,
-          instructions:
-            LIVE_DELEGATION_POLICY +
-            `\nCURRENT PROJECT: ${await this.deps.projectContext()}. Ingress refers to this project website.`,
+          instructions: await this.#liveInstructions(),
           ...(input.length > 0 && { input }),
           audio: {
             format: { type: "audio/pcm", rate: LIVE.rate },
-            output: { voice: LIVE.voice },
+            output: { voice: this.deps.liveVoice?.() ?? LIVE.voice },
           },
           delegation: { type: "client" },
         },
       }),
     );
+  }
+
+  /** The default instructions, or what the project's `liveInstructions` makes of them. */
+  async #liveInstructions(): Promise<string> {
+    const instructions =
+      LIVE_DELEGATION_POLICY +
+      `\nCURRENT PROJECT: ${await this.deps.projectContext()}. Ingress refers to this project website.`;
+    const hook = this.deps.liveInstructions?.();
+    return hook ? await hook({ path: await this.deps.callPath(), instructions }) : instructions;
   }
 
   /** The provider's message switch. Every arm returns. */
@@ -1382,6 +1402,14 @@ async function dialProviderSocket(): Promise<WebSocket> {
 
 /** The class the loader hosts: `facets.get("voice-agent", { source, className: "VoiceAgentDurableObject" })`. */
 export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceState> {
+  /** The live model's voice (a GPT-Live voice name), which a config repo's `voice.ts` may set.
+   *  None: "marin". */
+  static liveVoice: string | undefined;
+
+  /** The live model's instructions, which a config repo's `voice.ts` may change: it gets the
+   *  call's agent path and the default instructions and answers the ones to use. None: the default. */
+  static liveInstructions: LiveInstructions | undefined;
+
   /** `itx.whoami()`, read once per incarnation: every dial's `session.start` names the project,
    *  and every hand-over names the agent by this context's path. */
   #whoami?: { projectId: string; path: string };
@@ -1398,6 +1426,9 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
     sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     dialProvider: dialProviderSocket,
     projectContext: async () => JSON.stringify(await this.#identity()),
+    callPath: async () => (await this.#identity()).path,
+    liveVoice: () => VoiceAgentDurableObject.liveVoice,
+    liveInstructions: () => VoiceAgentDurableObject.liveInstructions,
     messageAgent: async (words) => {
       const { path } = await this.#identity();
       // This context's own `itx.agents` rule, which the press's agent creation wrote

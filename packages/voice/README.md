@@ -82,6 +82,25 @@ A conversation's log is `readEvents` on its context, through the CLI (the board'
 `health().conversation` names its current one):
 `pnpm exec iterate itx run --project <slug> --eval 'return (await itx.cd("<conversation>").readEvents(0, 500)).events'`.
 
+## Your own voice and instructions
+
+A project sets the live model's voice and instructions from its `voice.ts`, on the relay's class. Each
+is read when a call dials, so a commit changes the next call:
+
+```ts
+// voice.ts
+import { VoiceAgentDurableObject } from "@iterate-com/voice";
+
+export { default, VoiceAgentDurableObject } from "@iterate-com/voice";
+
+VoiceAgentDurableObject.liveVoice = "vesper"; // default "marin"
+VoiceAgentDurableObject.liveInstructions = ({ path, instructions }) =>
+  `You are Jeeves, the family's chief of staff. ${instructions}`; // path: the call's agent
+```
+
+`instructions` is the default: the delegation policy and the project. Return it changed or
+whole.
+
 ## The device's calls
 
 ```ts

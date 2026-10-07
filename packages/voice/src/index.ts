@@ -5,4 +5,5 @@
 // (api.ts).
 export { default } from "./worker.ts";
 export { VoiceAgentDurableObject } from "./voice-agent.ts";
+export type { LiveInstructions } from "./voice-agent.ts";
 export type { VoiceApi } from "./api.ts";

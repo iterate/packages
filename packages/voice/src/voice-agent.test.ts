@@ -5,7 +5,11 @@
 // loop are out of scope: test/vitest/agents/voice-agent.e2e.test.ts runs the whole call on a worker.
 import { consumesEvent } from "iterate/stream/processor";
 import { expect, test } from "vitest";
-import { HANG_UP_GOODBYE_GRACE_MS, VoiceAgentProcessor } from "./voice-agent.ts";
+import {
+  HANG_UP_GOODBYE_GRACE_MS,
+  VoiceAgentProcessor,
+  type LiveInstructions,
+} from "./voice-agent.ts";
 
 const HANDED_OVER = "The request was handed to the backend; the conversation may continue.";
 
@@ -249,6 +253,27 @@ test("a new incarnation replaying the call hands nothing over and speaks nothing
   });
 });
 
+test("a project's liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
+  expect((await liveCall()).sessionStart()).toMatchObject({
+    session: {
+      audio: { output: { voice: "marin" } },
+      instructions: expect.stringMatching(/^Backchannel policy/),
+    },
+  });
+  const hooked = await liveCall([], new Map(), {
+    liveVoice: "vesper",
+    liveInstructions: ({ path, instructions }) => `You are Jeeves, on ${path}.\n${instructions}`,
+  });
+  expect(hooked.sessionStart()).toMatchObject({
+    session: {
+      audio: { output: { voice: "vesper" } },
+      instructions: expect.stringMatching(
+        new RegExp(`^You are Jeeves, on ${PATH}\\.\\nBackchannel policy`),
+      ),
+    },
+  });
+});
+
 type LoggedEvent = {
   type: string;
   payload: Record<string, unknown>;
@@ -263,7 +288,11 @@ type LoggedEvent = {
  *  delivered back as the engine delivers them, only what the contract consumes, payloads parsed by
  *  its schemas. The clock moves only when a step lets time pass, and a wait ends only then.
  *  `restart` is the next incarnation: the log folded, no socket. */
-async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, number>()) {
+async function liveCall(
+  log: LoggedEvent[] = [],
+  requests = new Map<string, number>(),
+  hooks: { liveVoice?: string; liveInstructions?: LiveInstructions } = {},
+) {
   const toAgent: string[] = [];
   const sent: Record<string, unknown>[] = [];
   const onProviderMessage: ((message: { data: string }) => void)[] = [];
@@ -278,6 +307,9 @@ async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, numb
   };
   const processor = new VoiceAgentProcessor({
     projectContext: async () => JSON.stringify({ projectId: "prj_test", path: PATH }),
+    callPath: async () => PATH,
+    liveVoice: () => hooks.liveVoice,
+    liveInstructions: () => hooks.liveInstructions,
     nowAtFacetMs: () => clockMs,
     sleep: (ms) => new Promise<void>((resolve) => sleeps.push({ ms, resolve })),
     // The relay only listens on, sends on and closes its provider's socket.
@@ -353,7 +385,9 @@ async function liveCall(log: LoggedEvent[] = [], requests = new Map<string, numb
         .filter((event) => event.type === "events.iterate.com/voice-agent/call-ended")
         .map((event) => event.payload.reason),
     }),
-    restart: () => liveCall(log, requests),
+    restart: () => liveCall(log, requests, hooks),
+    /** The `session.start` the relay sent the live model. */
+    sessionStart: () => sent.find((message) => message.type === "session.start"),
     async take(step: Step) {
       if ("heard" in step || "said" in step) {
         const [type, delta] =
