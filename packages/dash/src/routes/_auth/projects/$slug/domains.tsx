@@ -14,7 +14,9 @@
 // is `active`), live. Where the owner's DNS provider speaks Domain Connect and has our template, the
 // first step is one click (core/os src/project/domain-connect.ts): "Connect with <provider>", and the
 // provider sends the browser back with `?connected=<hostname>`, which checks it at once. While a
-// hostname is on its way the page checks it again every CHECK_EVERY_MS, so nobody has to.
+// hostname is on its way the platform checks it again on its own, every 30 seconds and then every
+// five minutes (core/os/src/project/processor.ts `HOSTNAME_RECHECK`), and the live state says when;
+// the page only subscribes, so it never polls.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { LoaderCircleIcon, Plus } from "lucide-react";
@@ -45,10 +47,6 @@ import { projectHostOf } from "../../../../lib/origins.ts";
 
 const shell = getRouteApi("/_auth");
 
-/** How often a hostname on its way to live is checked again while this page is open (Cloudflare
- *  usually needs a few minutes for the certificate); at most 40 times per page load. */
-const CHECK_EVERY_MS = 30_000;
-
 /** The project facet's live state, the fields this page reads. */
 const HostnamesLive = z.looseObject({
   primaryHostname: z.string().nullable(),
@@ -71,6 +69,8 @@ const HostnamesLive = z.looseObject({
       connectedAt: z.string().nullish(),
       /** the project holds the hostname: its ownership record named the project */
       claimed: z.boolean().default(false),
+      /** when the platform checks again on its own; null once it will not */
+      recheck: z.object({ at: z.string() }).nullish(),
     }),
   ),
 });
@@ -189,27 +189,6 @@ function ProjectDomains() {
     connectedIsOurs,
     navigate,
   ]);
-  // on its way to live: check again every CHECK_EVERY_MS while the page is visible — each check is
-  // the same `hostname-add-requested` "Check again" appends, answered in the live state
-  const waiting = hostnames
-    .filter(([, entry]) => entry.cloudflare && !entry.requested && !isLive(entry))
-    .map(([hostname]) => hostname)
-    .join(" ");
-  const automaticChecks = useRef(0);
-  useEffect(() => {
-    if (!context || !waiting) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (automaticChecks.current >= 40) return clearInterval(timer);
-      automaticChecks.current += 1;
-      for (const hostname of waiting.split(" "))
-        void context.append({
-          type: "events.iterate.com/project/hostname-add-requested",
-          payload: { hostname },
-        });
-    }, CHECK_EVERY_MS);
-    return () => clearInterval(timer);
-  }, [context, waiting]);
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">
@@ -521,7 +500,7 @@ function NextStep({
           guide={guide}
         />
         <p className="text-sm text-muted-foreground">
-          Checked every 30 seconds while this page is open. {checkNow}
+          {recheckWords(entry)} {checkNow}
         </p>
       </div>
     );
@@ -533,14 +512,22 @@ function NextStep({
             Issuing a certificate for <code>{hostname}</code> and <code>*.{hostname}</code>.
           </>
         }
-        detail="Usually two to five minutes. Nothing for you to do."
+        detail={
+          <>
+            Usually two to five minutes. {recheckWords(entry)} {checkNow}
+          </>
+        }
       />
     );
   if (recentlyConnected(entry))
     return (
       <Waiting
         lead={`${cloudflare.connect?.provider || "Your DNS provider"} added the records at ${new Date(entry.connectedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
-        detail={<>Waiting for them to be seen, usually under a minute. {checkNow}</>}
+        detail={
+          <>
+            Waiting for them to be seen, usually under a minute. {recheckWords(entry)} {checkNow}
+          </>
+        }
       />
     );
   // a bare domain at a provider that cannot point its root at another name
@@ -570,6 +557,9 @@ function NextStep({
         <a href={cloudflare.connect.url} className={buttonVariants({ className: "self-start" })}>
           Connect with {cloudflare.connect.provider}
         </a>
+        <p className="text-sm text-muted-foreground">
+          {recheckWords(entry)} {checkNow}
+        </p>
         <details>
           <summary className="cursor-pointer text-sm text-muted-foreground">
             Add the records yourself instead
@@ -589,11 +579,18 @@ function NextStep({
       </p>
       <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
       <p className="text-sm text-muted-foreground">
-        Checked every 30 seconds while this page is open. {checkNow}
+        {recheckWords(entry)} {checkNow}
       </p>
     </div>
   );
 }
+
+/** When the platform looks again on its own (core/os/src/project/processor.ts `HOSTNAME_RECHECK`),
+ *  or that it has stopped and the person's check starts it again. */
+const recheckWords = (entry: Hostname) =>
+  entry.recheck || entry.requested
+    ? "Checked again every 30 seconds for ten minutes, then every five minutes for an hour."
+    : "Automatic checks have stopped.";
 
 /** DNS → certificate → live, as three short bars: done ones dark, the current one half. */
 function Progress({ dns, certificate }: { dns: boolean; certificate: boolean }) {
