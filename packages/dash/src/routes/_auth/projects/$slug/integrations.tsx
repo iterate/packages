@@ -887,9 +887,12 @@ function RegistryRow({
   hrefOf: (target: IntegrationTarget) => string | null;
 }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
+    <li className="flex flex-col gap-1 py-2">
+      <p className="truncate text-sm" title={row.account}>
+        {row.account}
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {row.status && <StatusText status={row.status} />}
         {row.details && (
           <dl className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
             {Object.entries(row.details).map(([label, value]) => (
@@ -900,9 +903,8 @@ function RegistryRow({
             ))}
           </dl>
         )}
+        <TargetLinks actions={row.actions} hrefOf={hrefOf} className="ml-auto" />
       </div>
-      {row.status && <StatusText status={row.status} />}
-      <TargetLinks actions={row.actions} hrefOf={hrefOf} />
     </li>
   );
 }
@@ -1211,22 +1213,26 @@ function ConnectionItem({
   ].join(", ");
   const meta = [whose, detail].filter(Boolean).join(" · ");
   return (
-    <li className="flex items-center gap-3 py-2" data-connection={row.connection}>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
+    <li className="flex flex-col gap-1 py-2" data-connection={row.connection}>
+      <p className="truncate text-sm" title={row.account}>
+        {row.account}
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
         {verbs.failed?.key === disconnectKeyOf(row) ? (
           <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
         ) : null}
+        <div className="ml-auto">
+          <ConfirmButton
+            verb="Disconnect"
+            name={row.account}
+            description={disconnectDescriptionOf(row, yours, noun)}
+            verbKey={disconnectKeyOf(row)}
+            verbs={verbs}
+            onConfirm={onDisconnect}
+          />
+        </div>
       </div>
-      <ConfirmButton
-        verb="Disconnect"
-        name={row.account}
-        description={disconnectDescriptionOf(row, yours, noun)}
-        verbKey={disconnectKeyOf(row)}
-        verbs={verbs}
-        onConfirm={onDisconnect}
-      />
     </li>
   );
 }
