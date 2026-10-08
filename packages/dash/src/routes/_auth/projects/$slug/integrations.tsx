@@ -287,12 +287,18 @@ function ProjectIntegrations() {
   });
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-8">
-      <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-        Integrations
-        {/* a loader's snapshot shows while its subscription connects: what an action changes
-            reaches the page once the subscription is live */}
-        {projectView.seeding || registryView.seeding ? <Spinner /> : null}
-      </h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          Integrations
+          {/* a loader's snapshot shows while its subscription connects: what an action changes
+              reaches the page once the subscription is live */}
+          {projectView.seeding || registryView.seeding ? <Spinner /> : null}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          What this project is connected to: a card is a package its worker hosts, or a service
+          connected through iterate's app, and the accounts sit under their card.
+        </p>
+      </div>
       {projectView.error ? (
         <ErrorText>Couldn't load this project's connections: {projectView.error}</ErrorText>
       ) : null}
@@ -304,29 +310,25 @@ function ProjectIntegrations() {
           Loading…
         </p>
       )}
-      {registryView.state ? (
-        <Registry
-          state={registryView.state}
-          // the primary hostname is unknown until the project's state loads; meanwhile the ingress
-          // URL serves, and a page visit there goes on to the primary hostname
-          // (core/os primary-hostname-redirect.ts)
-          hrefOf={(target) =>
-            integrationTargetHrefOf(
-              info,
-              {
-                id: project.id,
-                slug: project.slug,
-                primaryHostname: projectView.state?.primaryHostname || null,
-              },
-              target,
-            )
-          }
-        />
-      ) : null}
-      <SharedApps
-        rows={rows}
+      <IntegrationsGrid
+        registry={registryView.state}
+        connections={rows}
         loaded={Boolean(projectView.state)}
         verbs={verbs}
+        // the primary hostname is unknown until the project's state loads; meanwhile the ingress
+        // URL serves, and a page visit there goes on to the primary hostname
+        // (core/os primary-hostname-redirect.ts)
+        hrefOf={(target) =>
+          integrationTargetHrefOf(
+            info,
+            {
+              id: project.id,
+              slug: project.slug,
+              primaryHostname: projectView.state?.primaryHostname || null,
+            },
+            target,
+          )
+        }
         onDisconnect={(row) =>
           void verbs.run(disconnectKeyOf(row), async () => {
             await api.projects
@@ -352,114 +354,13 @@ function ProjectIntegrations() {
   );
 }
 
-/** THROUGH ITERATE'S APPS: the apps this deployment holds, each with the project's connections
- *  through it; a self-host without them shows none. */
-function SharedApps({
-  rows,
-  loaded,
-  verbs,
-  onDisconnect,
-}: {
-  rows: Connection[];
-  /** Whether the project's state has loaded, so "Not connected" is known. */
-  loaded: boolean;
-  verbs: VerbState;
-  onDisconnect: (row: Connection) => void;
-}) {
-  const { info } = Route.useRouteContext();
-  const iterateApps = new Set(info.iterateAppProviders);
-  // a provider the deployment has an app for, and one it connected through before it dropped the
-  // app: its connections still list and disconnect, with nothing to connect another through
-  const providers = PROVIDERS.filter(
-    ({ provider }) => iterateApps.has(provider) || rows.some((row) => row.provider === provider),
-  );
-  if (providers.length === 0) return null;
-  return (
-    <section className="flex flex-col gap-2" aria-labelledby="iterate-apps-heading">
-      <h2 id="iterate-apps-heading" className="font-medium">
-        Through iterate's apps
-      </h2>
-      <div className="flex flex-col divide-y border-y">
-        {providers.map((entry) => (
-          <ProviderSection
-            key={entry.provider}
-            entry={entry}
-            connections={rows.filter((row) => row.provider === entry.provider)}
-            connectable={iterateApps.has(entry.provider)}
-            loaded={loaded}
-            verbs={verbs}
-            onDisconnect={onDisconnect}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/** One provider: the project's connections through it, and Connect, a link to its sheet
- *  (`?connect=`), while the deployment has the app. */
-function ProviderSection({
-  entry: { provider, title, noun },
-  connections,
-  connectable,
-  loaded,
-  verbs,
-  onDisconnect,
-}: {
-  entry: ProviderEntry;
-  connections: Connection[];
-  /** Whether the deployment has the app to connect another through. */
-  connectable: boolean;
-  loaded: boolean;
-  verbs: VerbState;
-  onDisconnect: (row: Connection) => void;
-}) {
-  const { info } = Route.useRouteContext();
-  const another = connections.length > 0;
-  return (
-    <section className="py-3" aria-labelledby={`${provider}-heading`}>
-      <div className="flex items-center gap-3">
-        <ProviderLogo provider={provider} />
-        <h3 id={`${provider}-heading`} className="flex-1 font-medium">
-          {title}
-        </h3>
-        {loaded && !another ? (
-          <span className="text-xs text-muted-foreground">Not connected</span>
-        ) : null}
-        {connectable ? (
-          <Link
-            from={Route.fullPath}
-            to="."
-            search={{ connect: provider }}
-            aria-label={another ? `Connect another ${title} ${noun}` : `Connect ${title}`}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            {another ? "Connect another" : "Connect"}
-          </Link>
-        ) : null}
-      </div>
-      {another ? (
-        <ul className="mt-1 flex flex-col pl-8" aria-label={`${title} connections`}>
-          {connections.map((row) => (
-            <ConnectionItem
-              key={row.connection}
-              row={row}
-              yours={row.ownerUserId === info.principal.actor}
-              noun={noun}
-              verbs={verbs}
-              onDisconnect={() => onDisconnect(row)}
-            />
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
-
 /** OTHER SERVICES: a link to the sheet (`?other=1`) that says how a coding agent connects one. */
 function OtherServices() {
   return (
-    <section className="flex items-center gap-3 border-y py-3" aria-labelledby="other-heading">
+    <section
+      className="flex items-center gap-3 rounded-xl px-4 py-3 ring-1 ring-foreground/10"
+      aria-labelledby="other-heading"
+    >
       <Blocks aria-hidden="true" className="size-5 text-muted-foreground" />
       <h2 id="other-heading" className="flex-1 font-medium">
         Other services
@@ -493,7 +394,10 @@ function SharedByDeployment({
       <h2 id="deployment-heading" className="font-medium">
         Shared by this deployment
       </h2>
-      <ul className="flex flex-col divide-y border-y" aria-label="Shared by this deployment">
+      <ul
+        className="flex flex-col divide-y rounded-xl px-4 ring-1 ring-foreground/10"
+        aria-label="Shared by this deployment"
+      >
         {paths.map((path) => (
           <li key={path} className="flex items-center gap-3 py-2">
             <div className="min-w-0 flex-1">
@@ -752,114 +656,254 @@ function ConnectSheet({
   );
 }
 
-/** The integrations the project's packages registered (iterate/integrations): a card each, its
- *  connections beneath it, every button a link to where it leads. A package appends the null that
+/** EVERY INTEGRATION AS ONE CARD, in one grid: a package's card (iterate/integrations) with the
+ *  connections it registered; a provider the project connects through iterate's app, or did
+ *  through a client of its own, with those connections; and one card where both exist (a `google`
+ *  package and Google connections), the package's rows first. A package appends the null that
  *  takes a card or a row away; the Dash shows what stands. Each card and row is parsed on its own,
  *  so one this page cannot read (a newer contract's) leaves out only itself. */
-function Registry({
-  state,
+function IntegrationsGrid({
+  registry,
+  connections,
+  loaded,
+  verbs,
   hrefOf,
+  onDisconnect,
 }: {
-  state: z.infer<typeof RegistryLive>;
+  registry: z.infer<typeof RegistryLive> | undefined;
+  /** The project's connections through the platform: iterate's apps, and clients of its own. */
+  connections: Connection[];
+  /** Whether the project's state has loaded, so "Not connected" is known. */
+  loaded: boolean;
+  verbs: VerbState;
   /** Where a target leads, or null for no link (`integrationTargetHrefOf`). */
   hrefOf: (target: IntegrationTarget) => string | null;
+  onDisconnect: (row: Connection) => void;
 }) {
-  const cards = Object.entries(state.integrations).flatMap(([integration, value]) => {
+  const { info } = Route.useRouteContext();
+  const iterateApps = new Set(info.iterateAppProviders);
+  const cards = Object.entries(registry?.integrations || {}).flatMap(([integration, value]) => {
     const card = IntegrationCard.safeParse(value).data;
     return card ? [{ integration, card }] : [];
   });
-  const rows = Object.entries(state.connections).flatMap(([key, value]) => {
+  const rows = Object.entries(registry?.connections || {}).flatMap(([key, value]) => {
     const row = IntegrationConnection.safeParse(value).data;
     // the key is `<integration>/<connection>`, and neither name can hold a "/"
     const slash = key.indexOf("/");
     return row ? [{ integration: key.slice(0, slash), connection: key.slice(slash + 1), row }] : [];
   });
-  if (cards.length === 0)
-    return (
-      <p className="text-sm text-muted-foreground">
-        No integrations are registered yet. An integration is a package in the project's worker: it
-        adds its card here when the worker is published.{" "}
-        <a
-          href="https://github.com/jonastemplestein/iterategrations"
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-4"
-        >
-          iterategrations
-        </a>{" "}
-        has some to start from.
-      </p>
-    );
+  // a provider the deployment has an app for, and one the project connected through before: its
+  // connections still list and disconnect, with nothing to connect another through
+  const providers = PROVIDERS.filter(
+    ({ provider }) =>
+      iterateApps.has(provider) || connections.some((row) => row.provider === provider),
+  );
+  const entries = [
+    ...cards.map(({ integration, card }) => ({
+      integration,
+      card,
+      rows: rows.filter((entry) => entry.integration === integration),
+      provider: PROVIDERS.find((entry) => entry.provider === integration) || null,
+    })),
+    ...providers
+      .filter((entry) => !cards.some((card) => card.integration === entry.provider))
+      .map((entry) => ({ integration: entry.provider, card: null, rows: [], provider: entry })),
+  ];
   return (
     <div className="flex flex-col gap-4">
-      {cards.map(({ integration, card }) => (
-        <RegisteredIntegration
-          key={integration}
-          integration={integration}
-          card={card}
-          rows={rows.filter((entry) => entry.integration === integration)}
-          hrefOf={hrefOf}
-        />
-      ))}
+      {cards.length === 0 && <NoIntegrations />}
+      {entries.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {entries.map(({ integration, card, rows, provider }) => (
+            <IntegrationCardView
+              key={integration}
+              integration={integration}
+              card={card}
+              rows={rows}
+              provider={provider}
+              connections={connections.filter((row) => row.provider === integration)}
+              connectable={Boolean(provider && iterateApps.has(provider.provider))}
+              loaded={loaded}
+              verbs={verbs}
+              hrefOf={hrefOf}
+              onDisconnect={onDisconnect}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-/** ONE INTEGRATION's card — its title, description, status and buttons — and its connections as
- *  its package lists them: the account, a few facts about it, its status and buttons. */
-function RegisteredIntegration({
+/** The packages' empty state: nothing registered yet, whatever the project connects through
+ *  iterate's apps. */
+function NoIntegrations() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      No integrations are registered yet. A package of the project's worker adds its card here when
+      the worker is published.{" "}
+      <a
+        href="https://github.com/jonastemplestein/iterategrations"
+        target="_blank"
+        rel="noreferrer"
+        className="underline underline-offset-4"
+      >
+        iterategrations
+      </a>{" "}
+      has some to start from.
+    </p>
+  );
+}
+
+/** ONE CARD: its mark, title and status; its description; the connections beneath it, a package's
+ *  as it lists them (the account, a few facts, its status and buttons) and the platform's with
+ *  Disconnect; and its buttons, the package's and Connect through iterate's app while the
+ *  deployment has it. */
+function IntegrationCardView({
   integration,
   card,
   rows,
+  provider,
+  connections,
+  connectable,
+  loaded,
+  verbs,
   hrefOf,
+  onDisconnect,
 }: {
   integration: string;
-  card: IntegrationCard;
-  rows: { integration: string; connection: string; row: IntegrationConnection }[];
+  card: IntegrationCard | null;
+  rows: { connection: string; row: IntegrationConnection }[];
+  provider: ProviderEntry | null;
+  connections: Connection[];
+  /** Whether the deployment has the app to connect another through. */
+  connectable: boolean;
+  loaded: boolean;
+  verbs: VerbState;
   hrefOf: (target: IntegrationTarget) => string | null;
+  onDisconnect: (row: Connection) => void;
 }) {
+  const { info } = Route.useRouteContext();
+  const title = card?.title || provider?.title || integration;
+  const noun = provider?.noun || "account";
   const heading = `integration-${integration}-heading`;
+  const empty = rows.length === 0 && connections.length === 0;
+  const another = connections.length > 0;
+  // beside a package's own buttons, the platform's Connect says whose app it goes through
+  const viaIterate = card ? " through iterate" : "";
   return (
-    <section aria-labelledby={heading}>
-      <Card size="sm">
-        <CardContent className="flex min-w-0 flex-col gap-1">
-          <h2 id={heading} className="text-base font-medium [overflow-wrap:anywhere]">
-            {card.title}
-          </h2>
-          {card.description && <p className="text-muted-foreground">{card.description}</p>}
-          {card.status && <StatusText status={card.status} />}
-          <TargetLinks actions={card.actions} hrefOf={hrefOf} className="pt-1" />
-        </CardContent>
-        {rows.length > 0 && (
-          <CardContent>
-            <ul
-              className="flex flex-col divide-y border-t"
-              aria-label={`${card.title} connections`}
-            >
+    <section aria-labelledby={heading} className="flex min-w-0 flex-col">
+      <Card size="sm" className="flex-1">
+        <CardContent className="flex h-full min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <IntegrationMark
+              title={title}
+              icon={card?.icon}
+              provider={provider?.provider || null}
+            />
+            <h2 id={heading} className="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]">
+              {title}
+            </h2>
+            {card?.status ? (
+              <StatusText status={card.status} />
+            ) : loaded && empty ? (
+              <span className="text-xs text-muted-foreground">Not connected</span>
+            ) : null}
+          </div>
+          {card?.description && (
+            <p className="line-clamp-2 text-xs text-muted-foreground" title={card.description}>
+              {card.description}
+            </p>
+          )}
+          {empty ? null : (
+            <ul className="flex flex-col divide-y border-t" aria-label={`${title} connections`}>
               {rows.map(({ connection, row }) => (
-                <li key={connection} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
-                    {row.details && (
-                      <dl className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                        {Object.entries(row.details).map(([label, value]) => (
-                          <div key={label}>
-                            <dt className="inline">{label}: </dt>
-                            <dd className="inline">{value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                  </div>
-                  {row.status && <StatusText status={row.status} />}
-                  <TargetLinks actions={row.actions} hrefOf={hrefOf} />
-                </li>
+                <RegistryRow key={`package:${connection}`} row={row} hrefOf={hrefOf} />
+              ))}
+              {connections.map((row) => (
+                <ConnectionItem
+                  key={`platform:${row.connection}`}
+                  row={row}
+                  yours={row.ownerUserId === info.principal.actor}
+                  noun={noun}
+                  verbs={verbs}
+                  onDisconnect={() => onDisconnect(row)}
+                />
               ))}
             </ul>
-          </CardContent>
-        )}
+          )}
+          {card?.actions.length || connectable ? (
+            <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+              {card && <TargetLinks actions={card.actions} hrefOf={hrefOf} />}
+              {connectable && provider ? (
+                <Link
+                  from={Route.fullPath}
+                  to="."
+                  search={{ connect: provider.provider }}
+                  aria-label={`${another ? `Connect another ${title} ${noun}` : `Connect ${title}`}${viaIterate && " through iterate's app"}`}
+                  className={buttonVariants({
+                    variant: another ? "outline" : "default",
+                    size: "sm",
+                  })}
+                >
+                  {`${another ? "Connect another" : "Connect"}${viaIterate}`}
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
       </Card>
     </section>
+  );
+}
+
+/** A card's mark: the package's icon, a provider's logo, or the title's first letter. */
+function IntegrationMark({
+  title,
+  icon,
+  provider,
+}: {
+  title: string;
+  icon: string | undefined;
+  provider: Provider | null;
+}) {
+  if (icon) return <img src={icon} alt="" className="size-8 shrink-0 rounded-md object-contain" />;
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold uppercase"
+    >
+      {provider ? <ProviderLogo provider={provider} /> : title.slice(0, 1)}
+    </span>
+  );
+}
+
+/** One connection a package registered: the account, a few facts about it, its status and buttons. */
+function RegistryRow({
+  row,
+  hrefOf,
+}: {
+  row: IntegrationConnection;
+  hrefOf: (target: IntegrationTarget) => string | null;
+}) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
+        {row.details && (
+          <dl className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            {Object.entries(row.details).map(([label, value]) => (
+              <div key={label}>
+                <dt className="inline">{label}: </dt>
+                <dd className="inline">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+      {row.status && <StatusText status={row.status} />}
+      <TargetLinks actions={row.actions} hrefOf={hrefOf} />
+    </li>
   );
 }
 
@@ -870,9 +914,10 @@ function StatusText({ status }: { status: IntegrationStatus }) {
     <p
       data-type={status.kind === "error" ? "error" : undefined}
       className={cn(
-        "flex items-center gap-1.5 text-xs",
-        status.kind === "ok" && "text-muted-foreground",
-        status.kind === "error" && "text-destructive",
+        "inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-left text-[11px] font-medium [overflow-wrap:anywhere]",
+        status.kind === "ok" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        status.kind === "attention" && "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        status.kind === "error" && "bg-destructive/10 text-destructive",
       )}
     >
       <span
