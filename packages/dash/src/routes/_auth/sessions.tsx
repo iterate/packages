@@ -11,7 +11,7 @@
 // uses one when its Integrations page connects it there; disconnecting one here ends every
 // project's use of it.
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { z } from "zod";
 import { cn } from "cn";
@@ -115,33 +115,13 @@ function metaOf(item: GrantRecord, slugOf: Map<string, string>) {
   return [what, when].map((line) => line.filter((part): part is string => Boolean(part)));
 }
 
-/** A personal access token as the form just minted it — held only in this page's state, shown
+/** A personal access token as the form just minted it — held only in the sheet's state, shown
  *  once; a reload forgets it, as the server already has. */
 type MintedPersonalAccessToken = { name: string; token: string; expiresAt: number | null };
 
 function SessionsPage() {
   const data = Route.useLoaderData();
-  const { cursor, token: tokenSheet } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  const { api, info } = Route.useRouteContext();
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [tokenName, setTokenName] = useState("");
-  const [tokenLifetime, setTokenLifetime] = useState("30");
-  const [excludedProjectIds, setExcludedProjectIds] = useState<Set<string>>(new Set());
-  const [minted, setMinted] = useState<MintedPersonalAccessToken | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [minting, setMinting] = useState(false);
-  // Ending THIS browser's grant is a sign-out: the app's own logout clears the session and its
-  // cookie too (a bare redirect to `/` would bounce a still-cached token back into /projects).
-  const logout = useRef<HTMLFormElement>(null);
-  // A minted key lives only while its sheet is open: closed any way (Back included), it is gone —
-  // and one whose mint answers after its sheet closed is never shown (it is listed, to revoke).
-  const tokenSheetOpen = useRef(false);
-  tokenSheetOpen.current = Boolean(tokenSheet);
-  useEffect(() => {
-    if (!tokenSheet) setMinted(null);
-  }, [tokenSheet]);
+  const { info } = Route.useRouteContext();
   if (!data)
     return (
       <AllowAccount
@@ -151,56 +131,8 @@ function SessionsPage() {
         action="Allow the dash to manage them"
       />
     );
-  const { items, cursor: nextCursor, projects, canMintToken } = data;
-  const selectedProjectIds = projects
-    .filter((project) => !excludedProjectIds.has(project.id))
-    .map((project) => project.id);
-  const slugOf = new Map(projects.map((project) => [project.id, project.slug]));
-
-  const mintPersonalAccessToken = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const name = tokenName.trim();
-    setError(null);
-    setMinting(true);
-    try {
-      const { token, expiresAt } = await api.grants.mint({
-        name,
-        projects: selectedProjectIds,
-        expiresAt:
-          tokenLifetime === "never"
-            ? undefined
-            : Date.now() + Number(tokenLifetime) * 24 * 3600_000,
-      });
-      if (tokenSheetOpen.current) setMinted({ name, token, expiresAt });
-      setCopied(false);
-      setTokenName("");
-      await router.invalidate({ sync: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setMinting(false);
-    }
-  };
-  const copyMintedToken = async () => {
-    if (!minted) return;
-    try {
-      await navigator.clipboard.writeText(minted.token);
-      setCopied(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  };
-
-  const closeTokenSheet = () => {
-    if (minting) return;
-    setMinted(null);
-    setError(null);
-    void navigate({ search: { cursor }, replace: true });
-  };
-
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
-      <form ref={logout} method="post" action="/.auth/logout" hidden />
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
         {/* whose: the address and the person's id, copyable */}
@@ -209,7 +141,44 @@ function SessionsPage() {
           <Identifier value={info.principal.actor} textClassName="text-xs" />
         </p>
       </div>
-      {error && !tokenSheet && (
+      <SessionList
+        items={data.items}
+        nextCursor={data.cursor}
+        projects={data.projects}
+        canMintToken={data.canMintToken}
+      />
+      <ConnectedAccounts projects={data.projects} />
+      <TokenSheet projects={data.projects} canMintToken={data.canMintToken} />
+    </div>
+  );
+}
+
+/** The loader's page of grants, this browser's first, each ended on its own, and the links to the
+ *  first page and the next. */
+function SessionList({
+  items,
+  nextCursor,
+  projects,
+  canMintToken,
+}: {
+  items: GrantRecord[];
+  nextCursor: string | undefined;
+  projects: { id: string; slug: string }[];
+  canMintToken: boolean;
+}) {
+  const { cursor } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { api } = Route.useRouteContext();
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  // Ending THIS browser's grant is a sign-out: the app's own logout clears the session and its
+  // cookie too (a bare redirect to `/` would bounce a still-cached token back into /projects).
+  const logout = useRef<HTMLFormElement>(null);
+  const slugOf = new Map(projects.map((project) => [project.id, project.slug]));
+  return (
+    <>
+      <form ref={logout} method="post" action="/.auth/logout" hidden />
+      {error && (
         <p role="alert" data-type="error" className="text-sm text-destructive">
           {error}
         </p>
@@ -246,12 +215,11 @@ function SessionsPage() {
               .map((item) => (
                 <li key={item.id} className="flex items-center gap-3 py-3">
                   <Avatar className="rounded-md after:rounded-md" aria-hidden="true">
-                    {/* Base UI applies the prop to its preloader; render also sets it on the visible image. */}
+                    {/* Base UI sets the referrer policy on its preloader and on the image it shows */}
                     <AvatarImage
                       src={item.logoUri}
                       alt=""
                       referrerPolicy="no-referrer"
-                      render={<img alt="" referrerPolicy="no-referrer" />}
                       className="rounded-md object-contain"
                     />
                     <AvatarFallback className="rounded-md text-xs">
@@ -341,138 +309,222 @@ function SessionsPage() {
           </p>
         )}
       </section>
+    </>
+  );
+}
 
-      <ConnectedAccounts projects={projects} />
-
-      <Sheet
-        open={Boolean(tokenSheet && canMintToken)}
-        onOpenChange={(open) => !open && closeTokenSheet()}
+/** The New token sheet (`?token=1`), on a deployment that mints them. It cannot be closed while a
+ *  key is being minted. */
+function TokenSheet({
+  projects,
+  canMintToken,
+}: {
+  projects: { id: string; slug: string }[];
+  canMintToken: boolean;
+}) {
+  const { cursor, token: tokenSheet } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const [minting, setMinting] = useState(false);
+  const close = () => {
+    if (minting) return;
+    void navigate({ search: { cursor }, replace: true });
+  };
+  return (
+    <Sheet open={Boolean(tokenSheet && canMintToken)} onOpenChange={(open) => !open && close()}>
+      <SheetContent
+        side="right"
+        showCloseButton={!minting}
+        className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
       >
-        <SheetContent
-          side="right"
-          showCloseButton={!minting}
-          className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
-        >
-          {minted ? (
-            // never in a session replay or autocapture: the key is shown once, here
-            <NotRecorded role="status" data-testid="minted" className="flex h-full flex-col">
-              <SheetHeader>
-                <SheetTitle>{minted.name}</SheetTitle>
-                <SheetDescription>
-                  Copy it now: it isn't shown again.{" "}
-                  {minted.expiresAt ? `Expires ${dateOf(minted.expiresAt)}.` : "No expiry."}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex items-start gap-2 px-4">
-                <code
-                  data-testid="minted-token"
-                  className="min-w-0 flex-1 rounded-md bg-muted px-2 py-1.5 text-xs break-all"
-                >
-                  {minted.token}
-                </code>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  title={copied ? "Copied" : "Copy token"}
-                  onClick={copyMintedToken}
-                >
-                  {copied ? <CheckIcon /> : <CopyIcon />}
-                </Button>
-              </div>
-              {error && (
-                <p role="alert" data-type="error" className="px-4 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-              <SheetFooter className="border-t sm:flex-row sm:justify-end">
-                <Button type="button" onClick={closeTokenSheet}>
-                  Done
-                </Button>
-              </SheetFooter>
-            </NotRecorded>
+        <NewToken projects={projects} minting={minting} setMinting={setMinting} onDone={close} />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** The New token sheet's body: a name, the projects the key may reach and when it expires, then
+ *  the key. Mounted with the sheet, so every opening starts blank and a minted key goes with the
+ *  sheet however it closes (Back included). */
+function NewToken({
+  projects,
+  minting,
+  setMinting,
+  onDone,
+}: {
+  projects: { id: string; slug: string }[];
+  minting: boolean;
+  setMinting: (minting: boolean) => void;
+  onDone: () => void;
+}) {
+  const { api } = Route.useRouteContext();
+  const router = useRouter();
+  const [tokenName, setTokenName] = useState("");
+  const [tokenLifetime, setTokenLifetime] = useState("30");
+  const [excludedProjectIds, setExcludedProjectIds] = useState<Set<string>>(new Set());
+  const [minted, setMinted] = useState<MintedPersonalAccessToken | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const selectedProjectIds = projects
+    .filter((project) => !excludedProjectIds.has(project.id))
+    .map((project) => project.id);
+  const mint = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = tokenName.trim();
+    setError(null);
+    setMinting(true);
+    try {
+      const { token, expiresAt } = await api.grants.mint({
+        name,
+        projects: selectedProjectIds,
+        expiresAt:
+          tokenLifetime === "never"
+            ? undefined
+            : Date.now() + Number(tokenLifetime) * 24 * 3600_000,
+      });
+      // a key whose sheet closed while it was minted is never shown (it is listed, to revoke)
+      if (router.state.location.search.token) setMinted({ name, token, expiresAt });
+      setTokenName("");
+      await router.invalidate({ sync: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setMinting(false);
+    }
+  };
+  if (minted) return <MintedToken minted={minted} onDone={onDone} />;
+  return (
+    <form onSubmit={mint} className="flex h-full flex-col">
+      <SheetHeader>
+        <SheetTitle>New token</SheetTitle>
+        <SheetDescription>
+          Acts as you on the projects you pick. Send it as <code>Authorization: Bearer</code>.
+        </SheetDescription>
+      </SheetHeader>
+      <div className="flex flex-1 flex-col gap-4 px-4 pb-4">
+        <Label className="flex flex-col items-start gap-2">
+          Name
+          <Input
+            aria-label="Token name"
+            value={tokenName}
+            onChange={(event) => setTokenName(event.target.value)}
+            maxLength={100}
+            placeholder="My script"
+            required
+          />
+        </Label>
+        <Label className="flex flex-col items-start gap-2">
+          Expires
+          <NativeSelect
+            aria-label="Token expiry"
+            value={tokenLifetime}
+            disabled={minting}
+            onChange={(event) => setTokenLifetime(event.target.value)}
+          >
+            {TOKEN_LIFETIMES.map((lifetime) => (
+              <NativeSelectOption key={lifetime.value} value={lifetime.value}>
+                {lifetime.label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Label>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-2 text-sm font-medium">Projects</legend>
+          {projects.length > 0 ? (
+            projects.map((project) => (
+              <Label key={project.id} className="gap-2 font-mono font-normal">
+                <Checkbox
+                  checked={!excludedProjectIds.has(project.id)}
+                  disabled={minting}
+                  onCheckedChange={(checked) => {
+                    setExcludedProjectIds((current) => {
+                      const next = new Set(current);
+                      if (checked) next.delete(project.id);
+                      else next.add(project.id);
+                      return next;
+                    });
+                  }}
+                />
+                {project.slug}
+              </Label>
+            ))
           ) : (
-            <form onSubmit={mintPersonalAccessToken} className="flex h-full flex-col">
-              <SheetHeader>
-                <SheetTitle>New token</SheetTitle>
-                <SheetDescription>
-                  Acts as you on the projects you pick. Send it as{" "}
-                  <code>Authorization: Bearer</code>.
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex flex-1 flex-col gap-4 px-4 pb-4">
-                <Label className="flex flex-col items-start gap-2">
-                  Name
-                  <Input
-                    aria-label="Token name"
-                    value={tokenName}
-                    onChange={(event) => setTokenName(event.target.value)}
-                    maxLength={100}
-                    placeholder="My script"
-                    required
-                  />
-                </Label>
-                <Label className="flex flex-col items-start gap-2">
-                  Expires
-                  <NativeSelect
-                    aria-label="Token expiry"
-                    value={tokenLifetime}
-                    disabled={minting}
-                    onChange={(event) => setTokenLifetime(event.target.value)}
-                  >
-                    {TOKEN_LIFETIMES.map((lifetime) => (
-                      <NativeSelectOption key={lifetime.value} value={lifetime.value}>
-                        {lifetime.label}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </Label>
-                <fieldset className="flex flex-col gap-2">
-                  <legend className="mb-2 text-sm font-medium">Projects</legend>
-                  {projects.length > 0 ? (
-                    projects.map((project) => (
-                      <Label key={project.id} className="gap-2 font-mono font-normal">
-                        <Checkbox
-                          checked={!excludedProjectIds.has(project.id)}
-                          disabled={minting}
-                          onCheckedChange={(checked) => {
-                            setExcludedProjectIds((current) => {
-                              const next = new Set(current);
-                              if (checked) next.delete(project.id);
-                              else next.add(project.id);
-                              return next;
-                            });
-                          }}
-                        />
-                        {project.slug}
-                      </Label>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Create a project first.</p>
-                  )}
-                </fieldset>
-                {error && (
-                  <p role="alert" data-type="error" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-              </div>
-              <SheetFooter className="border-t sm:flex-row sm:justify-end">
-                <Button
-                  type="submit"
-                  disabled={
-                    minting || selectedProjectIds.length === 0 || tokenName.trim().length === 0
-                  }
-                >
-                  {minting ? <Spinner data-icon="inline-start" /> : null}
-                  Create token
-                </Button>
-              </SheetFooter>
-            </form>
+            <p className="text-sm text-muted-foreground">Create a project first.</p>
           )}
-        </SheetContent>
-      </Sheet>
-    </div>
+        </fieldset>
+        {error && (
+          <p role="alert" data-type="error" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+      <SheetFooter className="border-t sm:flex-row sm:justify-end">
+        <Button
+          type="submit"
+          disabled={minting || selectedProjectIds.length === 0 || tokenName.trim().length === 0}
+        >
+          {minting ? <Spinner data-icon="inline-start" /> : null}
+          Create token
+        </Button>
+      </SheetFooter>
+    </form>
+  );
+}
+
+/** The key just minted, shown this once: the account keeps only its hash. Never in a session replay
+ *  or autocapture. */
+function MintedToken({
+  minted,
+  onDone,
+}: {
+  minted: MintedPersonalAccessToken;
+  onDone: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(minted.token);
+      setCopied(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+  return (
+    <NotRecorded role="status" data-testid="minted" className="flex h-full flex-col">
+      <SheetHeader>
+        <SheetTitle>{minted.name}</SheetTitle>
+        <SheetDescription>
+          Copy it now: it isn't shown again.{" "}
+          {minted.expiresAt ? `Expires ${dateOf(minted.expiresAt)}.` : "No expiry."}
+        </SheetDescription>
+      </SheetHeader>
+      <div className="flex items-start gap-2 px-4">
+        <code
+          data-testid="minted-token"
+          className="min-w-0 flex-1 rounded-md bg-muted px-2 py-1.5 text-xs break-all"
+        >
+          {minted.token}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          title={copied ? "Copied" : "Copy token"}
+          onClick={copy}
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" data-type="error" className="px-4 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <SheetFooter className="border-t sm:flex-row sm:justify-end">
+        <Button type="button" onClick={onDone}>
+          Done
+        </Button>
+      </SheetFooter>
+    </NotRecorded>
   );
 }
 
@@ -500,85 +552,71 @@ function connectionKeyOf(row: { provider: string; connection: string }) {
   return `${row.provider}/${row.connection}`;
 }
 
-/** THE PERSON'S CONNECTED ACCOUNTS: listed live with the projects using each, disconnected (every
- *  project's use ends with it), or connected here through iterate's app (Google, Cloudflare; and
- *  GitHub, until they have one, as a sign-in added to their account). */
-function ConnectedAccounts({ projects }: { projects: { id: string; slug: string }[] }) {
-  const { api, info } = Route.useRouteContext();
-  const person = useContextStub(() => Promise.resolve(api.user), [api]);
-  const live = useFacetLiveState(person.stub, "account", Route.useLoaderData()?.account);
+/** THE PERSON'S ACCOUNT FACET, live and parsed: the loader's snapshot shows while the subscription
+ *  connects (`seeding`); a stub that failed to open leaves its subscription connecting for good, so
+ *  it fails the view too. */
+function useAccountView(
+  api: ReturnType<typeof Route.useRouteContext>["api"],
+  initial: Parameters<typeof useFacetLiveState>[2],
+) {
+  const opened = useContextStub(() => Promise.resolve(api.user), [api]);
+  const live = useFacetLiveState(opened.stub, "account", initial);
   const read = live.value ? AccountConnections.safeParse(live.value) : undefined;
-  const state = read?.data;
-  const accounts = Object.values(state?.integrations || {});
+  return {
+    value: live.value,
+    state: read?.data,
+    error: opened.error || live.error || (read?.error ? z.prettifyError(read.error) : null),
+    failed: Boolean(opened.error) || live.status === "error",
+    seeding: live.status === "connecting" && Boolean(live.value),
+  };
+}
+
+/** THE PERSON'S CONNECTED ACCOUNTS: listed live with the projects using each, disconnected (every
+ *  project's use ends with it), or connected here (`ConnectAccounts`). */
+function ConnectedAccounts({ projects }: { projects: { id: string; slug: string }[] }) {
+  const { api } = Route.useRouteContext();
+  const person = useAccountView(api, Route.useLoaderData()?.account);
+  const accounts = Object.values(person.state?.integrations || {});
   const slugOf = new Map(projects.map((project) => [project.id, project.slug]));
   /** The projects a connection is connected to, by slug. */
   const usedBy = (row: { provider: string; connection: string }) =>
-    Object.values(state?.secrets[`/secrets/${row.provider}-${row.connection}`]?.lends ?? {}).map(
-      (lend) => slugOf.get(lend.to) || lend.to,
-    );
+    Object.values(
+      person.state?.secrets[`/secrets/${row.provider}-${row.connection}`]?.lends ?? {},
+    ).map((lend) => slugOf.get(lend.to) || lend.to);
   const [error, setError] = useState<string | null>(null);
   /** The connection whose Disconnect runs (`connectionKeyOf`). */
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  // Disconnect stays busy until the account's live state drops the row, or fails, for the reason
-  // given beside `run` in projects/$slug/integrations.tsx.
+  // Disconnect stays busy until the account's live state drops the row, or fails: the call can
+  // answer before the live state drops the row, and a spinner that ends first flashes the row back.
+  // State adjusted while rendering (react.dev, "You Might Not Need an Effect"): the spinner goes in
+  // the same render that drops the row, never a commit later.
   const disconnectingListed = accounts.some((row) => disconnecting === connectionKeyOf(row));
-  useEffect(() => {
-    if (disconnecting && (!disconnectingListed || live.status === "error")) setDisconnecting(null);
-  }, [disconnecting, disconnectingListed, live.status]);
-  const next = `${window.location.origin}/sessions`;
-  const loadError = person.error || live.error || (read?.error && z.prettifyError(read.error));
+  if (disconnecting && (!disconnectingListed || person.failed)) setDisconnecting(null);
   const { error: addError } = Route.useSearch();
-  const addGithub =
-    state &&
-    info.signInProviders.includes("github") &&
-    !accounts.some((row) => row.provider === "github")
-      ? addGithubSignInHref(info, next)
-      : null;
   return (
     <section className="flex flex-col gap-2" aria-labelledby="connected-accounts-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="connected-accounts-heading" className="flex items-center gap-2 font-medium">
           Connected accounts
-          {live.status === "connecting" && live.value ? <Spinner /> : null}
+          {person.seeding ? <Spinner /> : null}
         </h2>
-        <div className="flex flex-wrap gap-2">
-          {PERSONAL_CONNECT_PROVIDERS.filter((provider) =>
-            info.iterateAppProviders.includes(provider),
-          ).map((provider) => (
-            <ConnectButton
-              key={provider}
-              provider={provider}
-              variant="outline"
-              size="sm"
-              connect={async (input) =>
-                z
-                  .object({ authorizationUrl: z.string().url() })
-                  .parse(await api.user.integrations.connect(input.provider, { next }))
-              }
-              onError={(caught) =>
-                setError(caught instanceof Error ? caught.message : String(caught))
-              }
-            >
-              Connect {INTEGRATION_PROVIDER_NAMES[provider]}
-            </ConnectButton>
-          ))}
-          {addGithub && (
-            <a href={addGithub} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
-              Connect GitHub
-            </a>
-          )}
-        </div>
+        <ConnectAccounts
+          githubListed={
+            person.state ? accounts.some((row) => row.provider === "github") : undefined
+          }
+          onError={setError}
+        />
       </div>
       {(error || addError) && (
         <p role="alert" data-type="error" className="text-sm text-destructive">
           {error || addError}
         </p>
       )}
-      {loadError ? (
+      {person.error ? (
         <p role="alert" data-type="error" className="text-sm text-destructive">
-          Couldn't load your connected accounts: {loadError}
+          Couldn't load your connected accounts: {person.error}
         </p>
-      ) : !live.value ? (
+      ) : !person.value ? (
         <p role="status" className="text-sm text-muted-foreground">
           Loading…
         </p>
@@ -601,6 +639,7 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
                 <AlertDialog>
                   <AlertDialogTrigger
                     render={<Button variant="ghost" size="sm" />}
+                    aria-label={`Disconnect ${row.account}`}
                     disabled={Boolean(disconnecting)}
                   >
                     {rowDisconnecting ? <Spinner data-icon="inline-start" /> : null}
@@ -645,5 +684,55 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
         </ul>
       )}
     </section>
+  );
+}
+
+/** Connecting one more account of the person's own: Google, Cloudflare or X through iterate's app,
+ *  and GitHub as a sign-in added to their account, until they have one (`githubListed` is unknown
+ *  until their account state has loaded). Both come back to this page. */
+function ConnectAccounts({
+  githubListed,
+  onError,
+}: {
+  githubListed: boolean | undefined;
+  onError: (error: string) => void;
+}) {
+  const { api, info } = Route.useRouteContext();
+  const router = useRouter();
+  const next = new URL(
+    router.buildLocation({ to: "/sessions", search: {} }).publicHref,
+    router.origin,
+  ).href;
+  const iterateApps = new Set(info.iterateAppProviders);
+  const addGithub =
+    githubListed === false && info.signInProviders.includes("github")
+      ? addGithubSignInHref(info, next)
+      : null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {PERSONAL_CONNECT_PROVIDERS.filter((provider) => iterateApps.has(provider)).map(
+        (provider) => (
+          <ConnectButton
+            key={provider}
+            provider={provider}
+            variant="outline"
+            size="sm"
+            connect={async (input) =>
+              z
+                .object({ authorizationUrl: z.string().url() })
+                .parse(await api.user.integrations.connect(input.provider, { next }))
+            }
+            onError={(caught) => onError(caught instanceof Error ? caught.message : String(caught))}
+          >
+            Connect {INTEGRATION_PROVIDER_NAMES[provider]}
+          </ConnectButton>
+        ),
+      )}
+      {addGithub && (
+        <a href={addGithub} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          Connect GitHub
+        </a>
+      )}
+    </div>
   );
 }

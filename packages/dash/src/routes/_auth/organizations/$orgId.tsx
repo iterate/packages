@@ -60,7 +60,10 @@ const shell = getRouteApi("/_auth");
 
 type Api = ReturnType<typeof shell.useRouteContext>["api"];
 type Member = Awaited<ReturnType<Api["organizations"]["members"]>>[number];
-type Invitation = Awaited<ReturnType<Api["organizations"]["invitations"]>>[number];
+/** An open invitation link as the page lists it: expired or not when the list was read. */
+type Invitation = Awaited<ReturnType<Api["organizations"]["invitations"]>>[number] & {
+  expired: boolean;
+};
 
 /** The organization's members and, for an owner, its open invitation links, read from /api — and
  *  again whenever the tree reads again (a fact on the organization says it changed) or `reload`
@@ -80,7 +83,18 @@ function useRoster(orgId: string, owner: boolean) {
       api.organizations.members(orgId),
       owner ? api.organizations.invitations(orgId) : [],
     ]).then(
-      ([members, invitations]) => !disposed && setRoster({ members, invitations }),
+      ([members, invitations]) => {
+        if (disposed) return;
+        // as of this read: the roster is read again on every fact and after every write
+        const at = Date.now();
+        setRoster({
+          members,
+          invitations: invitations.map((invitation) => ({
+            ...invitation,
+            expired: Date.parse(invitation.expiresAt) <= at,
+          })),
+        });
+      },
       (caught: unknown) =>
         !disposed &&
         setRoster((previous) => ({
@@ -124,7 +138,8 @@ function OrganizationSettings({ orgId }: { orgId: string }) {
   // the page is on its way to the list, not to not-found
   const [leaving, setLeaving] = useState(false);
   if (!org) {
-    if (missing && !leaving) throw notFound();
+    if (missing && leaving) return <DefaultPendingComponent />;
+    if (missing) throw notFound();
     if (!error) return <DefaultPendingComponent />;
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col items-start gap-3 p-4 md:p-8">
@@ -147,50 +162,11 @@ function OrganizationSettingsFor({
   org: TreeOrganization;
   onLeaving: () => void;
 }) {
-  const { api, info } = shell.useRouteContext();
-  const navigate = useNavigate();
+  const { info } = shell.useRouteContext();
   const canWrite = info.scopes.includes("organizations:write");
   const owner = org.role === "owner";
   const roster = useRoster(org.id, owner);
-  // The name follows the tree until the person starts editing; a save hands the field back to it.
-  const [name, setName] = useState(org.name);
-  const [editing, setEditing] = useState(false);
-  useEffect(() => {
-    if (!editing) setName(org.name);
-  }, [org.name, editing]);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function rename(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSaving(true);
-    try {
-      await api.organizations.rename(org.id, { name: name.trim() });
-      await reloadOrganizationTree();
-      setSaved(true);
-      setEditing(false);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function remove() {
-    setError(null);
-    setDeleting(true);
-    onLeaving();
-    try {
-      await api.organizations.delete(org.id);
-      await reloadOrganizationTree();
-      await navigate({ to: "/organizations", replace: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setDeleting(false);
-    }
-  }
-  const projectCount = org.projects.length;
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -215,75 +191,8 @@ function OrganizationSettingsFor({
           The organization's members could not be read: {roster.error}
         </p>
       ) : null}
-      <form onSubmit={rename}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Name</CardTitle>
-            <CardDescription>
-              What the organization is called, everywhere it is listed.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Field>
-              <FieldLabel htmlFor="organization-name">Organization name</FieldLabel>
-              <Input
-                id="organization-name"
-                autoComplete="organization"
-                value={name}
-                disabled={!owner || !canWrite}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setEditing(true);
-                  setSaved(false);
-                }}
-                required
-              />
-            </Field>
-            {canWrite ? null : <AllowOrganizations next={`/organizations/${org.id}`} />}
-          </CardContent>
-          <CardFooter className="gap-3">
-            <Button
-              type="submit"
-              disabled={saving || !owner || !canWrite || !name.trim() || name.trim() === org.name}
-            >
-              {saving ? <Spinner data-icon="inline-start" /> : null}
-              Save
-            </Button>
-            {saved ? (
-              <span role="status" className="text-sm text-muted-foreground">
-                Saved
-              </span>
-            ) : null}
-            {owner ? null : (
-              <span className="text-sm text-muted-foreground">Only an owner can rename it.</span>
-            )}
-          </CardFooter>
-        </Card>
-      </form>
-      <Card>
-        <CardHeader>
-          <CardTitle>Projects</CardTitle>
-          <CardDescription>
-            {projectCount
-              ? `${projectCount} project${projectCount === 1 ? "" : "s"} in this organization.`
-              : "No projects in this organization yet."}
-          </CardDescription>
-        </CardHeader>
-        {projectCount ? (
-          <CardContent className="flex flex-wrap gap-x-4 gap-y-2 font-mono text-sm">
-            {org.projects.map((project) => (
-              <Link
-                key={project.id}
-                to="/projects/$slug"
-                params={{ slug: project.slug }}
-                className="underline-offset-4 hover:underline"
-              >
-                {project.slug}
-              </Link>
-            ))}
-          </CardContent>
-        ) : null}
-      </Card>
+      <OrganizationName org={org} owner={owner} canWrite={canWrite} onError={setError} />
+      <OrganizationProjects projects={org.projects} />
       <Members
         org={org}
         members={roster.members}
@@ -309,40 +218,196 @@ function OrganizationSettingsFor({
           </CardDescription>
         </CardHeader>
       </Card>
-      <Card className="border-destructive/40">
+      <DeleteOrganization
+        org={org}
+        canDelete={owner && canWrite}
+        onError={setError}
+        onLeaving={onLeaving}
+      />
+    </div>
+  );
+}
+
+/** The organization's name, renamed here by an owner. The field follows the tree until the person
+ *  starts editing; a save hands it back to the tree. */
+function OrganizationName({
+  org,
+  owner,
+  canWrite,
+  onError,
+}: {
+  org: TreeOrganization;
+  owner: boolean;
+  canWrite: boolean;
+  onError: (error: string | null) => void;
+}) {
+  const { api } = shell.useRouteContext();
+  const [name, setName] = useState(org.name);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setName(org.name);
+  }, [org.name, editing]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  async function rename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onError(null);
+    setSaving(true);
+    try {
+      await api.organizations.rename(org.id, { name: name.trim() });
+      await reloadOrganizationTree();
+      setSaved(true);
+      setEditing(false);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <form onSubmit={rename}>
+      <Card>
         <CardHeader>
-          <CardTitle>Delete organization</CardTitle>
+          <CardTitle>Name</CardTitle>
           <CardDescription>
-            {projectCount
-              ? "An organization is deleted once it holds no project."
-              : "Deletes the organization and its memberships. There is no undo."}
+            What the organization is called, everywhere it is listed.
           </CardDescription>
         </CardHeader>
-        <CardFooter>
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={<Button variant="destructive" />}
-              disabled={deleting || !owner || !canWrite || projectCount > 0}
-            >
-              {deleting ? <Spinner data-icon="inline-start" /> : null}
-              Delete organization
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {org.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  The organization and its memberships go. There is no undo.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void remove()}>Delete</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <CardContent>
+          <Field>
+            <FieldLabel htmlFor="organization-name">Organization name</FieldLabel>
+            <Input
+              id="organization-name"
+              autoComplete="organization"
+              value={name}
+              disabled={!owner || !canWrite}
+              onChange={(event) => {
+                setName(event.target.value);
+                setEditing(true);
+                setSaved(false);
+              }}
+              required
+            />
+          </Field>
+          {canWrite ? null : <AllowOrganizations next={`/organizations/${org.id}`} />}
+        </CardContent>
+        <CardFooter className="gap-3">
+          <Button
+            type="submit"
+            disabled={saving || !owner || !canWrite || !name.trim() || name.trim() === org.name}
+          >
+            {saving ? <Spinner data-icon="inline-start" /> : null}
+            Save
+          </Button>
+          {saved ? (
+            <span role="status" className="text-sm text-muted-foreground">
+              Saved
+            </span>
+          ) : null}
+          {owner ? null : (
+            <span className="text-sm text-muted-foreground">Only an owner can rename it.</span>
+          )}
         </CardFooter>
       </Card>
-    </div>
+    </form>
+  );
+}
+
+/** The organization's projects, each linking to its overview. */
+function OrganizationProjects({ projects }: { projects: TreeOrganization["projects"] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Projects</CardTitle>
+        <CardDescription>
+          {projects.length
+            ? `${projects.length} project${projects.length === 1 ? "" : "s"} in this organization.`
+            : "No projects in this organization yet."}
+        </CardDescription>
+      </CardHeader>
+      {projects.length ? (
+        <CardContent className="flex flex-wrap gap-x-4 gap-y-2 font-mono text-sm">
+          {projects.map((project) => (
+            <Link
+              key={project.id}
+              to="/projects/$slug"
+              params={{ slug: project.slug }}
+              className="underline-offset-4 hover:underline"
+            >
+              {project.slug}
+            </Link>
+          ))}
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+/** The danger zone: an owner deletes the organization once it holds no project. */
+function DeleteOrganization({
+  org,
+  canDelete,
+  onError,
+  onLeaving,
+}: {
+  org: TreeOrganization;
+  canDelete: boolean;
+  onError: (error: string | null) => void;
+  /** the delete drops the membership from the tree before it answers: the page goes to the list */
+  onLeaving: () => void;
+}) {
+  const { api } = shell.useRouteContext();
+  const navigate = useNavigate();
+  const [deleting, setDeleting] = useState(false);
+  const projectCount = org.projects.length;
+  const remove = async () => {
+    onError(null);
+    setDeleting(true);
+    onLeaving();
+    try {
+      await api.organizations.delete(org.id);
+      await reloadOrganizationTree();
+      await navigate({ to: "/organizations", replace: true });
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDeleting(false);
+    }
+  };
+  return (
+    <Card className="border-destructive/40">
+      <CardHeader>
+        <CardTitle>Delete organization</CardTitle>
+        <CardDescription>
+          {projectCount
+            ? "An organization is deleted once it holds no project."
+            : "Deletes the organization and its memberships. There is no undo."}
+        </CardDescription>
+      </CardHeader>
+      <CardFooter>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={<Button variant="destructive" />}
+            disabled={deleting || !canDelete || projectCount > 0}
+          >
+            {deleting ? <Spinner data-icon="inline-start" /> : null}
+            Delete organization
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {org.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The organization and its memberships go. There is no undo.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void remove()}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -371,7 +436,7 @@ function Members({
   const { api } = shell.useRouteContext();
   const navigate = useNavigate();
   const [busy, setBusy] = useState<string | null>(null);
-  async function remove(memberId: string) {
+  const remove = async (memberId: string) => {
     onError(null);
     setBusy(memberId);
     if (memberId === self) onLeaving();
@@ -386,7 +451,7 @@ function Members({
     } finally {
       setBusy(null);
     }
-  }
+  };
   return (
     <Card>
       <CardHeader>
@@ -634,7 +699,7 @@ function Invitations({
                     </TableCell>
                     <TableCell className="text-muted-foreground">{invitation.role}</TableCell>
                     <TableCell className="text-muted-foreground tabular-nums">
-                      {Date.parse(invitation.expiresAt) <= Date.now() ? (
+                      {invitation.expired ? (
                         <Badge variant="outline">expired</Badge>
                       ) : (
                         dateOf(Date.parse(invitation.expiresAt))

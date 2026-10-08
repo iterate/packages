@@ -210,18 +210,6 @@ function ProjectDomains() {
     }, CHECK_EVERY_MS);
     return () => clearInterval(timer);
   }, [context, waiting]);
-  const [pending, setPending] = useState(false);
-  const add = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const hostname = String(new FormData(event.currentTarget).get("hostname"));
-    setPending(true);
-    try {
-      await request("add", hostname.trim().toLowerCase().replace(/\.$/, ""));
-      await navigate({ search: {}, replace: true });
-    } finally {
-      setPending(false);
-    }
-  };
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">
@@ -274,50 +262,72 @@ function ProjectDomains() {
           />
         ))}
       </ul>
-      <Sheet
-        open={search.add === 1}
-        onOpenChange={(open) => !open && !pending && void navigate({ search: {}, replace: true })}
-      >
-        <SheetContent
-          side="right"
-          className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
-        >
-          <form onSubmit={(event) => void add(event)} className="flex h-full flex-col">
-            <SheetHeader>
-              <SheetTitle>Add domain</SheetTitle>
-              <SheetDescription>
-                A domain or subdomain you control, like <code>example.com</code> or{" "}
-                <code>iterate.example.com</code>. Its apps get one label more:{" "}
-                <code>notes.iterate.example.com</code>.
-              </SheetDescription>
-            </SheetHeader>
-            <FieldGroup className="flex-1 p-4">
-              <Field>
-                <FieldLabel htmlFor="hostname">Domain</FieldLabel>
-                <Input
-                  id="hostname"
-                  name="hostname"
-                  placeholder="iterate.example.com"
-                  autoComplete="off"
-                  required
-                />
-                <FieldDescription>
-                  Next you point it at iterate: one click where your DNS provider supports it,
-                  otherwise a few records we show you, with where to put them. The certificate
-                  follows by itself.
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-            <SheetFooter className="border-t sm:flex-row sm:justify-end">
-              <SheetClose render={<Button variant="outline" type="button" />}>Cancel</SheetClose>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Adding…" : "Add domain"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
+      <AddDomainSheet onAdd={(hostname) => request("add", hostname)} />
     </div>
+  );
+}
+
+/** The Add domain sheet (`?add=1`): one hostname, asked for as `hostname-add-requested`, the sheet
+ *  closed once the ask is in. */
+function AddDomainSheet({ onAdd }: { onAdd: (hostname: string) => Promise<void> }) {
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const [pending, setPending] = useState(false);
+  const add = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const hostname = String(new FormData(event.currentTarget).get("hostname"));
+    setPending(true);
+    try {
+      await onAdd(hostname.trim().toLowerCase().replace(/\.$/, ""));
+      await navigate({ search: {}, replace: true });
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <Sheet
+      open={search.add === 1}
+      onOpenChange={(open) => !open && !pending && void navigate({ search: {}, replace: true })}
+    >
+      <SheetContent
+        side="right"
+        className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
+        <form onSubmit={(event) => void add(event)} className="flex h-full flex-col">
+          <SheetHeader>
+            <SheetTitle>Add domain</SheetTitle>
+            <SheetDescription>
+              A domain or subdomain you control, like <code>example.com</code> or{" "}
+              <code>iterate.example.com</code>. Its apps get one label more:{" "}
+              <code>notes.iterate.example.com</code>.
+            </SheetDescription>
+          </SheetHeader>
+          <FieldGroup className="flex-1 p-4">
+            <Field>
+              <FieldLabel htmlFor="hostname">Domain</FieldLabel>
+              <Input
+                id="hostname"
+                name="hostname"
+                placeholder="iterate.example.com"
+                autoComplete="off"
+                required
+              />
+              <FieldDescription>
+                Next you point it at iterate: one click where your DNS provider supports it,
+                otherwise a few records we show you, with where to put them. The certificate follows
+                by itself.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
+          <SheetFooter className="border-t sm:flex-row sm:justify-end">
+            <SheetClose render={<Button variant="outline" type="button" />}>Cancel</SheetClose>
+            <Button type="submit" disabled={pending}>
+              {pending ? "Adding…" : "Add domain"}
+            </Button>
+          </SheetFooter>
+        </form>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -415,11 +425,6 @@ function HostnameRow({
   const standing = standingOf(entry);
   const live = isLive(entry);
   const cloudflare = entry.cloudflare;
-  const dns = cloudflare?.status === "active";
-  const zone = cloudflare?.dns?.zone;
-  const guide = DNS_PROVIDER_GUIDES[cloudflare?.dns?.provider || ""];
-  // a bare domain at a provider that cannot point its root at another name
-  const apexNotPossible = zone === hostname && guide?.apex === false && !cloudflare?.connect;
   return (
     <li className="flex flex-col gap-4 py-5" data-hostname={hostname}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -466,94 +471,127 @@ function HostnameRow({
       {entry.error && <p className="pl-5 text-sm text-destructive">{entry.error}</p>}
       {cloudflare && !live && entry.requested?.verb !== "remove" && (
         <div className="flex max-w-2xl flex-col gap-4 pl-5">
-          <Progress dns={dns} certificate={cloudflare.sslStatus === "active"} />
-          {dns && !entry.claimed ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-[15px]">
-                One record left: it proves <code>{hostname}</code> is yours, so no other project can
-                take it.
-              </p>
-              <ManualRecords
-                records={cloudflare.records.filter((record) => record.type === "TXT")}
-                zone={zone}
-                guide={guide}
-              />
-              <p className="text-sm text-muted-foreground">
-                Checked every 30 seconds while this page is open.{" "}
-                <CheckNow onCheck={onCheck} checking={Boolean(entry.requested)} />
-              </p>
-            </div>
-          ) : dns ? (
-            <Waiting
-              lead={
-                <>
-                  Issuing a certificate for <code>{hostname}</code> and <code>*.{hostname}</code>.
-                </>
-              }
-              detail="Usually two to five minutes. Nothing for you to do."
-            />
-          ) : recentlyConnected(entry) ? (
-            <Waiting
-              lead={`${cloudflare.connect?.provider || "Your DNS provider"} added the records at ${new Date(entry.connectedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
-              detail={
-                <>
-                  Waiting for them to be seen, usually under a minute.{" "}
-                  <CheckNow onCheck={onCheck} checking={Boolean(entry.requested)} />
-                </>
-              }
-            />
-          ) : apexNotPossible ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-[15px]">
-                {guide.name} can't point a bare domain like <code>{hostname}</code> at another name.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Use a subdomain instead, or move {hostname}'s DNS to a provider with CNAME
-                flattening (Cloudflare's is free).
-              </p>
-              <Button className="self-start" onClick={() => onAdd(`www.${hostname}`)}>
-                Add www.{hostname} instead
-              </Button>
-            </div>
-          ) : cloudflare.connect ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-[15px]">
-                {entry.connectedAt
-                  ? `${cloudflare.connect.provider} hasn't shown the records yet. If you didn't approve them, connect again.`
-                  : `${zone || hostname}'s DNS is on ${cloudflare.connect.provider}. Approve the records there and you're done.`}
-              </p>
-              <a
-                href={cloudflare.connect.url}
-                className={buttonVariants({ className: "self-start" })}
-              >
-                Connect with {cloudflare.connect.provider}
-              </a>
-              <details>
-                <summary className="cursor-pointer text-sm text-muted-foreground">
-                  Add the records yourself instead
-                </summary>
-                <div className="pt-3">
-                  <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
-                </div>
-              </details>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <p className="text-[15px]">
-                {guide && zone
-                  ? `${zone}'s DNS is on ${guide.name}. Add these records there.`
-                  : "Add these records at your DNS provider."}
-              </p>
-              <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
-              <p className="text-sm text-muted-foreground">
-                Checked every 30 seconds while this page is open.{" "}
-                <CheckNow onCheck={onCheck} checking={Boolean(entry.requested)} />
-              </p>
-            </div>
-          )}
+          <Progress
+            dns={cloudflare.status === "active"}
+            certificate={cloudflare.sslStatus === "active"}
+          />
+          <NextStep
+            hostname={hostname}
+            entry={entry}
+            cloudflare={cloudflare}
+            onCheck={onCheck}
+            onAdd={onAdd}
+          />
         </div>
       )}
     </li>
+  );
+}
+
+/** The one thing to do next on a hostname's way to live, or what it is waiting for: the record that
+ *  proves it is the owner's, the certificate, the records a provider just wrote, a bare domain its
+ *  provider can't point, the provider's one click, or the records to add by hand. */
+function NextStep({
+  hostname,
+  entry,
+  cloudflare,
+  onCheck,
+  onAdd,
+}: {
+  hostname: string;
+  entry: Hostname;
+  cloudflare: NonNullable<Hostname["cloudflare"]>;
+  onCheck: () => void;
+  onAdd: (hostname: string) => void;
+}) {
+  const dns = cloudflare.status === "active";
+  const zone = cloudflare.dns?.zone;
+  const guide = DNS_PROVIDER_GUIDES[cloudflare.dns?.provider || ""];
+  const checkNow = <CheckNow onCheck={onCheck} checking={Boolean(entry.requested)} />;
+  if (dns && !entry.claimed)
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-[15px]">
+          One record left: it proves <code>{hostname}</code> is yours, so no other project can take
+          it.
+        </p>
+        <ManualRecords
+          records={cloudflare.records.filter((record) => record.type === "TXT")}
+          zone={zone}
+          guide={guide}
+        />
+        <p className="text-sm text-muted-foreground">
+          Checked every 30 seconds while this page is open. {checkNow}
+        </p>
+      </div>
+    );
+  if (dns)
+    return (
+      <Waiting
+        lead={
+          <>
+            Issuing a certificate for <code>{hostname}</code> and <code>*.{hostname}</code>.
+          </>
+        }
+        detail="Usually two to five minutes. Nothing for you to do."
+      />
+    );
+  if (recentlyConnected(entry))
+    return (
+      <Waiting
+        lead={`${cloudflare.connect?.provider || "Your DNS provider"} added the records at ${new Date(entry.connectedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
+        detail={<>Waiting for them to be seen, usually under a minute. {checkNow}</>}
+      />
+    );
+  // a bare domain at a provider that cannot point its root at another name
+  if (zone === hostname && guide?.apex === false && !cloudflare.connect)
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-[15px]">
+          {guide.name} can't point a bare domain like <code>{hostname}</code> at another name.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Use a subdomain instead, or move {hostname}'s DNS to a provider with CNAME flattening
+          (Cloudflare's is free).
+        </p>
+        <Button className="self-start" onClick={() => onAdd(`www.${hostname}`)}>
+          Add www.{hostname} instead
+        </Button>
+      </div>
+    );
+  if (cloudflare.connect)
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-[15px]">
+          {entry.connectedAt
+            ? `${cloudflare.connect.provider} hasn't shown the records yet. If you didn't approve them, connect again.`
+            : `${zone || hostname}'s DNS is on ${cloudflare.connect.provider}. Approve the records there and you're done.`}
+        </p>
+        <a href={cloudflare.connect.url} className={buttonVariants({ className: "self-start" })}>
+          Connect with {cloudflare.connect.provider}
+        </a>
+        <details>
+          <summary className="cursor-pointer text-sm text-muted-foreground">
+            Add the records yourself instead
+          </summary>
+          <div className="pt-3">
+            <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
+          </div>
+        </details>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[15px]">
+        {guide && zone
+          ? `${zone}'s DNS is on ${guide.name}. Add these records there.`
+          : "Add these records at your DNS provider."}
+      </p>
+      <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
+      <p className="text-sm text-muted-foreground">
+        Checked every 30 seconds while this page is open. {checkNow}
+      </p>
+    </div>
   );
 }
 
@@ -697,10 +735,14 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       className="ml-2 rounded border px-1.5 py-0.5 font-sans text-xs text-muted-foreground hover:text-foreground"
       onClick={() =>
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        })
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+          // refused (no permission, the page not focused): the label stays, the value is on screen
+          .catch(() => setCopied(false))
       }
     >
       {copied ? "Copied" : "Copy"}

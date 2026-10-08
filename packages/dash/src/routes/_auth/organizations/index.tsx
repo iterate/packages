@@ -141,7 +141,7 @@ function NewOrganizationForm({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  async function create(event: FormEvent<HTMLFormElement>) {
+  const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setPending(true);
@@ -154,7 +154,7 @@ function NewOrganizationForm({
     } finally {
       setPending(false);
     }
-  }
+  };
   return (
     <form onSubmit={create} className="flex h-full flex-col">
       <SheetHeader className="border-b">

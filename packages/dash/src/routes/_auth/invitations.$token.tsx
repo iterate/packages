@@ -39,7 +39,7 @@ function InvitationPage() {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canWrite = info.scopes.includes("organizations:write");
-  async function join() {
+  const join = async () => {
     setError(null);
     setJoining(true);
     try {
@@ -50,7 +50,7 @@ function InvitationPage() {
       setError(caught instanceof Error ? caught.message : String(caught));
       setJoining(false);
     }
-  }
+  };
   if (!invitation)
     return (
       <Notice
@@ -88,11 +88,11 @@ function InvitationPage() {
     return (
       <Notice
         title={
-          invitation.status === "accepted"
-            ? "This invitation was already used"
-            : invitation.status === "revoked"
-              ? "This invitation was revoked"
-              : "This invitation has expired"
+          {
+            accepted: "This invitation was already used",
+            revoked: "This invitation was revoked",
+            expired: "This invitation has expired",
+          }[invitation.status]
         }
         description={`Each link works once. Ask an owner of ${invitation.orgName} for a new one.`}
       />
@@ -105,7 +105,12 @@ function InvitationPage() {
           <CardDescription>
             You were invited to join this organization as {invitation.role === "owner" ? "an" : "a"}{" "}
             <Badge variant="secondary">{invitation.role}</Badge>. Link expires{" "}
-            {new Date(invitation.expiresAt).toLocaleString()}.
+            {new Date(invitation.expiresAt).toLocaleString("en-GB", {
+              dateStyle: "medium",
+              timeStyle: "short",
+              timeZone: "UTC",
+            })}{" "}
+            UTC.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">

@@ -3,7 +3,15 @@
 // day in the warehouse an hour a column; its busiest context paths and event types; how much each
 // context stores; a search of its log lines; and a box that runs any SELECT over the same tables,
 // cut to this project. Every row of a result opens the raw data under it in the page's sheet.
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useActionState,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import { Await, createFileRoute } from "@tanstack/react-router";
 import { cn } from "cn";
 import { Button } from "@iterate-com/ui/components/ui/button";
@@ -169,6 +177,7 @@ function ProjectAnalytics() {
   const live = useLive();
   // the sheet keeps its target while it closes, so its content stays put as it slides away
   const [opened, setOpened] = useState<{ target: RowTarget; open: boolean }>();
+  const openRow = useCallback((next: RowTarget) => setOpened({ target: next, open: true }), []);
   const target = opened?.target;
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
@@ -258,7 +267,7 @@ function ProjectAnalytics() {
           ))}
         </div>
       </section>
-      <OpenRow value={(next) => setOpened({ target: next, open: true })}>
+      <OpenRow value={openRow}>
         <Activity />
         <Storage answer={storage} />
         <QueryPanel
@@ -356,25 +365,33 @@ function Chart({
 function useLive() {
   const query = useTelemetry();
   const [live, setLive] = useState<Answer & { at: number }>();
-  useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = async () => {
-      if (!document.hidden) {
+  useEffect(
+    () =>
+      repeatAfter(30_000, async (stopped) => {
+        if (document.hidden) return;
         const at = Date.now();
         const next = await query(LIVE_SQL, 1);
-        if (stopped) return;
-        setLive({ ...next, at });
-      }
-      timer = setTimeout(() => void read(), 30_000);
-    };
-    void read();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [query]);
+        if (!stopped()) setLive({ ...next, at });
+      }),
+    [query],
+  );
   return live;
+}
+
+/** Runs `read` now, and again `ms` after each run settles, until the returned function stops it.
+ *  `read` asks `stopped()` before it changes anything. */
+function repeatAfter(ms: number, read: (stopped: () => boolean) => Promise<void>) {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const run = async () => {
+    await read(() => stopped);
+    if (!stopped) timer = setTimeout(() => void run(), ms);
+  };
+  void run();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 }
 
 /** The day's events by context path or by event type, both read at once so the toggle reads
@@ -563,8 +580,12 @@ function QueryPanel({
 }) {
   const query = useTelemetry();
   const [text, setText] = useState(initial);
-  const [answer, setAnswer] = useState<Answer>();
-  const [pending, setPending] = useState(false);
+  // the form's action: `pending` while it runs, and no answer shown meanwhile
+  const [answer, run, pending] = useActionState<Answer | undefined>(
+    async () => query(sql(text)),
+    undefined,
+  );
+  const shown = pending ? undefined : answer;
   return (
     <Card data-testid={testId}>
       <CardHeader>
@@ -572,30 +593,21 @@ function QueryPanel({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-start"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setPending(true);
-            setAnswer(undefined);
-            setAnswer(await query(sql(text)));
-            setPending(false);
-          }}
-        >
+        <form className="flex flex-col gap-2 sm:flex-row sm:items-start" action={run}>
           {input({ value: text, onChange: (event) => setText(event.target.value) })}
           <Button type="submit" className="self-start" disabled={pending}>
             {pending ? running : verb}
           </Button>
         </form>
-        {answer?.error && <p className="text-sm text-destructive">{answer.error}</p>}
-        {answer?.sql && (
-          <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{answer.sql}</pre>
+        {shown?.error && <p className="text-sm text-destructive">{shown.error}</p>}
+        {shown?.sql && (
+          <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{shown.sql}</pre>
         )}
-        {answer?.sql && (
+        {shown?.sql && (
           <ResultTable
-            rows={answer.rows.slice(0, 100)}
+            rows={shown.rows.slice(0, 100)}
             target={(row) => ({ row })}
-            columns={Object.keys(answer.rows[0] || {}).map((column) => ({
+            columns={Object.keys(shown.rows[0] || {}).map((column) => ({
               head: column,
               cell: (row) => String(row[column]),
             }))}
@@ -644,8 +656,8 @@ function ResultTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((row, i) => (
-          <TableRow key={i} className="cursor-pointer" onClick={() => open(target(row))}>
+        {keyedRows(rows).map(({ key, row }) => (
+          <TableRow key={key} className="cursor-pointer" onClick={() => open(target(row))}>
             {columns.map(({ head, cell, numeric }, c) => (
               <TableCell
                 key={head}
@@ -704,12 +716,23 @@ function LatestEvents({ column, value }: { column: Dimension; value: string }) {
         {answer?.sql && answer.rows.length === 0 && (
           <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>
         )}
-        {answer?.rows.map((row, i) => (
-          <RowJson key={i} row={row} />
+        {keyedRows(answer?.rows || []).map(({ key, row }) => (
+          <RowJson key={key} row={row} />
         ))}
       </div>
     </>
   );
+}
+
+/** `rows`, each with a React key: its JSON, and how many times the same row came before it. */
+function keyedRows(rows: Rows) {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const json = JSON.stringify(row);
+    const repeat = seen.get(json) || 0;
+    seen.set(json, repeat + 1);
+    return { key: `${repeat} ${json}`, row };
+  });
 }
 
 /** One row as pretty JSON, its JSON columns parsed where they parse. */

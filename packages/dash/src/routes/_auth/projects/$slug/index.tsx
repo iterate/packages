@@ -4,7 +4,14 @@
 // processor reported. The frame the project's own pages fill in over time. Its organization's owner
 // deletes the project here (`session.projects.delete`). The config repo's remote is linked, pulled
 // and pushed here too (`itx.repos.get("/repos/config")`: `origin`, `setOrigin`, `pull`, `push`).
-import { type ComponentProps, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUpRight, CheckIcon, CircleXIcon, MoreHorizontalIcon } from "lucide-react";
 import { z } from "zod";
@@ -172,13 +179,19 @@ function ProjectOverview() {
 /** What the config repo's section is doing, one action at a time. */
 type ConfigRepoAction = "link" | "pull" | "push" | "force-pull" | "force-push" | "unlink";
 
+/** A remote as the page shows it (`describeOrigin`). */
+type Remote = ReturnType<typeof describeOrigin>;
+
 /** A choice the page waits on, with the remote it is about: after a pull or a push against it that
  *  was not a fast-forward (`diverged`, the sheet), or replacing iterate's main with it (`replace`,
  *  the confirm). Its actions use that remote, whatever origin is by then. */
-type ConfigRepoChoice = {
-  kind: "diverged" | "replace";
-  remote: ReturnType<typeof describeOrigin>;
-};
+type ConfigRepoChoice = { kind: "diverged" | "replace"; remote: Remote };
+
+/** `ConfigRepo`'s one action at a time: busy while `work` runs, the origin read again after. */
+type RunAction = (action: ConfigRepoAction, work: () => Promise<unknown>) => Promise<void>;
+
+/** `ConfigRepo`'s pull or push of main against a remote's URL, forced or not. */
+type SyncMain = (verb: "pull" | "push", url: string, force?: true) => Promise<void>;
 
 /** The config repo's remote, git's `origin`, read again after every action, and its main pulled and
  *  pushed by hand. Every pull and push names the remote the page shows, so a link changed elsewhere
@@ -199,7 +212,6 @@ function ConfigRepo({
   const [outcome, setOutcome] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choice, setChoice] = useState<ConfigRepoChoice | null>(null);
-  const firstField = useRef<HTMLInputElement>(null);
   const configRepo = useCallback(
     () => api.projects.get(project.id).repos.get("/repos/config"),
     [api, project.id],
@@ -225,7 +237,6 @@ function ConfigRepo({
   const remote = read?.origin ? describeOrigin(read.origin) : null;
   const linking = !choice && search.configRepo === "link";
   const diverged = choice?.kind === "diverged" ? choice.remote : null;
-  const githubListed = githubConnections.length > 0;
   /** Closes the sheet or the confirm, with the choice and the error it showed. */
   const dismiss = async () => {
     setChoice(null);
@@ -234,7 +245,7 @@ function ConfigRepo({
   };
   /** Pull or push main against `url`: the outcome said and the sheet closed, or, when it is not a
    *  fast-forward (only an unforced one throws that), the sheet on the choice about that remote. */
-  const sync = async (verb: "pull" | "push", url: string, force?: true) => {
+  const sync: SyncMain = async (verb, url, force) => {
     try {
       const result = await configRepo()[verb]({ remote: url, force });
       setOutcome(
@@ -250,7 +261,7 @@ function ConfigRepo({
   };
   /** One action, busy while its own calls run. The origin read after it runs with the buttons
    *  enabled: the action's button, and its spinner, may be gone with the sheet by then. */
-  const run = async (action: ConfigRepoAction, work: () => Promise<unknown>) => {
+  const run: RunAction = async (action, work) => {
     originRequests.current += 1;
     setBusy(action);
     setError(null);
@@ -264,27 +275,6 @@ function ConfigRepo({
       setRead(await configRepo().setOrigin(url));
       await sync("pull", url);
     });
-  /** A button that runs one action: disabled while any runs, its spinner while it does. */
-  const actionButton = (
-    action: ConfigRepoAction,
-    label: string,
-    work: () => Promise<unknown>,
-    {
-      variant = "outline",
-      className,
-    }: Pick<ComponentProps<typeof Button>, "variant" | "className"> = {},
-  ) => (
-    <Button
-      type="button"
-      variant={variant}
-      className={className}
-      disabled={Boolean(busy)}
-      onClick={() => void run(action, work)}
-    >
-      {busy === action ? <Spinner data-icon="inline-start" /> : null}
-      {label}
-    </Button>
-  );
 
   return (
     <section aria-labelledby="config-repo-heading" className="flex flex-col gap-3">
@@ -292,61 +282,15 @@ function ConfigRepo({
         Config repo
       </h2>
       {remote ? (
-        <div className="flex flex-col gap-3 border-y py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <a
-              href={remote.href}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-1 font-mono text-sm font-medium hover:underline"
-            >
-              <span className="break-all">{remote.label}</span>
-              <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
-            </a>
-            {outcome ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                {outcome}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex gap-2">
-            {actionButton("pull", "Pull", () => sync("pull", remote.url), {
-              className: "flex-1 sm:flex-none",
-            })}
-            {actionButton("push", "Push", () => sync("push", remote.url), {
-              className: "flex-1 sm:flex-none",
-            })}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                disabled={Boolean(busy)}
-                render={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    title="More"
-                    aria-label="More"
-                  />
-                }
-              >
-                {busy === "unlink" ? <Spinner /> : <MoreHorizontalIcon aria-hidden="true" />}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-auto">
-                <DropdownMenuItem onClick={() => setChoice({ kind: "replace", remote })}>
-                  Replace with {remote.name}&apos;s main…
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() =>
-                    void run("unlink", async () => setRead(await configRepo().setOrigin(null)))
-                  }
-                >
-                  Unlink
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+        <RemoteRow
+          remote={remote}
+          outcome={outcome}
+          busy={busy}
+          run={run}
+          sync={sync}
+          onReplace={() => setChoice({ kind: "replace", remote })}
+          onUnlink={async () => setRead(await configRepo().setOrigin(null))}
+        />
       ) : read ? (
         <div className="flex items-center justify-between gap-3 border-y py-3">
           <p className="text-sm text-muted-foreground">Not linked to a git remote</p>
@@ -358,152 +302,391 @@ function ConfigRepo({
         <Spinner />
       )}
       {choice || linking ? null : <Failure error={error} />}
-      <AlertDialog
-        open={choice?.kind === "replace"}
-        onOpenChange={(open) => !open && !busy && void dismiss()}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Replace iterate&apos;s main with {choice?.remote.name || remote?.name}&apos;s?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Commits only iterate has are dropped, and the project republishes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <Failure error={error} />
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(busy)}>Cancel</AlertDialogCancel>
-            {choice
-              ? actionButton("force-pull", "Replace", () => sync("pull", choice.remote.url, true), {
-                  variant: "destructive",
-                })
-              : null}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <Sheet
-        open={Boolean(diverged) || linking}
-        onOpenChange={(open) => !open && !busy && void dismiss()}
-      >
-        <SheetContent
-          side="right"
-          showCloseButton={!busy}
-          initialFocus={linking ? firstField : undefined}
-          className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
-        >
-          <form
-            className="flex h-full flex-col"
-            onSubmit={(event) => {
-              event.preventDefault();
-              // Only the link step has the URL field; a choice step submits nothing.
-              const url = new FormData(event.currentTarget).get("url");
-              if (typeof url === "string") void link(url.trim());
-            }}
-          >
-            <SheetHeader className="border-b">
-              <SheetTitle>
-                {diverged
-                  ? `${diverged.name}'s main and iterate's have diverged`
-                  : "Link config repo"}
-              </SheetTitle>
-              {diverged ? (
-                <SheetDescription>
-                  Each has commits the other doesn&apos;t. Keep one.
-                </SheetDescription>
-              ) : null}
-            </SheetHeader>
-            <FieldGroup className="flex-1 p-4">
-              {linking ? (
-                <>
-                  {githubConnections.map((row) => (
-                    <GithubRepositories
-                      key={row.connection}
-                      projectId={project.id}
-                      connection={row.connection}
-                      account={row.account}
-                      disabled={Boolean(busy)}
-                      onPick={link}
-                    />
-                  ))}
-                  <Field>
-                    <FieldLabel htmlFor="config-repo-url">
-                      {githubListed ? "Or any git URL" : "Git URL"}
-                    </FieldLabel>
-                    <Input
-                      id="config-repo-url"
-                      name="url"
-                      ref={firstField}
-                      type="url"
-                      required
-                      pattern="https://[^@]+"
-                      title="An https:// URL with no credentials in it"
-                      placeholder="https://github.com/acme/site.git"
-                      className="font-mono"
-                    />
-                    <FieldDescription>
-                      Public, over https.
-                      {githubListed ? null : (
-                        <>
-                          {" "}
-                          For a private repo, connect GitHub on{" "}
-                          <Link to="/projects/$slug/integrations" params={{ slug: project.slug }}>
-                            Integrations
-                          </Link>
-                          .
-                        </>
-                      )}
-                    </FieldDescription>
-                  </Field>
-                </>
-              ) : null}
-              {diverged ? (
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    {actionButton(
-                      "force-pull",
-                      `Keep ${diverged.name}'s`,
-                      () => sync("pull", diverged.url, true),
-                      { variant: "destructive" },
-                    )}
-                    <p className="text-sm text-muted-foreground">
-                      iterate&apos;s main becomes {diverged.name}&apos;s, and the project
-                      republishes.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {actionButton(
-                      "force-push",
-                      "Keep iterate's",
-                      () => sync("push", diverged.url, true),
-                      { variant: "destructive" },
-                    )}
-                    <p className="text-sm text-muted-foreground">
-                      {diverged.name}&apos;s main is overwritten with iterate&apos;s.
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-              <Failure error={error} />
-            </FieldGroup>
-            <SheetFooter className="border-t sm:flex-row sm:justify-end">
-              <SheetClose
-                disabled={Boolean(busy)}
-                render={<Button type="button" variant="outline" />}
-              >
-                Cancel
-              </SheetClose>
-              {linking ? (
-                <Button type="submit" disabled={Boolean(busy)}>
-                  {busy === "link" ? <Spinner data-icon="inline-start" /> : null}
-                  Link
-                </Button>
-              ) : null}
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
+      <ReplaceConfirm
+        choice={choice}
+        remote={remote}
+        error={error}
+        busy={busy}
+        run={run}
+        sync={sync}
+        onDismiss={dismiss}
+      />
+      <ConfigRepoSheet
+        project={project}
+        githubConnections={githubConnections}
+        linking={linking}
+        diverged={diverged}
+        error={error}
+        busy={busy}
+        run={run}
+        sync={sync}
+        onLink={link}
+        onDismiss={dismiss}
+      />
     </section>
+  );
+}
+
+/** A button that runs one config repo action: disabled while any runs, its spinner while it does. */
+function ActionButton({
+  action,
+  busy,
+  run,
+  work,
+  variant = "outline",
+  className,
+  children,
+}: {
+  action: ConfigRepoAction;
+  busy: ConfigRepoAction | null;
+  run: RunAction;
+  work: () => Promise<unknown>;
+  variant?: ComponentProps<typeof Button>["variant"];
+  className?: string;
+  children: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      className={className}
+      disabled={Boolean(busy)}
+      onClick={() => void run(action, work)}
+    >
+      {busy === action ? <Spinner data-icon="inline-start" /> : null}
+      {children}
+    </Button>
+  );
+}
+
+/** The linked remote: where it is, what the last pull or push did, Pull and Push, and under More,
+ *  Replace (a confirm) and Unlink. */
+function RemoteRow({
+  remote,
+  outcome,
+  busy,
+  run,
+  sync,
+  onReplace,
+  onUnlink,
+}: {
+  remote: Remote;
+  outcome: string | null;
+  busy: ConfigRepoAction | null;
+  run: RunAction;
+  sync: SyncMain;
+  onReplace: () => void;
+  onUnlink: () => Promise<unknown>;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-y py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <a
+          href={remote.href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex max-w-full items-center gap-1 font-mono text-sm font-medium hover:underline"
+        >
+          <span className="break-all">{remote.label}</span>
+          <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
+        </a>
+        {outcome ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {outcome}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex gap-2">
+        <ActionButton
+          action="pull"
+          busy={busy}
+          run={run}
+          work={() => sync("pull", remote.url)}
+          className="flex-1 sm:flex-none"
+        >
+          Pull
+        </ActionButton>
+        <ActionButton
+          action="push"
+          busy={busy}
+          run={run}
+          work={() => sync("push", remote.url)}
+          className="flex-1 sm:flex-none"
+        >
+          Push
+        </ActionButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={Boolean(busy)}
+            render={
+              <Button type="button" variant="outline" size="icon" title="More" aria-label="More" />
+            }
+          >
+            {busy === "unlink" ? <Spinner /> : <MoreHorizontalIcon aria-hidden="true" />}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto">
+            <DropdownMenuItem onClick={onReplace}>
+              Replace with {remote.name}&apos;s main…
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={() => void run("unlink", onUnlink)}>
+              Unlink
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
+/** Replacing iterate's main with the remote's, behind a confirm: the commits only iterate has are
+ *  dropped. */
+function ReplaceConfirm({
+  choice,
+  remote,
+  error,
+  busy,
+  run,
+  sync,
+  onDismiss,
+}: {
+  choice: ConfigRepoChoice | null;
+  /** the remote origin is: what the title names while the confirm closes */
+  remote: Remote | null;
+  error: string | null;
+  busy: ConfigRepoAction | null;
+  run: RunAction;
+  sync: SyncMain;
+  onDismiss: () => Promise<void>;
+}) {
+  return (
+    <AlertDialog
+      open={choice?.kind === "replace"}
+      onOpenChange={(open) => !open && !busy && void onDismiss()}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Replace iterate&apos;s main with {choice?.remote.name || remote?.name}&apos;s?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Commits only iterate has are dropped, and the project republishes.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <Failure error={error} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={Boolean(busy)}>Cancel</AlertDialogCancel>
+          {choice ? (
+            <ActionButton
+              action="force-pull"
+              busy={busy}
+              run={run}
+              work={() => sync("pull", choice.remote.url, true)}
+              variant="destructive"
+            >
+              Replace
+            </ActionButton>
+          ) : null}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** The config repo's sheet: linking it (`?configRepo=link`), or the choice a pull or a push left
+ *  when the two mains have diverged. */
+function ConfigRepoSheet({
+  project,
+  githubConnections,
+  linking,
+  diverged,
+  error,
+  busy,
+  run,
+  sync,
+  onLink,
+  onDismiss,
+}: {
+  project: { id: string; slug: string };
+  githubConnections: { connection: string; account: string }[];
+  linking: boolean;
+  diverged: Remote | null;
+  error: string | null;
+  busy: ConfigRepoAction | null;
+  run: RunAction;
+  sync: SyncMain;
+  onLink: (url: string) => Promise<void>;
+  onDismiss: () => Promise<void>;
+}) {
+  const firstField = useRef<HTMLInputElement>(null);
+  return (
+    <Sheet
+      open={Boolean(diverged) || linking}
+      onOpenChange={(open) => !open && !busy && void onDismiss()}
+    >
+      <SheetContent
+        side="right"
+        showCloseButton={!busy}
+        initialFocus={linking ? firstField : undefined}
+        className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
+        {diverged ? (
+          <DivergedChoice diverged={diverged} error={error} busy={busy} run={run} sync={sync} />
+        ) : linking ? (
+          <LinkForm
+            project={project}
+            githubConnections={githubConnections}
+            error={error}
+            busy={busy}
+            urlField={firstField}
+            onLink={onLink}
+          />
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Linking the config repo: a repository of one of the project's GitHub connections, picked, or any
+ *  git URL over https, typed. The field keeps what was typed when the link fails. */
+function LinkForm({
+  project,
+  githubConnections,
+  error,
+  busy,
+  urlField,
+  onLink,
+}: {
+  project: { id: string; slug: string };
+  githubConnections: { connection: string; account: string }[];
+  error: string | null;
+  busy: ConfigRepoAction | null;
+  /** the sheet's first field, focused as it opens */
+  urlField: RefObject<HTMLInputElement | null>;
+  onLink: (url: string) => Promise<void>;
+}) {
+  const [url, setUrl] = useState("");
+  const githubListed = githubConnections.length > 0;
+  return (
+    <form className="flex h-full flex-col" action={() => void onLink(url.trim())}>
+      <SheetHeader className="border-b">
+        <SheetTitle>Link config repo</SheetTitle>
+      </SheetHeader>
+      <FieldGroup className="flex-1 p-4">
+        {githubConnections.map((row) => (
+          <GithubRepositories
+            key={row.connection}
+            projectId={project.id}
+            connection={row.connection}
+            account={row.account}
+            disabled={Boolean(busy)}
+            onPick={onLink}
+          />
+        ))}
+        <Field>
+          <FieldLabel htmlFor="config-repo-url">
+            {githubListed ? "Or any git URL" : "Git URL"}
+          </FieldLabel>
+          <Input
+            id="config-repo-url"
+            ref={urlField}
+            type="url"
+            required
+            pattern="https://[^@]+"
+            title="An https:// URL with no credentials in it"
+            placeholder="https://github.com/acme/site.git"
+            className="font-mono"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+          />
+          <FieldDescription>
+            Public, over https.
+            {githubListed ? null : (
+              <>
+                {" "}
+                For a private repo, connect GitHub on{" "}
+                <Link to="/projects/$slug/integrations" params={{ slug: project.slug }}>
+                  Integrations
+                </Link>
+                .
+              </>
+            )}
+          </FieldDescription>
+        </Field>
+        <Failure error={error} />
+      </FieldGroup>
+      <SheetFooter className="border-t sm:flex-row sm:justify-end">
+        <SheetClose disabled={Boolean(busy)} render={<Button type="button" variant="outline" />}>
+          Cancel
+        </SheetClose>
+        <Button type="submit" disabled={Boolean(busy)}>
+          {busy === "link" ? <Spinner data-icon="inline-start" /> : null}
+          Link
+        </Button>
+      </SheetFooter>
+    </form>
+  );
+}
+
+/** The choice a pull or a push against `diverged` left, the two mains having diverged: keep the
+ *  remote's, or iterate's. */
+function DivergedChoice({
+  diverged,
+  error,
+  busy,
+  run,
+  sync,
+}: {
+  diverged: Remote;
+  error: string | null;
+  busy: ConfigRepoAction | null;
+  run: RunAction;
+  sync: SyncMain;
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <SheetHeader className="border-b">
+        <SheetTitle>{`${diverged.name}'s main and iterate's have diverged`}</SheetTitle>
+        <SheetDescription>Each has commits the other doesn&apos;t. Keep one.</SheetDescription>
+      </SheetHeader>
+      <FieldGroup className="flex-1 p-4">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <ActionButton
+              action="force-pull"
+              busy={busy}
+              run={run}
+              work={() => sync("pull", diverged.url, true)}
+              variant="destructive"
+            >
+              {`Keep ${diverged.name}'s`}
+            </ActionButton>
+            <p className="text-sm text-muted-foreground">
+              iterate&apos;s main becomes {diverged.name}&apos;s, and the project republishes.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <ActionButton
+              action="force-push"
+              busy={busy}
+              run={run}
+              work={() => sync("push", diverged.url, true)}
+              variant="destructive"
+            >
+              Keep iterate&apos;s
+            </ActionButton>
+            <p className="text-sm text-muted-foreground">
+              {diverged.name}&apos;s main is overwritten with iterate&apos;s.
+            </p>
+          </div>
+        </div>
+        <Failure error={error} />
+      </FieldGroup>
+      <SheetFooter className="border-t sm:flex-row sm:justify-end">
+        <SheetClose disabled={Boolean(busy)} render={<Button type="button" variant="outline" />}>
+          Cancel
+        </SheetClose>
+      </SheetFooter>
+    </div>
   );
 }
 
@@ -586,10 +769,18 @@ function GithubRepositories({
         if (repositories.length < 100) return names;
       }
     };
-    list().then(
-      (names) => setListed({ names }),
-      (caught: unknown) => setListed({ names: [], error: messageOf(caught) }),
-    );
+    // an answer for the connection or the project the row no longer shows changes nothing
+    let current = true;
+    list()
+      .then((names) => {
+        if (current) setListed({ names });
+      })
+      .catch((caught: unknown) => {
+        if (current) setListed({ names: [], error: messageOf(caught) });
+      });
+    return () => {
+      current = false;
+    };
   }, [api, projectId, token, account]);
   return (
     <div className="flex flex-col gap-2">
@@ -627,7 +818,7 @@ function DeleteProject({ project }: { project: { id: string; slug: string } }) {
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function remove() {
+  const remove = async () => {
     setError(null);
     setDeleting(true);
     try {
@@ -636,9 +827,10 @@ function DeleteProject({ project }: { project: { id: string; slug: string } }) {
       await navigate({ to: "/projects", replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
       setDeleting(false);
     }
-  }
+  };
   return (
     <Card className="border-destructive/40">
       <CardHeader>

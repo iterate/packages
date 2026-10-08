@@ -296,39 +296,14 @@ function NewProjectForm({
             />
           </Field>
         ) : null}
-        {orgs.length ? (
-          <Field>
-            <FieldLabel htmlFor="project-organization">Organization</FieldLabel>
-            <NativeSelect
-              id="project-organization"
-              className="w-full"
-              value={orgId}
-              onChange={(event) => setPicked(event.target.value)}
-            >
-              {orgs.map((org) => (
-                <NativeSelectOption key={org.id} value={org.id}>
-                  {org.name}
-                </NativeSelectOption>
-              ))}
-              {canCreateOrg ? (
-                <NativeSelectOption value="new">New organization…</NativeSelectOption>
-              ) : null}
-            </NativeSelect>
-          </Field>
-        ) : null}
-        {creatingOrg ? (
-          <Field>
-            <FieldLabel htmlFor="organization-name">Organization name</FieldLabel>
-            <Input
-              id="organization-name"
-              placeholder="Acme"
-              autoComplete="organization"
-              value={orgName}
-              onChange={(event) => setOrgName(event.target.value)}
-              required
-            />
-          </Field>
-        ) : null}
+        <OrganizationField
+          orgs={orgs}
+          orgId={orgId}
+          canCreateOrg={canCreateOrg}
+          orgName={orgName}
+          onPick={setPicked}
+          onOrgName={setOrgName}
+        />
         {canCreateOrg ? null : (
           <AllowOrganizations
             next={
@@ -357,6 +332,62 @@ function NewProjectForm({
         </Button>
       </SheetFooter>
     </form>
+  );
+}
+
+/** The new project's organization: one of the tree's, the first until one is picked, or — "New
+ *  organization…", offered with `organizations:write` — one named here (`orgId` "new"). */
+function OrganizationField({
+  orgs,
+  orgId,
+  canCreateOrg,
+  orgName,
+  onPick,
+  onOrgName,
+}: {
+  orgs: { id: string; name: string }[];
+  orgId: string;
+  canCreateOrg: boolean;
+  orgName: string;
+  onPick: (orgId: string) => void;
+  onOrgName: (name: string) => void;
+}) {
+  return (
+    <>
+      {orgs.length ? (
+        <Field>
+          <FieldLabel htmlFor="project-organization">Organization</FieldLabel>
+          <NativeSelect
+            id="project-organization"
+            className="w-full"
+            value={orgId}
+            onChange={(event) => onPick(event.target.value)}
+          >
+            {orgs.map((org) => (
+              <NativeSelectOption key={org.id} value={org.id}>
+                {org.name}
+              </NativeSelectOption>
+            ))}
+            {canCreateOrg ? (
+              <NativeSelectOption value="new">New organization…</NativeSelectOption>
+            ) : null}
+          </NativeSelect>
+        </Field>
+      ) : null}
+      {orgId === "new" ? (
+        <Field>
+          <FieldLabel htmlFor="organization-name">Organization name</FieldLabel>
+          <Input
+            id="organization-name"
+            placeholder="Acme"
+            autoComplete="organization"
+            value={orgName}
+            onChange={(event) => onOrgName(event.target.value)}
+            required
+          />
+        </Field>
+      ) : null}
+    </>
   );
 }
 

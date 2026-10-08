@@ -251,20 +251,26 @@ function Facts({
 }) {
   useEffect(() => {
     if (!stub) return;
-    let disposed = false;
-    let handle: { [Symbol.dispose](): void } | undefined;
-    stub.subscribe({ consumes, target: () => !disposed && onFact() }).then(
-      (opened) => {
-        if (disposed) return opened[Symbol.dispose]();
-        handle = opened;
-        onFact();
-      },
-      (caught: unknown) => console.warn("organization tree: a subscription was refused", caught),
-    );
-    return () => {
-      disposed = true;
-      handle?.[Symbol.dispose]();
-    };
+    return subscribeToFacts(stub, consumes, onFact);
   }, [stub, consumes, onFact]);
   return null;
+}
+
+/** Opens the subscription `Facts` holds, and returns what closes it: at once when it is open, and
+ *  as it opens when it is not yet. */
+function subscribeToFacts(stub: FactContext, consumes: string[], onFact: () => void) {
+  let disposed = false;
+  let handle: { [Symbol.dispose](): void } | undefined;
+  stub.subscribe({ consumes, target: () => !disposed && onFact() }).then(
+    (opened) => {
+      if (disposed) return opened[Symbol.dispose]();
+      handle = opened;
+      onFact();
+    },
+    (caught: unknown) => console.warn("organization tree: a subscription was refused", caught),
+  );
+  return () => {
+    disposed = true;
+    handle?.[Symbol.dispose]();
+  };
 }
