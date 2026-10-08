@@ -38,7 +38,11 @@ test("the sync mounts on the connection to the origin's owner and on the root, e
   expect(connection.processors.enable).toHaveBeenCalledWith("github-sync", {
     source: githubSyncFolder(version),
     className: "GithubSyncDurableObject",
-    consumes: ["events.iterate.com/github/webhook-received", "github-sync/installed"],
+    consumes: [
+      "events.iterate.com/github/webhook-received",
+      "github/delivery-received",
+      "github-sync/installed",
+    ],
   });
   expect(root.processors.enable).toHaveBeenCalledWith("github-sync", {
     source: githubSyncFolder(version),

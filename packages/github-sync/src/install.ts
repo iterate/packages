@@ -50,7 +50,11 @@ export async function installGithubSync(
   const spec = { source, className: "GithubSyncDurableObject" };
   await log.processors.enable("github-sync", {
     ...spec,
-    consumes: ["events.iterate.com/github/webhook-received", "github-sync/installed"],
+    consumes: [
+      "events.iterate.com/github/webhook-received",
+      "github/delivery-received",
+      "github-sync/installed",
+    ],
   });
   await itx.processors.enable("github-sync", {
     ...spec,

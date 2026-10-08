@@ -33,6 +33,12 @@ test.for([
     synced: { repo: "/repos/config", pull: { status: "fast-forwarded" } },
   },
   {
+    when: "a push a project's own App delivered to a page of the project's pulls too",
+    event: pushTo("acme/config", "refs/heads/main", "github/delivery-received"),
+    calls: ["pull /repos/config"],
+    synced: { repo: "/repos/config", pull: { status: "fast-forwarded" } },
+  },
+  {
     when: "a commit to the repo pushes",
     event: committedTo("/repos/config"),
     calls: ["push /repos/config"],
@@ -105,8 +111,12 @@ async function processEvent(
   return appended;
 }
 
-function pushTo(repository: string, ref = "refs/heads/main") {
-  return committedEvent(5, "events.iterate.com/github/webhook-received", {
+function pushTo(
+  repository: string,
+  ref = "refs/heads/main",
+  type = "events.iterate.com/github/webhook-received",
+) {
+  return committedEvent(5, type, {
     delivery: { name: "push" },
     body: { ref, repository: { full_name: repository } },
   });

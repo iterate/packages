@@ -15,6 +15,12 @@ import { githubRepositoryOf } from "./github-repository.ts";
 
 type GithubSyncState = ProcessorState<typeof GithubSyncContract>;
 
+/** The two forms a GitHub delivery takes on a connection's log (contract.ts): the platform's, for
+ *  iterate's App, and a package's, for the project's own App. */
+const PUSH_EVENT_TYPES = new Set([
+  "events.iterate.com/github/webhook-received",
+  "github/delivery-received",
+]);
 const PushWebhook = z.object({
   delivery: z.object({ name: z.literal("push") }),
   body: z.object({
@@ -47,10 +53,7 @@ export class GithubSyncProcessor extends StreamProcessor<GithubSyncState> {
   }: ProcessEventArgs<GithubSyncState>): undefined {
     const { repo } = state;
     if (!event || !repo) return;
-    const push =
-      event.type === "events.iterate.com/github/webhook-received"
-        ? PushWebhook.safeParse(event.payload)
-        : null;
+    const push = PUSH_EVENT_TYPES.has(event.type) ? PushWebhook.safeParse(event.payload) : null;
     const pushedRepository = push?.success ? push.data.body.repository.full_name : null;
     const committed =
       event.type === "events.iterate.com/repo/commit-completed" &&

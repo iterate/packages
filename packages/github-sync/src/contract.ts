@@ -6,6 +6,11 @@
 //   on /integrations/github/<connection>  a push to origin's main  → repo.pull()  (which publishes)
 //   on /                                  a commit to the repo     → repo.push()
 //
+// A push arrives as the platform's `github/webhook-received` (iterate's App, routed to the
+// connection) or as a package's `github/delivery-received` (a project's own App, posted to a page
+// of the project's: iterategrations `github/`, or a receiver of the project's own), the same
+// payload either way: `{ delivery: { id, name }, installationId, body }`.
+//
 // What one side just received is already there when the other side's event arrives, so that call
 // answers up-to-date and nothing loops. Diverged mains are the outcome `not-fast-forward`: a person
 // chooses in the Dash (the project's Config repo: replace with GitHub's, or push iterate's). Every
@@ -22,6 +27,7 @@ export const GithubSyncContract = defineProcessorContract({
   stateSchema: z.object({ repo: z.string().nullable().default(null) }),
   consumes: [
     "events.iterate.com/github/webhook-received",
+    "github/delivery-received",
     "events.iterate.com/repo/commit-completed",
     "github-sync/installed",
   ],

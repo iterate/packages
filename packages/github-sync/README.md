@@ -35,7 +35,9 @@ itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({
 
 - `repo`: the repo to sync, `/repos/config` by default. Its origin names the GitHub repository.
 - `connection`: the GitHub connection whose webhooks carry the pushes, by default the project's one
-  connection to the origin's owner.
+  connection to the origin's owner. A push is the platform's `github/webhook-received` (iterate's
+  App) or a package's `github/delivery-received` on that log (a project's own App, posted to a page
+  of the project's: iterategrations `github/`), the same payload either way.
 
 It enables the `github-sync` processor on `/integrations/github/<connection>` (pushes) and on `/`
 (commits), and appends `github-sync/installed { repo }` to both: what came before is never synced.
