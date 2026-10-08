@@ -313,7 +313,11 @@ function ProjectIntegrations() {
           hrefOf={(target) =>
             integrationTargetHrefOf(
               info,
-              { slug: project.slug, primaryHostname: projectView.state?.primaryHostname || null },
+              {
+                id: project.id,
+                slug: project.slug,
+                primaryHostname: projectView.state?.primaryHostname || null,
+              },
               target,
             )
           }

@@ -1,5 +1,10 @@
 import type { IntegrationTarget } from "iterate/integrations";
-import { projectPublicUrlOf, projectUrlOf, type IngressRouting } from "iterate/project-ingress";
+import {
+  pinnedHostnameOf,
+  projectPublicUrlOf,
+  projectUrlOf,
+  type IngressRouting,
+} from "iterate/project-ingress";
 
 /** `value` as an http(s) origin, or null. What the issuer's `info()` reports — its platform and MCP
  *  origins — becomes an href or a copyable command only once parsed: a value that is not a URL, or
@@ -29,12 +34,17 @@ export function projectHostOf(
 /** Where a button a project's package registered leads (iterate/integrations `IntegrationTarget`),
  *  as an href, or null for no link: an absolute http(s) URL as the package wrote it, else the
  *  project's own page at `routingSlug` and `path`, composed as `itx.url` composes it
- *  (`projectPublicUrlOf`): on the project's primary hostname when it has one, else under this
- *  deployment's ingress; null when the platform's origin is not http(s). The page renders only
- *  targets the contract parsed, so the URL is http(s) and the path starts with one "/". */
+ *  (`projectPublicUrlOf`): on the project's primary hostname when it has one, the one this
+ *  deployment's config pins to it first, then the one it claimed, else under this deployment's
+ *  ingress; null when the platform's origin is not http(s). The page renders only targets the
+ *  contract parsed, so the URL is http(s) and the path starts with one "/". */
 export function integrationTargetHrefOf(
-  info: { platformOrigin: string; ingressRouting: IngressRouting },
-  project: { slug: string; primaryHostname: string | null },
+  info: {
+    platformOrigin: string;
+    ingressRouting: IngressRouting;
+    projectHostnames: readonly { hostname: string; project: string }[];
+  },
+  project: { id: string; slug: string; primaryHostname: string | null },
   target: IntegrationTarget,
 ): string | null {
   if ("url" in target) return target.url;
@@ -43,7 +53,7 @@ export function integrationTargetHrefOf(
   return (
     projectPublicUrlOf(info.ingressRouting, origin, {
       project: project.slug,
-      primaryHostname: project.primaryHostname,
+      primaryHostname: pinnedHostnameOf(info.projectHostnames, project) ?? project.primaryHostname,
       routingSlug: target.routingSlug,
       path: target.path,
     })?.href || null
