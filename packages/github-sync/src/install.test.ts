@@ -19,7 +19,7 @@ test("the sync mounts on the connection to the origin's owner and on the root, e
   expect(await installGithubSync(root, githubSyncFolder(version))).toEqual({
     repo: "/repos/config",
     repository: "Acme/config",
-    connection: "c1",
+    log: "/integrations/github/c1",
   });
   const connection = root.contexts["/integrations/github/c1"]!;
   expect(connection).toMatchObject({
@@ -65,6 +65,26 @@ test("another repo, and a connection named by the install", async () => {
     type: "github-sync/installed",
     payload: { repo: "/repos/site" },
   });
+});
+
+test("a package's log named by the install: the sync mounts there, and no connection is looked up", async () => {
+  const root = project({ origin, connections: [] });
+  expect(
+    await installGithubSync(root, githubSyncFolder(version), {
+      log: "/integrations/own-github/4242",
+    }),
+  ).toEqual({
+    repo: "/repos/config",
+    repository: "Acme/config",
+    log: "/integrations/own-github/4242",
+  });
+  expect(root.contexts["/integrations/own-github/4242"]!.appended.at(-1)).toEqual({
+    type: "github-sync/installed",
+    payload: { repo: "/repos/config" },
+  });
+  await expect(
+    installGithubSync(root, githubSyncFolder(version), { log: "/repos/config" }),
+  ).rejects.toThrow(/log is a stream under \/integrations/);
 });
 
 test.for([

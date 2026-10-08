@@ -1,6 +1,7 @@
 // /projects/<slug>/secrets — the project's secrets as `itx.secrets.list()` shows them: each one's
-// path, the origins it may be sent to, its refresh strategy's kind and when it was first set — never
-// a value — with an update and a delete per row. Setting one is a SHEET (the dash's form shape, like
+// path, the origins it may be sent to, its refresh strategy's kind, when it was first set and its
+// public fields (an OAuth client's ID: no secret) — never a secret value — with an update and a
+// delete per row. Setting one is a SHEET (the dash's form shape, like
 // /projects' New project), opened by "New secret" (`?new=1`) or a row's Update (`?update=<name>`),
 // so either is a deep link: a name (the path `/secrets/<name>` an outbound request's
 // `getSecret("/secrets/<name>")` placeholder spells), a value (a string, or a JSON object whose
@@ -151,6 +152,15 @@ function ProjectSecrets() {
                 <TableRow key={secret.path}>
                   <TableCell>
                     <Identifier value={secret.path} />
+                    {secret.public ? (
+                      <ul className="mt-1 flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
+                        {Object.entries(secret.public).map(([name, value]) => (
+                          <li key={name} className="wrap-anywhere">
+                            {name}={value}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <ul className="flex flex-col gap-0.5 font-mono text-xs">
@@ -294,9 +304,15 @@ function SecretForm({
     }
     setPending(true);
     try {
-      await api.projects.get(projectId).secrets.set(path, secretMaterialOf(value), {
-        urls: origins,
-      });
+      // a row with public fields keeps them public: the new value, a JSON object, carries each
+      const publicNames = Object.keys(existing?.public || {});
+      await api.projects
+        .get(projectId)
+        .secrets.set(
+          path,
+          secretMaterialOf(value),
+          publicNames.length ? { urls: origins, public: publicNames } : { urls: origins },
+        );
       await onDone(
         `${path} is ${existing ? "updated" : "set"}. The value is stored encrypted and is not shown again.`,
       );
@@ -385,6 +401,13 @@ function SecretForm({
           <p role="note" className="text-sm text-muted-foreground">
             This secret refreshes itself ({existing.refresh}). A value set from here has no refresh
             strategy — to keep one, set it from code with <code>refresh</code>.
+          </p>
+        )}
+        {existing?.public && (
+          <p role="note" className="text-sm text-muted-foreground">
+            This secret has public fields ({Object.keys(existing.public).join(", ")}), which the
+            project reads from its list of secrets. The new value is a JSON object that carries each
+            of them, and they stay public.
           </p>
         )}
         {error && (

@@ -95,6 +95,10 @@ const CollectionLink = z.object({
         name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
         label: z.string().trim().min(1).max(80),
         multiline: z.boolean().optional(),
+        // a part that is no secret: saved as a public field, which the catalog answers
+        public: z.boolean().optional(),
+        placeholder: z.string().optional(),
+        pattern: z.string().optional(),
       }),
     )
     .min(1)
@@ -201,7 +205,14 @@ function CollectSecretForm({
           )
         : secretMaterialOf(values[""] ?? "");
       const project = api.projects.get(projectId);
-      await project.secrets.set(link.path, material, { urls: link.urls });
+      const publicNames = (link.fields || [])
+        .filter((field) => field.public)
+        .map((field) => field.name);
+      await project.secrets.set(
+        link.path,
+        material,
+        publicNames.length ? { urls: link.urls, public: publicNames } : { urls: link.urls },
+      );
       if (link.agent) {
         // A link that names an agent: the agents app is installed, so the project's root has
         // `itx.agents` (the assertion iterate/api's `IterateContextApiWith` documents).
@@ -267,8 +278,18 @@ function CollectSecretForm({
             {input.multiline ? (
               <Textarea {...props} rows={3} className="min-h-20 font-mono" />
             ) : (
-              <Input {...props} className="h-11 font-mono" />
+              <Input
+                {...props}
+                className="h-11 font-mono"
+                placeholder={input.placeholder}
+                pattern={input.pattern}
+              />
             )}
+            {input.public ? (
+              <p className="text-xs text-muted-foreground">
+                Not a secret: the project reads it from its list of secrets.
+              </p>
+            ) : null}
           </Field>
         );
       })}

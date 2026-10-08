@@ -31,16 +31,20 @@ itx> const { installGithubSync } = await import("@iterate-com/github-sync/instal
 itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({ dir: "github-sync" }))
 ```
 
-`installGithubSync(itx, source, { repo, connection })`:
+`installGithubSync(itx, source, { repo, connection, log })`:
 
 - `repo`: the repo to sync, `/repos/config` by default. Its origin names the GitHub repository.
 - `connection`: the GitHub connection whose webhooks carry the pushes, by default the project's one
-  connection to the origin's owner. A push is the platform's `github/webhook-received` (iterate's
-  App) or a package's `github/delivery-received` on that log (a project's own App, posted to a page
-  of the project's: iterategrations `github/`), the same payload either way.
+  connection to the origin's owner. A push is the platform's `github/webhook-received` on that
+  connection's log, `/integrations/github/<connection>`.
+- `log`: instead of a connection, the stream a package lands the pushes on. iterategrations
+  `github/` records each delivery of the project's own App as `github/delivery-received` on
+  `/integrations/own-github/<installation id>`, the same payload, so
+  `{ log: "/integrations/own-github/<installation id>" }` syncs through that App; the repo's origin
+  then names that installation's secret, `/secrets/own-github-<installation id>`.
 
-It enables the `github-sync` processor on `/integrations/github/<connection>` (pushes) and on `/`
-(commits), and appends `github-sync/installed { repo }` to both: what came before is never synced.
+It enables the `github-sync` processor on that log (pushes) and on `/` (commits), and appends
+`github-sync/installed { repo }` to both: what came before is never synced.
 To upgrade, pin a newer build and install again; the same source again changes nothing but the
 markers.
 

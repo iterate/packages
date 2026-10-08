@@ -16,14 +16,16 @@ export function githubSyncFolder(version: string): Record<string, string> {
 
 /** Mount the sync from its source (`githubSyncFolder`, as `repo.modules({ dir })` answers it) for
  *  `repo` (default `/repos/config`), whose origin must be its GitHub repository (the Dash's Config
- *  repo links it), through `connection`: by default the project's one GitHub connection to the
+ *  repo links it), on the log the pushes arrive on: `log`, a package's stream (iterategrations
+ *  github/ records the project's own App's deliveries on `/integrations/own-github/<installation
+ *  id>`), or else the log of `connection`, by default the project's one GitHub connection to the
  *  repository's owner. Installing the same source again changes nothing but a new marker; a new
  *  source is an upgrade. */
 export async function installGithubSync(
   itx: Pick<IterateContextApi, "whoami" | "append" | "cd" | "facets" | "repos" | "processors">,
   source: Record<string, string>,
-  options: { repo?: string; connection?: string } = {},
-): Promise<{ repo: string; repository: string; connection: string }> {
+  options: { repo?: string; connection?: string; log?: string } = {},
+): Promise<{ repo: string; repository: string; log: string }> {
   const { path } = await itx.whoami();
   if (path !== "/") throw new Error("Install the GitHub sync at the project root");
   const repo = options.repo || "/repos/config";
@@ -33,8 +35,12 @@ export async function installGithubSync(
       `${repo} has no GitHub origin: link it to its repository first (the Dash's Config repo)`,
     );
   const owner = repository.split("/")[0]!;
-  const connection = options.connection || (await githubConnectionTo(itx, owner));
-  const log = itx.cd(`/integrations/github/${connection}`);
+  const logPath =
+    options.log ||
+    `/integrations/github/${options.connection || (await githubConnectionTo(itx, owner))}`;
+  if (!/^\/integrations\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(logPath))
+    throw new Error(`log is a stream under /integrations, got ${JSON.stringify(logPath)}`);
+  const log = itx.cd(logPath);
   // The connection's log reaches only itself: these rows lend it the root's repos, where `repo` is,
   // and the root's egress, which a pull's git exchange goes through (the connection's token is a
   // root secret).
@@ -63,7 +69,7 @@ export async function installGithubSync(
   // What each syncs starts here: the logs' history before the markers is never synced.
   const installed = { type: "github-sync/installed", payload: { repo } };
   await Promise.all([log.append(installed), itx.append(installed)]);
-  return { repo, repository, connection };
+  return { repo, repository, log: logPath };
 }
 
 /** The project's connections, as its root's `project` facet records them (core/os
