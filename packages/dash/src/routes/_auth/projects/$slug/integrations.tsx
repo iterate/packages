@@ -1,10 +1,15 @@
-// /projects/<slug>/integrations — the project's connections (the `project` facet's live state on
-// `/`), each provider's Connect sheet and the forms it leads to. The flows themselves — a person's own
-// account, iterate's app or your own, moving an account another project holds — are in
-// core/os/docs/integrations.md. The sheet is one URL: `?connect=<provider>` (`&scopes=` from an agent's
-// `requestFromUser`), `?own=<provider>&connection=<name>`, `?move=<offer>`.
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+// /projects/<slug>/integrations — what the project is connected to, in two parts. FIRST the
+// integrations its packages registered (iterate/integrations: the `integration` facet's live state
+// on `/integrations`): a card per integration, its connections beneath it, and every button a link
+// the page composes for this deployment. THEN the deployment's shared apps
+// (`info.iterateAppProviders`) with the project's connections through them (the `project` facet's
+// live state on `/`), each provider's Connect sheet, and the agent recipe for any other service.
+// Those flows — a person's own account, iterate's app, moving an account another project holds —
+// are in core/os/docs/integrations.md. The sheet is one URL, and every way in is a link:
+// `?connect=<provider>` (`&scopes=` from an agent's `requestFromUser`), `?move=<offer>`,
+// `?other=1`.
+import { useEffect, useState, type ReactNode } from "react";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { Blocks, CheckIcon, CopyIcon } from "lucide-react";
 import { z } from "zod";
 import {
@@ -18,7 +23,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@iterate-com/ui/components/ui/alert-dialog";
-import { Button } from "@iterate-com/ui/components/ui/button";
+import { Button, buttonVariants } from "@iterate-com/ui/components/ui/button";
+import { Card, CardContent } from "@iterate-com/ui/components/ui/card";
 import { ConnectButton } from "@iterate-com/ui/components/connect-button";
 import {
   Field,
@@ -37,7 +43,7 @@ import {
   SheetTitle,
 } from "@iterate-com/ui/components/ui/sheet";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { Textarea } from "@iterate-com/ui/components/ui/textarea";
+import { cn } from "cn";
 import { missingScopes } from "iterate/integration-scopes";
 import {
   INTEGRATION_PROVIDER_NAMES,
@@ -45,23 +51,29 @@ import {
   type IntegrationProvider,
   type SignInProvider,
 } from "iterate/api";
+import {
+  INTEGRATIONS_PATH,
+  IntegrationCard,
+  IntegrationConnection,
+  type IntegrationStatus,
+  type IntegrationTarget,
+} from "iterate/integrations";
 import { errorCode } from "iterate/lib";
-import { facetSnapshotOf, useContextStub, useFacetLiveState } from "iterate/react";
-import { freshConnectionName } from "../../../../lib/connections.ts";
-import { addGithubSignInHref, httpOriginOf } from "../../../../lib/origins.ts";
+import { facetSnapshotOf } from "iterate/react";
+import { type FacetHost, type FacetView, useFacetView } from "../../../../lib/facet-view.ts";
+import {
+  addGithubSignInHref,
+  httpOriginOf,
+  integrationTargetHrefOf,
+} from "../../../../lib/origins.ts";
 import { stepUpUrl } from "../../../../lib/scopes.ts";
 
 const Provider = z.enum(INTEGRATION_PROVIDERS);
 type Provider = z.infer<typeof Provider>;
-/** The providers with a project-app mode ("Your own app"). */
-const OwnAppProvider = z.enum(["slack", "google", "github", "x"]);
-type OwnAppProvider = z.infer<typeof OwnAppProvider>;
 
 const Connection = z.object({
   provider: Provider,
   connection: z.string(),
-  /** Which OAuth app: iterate's, or the project's own. */
-  client: z.enum(["iterate", "project"]),
   account: z.string(),
   externalId: z.string().optional(),
   scopes: z.array(z.string()).optional(),
@@ -81,9 +93,25 @@ const IntegrationsLive = z.looseObject({
       borrowed: z
         .object({ lender: z.object({ instance: z.literal(true).optional() }).loose() })
         .optional(),
+      /** The secret's pin: a sign-in's names the provider and its API, the API last. */
+      urls: z.array(z.string()).optional(),
     }),
   ),
 });
+
+/** The project's own state adds its primary hostname (core/os project/contract.ts), which the
+ *  registry's links to the project's pages compose on. */
+const ProjectLive = IntegrationsLive.extend({ primaryHostname: z.string().nullable() });
+
+/** The registry's state (iterate/integrations `IntegrationRegistryState`), each card and row left
+ *  unparsed: the page parses them one by one (`Registry`). */
+const RegistryLive = z.looseObject({
+  integrations: z.record(z.string(), z.unknown()),
+  connections: z.record(z.string(), z.unknown()),
+});
+
+/** What `integrations.connect` answers when it sends the browser to a provider. */
+const ConnectAnswer = z.object({ authorizationUrl: z.string().url() });
 
 /** Each published provider, its name, and what one of its connections is. */
 const PROVIDERS = INTEGRATION_PROVIDERS.map((provider) => ({
@@ -91,536 +119,859 @@ const PROVIDERS = INTEGRATION_PROVIDERS.map((provider) => ({
   title: INTEGRATION_PROVIDER_NAMES[provider],
   noun: provider === "slack" ? "workspace" : "account",
 }));
+type ProviderEntry = (typeof PROVIDERS)[number];
 
 /** The providers a person has an account of their own with by signing in (core/os identity.ts). */
 const SIGN_IN_PROVIDERS: readonly SignInProvider[] = ["google", "cloudflare", "github"];
 
+/** The page's search: which sheet is open, and what it was opened with. */
+const IntegrationsSearch = z.object({
+  /** The Connect sheet of one provider — an agent's ask (`itx.integrations.requestFromUser`) too. */
+  connect: Provider.optional().catch(undefined),
+  /** What an agent's ask needs beyond iterate's app's own scopes, space-separated. */
+  scopes: z.string().optional().catch(undefined),
+  /** A provider's callback's offer to move an account another project holds here (signed by the
+   *  platform, core/os integrations/connections.ts `IntegrationMoveOffer`). */
+  move: z.string().optional().catch(undefined),
+  /** Another service: how to connect one this page has no row for. */
+  other: z.literal(1).optional().catch(undefined),
+  /** Why the issuer refused to add a GitHub sign-in (core/os identity.ts, "ADD A SIGN-IN"). */
+  error: z.string().optional().catch(undefined),
+});
+type IntegrationsSearch = z.input<typeof IntegrationsSearch>;
+
 export const Route = createFileRoute("/_auth/projects/$slug/integrations")({
-  validateSearch: z.object({
-    /** The Connect sheet of one provider — an agent's ask (`itx.integrations.requestFromUser`) too. */
-    connect: Provider.optional().catch(undefined),
-    /** What an agent's ask needs beyond iterate's app's own scopes, space-separated. */
-    scopes: z.string().optional().catch(undefined),
-    own: OwnAppProvider.optional().catch(undefined),
-    connection: z.string().optional().catch(undefined),
-    /** A provider's callback's offer to move an account another project holds here (signed by the
-     *  platform, core/os integrations/connections.ts `IntegrationMoveOffer`). */
-    move: z.string().optional().catch(undefined),
-    /** Another service: how to connect one this page has no row for. */
-    other: z.literal(1).optional().catch(undefined),
-    /** Why the issuer refused to add a GitHub sign-in (core/os identity.ts, "ADD A SIGN-IN"). */
-    error: z.string().optional().catch(undefined),
-  }),
-  // `useFacetLiveState`'s `initial` for the project and, with `account`, the person; a failed read
-  // leaves the page waiting on its subscriptions
+  validateSearch: IntegrationsSearch,
+  // `useFacetLiveState`'s `initial` for the project, its registry and, with `account`, the person,
+  // each on its own: a read that fails leaves only its own view waiting on its subscription
   loader: ({ context }) =>
     context
       .read(async (api) => {
         using project = api.projects.get(context.project.id);
-        return await Promise.all([
+        using registry = project.cd(INTEGRATIONS_PATH);
+        const [projectSeed, registrySeed, personSeed] = await Promise.allSettled([
           facetSnapshotOf(project, "project"),
+          facetSnapshotOf(registry, "integration"),
           context.info.scopes.includes("account")
             ? facetSnapshotOf(api.user, "account")
             : undefined,
         ]);
+        return {
+          project: settledValueOf(projectSeed),
+          registry: settledValueOf(registrySeed),
+          person: settledValueOf(personSeed),
+        };
       })
-      .catch(() => [undefined, undefined] as const),
+      .catch(() => ({ project: undefined, registry: undefined, person: undefined })),
   staticData: { page: "Integrations" },
   head: ({ params }) => ({ meta: [{ title: `Integrations · ${params.slug} · Dash` }] }),
   component: ProjectIntegrations,
 });
 
+/** A settled read's value, or undefined for one that failed. */
+function settledValueOf<T>(settled: PromiseSettledResult<T>) {
+  return settled.status === "fulfilled" ? settled.value : undefined;
+}
+
+/** The person's own state: their accounts, and their context, whose egress reaches GitHub. */
+type PersonView = FacetView<
+  FacetHost & { fetch(request: Request): Promise<Response> },
+  z.infer<typeof IntegrationsLive>
+>;
+
+/** A verb that failed, said beside the verb: its key, and the words. */
+type Failure = { key: string; message: string };
+/** What a component that shows a verb reads: the verb under way, the last that failed, and how to
+ *  clear that once it was seen. */
+type VerbState = { busy: string | null; failed: Failure | null; dismiss: () => void };
+
+/** ONE VERB AT A TIME: the verb under way (`busy`, its key) and the last one that failed. A call
+ *  that answers ends its verb, except one that leaves for a provider (its spinner stays until the
+ *  browser has gone) and a Disconnect or a Remove (`dropped`), whose call can answer before the
+ *  project's live state drops its row: its spinner goes with the row, in the same render, or when
+ *  that live state fails (its error shows). A failure while the call is still out unlocks nothing. */
+function useVerbs(project: { listed: ReadonlySet<string>; failed: boolean }) {
+  const [busy, setBusy] = useState<{ key: string; until?: "leaving" | "dropped" } | null>(null);
+  const [failed, setFailed] = useState<Failure | null>(null);
+  // state adjusted while rendering (react.dev, "You Might Not Need an Effect"), not in an effect:
+  // no commit shows the lock without its row
+  if (busy?.until === "dropped" && (!project.listed.has(busy.key) || project.failed)) setBusy(null);
+  const fail = (key: string, caught: unknown) =>
+    setFailed({ key, message: caught instanceof Error ? caught.message : String(caught) });
+  const run = async (key: string, work: () => Promise<"leaving" | "dropped" | void>) => {
+    setFailed(null);
+    setBusy({ key });
+    try {
+      const until = await work();
+      setBusy(until ? { key, until } : null);
+    } catch (caught) {
+      fail(key, caught);
+      setBusy(null);
+    }
+  };
+  return { busy: busy?.key || null, failed, run, fail, dismiss: () => setFailed(null) };
+}
+type Verbs = ReturnType<typeof useVerbs>;
+
+/** This page's own URLs, as the router builds them from its search: the path, for a step-up on
+ *  this origin to come back to, and the whole URL on the origin the router serves, for a provider's
+ *  consent or the issuer to send the browser back to. */
+function useReturnUrls() {
+  const router = useRouter();
+  const { project } = Route.useRouteContext();
+  const pathOf = (search: IntegrationsSearch) =>
+    router.buildLocation({ to: Route.fullPath, params: { slug: project.slug }, search }).publicHref;
+  return {
+    pathOf,
+    urlOf: (search: IntegrationsSearch) => new URL(pathOf(search), router.origin).href,
+  };
+}
+
+/** The project's connections, and the keys this deployment shares with it. */
+function listsOf(state: z.infer<typeof ProjectLive> | undefined) {
+  return {
+    rows: Object.values(state?.integrations || {}),
+    fromDeployment: Object.entries(state?.secrets || {}).flatMap(([path, row]) =>
+      row.borrowed?.lender.instance ? [path] : [],
+    ),
+  };
+}
+
 /** A provider's mark, beside its name. */
 function ProviderLogo({ provider }: { provider: Provider }) {
-  return <img src={`/logos/${provider}.svg`} alt="" aria-hidden="true" className="size-5" />;
+  return <img src={`/logos/${provider}.svg`} alt="" className="size-5" />;
+}
+
+/** A failure, in the page's red, announced as it appears. */
+function ErrorText({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <p role="alert" data-type="error" className={cn("text-sm text-destructive", className)}>
+      {children}
+    </p>
+  );
 }
 
 function ProjectIntegrations() {
   const { api, info, project } = Route.useRouteContext();
-  const search = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  const context = useContextStub(() => api.projects.get(project.id), [api, project.id]).stub;
-  const [initialProject, initialPerson] = Route.useLoaderData();
-  const live = useFacetLiveState(context, "project", initialProject);
-  const projectRead = live.value ? IntegrationsLive.safeParse(live.value) : undefined;
-  const projectState = projectRead?.data;
-  const loadError = live.error || (projectRead?.error && z.prettifyError(projectRead.error));
-  const rows = Object.values(projectState?.integrations || {});
-  const fromDeployment = Object.entries(projectState?.secrets || {}).flatMap(([path, row]) =>
-    row.borrowed?.lender.instance ? [path] : [],
+  const seeds = Route.useLoaderData();
+  const projectView = useFacetView(
+    () => api.projects.get(project.id),
+    [api, project.id],
+    "project",
+    seeds.project,
+    ProjectLive,
+  );
+  const registryView = useFacetView(
+    async () => {
+      // the project's context is only the way there: released once the registry's is held
+      using projectContext = api.projects.get(project.id);
+      return await projectContext.cd(INTEGRATIONS_PATH);
+    },
+    [api, project.id],
+    "integration",
+    seeds.registry,
+    RegistryLive,
   );
   // the person's own accounts: a session without `account` (a device's key) offers none
-  const personStub = useContextStub(
+  const personView = useFacetView(
     info.scopes.includes("account") ? () => Promise.resolve(api.user) : null,
     [api, info.scopes],
+    "account",
+    seeds.person,
+    IntegrationsLive,
   );
-  const personLive = useFacetLiveState(personStub.stub, "account", initialPerson);
-  const personRead = personLive.value ? IntegrationsLive.safeParse(personLive.value) : undefined;
-  const yourAccounts = Object.values(personRead?.data?.integrations || {});
-  const yourAccountsStatus = !info.scopes.includes("account")
-    ? "no-access"
-    : personStub.error || personLive.error || personRead?.error
-      ? "failed"
-      : personLive.value
-        ? "loaded"
-        : "loading";
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  /** The account whose Use last failed and what its row says: a refusal's own words (it is meant for
-   *  the person, and trying again won't change it), else "try again" (the raw reason goes to the
-   *  console). */
-  const [failedUse, setFailedUse] = useState<{ connection: string; message: string } | null>(null);
-  const firstField = useRef<HTMLInputElement>(null);
-
-  /** One verb at a time. A connect that leaves for the provider keeps its spinner up until the
-   *  browser has gone, and a Disconnect or a Remove until the project's live state drops its row. */
-  const run = async (key: string, work: () => Promise<"leaving" | "dropping" | void>) => {
-    setError(null);
-    setBusy(key);
-    try {
-      if (!(await work())) setBusy(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setBusy(null);
-    }
-  };
-  // A Disconnect's or a Remove's call can answer before the project's live state drops its row.
-  // Its spinner goes with the row, in the same render, or when that live state fails (its error
-  // shows).
-  const dropping = busy?.startsWith("disconnect:") || busy?.startsWith("remove:");
-  const droppingListed =
-    rows.some((row) => busy === disconnectKeyOf(row)) ||
-    fromDeployment.some((path) => busy === removeKeyOf(path));
-  useEffect(() => {
-    if (dropping && (!droppingListed || live.status === "error")) setBusy(null);
-  }, [dropping, droppingListed, live.status]);
-  const closeSheet = () => navigate({ search: {}, replace: true });
-  const here = `${window.location.origin}/projects/${project.slug}/integrations`;
-  const askedScopes = search.scopes?.split(" ").filter(Boolean);
-  /** Another account through iterate's app. */
-  const connectAnother = async (input: { provider: IntegrationProvider; scopes?: string[] }) =>
-    z
-      .object({ authorizationUrl: z.string().url() })
-      .parse(
-        await api.projects
-          .get(project.id)
-          .integrations.connect(input.provider, { scopes: input.scopes, next: here }),
-      );
-  /** One of the person's own accounts connected to this project: at once, or through the
-   *  provider's consent for what it lacks, back here. */
-  const connectYourAccount = async (row: Connection) => {
-    setError(null);
-    setFailedUse(null);
-    setBusy(`use:${row.connection}`);
-    try {
-      const { authorizationUrl } = z
-        .object({ authorizationUrl: z.string().url().optional() })
-        .parse(
-          await api.projects.get(project.id).integrations.connect(row.provider, {
-            account: row.account,
-            scopes: askedScopes,
-            next: here,
-          }),
-        );
-      if (authorizationUrl) {
-        window.location.assign(authorizationUrl);
-        return;
-      }
-      setBusy(null);
-      await closeSheet();
-    } catch (caught) {
-      console.error("Connecting your account failed", caught);
-      const refused = ["FORBIDDEN", "INVALID_INPUT"].includes(errorCode(caught) ?? "");
-      setFailedUse({
-        connection: row.connection,
-        message:
-          refused && caught instanceof Error ? caught.message : "Couldn't connect it. Try again.",
-      });
-      setBusy(null);
-    }
-  };
-  const own =
-    search.own && search.connection
-      ? { provider: search.own, connection: search.connection }
-      : null;
-  const connecting = search.connect
-    ? PROVIDERS.find((known) => known.provider === search.connect)!
-    : null;
-  const moveOffer = search.move ? moveOfferOf(search.move) : null;
-  /** A verb the sheet must stay open for: every one but a Use, which may be left to finish. */
-  const blocking = Boolean(busy) && !busy?.startsWith("use:");
-  /** Whether the person has an account of their own for the provider being connected: the other
-   *  way to connect is "another" account only then. */
-  const hasYourOwn = Boolean(
-    connecting && yourAccounts.some((row) => row.provider === connecting.provider),
-  );
-  /** Where the step-up to the `account` scope comes back to: this sheet, an agent's ask kept. */
-  const stepUpParams = new URLSearchParams(connecting ? { connect: connecting.provider } : {});
-  if (search.scopes) stepUpParams.set("scopes", search.scopes);
-  const stepUpNext = `/projects/${project.slug}/integrations?${stepUpParams}`;
-  /** "another", or the article the next word takes when the person has none of their own. */
-  const another = (nextWord: string) =>
-    hasYourOwn ? "another" : /^[aeioux]/i.test(nextWord) ? "an" : "a";
-
-  /** Whether the Connect sheet offers one of the person's own accounts not connected here yet: its
-   *  Use is then the sheet's one primary action, and connecting another account is secondary. */
-  const offersYourOwn = Boolean(
-    connecting &&
-    yourAccounts.some(
-      (row) =>
-        row.provider === connecting.provider &&
-        !rows.some((here) => Boolean(here.ownerUserId) && here.connection === row.connection),
-    ),
-  );
-
+  const { rows, fromDeployment } = listsOf(projectView.state);
+  const verbs = useVerbs({
+    listed: new Set([...rows.map(disconnectKeyOf), ...fromDeployment.map(removeKeyOf)]),
+    failed: projectView.failed,
+  });
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-8">
       <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
         Integrations
-        {live.status === "connecting" && live.value ? <Spinner /> : null}
+        {/* a loader's snapshot shows while its subscription connects: what an action changes
+            reaches the page once the subscription is live */}
+        {projectView.seeding || registryView.seeding ? <Spinner /> : null}
       </h1>
-      {error && !own && !connecting && !moveOffer && (
-        <p role="alert" data-type="error" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {loadError ? (
-        <p role="alert" data-type="error" className="text-sm text-destructive">
-          Couldn't load this project's connections: {loadError}
-        </p>
-      ) : !live.value ? (
+      {projectView.error ? (
+        <ErrorText>Couldn't load this project's connections: {projectView.error}</ErrorText>
+      ) : null}
+      {registryView.error ? (
+        <ErrorText>Couldn't load this project's integrations: {registryView.error}</ErrorText>
+      ) : null}
+      {projectView.settled && registryView.settled ? null : (
         <p role="status" className="text-sm text-muted-foreground">
           Loading…
         </p>
-      ) : null}
-      <div className="flex flex-col divide-y border-y">
-        {PROVIDERS.map(({ provider, title, noun }) => {
-          const connections = rows.filter((row) => row.provider === provider);
-          return (
-            <section key={provider} className="py-3" aria-labelledby={`${provider}-heading`}>
-              <div className="flex items-center gap-3">
-                <ProviderLogo provider={provider} />
-                <h2 id={`${provider}-heading`} className="flex-1 font-medium">
-                  {title}
-                </h2>
-                {projectState && connections.length === 0 && (
-                  <span className="text-xs text-muted-foreground">Not connected</span>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={
-                    connections.length > 0 ? `Connect another ${title} ${noun}` : `Connect ${title}`
-                  }
-                  disabled={Boolean(busy)}
-                  onClick={() => {
-                    setError(null);
-                    setFailedUse(null);
-                    void navigate({ search: { connect: provider } });
-                  }}
-                >
-                  {connections.length > 0 ? "Connect another" : "Connect"}
-                </Button>
-              </div>
-              {connections.length > 0 && (
-                <ul className="mt-1 flex flex-col pl-8" aria-label={`${title} connections`}>
-                  {connections.map((row) => (
-                    <ConnectionItem
-                      key={row.connection}
-                      row={row}
-                      yours={row.ownerUserId === info.principal.actor}
-                      noun={noun}
-                      busy={busy}
-                      onDisconnect={() =>
-                        run(disconnectKeyOf(row), async () => {
-                          await api.projects
-                            .get(project.id)
-                            .integrations.disconnect(provider, row.connection);
-                          return "dropping";
-                        })
-                      }
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-        <section className="py-3" aria-labelledby="other-heading">
-          <div className="flex items-center gap-3">
-            <Blocks aria-hidden="true" className="size-5 text-muted-foreground" />
-            <h2 id="other-heading" className="flex-1 font-medium">
-              Other services
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-label="Connect another service"
-              disabled={Boolean(busy)}
-              onClick={() => void navigate({ search: { other: 1 } })}
-            >
-              Connect
-            </Button>
-          </div>
-        </section>
-      </div>
-      {fromDeployment.length > 0 && (
-        <section className="flex flex-col gap-2" aria-labelledby="deployment-heading">
-          <h2 id="deployment-heading" className="font-medium">
-            Shared by this deployment
-          </h2>
-          <ul className="flex flex-col divide-y border-y" aria-label="Shared by this deployment">
-            {fromDeployment.map((path) => {
-              const removing = busy === removeKeyOf(path);
-              return (
-                <li key={path} className="flex items-center gap-3 py-2">
-                  <code className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{path}</code>
-                  <AlertDialog>
-                    <AlertDialogTrigger
-                      render={<Button variant="ghost" size="sm" />}
-                      disabled={Boolean(busy)}
-                    >
-                      {removing ? <Spinner data-icon="inline-start" /> : null}
-                      Remove
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Remove {path}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Agents here stop using it. Only this deployment's operator can share it
-                          again.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        {/* the dialog stays open until the row goes, so the spinner is here too */}
-                        <AlertDialogAction
-                          variant="destructive"
-                          disabled={removing}
-                          onClick={() =>
-                            void run(removeKeyOf(path), async () => {
-                              await api.projects.get(project.id).secrets.delete(path);
-                              return "dropping";
-                            })
-                          }
-                        >
-                          {removing ? <Spinner data-icon="inline-start" /> : null}
-                          Remove
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
       )}
-      {/* ONE sheet: the Connect picker, and the forms it leads to (your own app) */}
-      <Sheet
-        open={Boolean(connecting || own || moveOffer || search.other)}
-        onOpenChange={(open) => !open && !blocking && void closeSheet()}
-      >
-        <SheetContent
-          side="right"
-          showCloseButton={!blocking}
-          initialFocus={own ? firstField : undefined}
-          className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
-        >
-          {moveOffer && (
-            <MoveOffer
-              offer={moveOffer}
-              pending={busy === "move"}
-              error={error}
-              onConfirm={() =>
-                run("move", async () => {
-                  await api.projects
-                    .get(project.id)
-                    .facets.get("project")
-                    .invoke([["confirmIntegrationMove", { offer: search.move }]]);
-                  await closeSheet();
-                })
-              }
-            />
-          )}
-          {search.other && !connecting && !own && !moveOffer && (
-            <OtherService
-              projectSlug={project.slug}
-              mcpServer={mcpServerOf(info)}
-              platformOrigin={httpOriginOf(info.platformOrigin)}
-            />
-          )}
-          {connecting && !own && !moveOffer && (
-            <div className="flex h-full flex-col">
-              <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  <ProviderLogo provider={connecting.provider} />
-                  {rows.some((row) => row.provider === connecting.provider)
-                    ? `Connect another ${connecting.title} ${connecting.noun}`
-                    : `Connect ${connecting.title}`}
-                </SheetTitle>
-                {askedScopes && (
-                  <SheetDescription>
-                    {accessLabelOf(askedScopes)
-                      ? `An agent needs ${accessLabelOf(askedScopes)} access.`
-                      : `An agent needs a ${connecting.title} ${connecting.noun}.`}
-                  </SheetDescription>
-                )}
-              </SheetHeader>
-              <div className="flex flex-1 flex-col gap-6 px-4 pb-4">
-                {error && (
-                  <p role="alert" data-type="error" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                <YourAccounts
-                  provider={connecting.provider}
-                  status={yourAccountsStatus}
-                  accounts={yourAccounts.filter((row) => row.provider === connecting.provider)}
-                  connectedHere={rows}
-                  askedScopes={
-                    // only Google's and Cloudflare's consents add scopes to your own account
-                    connecting.provider === "google" ||
-                    connecting.provider === "cloudflare" ||
-                    connecting.provider === "x"
-                      ? [
-                          ...(info.iterateAppScopes[connecting.provider] || []),
-                          ...(askedScopes || []),
-                        ]
-                      : []
-                  }
-                  busy={busy}
-                  failedUse={failedUse}
-                  stepUpNext={stepUpNext}
-                  onUse={(row) => void connectYourAccount(row)}
-                />
-                {connecting.provider === "github" &&
-                  info.iterateAppProviders.includes("github") && (
-                    <GithubInstallations
-                      person={personStub.stub}
-                      personState={personLive.value}
-                      connectedHere={rows}
-                      busy={busy}
-                      onConnect={(installationId) =>
-                        void run(`install:${installationId}`, async () => {
-                          const { authorizationUrl } = z
-                            .object({ authorizationUrl: z.string().url() })
-                            .parse(
-                              await api.projects.get(project.id).integrations.connect("github", {
-                                installationId,
-                                next: here,
-                              }),
-                            );
-                          window.location.assign(authorizationUrl);
-                          return "leaving";
-                        })
-                      }
-                    />
-                  )}
-                <div className="flex flex-col gap-2">
-                  {info.iterateAppProviders.includes(connecting.provider) ? (
-                    <ConnectButton
-                      provider={connecting.provider}
-                      variant={offersYourOwn ? "outline" : "default"}
-                      scopes={askedScopes}
-                      disabled={Boolean(busy)}
-                      connect={connectAnother}
-                      onError={(caught) =>
-                        setError(caught instanceof Error ? caught.message : String(caught))
-                      }
-                    >
-                      {connecting.provider === "github"
-                        ? `Install on ${another("GitHub")} GitHub account`
-                        : `Connect ${another(connecting.title)} ${connecting.title} ${connecting.noun}`}
-                    </ConnectButton>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      This deployment has no {connecting.title} app. Use your own.
-                    </p>
-                  )}
-                  {OwnAppProvider.safeParse(connecting.provider).success && (
-                    <Button
-                      variant="ghost"
-                      disabled={Boolean(busy)}
-                      onClick={() =>
-                        void navigate({
-                          search: {
-                            own: OwnAppProvider.parse(connecting.provider),
-                            connection: freshConnectionName(),
-                            scopes: search.scopes,
-                          },
-                          replace: true,
-                        })
-                      }
-                    >
-                      Use your own {connecting.title} app
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          {own && (
-            <OwnAppForm
-              key={own.connection}
-              ownApp={ownAppOf(own.provider, info.platformOrigin, project.id, own.connection)}
-              onBack={() =>
-                void navigate({
-                  search: { connect: own.provider, scopes: search.scopes },
-                  replace: true,
-                })
-              }
-              firstField={firstField}
-              pending={busy === "own"}
-              error={error}
-              onSubmit={({ appSlug, ...credentials }) =>
-                run("own", async () => {
-                  const { pin } = ownAppOf(
-                    own.provider,
-                    info.platformOrigin,
-                    project.id,
-                    own.connection,
-                  );
-                  const secrets = () => api.projects.get(project.id).secrets;
-                  const secretPath = `/secrets/${own.provider}-${own.connection}`;
-                  await secrets().set(secretPath, credentials, { urls: pin });
-                  try {
-                    const { authorizationUrl } = z
-                      .object({ authorizationUrl: z.string().url() })
-                      .parse(
-                        await api.projects.get(project.id).integrations.connect(own.provider, {
-                          connection: own.connection,
-                          client: "project",
-                          // an agent's ask rides through to the consent
-                          scopes: askedScopes,
-                          next: here,
-                          ...(own.provider === "github" && {
-                            appSlug: appSlug || "",
-                            clientId: credentials.clientId || "",
-                          }),
-                        }),
-                      );
-                    window.location.assign(authorizationUrl);
-                    return "leaving";
-                  } catch (caught) {
-                    // a new connection's secret goes with its failed connect; a connected one's stays
-                    if (
-                      !rows.some(
-                        (row) => row.provider === own.provider && row.connection === own.connection,
-                      )
-                    )
-                      await secrets()
-                        .delete(secretPath)
-                        .catch(() => {});
-                    throw caught;
-                  }
-                })
-              }
-            />
-          )}
-        </SheetContent>
-      </Sheet>
+      {registryView.state ? (
+        <Registry
+          state={registryView.state}
+          // the primary hostname is unknown until the project's state loads; meanwhile the ingress
+          // URL serves, and a page visit there goes on to the primary hostname
+          // (core/os primary-hostname-redirect.ts)
+          hrefOf={(target) =>
+            integrationTargetHrefOf(
+              info,
+              { slug: project.slug, primaryHostname: projectView.state?.primaryHostname || null },
+              target,
+            )
+          }
+        />
+      ) : null}
+      <SharedApps
+        rows={rows}
+        loaded={Boolean(projectView.state)}
+        verbs={verbs}
+        onDisconnect={(row) =>
+          void verbs.run(disconnectKeyOf(row), async () => {
+            await api.projects
+              .get(project.id)
+              .integrations.disconnect(row.provider, row.connection);
+            return "dropped";
+          })
+        }
+      />
+      <OtherServices />
+      <SharedByDeployment
+        paths={fromDeployment}
+        verbs={verbs}
+        onRemove={(path) =>
+          void verbs.run(removeKeyOf(path), async () => {
+            await api.projects.get(project.id).secrets.delete(path);
+            return "dropped";
+          })
+        }
+      />
+      <IntegrationsSheet rows={rows} person={personView} verbs={verbs} />
     </div>
+  );
+}
+
+/** THROUGH ITERATE'S APPS: the apps this deployment holds, each with the project's connections
+ *  through it; a self-host without them shows none. */
+function SharedApps({
+  rows,
+  loaded,
+  verbs,
+  onDisconnect,
+}: {
+  rows: Connection[];
+  /** Whether the project's state has loaded, so "Not connected" is known. */
+  loaded: boolean;
+  verbs: VerbState;
+  onDisconnect: (row: Connection) => void;
+}) {
+  const { info } = Route.useRouteContext();
+  const iterateApps = new Set(info.iterateAppProviders);
+  // a provider the deployment has an app for, and one it connected through before it dropped the
+  // app: its connections still list and disconnect, with nothing to connect another through
+  const providers = PROVIDERS.filter(
+    ({ provider }) => iterateApps.has(provider) || rows.some((row) => row.provider === provider),
+  );
+  if (providers.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="iterate-apps-heading">
+      <h2 id="iterate-apps-heading" className="font-medium">
+        Through iterate's apps
+      </h2>
+      <div className="flex flex-col divide-y border-y">
+        {providers.map((entry) => (
+          <ProviderSection
+            key={entry.provider}
+            entry={entry}
+            connections={rows.filter((row) => row.provider === entry.provider)}
+            connectable={iterateApps.has(entry.provider)}
+            loaded={loaded}
+            verbs={verbs}
+            onDisconnect={onDisconnect}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** One provider: the project's connections through it, and Connect, a link to its sheet
+ *  (`?connect=`), while the deployment has the app. */
+function ProviderSection({
+  entry: { provider, title, noun },
+  connections,
+  connectable,
+  loaded,
+  verbs,
+  onDisconnect,
+}: {
+  entry: ProviderEntry;
+  connections: Connection[];
+  /** Whether the deployment has the app to connect another through. */
+  connectable: boolean;
+  loaded: boolean;
+  verbs: VerbState;
+  onDisconnect: (row: Connection) => void;
+}) {
+  const { info } = Route.useRouteContext();
+  const another = connections.length > 0;
+  return (
+    <section className="py-3" aria-labelledby={`${provider}-heading`}>
+      <div className="flex items-center gap-3">
+        <ProviderLogo provider={provider} />
+        <h3 id={`${provider}-heading`} className="flex-1 font-medium">
+          {title}
+        </h3>
+        {loaded && !another ? (
+          <span className="text-xs text-muted-foreground">Not connected</span>
+        ) : null}
+        {connectable ? (
+          <Link
+            from={Route.fullPath}
+            to="."
+            search={{ connect: provider }}
+            aria-label={another ? `Connect another ${title} ${noun}` : `Connect ${title}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            {another ? "Connect another" : "Connect"}
+          </Link>
+        ) : null}
+      </div>
+      {another ? (
+        <ul className="mt-1 flex flex-col pl-8" aria-label={`${title} connections`}>
+          {connections.map((row) => (
+            <ConnectionItem
+              key={row.connection}
+              row={row}
+              yours={row.ownerUserId === info.principal.actor}
+              noun={noun}
+              verbs={verbs}
+              onDisconnect={() => onDisconnect(row)}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/** OTHER SERVICES: a link to the sheet (`?other=1`) that says how a coding agent connects one. */
+function OtherServices() {
+  return (
+    <section className="flex items-center gap-3 border-y py-3" aria-labelledby="other-heading">
+      <Blocks aria-hidden="true" className="size-5 text-muted-foreground" />
+      <h2 id="other-heading" className="flex-1 font-medium">
+        Other services
+      </h2>
+      <Link
+        from={Route.fullPath}
+        to="."
+        search={{ other: 1 }}
+        aria-label="Connect another service"
+        className={buttonVariants({ variant: "outline", size: "sm" })}
+      >
+        Connect
+      </Link>
+    </section>
+  );
+}
+
+/** SHARED BY THIS DEPLOYMENT: the keys its operator shares with the project, each removable. */
+function SharedByDeployment({
+  paths,
+  verbs,
+  onRemove,
+}: {
+  paths: string[];
+  verbs: VerbState;
+  onRemove: (path: string) => void;
+}) {
+  if (paths.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="deployment-heading">
+      <h2 id="deployment-heading" className="font-medium">
+        Shared by this deployment
+      </h2>
+      <ul className="flex flex-col divide-y border-y" aria-label="Shared by this deployment">
+        {paths.map((path) => (
+          <li key={path} className="flex items-center gap-3 py-2">
+            <div className="min-w-0 flex-1">
+              <code className="text-sm [overflow-wrap:anywhere]">{path}</code>
+              {verbs.failed?.key === removeKeyOf(path) ? (
+                <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
+              ) : null}
+            </div>
+            <ConfirmButton
+              verb="Remove"
+              name={path}
+              description="Agents here stop using it. Only this deployment's operator can share it again."
+              verbKey={removeKeyOf(path)}
+              verbs={verbs}
+              onConfirm={() => onRemove(path)}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** ONE SHEET, opened by the URL alone: the move offer, a provider's Connect sheet, or another
+ *  service's recipe. It stays open while a verb it runs is under way (a move, an install, a Use),
+ *  so what the verb ends by closing is the sheet it began in. */
+function IntegrationsSheet({
+  rows,
+  person,
+  verbs,
+}: {
+  rows: Connection[];
+  person: PersonView;
+  verbs: Verbs;
+}) {
+  const { api, info, project } = Route.useRouteContext();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const connecting = search.connect
+    ? PROVIDERS.find((known) => known.provider === search.connect)
+    : undefined;
+  const moveOffer = search.move ? moveOfferOf(search.move) : null;
+  const blocking = Boolean(verbs.busy);
+  const closeSheet = () => {
+    verbs.dismiss();
+    return navigate({ search: {}, replace: true });
+  };
+  const moveFailure = verbs.failed?.key === "move" ? verbs.failed.message : null;
+  return (
+    <Sheet
+      open={Boolean(connecting || moveOffer || search.other)}
+      onOpenChange={(open) => !open && !blocking && void closeSheet()}
+    >
+      <SheetContent
+        side="right"
+        showCloseButton={!blocking}
+        className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
+        {moveOffer ? (
+          <MoveOffer
+            offer={moveOffer}
+            pending={verbs.busy === "move"}
+            error={moveFailure}
+            onConfirm={() =>
+              void verbs.run("move", async () => {
+                await api.projects
+                  .get(project.id)
+                  .facets.get("project")
+                  .invoke([["confirmIntegrationMove", { offer: search.move }]]);
+                await closeSheet();
+              })
+            }
+          />
+        ) : connecting ? (
+          <ConnectSheet
+            entry={connecting}
+            rows={rows}
+            person={person}
+            verbs={verbs}
+            closeSheet={closeSheet}
+          />
+        ) : search.other ? (
+          <OtherService
+            projectSlug={project.slug}
+            mcpServer={mcpServerOf(info)}
+            platformOrigin={httpOriginOf(info.platformOrigin)}
+          />
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** What the person's own accounts can be asked for: only Google's, Cloudflare's and X's consents
+ *  add scopes to an account they already have — iterate's app's own, and what an agent asked. */
+function yourConsentScopesOf(
+  provider: Provider,
+  appScopes: Partial<Record<IntegrationProvider, string[]>>,
+  askedScopes: string[] | undefined,
+) {
+  return provider === "google" || provider === "cloudflare" || provider === "x"
+    ? [...(appScopes[provider] || []), ...(askedScopes || [])]
+    : [];
+}
+
+/** What an agent's ask says it needs, as the sheet's description: the access, or the account. */
+function askOf(askedScopes: string[], { title, noun }: ProviderEntry) {
+  const access = accessLabelOf(askedScopes);
+  return access ? `An agent needs ${access} access.` : `An agent needs a ${title} ${noun}.`;
+}
+
+/** Whether "Your accounts" can show: the session may not read them (no `account`), or they are
+ *  loading, failed, or loaded. */
+function yourAccountsStatusOf(
+  scopes: string[],
+  person: PersonView,
+): "no-access" | "loading" | "failed" | "loaded" {
+  if (!scopes.includes("account")) return "no-access";
+  if (person.error) return "failed";
+  return person.value ? "loaded" : "loading";
+}
+
+/** A PROVIDER'S CONNECT SHEET: the person's own accounts, where iterate's GitHub App is installed,
+ *  and another account through iterate's app. */
+function ConnectSheet({
+  entry,
+  rows,
+  person,
+  verbs,
+  closeSheet,
+}: {
+  entry: ProviderEntry;
+  rows: Connection[];
+  person: PersonView;
+  verbs: Verbs;
+  closeSheet: () => Promise<void>;
+}) {
+  const { api, info, project } = Route.useRouteContext();
+  const search = Route.useSearch();
+  const urls = useReturnUrls();
+  const { provider, title, noun } = entry;
+  const askedScopes = search.scopes?.split(" ").filter(Boolean);
+  const yours = Object.values(person.state?.integrations || {}).filter(
+    (row) => row.provider === provider,
+  );
+  /** Whether a person's own account not connected here yet is on offer: its Use is then the
+   *  sheet's one primary action, and connecting another account is secondary. */
+  const offersYourOwn = yours.some(
+    (row) => !rows.some((here) => Boolean(here.ownerUserId) && here.connection === row.connection),
+  );
+  /** "another", or the article the next word takes when the person has none of their own. */
+  const another = (nextWord: string) =>
+    yours.length > 0 ? "another" : /^[aeioux]/i.test(nextWord) ? "an" : "a";
+  const connectLabel =
+    provider === "github"
+      ? `Install on ${another("GitHub")} GitHub account`
+      : `Connect ${another(title)} ${title} ${noun}`;
+  const failure =
+    (provider === "github" && verbs.failed?.key.startsWith("install:")) ||
+    verbs.failed?.key === `connect:${provider}`
+      ? verbs.failed.message
+      : null;
+  /** One of the person's own accounts connected to this project: at once, or through the
+   *  provider's consent for what it lacks, back here. */
+  const connectYours = (row: Connection) =>
+    void verbs.run(`use:${row.connection}`, async () => {
+      try {
+        const { authorizationUrl } = z
+          .object({ authorizationUrl: z.string().url().optional() })
+          .parse(
+            await api.projects.get(project.id).integrations.connect(row.provider, {
+              account: row.account,
+              scopes: askedScopes,
+              next: urls.urlOf({}),
+            }),
+          );
+        if (authorizationUrl) {
+          window.location.assign(authorizationUrl);
+          return "leaving";
+        }
+        await closeSheet();
+      } catch (caught) {
+        // a refusal's own words are meant for the person, and trying again won't change them;
+        // anything else says "try again", its raw reason in the console
+        console.error("Connecting your account failed", caught);
+        const refused = ["FORBIDDEN", "INVALID_INPUT"].includes(errorCode(caught) ?? "");
+        throw new Error(
+          refused && caught instanceof Error ? caught.message : "Couldn't connect it. Try again.",
+        );
+      }
+    });
+  return (
+    <div className="flex h-full flex-col">
+      <SheetHeader>
+        <SheetTitle className="flex items-center gap-2">
+          <ProviderLogo provider={provider} />
+          {rows.some((row) => row.provider === provider)
+            ? `Connect another ${title} ${noun}`
+            : `Connect ${title}`}
+        </SheetTitle>
+        {askedScopes ? <SheetDescription>{askOf(askedScopes, entry)}</SheetDescription> : null}
+      </SheetHeader>
+      <div className="flex flex-1 flex-col gap-6 px-4 pb-4">
+        {failure ? <ErrorText>{failure}</ErrorText> : null}
+        <YourAccounts
+          provider={provider}
+          status={yourAccountsStatusOf(info.scopes, person)}
+          accounts={yours}
+          connectedHere={rows}
+          askedScopes={yourConsentScopesOf(provider, info.iterateAppScopes, askedScopes)}
+          verbs={verbs}
+          stepUpNext={urls.pathOf({ connect: provider, scopes: search.scopes })}
+          onUse={connectYours}
+        />
+        {provider === "github" && info.iterateAppProviders.includes("github") ? (
+          <GithubInstallations
+            person={person.stub}
+            state={person.state}
+            connectedHere={rows}
+            verbs={verbs}
+            onConnect={(installationId) =>
+              void verbs.run(`install:${installationId}`, async () => {
+                const { authorizationUrl } = ConnectAnswer.parse(
+                  await api.projects.get(project.id).integrations.connect("github", {
+                    installationId,
+                    next: urls.urlOf({}),
+                  }),
+                );
+                window.location.assign(authorizationUrl);
+                return "leaving";
+              })
+            }
+          />
+        ) : null}
+        {info.iterateAppProviders.includes(provider) ? (
+          <ConnectButton
+            provider={provider}
+            variant={offersYourOwn ? "outline" : "default"}
+            scopes={askedScopes}
+            disabled={Boolean(verbs.busy)}
+            connect={async (input) =>
+              ConnectAnswer.parse(
+                await api.projects.get(project.id).integrations.connect(input.provider, {
+                  scopes: input.scopes,
+                  next: urls.urlOf({}),
+                }),
+              )
+            }
+            onError={(caught) => verbs.fail(`connect:${provider}`, caught)}
+          >
+            {connectLabel}
+          </ConnectButton>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The integrations the project's packages registered (iterate/integrations): a card each, its
+ *  connections beneath it, every button a link to where it leads. A package appends the null that
+ *  takes a card or a row away; the Dash shows what stands. Each card and row is parsed on its own,
+ *  so one this page cannot read (a newer contract's) leaves out only itself. */
+function Registry({
+  state,
+  hrefOf,
+}: {
+  state: z.infer<typeof RegistryLive>;
+  /** Where a target leads, or null for no link (`integrationTargetHrefOf`). */
+  hrefOf: (target: IntegrationTarget) => string | null;
+}) {
+  const cards = Object.entries(state.integrations).flatMap(([integration, value]) => {
+    const card = IntegrationCard.safeParse(value).data;
+    return card ? [{ integration, card }] : [];
+  });
+  const rows = Object.entries(state.connections).flatMap(([key, value]) => {
+    const row = IntegrationConnection.safeParse(value).data;
+    // the key is `<integration>/<connection>`, and neither name can hold a "/"
+    const slash = key.indexOf("/");
+    return row ? [{ integration: key.slice(0, slash), connection: key.slice(slash + 1), row }] : [];
+  });
+  if (cards.length === 0)
+    return (
+      <p className="text-sm text-muted-foreground">
+        No integrations are registered yet. An integration is a package in the project's worker: it
+        adds its card here when the worker is published.{" "}
+        <a
+          href="https://github.com/jonastemplestein/iterategrations"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-4"
+        >
+          iterategrations
+        </a>{" "}
+        has some to start from.
+      </p>
+    );
+  return (
+    <div className="flex flex-col gap-4">
+      {cards.map(({ integration, card }) => (
+        <RegisteredIntegration
+          key={integration}
+          integration={integration}
+          card={card}
+          rows={rows.filter((entry) => entry.integration === integration)}
+          hrefOf={hrefOf}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** ONE INTEGRATION's card — its title, description, status and buttons — and its connections as
+ *  its package lists them: the account, a few facts about it, its status and buttons. */
+function RegisteredIntegration({
+  integration,
+  card,
+  rows,
+  hrefOf,
+}: {
+  integration: string;
+  card: IntegrationCard;
+  rows: { integration: string; connection: string; row: IntegrationConnection }[];
+  hrefOf: (target: IntegrationTarget) => string | null;
+}) {
+  const heading = `integration-${integration}-heading`;
+  return (
+    <section aria-labelledby={heading}>
+      <Card size="sm">
+        <CardContent className="flex min-w-0 flex-col gap-1">
+          <h2 id={heading} className="text-base font-medium [overflow-wrap:anywhere]">
+            {card.title}
+          </h2>
+          {card.description && <p className="text-muted-foreground">{card.description}</p>}
+          {card.status && <StatusText status={card.status} />}
+          <TargetLinks actions={card.actions} hrefOf={hrefOf} className="pt-1" />
+        </CardContent>
+        {rows.length > 0 && (
+          <CardContent>
+            <ul
+              className="flex flex-col divide-y border-t"
+              aria-label={`${card.title} connections`}
+            >
+              {rows.map(({ connection, row }) => (
+                <li key={connection} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
+                    {row.details && (
+                      <dl className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                        {Object.entries(row.details).map(([label, value]) => (
+                          <div key={label}>
+                            <dt className="inline">{label}: </dt>
+                            <dd className="inline">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </div>
+                  {row.status && <StatusText status={row.status} />}
+                  <TargetLinks actions={row.actions} hrefOf={hrefOf} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+/** How an integration or a connection is doing, in its package's words: a quiet line when all is
+ *  well, amber when a person should act, red when it failed. */
+function StatusText({ status }: { status: IntegrationStatus }) {
+  return (
+    <p
+      data-type={status.kind === "error" ? "error" : undefined}
+      className={cn(
+        "flex items-center gap-1.5 text-xs",
+        status.kind === "ok" && "text-muted-foreground",
+        status.kind === "error" && "text-destructive",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          { ok: "bg-emerald-500", attention: "bg-amber-500", error: "bg-destructive" }[status.kind],
+        )}
+      />
+      {status.text || { ok: "OK", attention: "Needs attention", error: "Failed" }[status.kind]}
+    </p>
+  );
+}
+
+/** A card's or a row's buttons, each a link to where its target leads (`integrationTargetHrefOf`):
+ *  a URL on another origin than the Dash's opens beside it, a page of the project's in its place,
+ *  and a target that leads nowhere is no link. Two buttons alike — the same label to the same place
+ *  — are one. */
+function TargetLinks({
+  actions,
+  hrefOf,
+  className,
+}: {
+  actions: IntegrationCard["actions"];
+  hrefOf: (target: IntegrationTarget) => string | null;
+  className?: string;
+}) {
+  const { origin } = useRouter();
+  const links = new Map<string, { label: string; href: string; beside: boolean }>();
+  for (const action of actions) {
+    const href = hrefOf(action);
+    if (href)
+      links.set(`${action.label}\n${href}`, {
+        label: action.label,
+        href,
+        beside: "url" in action && httpOriginOf(href) !== origin,
+      });
+  }
+  if (links.size === 0) return null;
+  return (
+    <div className={cn("flex flex-wrap gap-2", className)}>
+      {[...links].map(([key, { label, href, beside }]) => (
+        <a
+          key={key}
+          href={href}
+          {...(beside && { target: "_blank", rel: "noreferrer" })}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          {label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/** Disconnect or Remove, behind a confirmation that says what it takes away. The dialog may be
+ *  left while its verb runs (the button keeps the spinner until the live state drops the row); a
+ *  failure shows here while the dialog is open, and on the row once it is closed. */
+function ConfirmButton({
+  verb,
+  name,
+  description,
+  verbKey,
+  verbs,
+  onConfirm,
+}: {
+  verb: "Disconnect" | "Remove";
+  /** What it takes away, as the page shows it: a connection's account, a shared key's path. */
+  name: string;
+  description: string;
+  /** The page's `busy` while this verb runs. */
+  verbKey: string;
+  verbs: VerbState;
+  onConfirm: () => void;
+}) {
+  const pending = verbs.busy === verbKey;
+  return (
+    <AlertDialog onOpenChange={(open) => !open && verbs.dismiss()}>
+      <AlertDialogTrigger
+        render={<Button variant="ghost" size="sm" />}
+        aria-label={`${verb} ${name}`}
+        disabled={Boolean(verbs.busy)}
+      >
+        {pending ? <Spinner data-icon="inline-start" /> : null}
+        {verb}
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {verb} {name}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        {verbs.failed?.key === verbKey ? <ErrorText>{verbs.failed.message}</ErrorText> : null}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" disabled={pending} onClick={onConfirm}>
+            {pending ? <Spinner data-icon="inline-start" /> : null}
+            {verb}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -673,16 +1024,15 @@ function ListLabel({ children }: { children: string }) {
 }
 
 /** THE ACCOUNTS YOU ALREADY HAVE for a provider, each one click away: connected here already (and
- *  complete), connected but lacking what the project needs ("Add …"), or ready ("Use"). None, and
- *  the sheet says nothing about them. */
+ *  complete), connected but lacking what the project needs ("Add access"), or ready ("Use"). None,
+ *  and the sheet says nothing about them. */
 function YourAccounts({
   provider,
   status,
   accounts,
   connectedHere,
   askedScopes,
-  busy,
-  failedUse,
+  verbs,
   stepUpNext,
   onUse,
 }: {
@@ -691,9 +1041,7 @@ function YourAccounts({
   accounts: Connection[];
   connectedHere: Connection[];
   askedScopes: string[];
-  busy: string | null;
-  /** The account whose Use failed last. */
-  failedUse: { connection: string; message: string } | null;
+  verbs: VerbState;
   /** Where the step-up to the `account` scope comes back to. */
   stepUpNext: string;
   onUse: (row: Connection) => void;
@@ -715,11 +1063,7 @@ function YourAccounts({
       </p>
     );
   if (status === "failed")
-    return (
-      <p role="alert" data-type="error" className="text-sm text-destructive">
-        Couldn't load your accounts. Reload to try again.
-      </p>
-    );
+    return <ErrorText>Couldn't load your accounts. Reload to try again.</ErrorText>;
   if (accounts.length === 0) return null;
   const connected = (row: Connection) =>
     connectedHere.some(
@@ -747,10 +1091,8 @@ function YourAccounts({
               <div className="min-w-0 flex-1">
                 <p className="[overflow-wrap:anywhere]">{row.account}</p>
                 {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
-                {failedUse?.connection === row.connection && (
-                  <p role="alert" data-type="error" className="text-xs text-destructive">
-                    {failedUse.message}
-                  </p>
+                {verbs.failed?.key === `use:${row.connection}` && (
+                  <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
                 )}
               </div>
               {here && !missing ? (
@@ -759,11 +1101,14 @@ function YourAccounts({
                 <Button
                   size="sm"
                   variant={row === primary ? "default" : "outline"}
-                  aria-label={here ? `Add ${missing} to ${row.account}` : `Use ${row.account}`}
-                  disabled={Boolean(busy)}
+                  // the name begins with the button's words (WCAG 2.5.3); the row says what is missing
+                  aria-label={here ? `Add access to ${row.account}` : `Use ${row.account}`}
+                  disabled={Boolean(verbs.busy)}
                   onClick={() => onUse(row)}
                 >
-                  {busy === `use:${row.connection}` ? <Spinner data-icon="inline-start" /> : null}
+                  {verbs.busy === `use:${row.connection}` ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : null}
                   {here ? "Add access" : "Use"}
                 </Button>
               )}
@@ -786,247 +1131,54 @@ function removeKeyOf(path: string) {
   return `remove:${path}`;
 }
 
+/** What a Disconnect takes away, as its confirmation says it: a member's account stays theirs. */
+function disconnectDescriptionOf(row: Connection, yours: boolean, noun: string) {
+  if (row.ownerUserId)
+    return `Agents here stop using it. It stays connected to ${yours ? "you" : "its owner"}.`;
+  return row.provider === "slack" || row.provider === "github"
+    ? `Its token is deleted and events from this ${noun} stop.`
+    : "Its token is deleted.";
+}
+
 /** One of the project's connections: its account, whose it is and what it holds, and Disconnect —
  *  which, for a member's account, takes it out of this project alone. */
 function ConnectionItem({
   row,
   yours,
   noun,
-  busy,
+  verbs,
   onDisconnect,
 }: {
   row: Connection;
   yours: boolean;
+  /** What one of the provider's connections is: a workspace, an account. */
   noun: string;
-  busy: string | null;
-  onDisconnect: () => Promise<void>;
+  verbs: VerbState;
+  onDisconnect: () => void;
 }) {
   const whose = row.ownerUserId ? (yours ? "Yours" : `${row.ownerEmail || "A member"}'s`) : null;
-  const detail =
-    row.client === "project"
-      ? "Your own app"
-      : [...new Set((row.scopes || []).flatMap((scope) => scopeLabelOf(scope) || []))].join(", ");
+  const detail = [
+    ...new Set((row.scopes || []).flatMap((scope) => scopeLabelOf(scope) || [])),
+  ].join(", ");
   const meta = [whose, detail].filter(Boolean).join(" · ");
-  const disconnecting = busy === disconnectKeyOf(row);
   return (
     <li className="flex items-center gap-3 py-2" data-connection={row.connection}>
       <div className="min-w-0 flex-1">
         <p className="text-sm [overflow-wrap:anywhere]">{row.account}</p>
         {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        {verbs.failed?.key === disconnectKeyOf(row) ? (
+          <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
+        ) : null}
       </div>
-      <AlertDialog>
-        <AlertDialogTrigger render={<Button variant="ghost" size="sm" />} disabled={Boolean(busy)}>
-          {disconnecting ? <Spinner data-icon="inline-start" /> : null}
-          Disconnect
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect {row.account}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {row.ownerUserId
-                ? `Agents here stop using it. It stays connected to ${yours ? "you" : "its owner"}.`
-                : row.provider === "slack" || row.provider === "github"
-                  ? `Its token is deleted and events from this ${noun} stop.`
-                  : "Its token is deleted."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            {/* the dialog stays open until the row goes, so the spinner is here too */}
-            <AlertDialogAction
-              variant="destructive"
-              disabled={disconnecting}
-              onClick={() => void onDisconnect()}
-            >
-              {disconnecting ? <Spinner data-icon="inline-start" /> : null}
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmButton
+        verb="Disconnect"
+        name={row.account}
+        description={disconnectDescriptionOf(row, yours, noun)}
+        verbKey={disconnectKeyOf(row)}
+        verbs={verbs}
+        onConfirm={onDisconnect}
+      />
     </li>
-  );
-}
-
-/** What connecting with your own app takes, per provider: the URLs to paste into its console, the
- *  credentials the connection's secret holds, and the origins that secret is pinned to. */
-function ownAppOf(
-  provider: OwnAppProvider,
-  platformOrigin: string,
-  projectId: string,
-  connection: string,
-) {
-  const callback = (hint: string) => ({
-    label: "Redirect URL",
-    value: `${platformOrigin}/api/integrations/${provider}/callback`,
-    hint,
-  });
-  const webhook = (hint: string) => ({
-    label: "Webhook URL",
-    value: `${platformOrigin}/api/integrations/${provider}/webhook/${projectId}/${connection}`,
-    hint,
-  });
-  const secret = (name: string, label: string) => ({ name, label });
-  const title = INTEGRATION_PROVIDER_NAMES[provider];
-  switch (provider) {
-    case "slack":
-      return {
-        title,
-        console: "An app you create at api.slack.com/apps.",
-        urls: [
-          callback("OAuth & Permissions → Redirect URLs."),
-          webhook("Event Subscriptions → Request URL. Slack checks it, so add it once connected."),
-          {
-            label: "Interactivity URL",
-            value: `${platformOrigin}/api/integrations/slack/interactivity-webhook/${projectId}/${connection}`,
-            hint: "Interactivity & Shortcuts → Request URL.",
-          },
-        ],
-        fields: [
-          secret("clientId", "Client ID"),
-          secret("clientSecret", "Client Secret"),
-          secret("signingSecret", "Signing Secret"),
-        ],
-        // the connection's whole pin up front (slack.com first: the connect reads it as the origin)
-        pin: ["https://slack.com", "https://files.slack.com"],
-      };
-    case "x":
-      return {
-        title,
-        console: "A confidential Web App you create in the X Developer Console.",
-        urls: [callback("User authentication settings → Callback URI / Redirect URL.")],
-        fields: [secret("clientId", "Client ID"), secret("clientSecret", "Client secret")],
-        pin: ["https://api.x.com"],
-      };
-    case "google":
-      return {
-        title,
-        console: "An OAuth client (Web application) you create in Google Cloud Console.",
-        urls: [callback("The client's Authorized redirect URIs.")],
-        fields: [secret("clientId", "Client ID"), secret("clientSecret", "Client secret")],
-        // the connection's whole pin up front (the token origin first: the connect reads it as the origin)
-        pin: [
-          "https://oauth2.googleapis.com",
-          "https://www.googleapis.com",
-          "https://gmail.googleapis.com",
-          "https://docs.googleapis.com",
-        ],
-      };
-    case "github":
-      return {
-        title,
-        console: "A GitHub App you create under Developer settings.",
-        urls: [
-          callback(
-            "The App's Callback URL, with “Request user authorization (OAuth) during installation” ticked.",
-          ),
-          webhook("The App's Webhook URL, with the webhook secret below."),
-        ],
-        fields: [
-          secret("appId", "App ID"),
-          secret("appSlug", "App slug (github.com/apps/<slug>)"),
-          secret("clientId", "Client ID"),
-          secret("clientSecret", "Client secret"),
-          { ...secret("privateKey", "Private key (.pem)"), multiline: true },
-          secret("webhookSecret", "Webhook secret"),
-        ],
-        pin: ["https://github.com", "https://api.github.com"],
-      };
-  }
-}
-
-function OwnAppForm({
-  ownApp,
-  onBack,
-  firstField,
-  pending,
-  error,
-  onSubmit,
-}: {
-  ownApp: ReturnType<typeof ownAppOf>;
-  /** Back to the Connect sheet it came from. */
-  onBack: () => void;
-  firstField: RefObject<HTMLInputElement | null>;
-  pending: boolean;
-  error: string | null;
-  onSubmit: (credentials: Record<string, string>) => Promise<void>;
-}) {
-  const [credentials, setCredentials] = useState<Record<string, string>>({});
-  const [copied, setCopied] = useState<string | null>(null);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void onSubmit(credentials);
-  };
-  return (
-    <form onSubmit={submit} className="flex h-full flex-col">
-      <SheetHeader>
-        <SheetTitle>Your own {ownApp.title} app</SheetTitle>
-        <SheetDescription>{ownApp.console}</SheetDescription>
-      </SheetHeader>
-      <FieldGroup className="flex-1 px-4 pb-4">
-        {ownApp.urls.map((url) => (
-          <Field key={url.label}>
-            <FieldLabel>{url.label}</FieldLabel>
-            <div className="flex items-start gap-2">
-              <code className="min-w-0 flex-1 rounded-md bg-muted px-2 py-1.5 text-xs break-all">
-                {url.value}
-              </code>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                title={copied === url.label ? "Copied" : `Copy ${url.label}`}
-                onClick={() =>
-                  void navigator.clipboard.writeText(url.value).then(() => setCopied(url.label))
-                }
-              >
-                {copied === url.label ? <CheckIcon /> : <CopyIcon />}
-              </Button>
-            </div>
-            <FieldDescription>{url.hint}</FieldDescription>
-          </Field>
-        ))}
-        {ownApp.fields.map((field, index) => {
-          const props = {
-            id: `own-app-${field.name}`,
-            value: credentials[field.name] || "",
-            autoComplete: "off",
-            spellCheck: false,
-            required: true,
-            className: "font-mono",
-          };
-          const set = (value: string) => setCredentials({ ...credentials, [field.name]: value });
-          return (
-            <Field key={field.name}>
-              <FieldLabel htmlFor={props.id}>{field.label}</FieldLabel>
-              {"multiline" in field ? (
-                <Textarea {...props} rows={5} onChange={(event) => set(event.target.value)} />
-              ) : (
-                <Input
-                  {...props}
-                  ref={index === 0 ? firstField : undefined}
-                  onChange={(event) => set(event.target.value.trim())}
-                />
-              )}
-            </Field>
-          );
-        })}
-        {error && (
-          <p role="alert" data-type="error" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-      </FieldGroup>
-      <SheetFooter className="border-t sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onBack}>
-          Back
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner data-icon="inline-start" /> : null}
-          Continue to {ownApp.title}
-        </Button>
-      </SheetFooter>
-    </form>
   );
 }
 
@@ -1039,11 +1191,13 @@ const MoveOfferShown = z.object({
   holderSlug: z.string().nullable(),
 });
 
-/** The offer's claims, off its signed token (base64url JSON before the signature), or null. */
+/** The offer's claims, off its signed token (base64url of UTF-8 JSON before the signature, as
+ *  core/os integrations/connections.ts reads it), or null. */
 function moveOfferOf(token: string) {
   try {
-    const payload = token.split(".")[0]!.replaceAll("-", "+").replaceAll("_", "/");
-    return MoveOfferShown.parse(JSON.parse(atob(payload)));
+    const binary = atob(token.split(".")[0]!.replaceAll("-", "+").replaceAll("_", "/"));
+    const json = new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+    return MoveOfferShown.parse(JSON.parse(json));
   } catch {
     return null;
   }
@@ -1076,11 +1230,7 @@ function MoveOffer({
           stops that project's {title} access and events.
         </SheetDescription>
       </SheetHeader>
-      {error && (
-        <p role="alert" data-type="error" className="px-4 text-sm text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorText className="px-4">{error}</ErrorText>}
       <SheetFooter className="border-t sm:flex-row sm:justify-end">
         <SheetClose disabled={pending} render={<Button type="button" variant="outline" />}>
           Cancel
@@ -1100,33 +1250,27 @@ const GithubInstallation = z.object({
   account: z.object({ login: z.string() }),
 });
 
-/** The person's own account state, as far as reaching their GitHub sign-in's token goes. */
-const PersonGithub = z.looseObject({
-  integrations: z.record(z.string(), z.object({ provider: z.string(), connection: z.string() })),
-  secrets: z.record(z.string(), z.looseObject({ urls: z.array(z.string()) })),
-});
-
 /** WHERE iterate's GitHub App IS INSTALLED that the person reaches: `GET /user/installations` with
  *  their GitHub sign-in's token (a user token of iterate's App lists that App's installations),
  *  through their own egress. Each connects here without GitHub's configure page. */
 function GithubInstallations({
   person,
-  personState,
+  state,
   connectedHere,
-  busy,
+  verbs,
   onConnect,
 }: {
   person: { fetch(request: Request): Promise<Response> } | undefined;
-  personState: unknown;
+  /** The person's own state, once read. */
+  state: z.infer<typeof IntegrationsLive> | undefined;
   connectedHere: Connection[];
-  busy: string | null;
+  verbs: VerbState;
   onConnect: (installationId: string) => void;
 }) {
-  const state = PersonGithub.safeParse(personState).data;
   const signIn = Object.values(state?.integrations || {}).find((row) => row.provider === "github");
   const secretPath = signIn ? `/secrets/github-${signIn.connection}` : null;
   // the sign-in's secret is pinned to GitHub and its API: the API is the last origin
-  const apiOrigin = secretPath ? state?.secrets[secretPath]?.urls.at(-1) : undefined;
+  const apiOrigin = secretPath ? state?.secrets[secretPath]?.urls?.at(-1) : undefined;
   const [installations, setInstallations] = useState<
     z.infer<typeof GithubInstallation>[] | "loading" | "failed"
   >("loading");
@@ -1160,17 +1304,15 @@ function GithubInstallations({
       current = false;
     };
   }, [person, secretPath, apiOrigin]);
-  const { info, project } = Route.useRouteContext();
+  const { info } = Route.useRouteContext();
   const { error } = Route.useSearch();
+  const urls = useReturnUrls();
   // your account not read yet, or not readable by this session: "Your accounts" says which
   if (!state) return null;
   if (!secretPath || !apiOrigin) {
     // back to this sheet once the issuer has added it (or says why not)
     const addSignIn = info.signInProviders.includes("github")
-      ? addGithubSignInHref(
-          info,
-          `${window.location.origin}/projects/${project.slug}/integrations?connect=github`,
-        )
+      ? addGithubSignInHref(info, urls.urlOf({ connect: "github" }))
       : null;
     return (
       <div className="flex flex-col gap-1">
@@ -1182,11 +1324,7 @@ function GithubInstallations({
             </a>
           )}
         </p>
-        {error && (
-          <p role="alert" data-type="error" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorText>{error}</ErrorText>}
       </div>
     );
   }
@@ -1223,10 +1361,10 @@ function GithubInstallations({
                   size="sm"
                   variant="outline"
                   aria-label={`Connect ${installation.account.login}`}
-                  disabled={Boolean(busy)}
+                  disabled={Boolean(verbs.busy)}
                   onClick={() => onConnect(installation.id)}
                 >
-                  {busy === `install:${installation.id}` ? (
+                  {verbs.busy === `install:${installation.id}` ? (
                     <Spinner data-icon="inline-start" />
                   ) : null}
                   Connect
@@ -1277,7 +1415,11 @@ function OtherService({
   const [copied, setCopied] = useState<string | null>(null);
   const prompt = agentPromptOf(service, projectSlug, platformOrigin);
   const copy = (label: string, value: string) =>
-    void navigator.clipboard.writeText(value).then(() => setCopied(label));
+    void navigator.clipboard.writeText(value).then(
+      () => setCopied(label),
+      // refused (no permission, the page not focused): nothing says it was copied
+      () => setCopied(null),
+    );
   return (
     <div className="flex h-full flex-col">
       <SheetHeader>
@@ -1302,6 +1444,7 @@ function OtherService({
                 type="button"
                 variant="outline"
                 size="icon-sm"
+                aria-label={copied === "mcp" ? "Copied" : "Copy the command"}
                 title={copied === "mcp" ? "Copied" : "Copy the command"}
                 onClick={() => copy("mcp", `claude mcp add --transport http iterate ${mcpServer}`)}
               >
@@ -1328,7 +1471,11 @@ function OtherService({
             id="other-service"
             placeholder="Linear, Stripe, Notion…"
             value={service}
-            onChange={(event) => setService(event.target.value)}
+            onChange={(event) => {
+              setService(event.target.value);
+              // the prompt changed: nothing copied says it any more
+              setCopied(null);
+            }}
           />
         </Field>
         <Field>
