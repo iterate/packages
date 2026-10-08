@@ -1,0 +1,9 @@
+{
+  // Worker code typed against the Cloudflare types (the page and the backup run in a project's
+  // config worker), and tests that run in Node.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "tsdown.config.ts"]
+}
