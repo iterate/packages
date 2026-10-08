@@ -286,19 +286,13 @@ function ProjectIntegrations() {
     failed: projectView.failed,
   });
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          Integrations
-          {/* a loader's snapshot shows while its subscription connects: what an action changes
-              reaches the page once the subscription is live */}
-          {projectView.seeding || registryView.seeding ? <Spinner /> : null}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          What this project is connected to: a card is a package its worker hosts, or a service
-          connected through iterate's app, and the accounts sit under their card.
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-8">
+      <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+        Integrations
+        {/* a loader's snapshot shows while its subscription connects: what an action changes
+            reaches the page once the subscription is live */}
+        {projectView.seeding || registryView.seeding ? <Spinner /> : null}
+      </h1>
       {projectView.error ? (
         <ErrorText>Couldn't load this project's connections: {projectView.error}</ErrorText>
       ) : null}
@@ -713,7 +707,7 @@ function IntegrationsGrid({
     <div className="flex flex-col gap-4">
       {cards.length === 0 && <NoIntegrations />}
       {entries.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="flex flex-col gap-3">
           {entries.map(({ integration, card, rows, provider }) => (
             <IntegrationCardView
               key={integration}
