@@ -32,6 +32,11 @@ export const FlakeSuiteSummary = z
     // none of their code skips. Absent when the suite has no row tagged slow, so every row ran.
     // scripts/monitors/ttg.ts splits the PR time to green on it.
     slowRows: z.enum(["ran", "skipped"]).optional(),
+    // A pull request's suite whose head commit's `Tests:` trailer selected files: how many it ran
+    // (scripts/ci/tests-directive.ts). Such a run is not the whole suite, so its status is
+    // incomplete: the dashboard takes a complete run for every test there is. Absent when the suite
+    // ran everything. scripts/monitors/ttg.ts keeps such a push in a row of its own.
+    selectedFiles: z.number().int().positive().optional(),
     diagnostics: z.array(z.string()),
     runUrl: z.url(),
   })

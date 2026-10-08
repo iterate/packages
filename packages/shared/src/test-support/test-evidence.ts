@@ -50,6 +50,10 @@ export const TestEvidenceTarget = z.object({
   deploymentId: z.string().min(1).optional(),
   /** The client apps the specs ran against. They answer `/healthz` with `ok` and no version. */
   apps: z.array(z.object({ name: z.string().min(1), url: z.url() })),
+  /** The test files the suite was about to run, from the repo root, when the pull request's head
+   *  commit selected them with a `Tests:` trailer (scripts/ci/tests-directive.ts). Absent when
+   *  the suite ran everything. */
+  selectedFiles: z.array(z.string().min(1)).min(1).optional(),
   checkedAt: Timestamp,
 });
 
