@@ -25,6 +25,12 @@ Production deploys automatically on main via `.depot/workflows/deploy-spa.yml`, 
 in `packages/browser-extension`. `envs.ts` owns worker names/accounts; Doppler `os`
 supplies credentials. `--env preview` targets the separate preview account.
 
+`public/deployments.html` is a second page of the same shape: the deployments playground, one file
+with no build, which signs in the same way and then drives a project's deployment facets
+(`itx.deployments`: create, plan, deploy, destroy, abort, delete), shows each run step by step as
+its facts land, and tails the deployment's log and its secret's `secret/used` facts. Open it as
+`/deployments.html?issuer=<platform origin>`.
+
 `pnpm --filter @iterate-com/spa build` copies the static files, builds the Chrome extension
 (`packages/browser-extension`'s `dist/`) and zips it with fflate. `/downloads/` serves the versioned
 unpacked extension and installation/update instructions. The app itself still needs no build or server to run.

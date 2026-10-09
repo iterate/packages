@@ -1,0 +1,1449 @@
+<!doctype html>
+<!--
+  deployments.html — THE DEPLOYMENTS PLAYGROUND: one no-build page that creates deployments of core/os
+  (core/os/src/deployment/, `itx.deployments`), runs them (plan, deploy, destroy, abort, delete), and
+  follows each run as its facts land: the run's steps and the deployment's whole log. Each is pushed
+  live; the page never polls.
+
+  packages/spa's static Worker serves it beside index.html, and it signs in as index.html does
+  (oauth.js: a public client, PKCE), then opens `<platform>/api` with the token. `?issuer=` picks the
+  platform and is remembered; os.iterate.com is the default. Locally: `pnpm --filter @iterate-com/spa
+  dev`, then http://127.0.0.1:8799/deployments.html?issuer=<a platform's origin>. Not in
+  core/os/public: core/os serves only the public files issuer-pages.ts lists, under a CSP that loads
+  no outside script.
+
+  A run's config is the whole iterate config, secrets inline, as iterate.config.ts and .secrets hold
+  it: the Cloudflare API token among them (`cloudflare.apiToken`), which the password input sets
+  into it as the run is asked for. The facet keeps the config; no request carries it. @iterate-com/ui
+  is pinned to npm's `main` build of the day the page was written: bump both of its URLs together.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Deployments · iterate</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@0.1.0-main.20261007T163319Z-ec1c490/",
+          "fflate": "https://esm.sh/fflate@0.8.3"
+        }
+      }
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://esm.sh/@iterate-com/ui@0.1.0-main.20261007T163319Z-ec1c490/styles.css"
+    />
+    <style>
+      :root {
+        --pg-ok: oklch(0.55 0.13 150);
+        --pg-warn: oklch(0.62 0.14 70);
+      }
+      body {
+        background: var(--background);
+        color: var(--foreground);
+      }
+      .pg-shell {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 16px;
+        padding: 16px;
+        align-items: start;
+      }
+      .pg-two {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 12px;
+        align-items: start;
+      }
+      @media (max-width: 1000px) {
+        .pg-shell,
+        .pg-two {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .pg-header {
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .pg-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .pg-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .pg-muted {
+        color: var(--muted-foreground);
+      }
+      .pg-mono,
+      .pg-json,
+      textarea.pg-code {
+        font-family: var(--font-mono, ui-monospace, monospace);
+      }
+      .pg-small,
+      .pg-label,
+      .pg-json,
+      .pg-table td,
+      textarea.pg-code {
+        font-size: 12px;
+      }
+      .pg-label {
+        font-weight: 500;
+      }
+      .pg-error {
+        color: var(--destructive);
+      }
+      .pg-error,
+      .pg-json {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .pg-ok {
+        color: var(--pg-ok);
+      }
+      .pg-warn {
+        color: var(--pg-warn);
+      }
+      .pg-json {
+        background: var(--muted);
+        border-radius: 8px;
+        padding: 8px;
+        max-height: 420px;
+        overflow: auto;
+      }
+      .pg-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+        border-radius: 8px;
+        padding: 8px;
+        border: 1px solid transparent;
+      }
+      .pg-item,
+      .pg-item > button {
+        text-align: left;
+      }
+      .pg-item:hover,
+      .pg-item[aria-current="true"] {
+        background: var(--muted);
+      }
+      .pg-item[aria-current="true"] {
+        border-color: var(--border);
+      }
+      .pg-steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .pg-step {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr);
+        gap: 8px;
+      }
+      .pg-dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        border: 1px solid currentColor;
+      }
+      .pg-stream {
+        height: 72vh;
+        min-height: 420px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .pg-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .pg-table td {
+        padding: 4px 8px;
+        vertical-align: top;
+      }
+      .pg-table tr + tr td {
+        border-top: 1px solid var(--border);
+      }
+      textarea.pg-code {
+        max-height: 260px;
+      }
+      details > summary {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"><p style="padding: 16px">Loading…</p></div>
+    <script type="module">
+      // `html as h`: the formatter rewrites an `html` template as HTML, whose whitespace is not htm's
+      import {
+        Fragment,
+        html as h,
+        render,
+        useCallback,
+        useEffect,
+        useMemo,
+        useRef,
+        useState,
+      } from "@iterate-com/ui/page";
+      import {
+        newWebSocketRpcSession,
+        useContextStub,
+        useIterateContext,
+      } from "@iterate-com/ui/live";
+      import { ContextView } from "@iterate-com/ui/components/context-view/context-view";
+      import { Badge } from "@iterate-com/ui/components/ui/badge";
+      import { Button } from "@iterate-com/ui/components/ui/button";
+      import {
+        Card,
+        CardAction,
+        CardContent,
+        CardDescription,
+        CardHeader,
+        CardTitle,
+      } from "@iterate-com/ui/components/ui/card";
+      import { Input } from "@iterate-com/ui/components/ui/input";
+      import {
+        NativeSelect,
+        NativeSelectOption,
+      } from "@iterate-com/ui/components/ui/native-select";
+      import { Spinner } from "@iterate-com/ui/components/ui/spinner";
+      import { Tabs, TabsContent, TabsList, TabsTrigger } from "@iterate-com/ui/components/ui/tabs";
+      import { Textarea } from "@iterate-com/ui/components/ui/textarea";
+      import { zipSync } from "fflate";
+      import { oauthClient, webStore } from "./oauth.js";
+
+      // ── the platform's words, as core/os/src/deployment/contract.ts spells them ──
+      const T = {
+        requested: "events.iterate.com/deployment/run-requested",
+        attempt: "events.iterate.com/deployment/attempt-started",
+        staged: "events.iterate.com/deployment/release-staged",
+        planned: "events.iterate.com/deployment/run-planned",
+        applied: "events.iterate.com/deployment/resource-applied",
+        settled: "events.iterate.com/deployment/run-settled",
+        created: "events.iterate.com/deployment/created",
+        deleteRequested: "events.iterate.com/deployment/delete-requested",
+        deleted: "events.iterate.com/deployment/deleted",
+        aborted: "events.iterate.com/itx/aborted",
+      };
+
+      // ── which platform: `?issuer=`, remembered, else production; signed in as index.html is ──
+      const ISSUER = (
+        new URLSearchParams(location.search).get("issuer") ||
+        localStorage.getItem("deployments:issuer") ||
+        "https://os.iterate.com"
+      ).replace(/\/+$/, "");
+      localStorage.setItem("deployments:issuer", ISSUER);
+      const REDIRECT_URI = location.origin + location.pathname;
+      /** The address the sign-in left from, which it comes back to. */
+      const BACK = "deployments:back";
+      const oauth = oauthClient({
+        // this tab, until it closes
+        sessions: webStore(sessionStorage),
+        redirectUri: REDIRECT_URI,
+        // the page leaves for the platform's consent and is loaded again at REDIRECT_URI
+        launch: (url) => {
+          location.assign(url);
+          return new Promise(() => {});
+        },
+        registration: {
+          client_name: "Deployments playground on " + location.host,
+          client_uri: location.origin,
+        },
+      });
+
+      // ── small helpers ──
+      const errorText = (error) => {
+        const message = error?.message || String(error);
+        return error?.code ? `${error.code}: ${message}` : message;
+      };
+      const dispose = (stub) => {
+        try {
+          stub?.[Symbol.dispose]?.();
+        } catch {}
+      };
+      /** `use(handle)`, then the handle disposed: a stub holds its capability until then. */
+      async function withHandle(handle, use) {
+        try {
+          return await use(handle);
+        } finally {
+          dispose(handle);
+        }
+      }
+      const workerOf = (path) => path.slice(path.lastIndexOf("/") + 1);
+      const short = (sha) => (sha ? sha.slice(0, 12) + "…" : "");
+      const bytes = (n) =>
+        n >= 1e6
+          ? (n / 1e6).toFixed(1) + " MB"
+          : n >= 1e3
+            ? (n / 1e3).toFixed(1) + " kB"
+            : n + " B";
+      const time = (iso) => (iso ? new Date(iso).toLocaleTimeString() : "");
+      const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+      const seconds = (from, to) =>
+        from && to ? ((new Date(to) - new Date(from)) / 1000).toFixed(1) + " s" : "";
+      const parseJson = (text) => {
+        try {
+          return { value: JSON.parse(text) };
+        } catch (error) {
+          return { error: error.message };
+        }
+      };
+      async function sha256Hex(data) {
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+        return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      }
+
+      /** Where a config deploys (durable-object.ts `WhereItDeploys`, iterate-config.ts
+       *  `resourceNamesOf`): its account and its Worker's name, or what is missing. */
+      function whereItDeploys(configText) {
+        if (!configText.trim()) return { problem: "Paste the config's JSON." };
+        const parsed = parseJson(configText);
+        if (parsed.error) return { problem: "The config is no JSON: " + parsed.error };
+        const cloudflare = parsed.value?.cloudflare;
+        if (!cloudflare)
+          return { problem: "The config has no cloudflare block, so it deploys nowhere." };
+        const worker = cloudflare.workerName || cloudflare.resourcePrefix;
+        if (!worker)
+          return { problem: "Its cloudflare block names no workerName or resourcePrefix." };
+        if (!/^[a-z0-9-]+$/.test(worker))
+          return {
+            problem: `The Worker name ${worker} is not lowercase letters, digits and dashes.`,
+          };
+        return { worker, accountId: cloudflare.accountId, path: "/deployments/" + worker };
+      }
+
+      // ── the release: a zip of bundle/, assets/ and migrations/, put at /releases/<sha256>.zip ──
+
+      /** The release's bytes from a zip, a URL, or a folder zipped here: its bundle/, assets/ and
+       *  migrations/ (each file at its path under the folder), and a migrations folder of its own. */
+      async function readRelease(source) {
+        if (source.kind === "zip") {
+          if (!source.file) throw new Error("Pick a zip file.");
+          return { data: new Uint8Array(await source.file.arrayBuffer()) };
+        }
+        if (source.kind === "url") {
+          if (!source.url) throw new Error("Give the release's URL.");
+          const answer = await fetch(source.url).catch((error) => {
+            throw new Error(
+              `This browser could not fetch ${source.url} (${error.message}). The server must allow this page's origin (CORS).`,
+            );
+          });
+          if (!answer.ok) throw new Error(`${source.url} answered ${answer.status}`);
+          return { data: new Uint8Array(await answer.arrayBuffer()) };
+        }
+        const entries = {};
+        for (const [files, prefix] of [
+          [source.files, ""],
+          [source.migrations, "migrations/"],
+        ])
+          for (const file of files || []) {
+            const inside = file.webkitRelativePath.split("/").slice(1).join("/");
+            if (prefix || /^(bundle|assets|migrations)\//.test(inside))
+              entries[prefix + inside] = new Uint8Array(await file.arrayBuffer());
+          }
+        if (!entries["bundle/index.js"])
+          throw new Error(
+            "The folder holds no bundle/index.js. Pick the Worker's output folder: core/os/.cloudflare/output/v0/workers/default.",
+          );
+        return { data: zipSync(entries), files: Object.keys(entries).length };
+      }
+
+      /** The release the person chose, put in the project's files when it is new: `{ file, sha256 }`. */
+      async function prepareRelease(root, source, track) {
+        if (source.kind === "files") {
+          if (!source.path) throw new Error("Pick a release from the project's files.");
+          const named = /\/([0-9a-f]{64})\.zip$/.exec(source.path)?.[1];
+          const sha256 =
+            named ||
+            (await track(`Hash ${source.path}`, () =>
+              withHandle(root.files.get(source.path), async (file) =>
+                sha256Hex(await file.bytes()),
+              ),
+            ));
+          return { file: source.path, sha256 };
+        }
+        const { data } = await track(
+          { zip: "Read the zip", folder: "Zip the folder", url: "Fetch the release" }[source.kind],
+          () => readRelease(source),
+          ({ data, files }) =>
+            (files ? `${plural(files, "file")} in ` : "") + bytes(data.byteLength),
+        );
+        const sha256 = await track("Hash it (SHA-256)", () => sha256Hex(data), short);
+        const file = `/releases/${sha256}.zip`;
+        await track(
+          `Put ${file}`,
+          () =>
+            withHandle(root.files.get(file), (handle) =>
+              handle.put({ contentType: "application/zip", data }),
+            ),
+          (record) => bytes(record.size),
+        );
+        return { file, sha256 };
+      }
+
+      // ── THE RUNS, folded from the deployment's log (the saga: core/lib README, "A multi-step run") ──
+
+      /** Every run on the log, newest first: its request, each attempt and the steps it reached, and
+       *  its settlement. A deletion's teardown is a run of its own, keyed by `delete-requested`, whose
+       *  steps carry that offset; `deleted` ends it. */
+      function runsOf(events) {
+        const runs = new Map();
+        const runAt = (offset) => {
+          if (!runs.has(offset))
+            runs.set(offset, {
+              requestOffset: offset,
+              kind: "?",
+              attempts: new Map(),
+              settled: null,
+            });
+          return runs.get(offset);
+        };
+        let teardown = null;
+        for (const event of events) {
+          const payload = event.payload || {};
+          if (event.type === T.requested)
+            Object.assign(runAt(event.offset), { kind: payload.kind, request: event });
+          else if (event.type === T.deleteRequested)
+            teardown = Object.assign(runAt(event.offset), { kind: "teardown", request: event });
+          else if (event.type === T.deleted && teardown) teardown.settled = event;
+          else if (event.type === T.settled) runAt(payload.requestOffset).settled = event;
+          else if ([T.attempt, T.staged, T.planned, T.applied].includes(event.type)) {
+            const { attempts } = runAt(payload.requestOffset);
+            if (!attempts.has(payload.attempt))
+              attempts.set(payload.attempt, { n: payload.attempt, applied: [] });
+            const attempt = attempts.get(payload.attempt);
+            if (event.type === T.attempt) attempt.started = event;
+            if (event.type === T.staged) attempt.staged = event;
+            if (event.type === T.planned) attempt.planned = event;
+            if (event.type === T.applied) attempt.applied.push(event);
+          } else if (event.type === T.aborted) {
+            for (const run of runs.values()) if (!run.settled) (run.aborts ||= []).push(event);
+          }
+        }
+        return [...runs.values()]
+          .map((run) => ({
+            ...run,
+            attempts: [...run.attempts.values()].sort((a, b) => a.n - b.n),
+          }))
+          .sort((a, b) => b.requestOffset - a.requestOffset);
+      }
+
+      /** How a run stands, as a word and a badge's variant. */
+      function standing(run) {
+        const status = run.settled?.payload?.status;
+        if (run.kind === "teardown")
+          return run.settled ? ["deleted", "secondary"] : ["tearing down", "default"];
+        if (!status) return ["running", "default"];
+        if (status === "succeeded") return [status, "outline"];
+        if (status === "refused") return [status, "secondary"];
+        return [status, "destructive"];
+      }
+
+      // ── the event stream's sentences for the deployment's facts ──
+      const renderers = {
+        [T.requested]: (e) =>
+          h`<span><b>${e.payload?.kind}</b> requested${e.payload?.release ? h` · release <span class="pg-mono">${short(e.payload.release.sha256)}</span>` : ""}</span>`,
+        [T.attempt]: (e) =>
+          h`<span>attempt <b>${e.payload?.attempt}</b> of run ${e.payload?.requestOffset} started${e.payload?.retrying ? h` · <span class="pg-warn">retrying: ${e.payload.retrying}</span>` : ""}</span>`,
+        [T.staged]: (e) =>
+          h`<span>release staged: ${e.payload?.files} files, ${bytes(e.payload?.bytes || 0)}</span>`,
+        [T.planned]: (e) =>
+          h`<span>planned ${e.payload?.resources?.length} resources: ${actionSummary(e.payload?.resources || [])}</span>`,
+        [T.applied]: (e) =>
+          h`<span><b>${e.payload?.status}</b> ${e.payload?.fqn} <span class="pg-muted">(${e.payload?.type})</span></span>`,
+        [T.settled]: (e) =>
+          h`<span>run ${e.payload?.requestOffset} <b class=${e.payload?.status === "succeeded" ? "pg-ok" : "pg-error"}>${e.payload?.status}</b> after ${plural(e.payload?.attempts, "attempt")}${e.payload?.url ? h` · ${e.payload.url}` : ""}${e.payload?.error ? h` · ${String(e.payload.error).slice(0, 160)}` : ""}</span>`,
+      };
+      const actionSummary = (resources) => {
+        const counts = {};
+        for (const { action } of resources) counts[action] = (counts[action] || 0) + 1;
+        return Object.entries(counts)
+          .map(([action, count]) => `${count} ${action}`)
+          .join(", ");
+      };
+
+      // ── shared pieces ──
+
+      /** A step's dot: its mark, colored by how it went. */
+      function Dot({ status, children }) {
+        const color = { done: "pg-ok", failed: "pg-error", warn: "pg-warn" }[status] || "pg-muted";
+        return h`<span class=${"pg-dot " + color}>${status === "running" ? h`<${Spinner} className="size-3" />` : children}</span>`;
+      }
+
+      /** A list of steps as they run: what each is, how it went, what it found. */
+      function Steps({ steps }) {
+        if (!steps.length) return null;
+        return h`<ol class="pg-steps">
+          ${steps.map(
+            (step) => h`<li key=${step.label} class="pg-step">
+              <${Dot} status=${step.status}>${step.status === "done" ? "✓" : step.status === "failed" ? "✕" : "·"}<//>
+              <div>
+                <div>${step.label}</div>
+                ${step.detail ? h`<div class=${step.status === "failed" ? "pg-error pg-small" : "pg-muted pg-small"}>${step.detail}</div>` : null}
+              </div>
+            </li>`,
+          )}
+        </ol>`;
+      }
+
+      /** Steps tracked as they run: `track(label, work, describe)` lands a step, runs `work`, and
+       *  marks it done with `describe(result)` or failed with the error, which it throws as `shown`:
+       *  the caller's error line need not say it again. */
+      function useSteps() {
+        const [steps, setSteps] = useState([]);
+        const mark = (label, step) =>
+          setSteps((held) =>
+            held.map((each) => (each.label === label ? { label, ...step } : each)),
+          );
+        const track = useCallback(async (label, work, describe) => {
+          setSteps((held) => [
+            ...held.filter((step) => step.label !== label),
+            { label, status: "running" },
+          ]);
+          try {
+            const result = await work();
+            mark(label, { status: "done", detail: describe?.(result) });
+            return result;
+          } catch (error) {
+            mark(label, { status: "failed", detail: errorText(error) });
+            throw Object.assign(new Error(errorText(error)), { shown: true });
+          }
+        }, []);
+        return { steps, track, reset: () => setSteps([]) };
+      }
+
+      function ErrorLine({ error, onDismiss }) {
+        if (!error) return null;
+        return h`<div class="pg-row" role="alert">
+          <p class="pg-error pg-small" style=${{ flex: 1 }}>${error}</p>
+          ${onDismiss ? h`<${Button} size="xs" variant="ghost" onClick=${onDismiss}>Dismiss<//>` : null}
+        </div>`;
+      }
+
+      function JsonBlock({ value }) {
+        return h`<pre class="pg-json">${value === undefined ? "…" : JSON.stringify(value, null, 2)}</pre>`;
+      }
+
+      // ── the release picker: the project's files, a zip, a folder, or a URL ──
+
+      function ReleasePicker({ source, setSource, releases }) {
+        const kinds = [
+          ["files", "In the project's files"],
+          ["zip", "A zip file"],
+          ["folder", "A folder"],
+          ["url", "A URL"],
+        ];
+        const directory = (element) => element?.setAttribute("webkitdirectory", "");
+        const pick = (key) => (event) =>
+          setSource({
+            ...source,
+            [key]: key === "path" || key === "url" ? event.target.value : [...event.target.files],
+          });
+        return h`<div class="pg-stack">
+          <div class="pg-row">
+            ${kinds.map(
+              ([kind, label]) =>
+                h`<${Button} key=${kind} size="sm" variant=${source.kind === kind ? "secondary" : "ghost"} onClick=${() => setSource({ ...source, kind })}>${label}<//>`,
+            )}
+          </div>
+          ${
+            source.kind === "files"
+              ? h`<${NativeSelect} aria-label="Release in the project's files" value=${source.path || ""} onChange=${pick("path")}>
+                <${NativeSelectOption} value="">${releases.length ? "Pick a release" : "No releases in /releases/ yet"}<//>
+                ${releases.map((release) => h`<${NativeSelectOption} key=${release.path} value=${release.path}>${release.path.replace("/releases/", "")} · ${bytes(release.size)}<//>`)}
+              <//>`
+              : null
+          }
+          ${source.kind === "zip" ? h`<input type="file" accept=".zip,application/zip" aria-label="Release zip" onChange=${(event) => setSource({ ...source, file: event.target.files[0] || null })} />` : null}
+          ${
+            source.kind === "folder"
+              ? h`<div class="pg-stack">
+                <label class="pg-label">The Worker's output, with bundle/ and assets/ <input type="file" multiple ref=${directory} aria-label="Release folder" onChange=${pick("files")} /></label>
+                <label class="pg-label">The D1 migrations, as migrations/ (core/os/src/control-plane/db/migrations) <input type="file" multiple ref=${directory} aria-label="Migrations folder" onChange=${pick("migrations")} /></label>
+                <span class="pg-muted pg-small">${source.files?.length || 0} files picked, ${source.migrations?.length || 0} migrations. The page zips them here.</span>
+              </div>`
+              : null
+          }
+          ${source.kind === "url" ? h`<${Input} aria-label="Release URL" placeholder="https://… (the server must allow this page's origin)" value=${source.url || ""} onChange=${pick("url")} />` : null}
+        </div>`;
+      }
+
+      // ── the run's inputs, shared by the creation and a deployment's own form ──
+
+      const CONFIG_LABEL =
+        "Config: the iterate config, secrets inline, as iterate.config.ts and .secrets hold it (cloudflare.apiToken among them)";
+      const TOKEN_LABEL = "Cloudflare API token";
+
+      /** A plan's or a deploy's input (`DeploymentRunInput`, core/lib api.ts) from the form: the
+       *  config as one JSON string, the token set into it when the password input holds one. The
+       *  platform checks the rest: a mistake comes back as its INVALID_INPUT. */
+      function runInputOf(form, release) {
+        const config = parseJson(form.config);
+        if (config.error) throw new Error("The config is no JSON: " + config.error);
+        const images = form.images.trim() ? parseJson(form.images) : { value: {} };
+        if (images.error) throw new Error("The images are no JSON: " + images.error);
+        const token = form.token.trim();
+        const merged = token
+          ? { ...config.value, cloudflare: { ...config.value?.cloudflare, apiToken: token } }
+          : config.value;
+        const input = { release, config: JSON.stringify(merged), images: images.value };
+        if (form.version.trim()) input.version = form.version.trim();
+        return input;
+      }
+
+      /** The fields of a run's input. On a deployment (`path`), the config starts empty: the facet
+       *  keeps the last run's, and no request carries it. */
+      function RunFields({ form, setForm, path }) {
+        const where = whereItDeploys(form.config);
+        const images = form.images.trim() ? parseJson(form.images) : { value: {} };
+        const field = (key) => (event) => setForm({ ...form, [key]: event.target.value });
+        const elsewhere = path && where.path !== path;
+        const kept = path && !form.config.trim();
+        return h`<div class="pg-stack">
+          <label class="pg-label"
+            >${CONFIG_LABEL}
+            <${Textarea} className="pg-code" rows=${6} value=${form.config} onChange=${field("config")} />
+          </label>
+          <span class=${!kept && (where.problem || elsewhere) ? "pg-warn pg-small" : "pg-muted pg-small"}>
+            ${kept ? "The facet keeps the last run's config; paste one to run again." : where.problem || (elsewhere ? `It deploys the Worker ${where.worker}, but this deployment is ${path}: the platform refuses it.` : `Deploys the Worker ${where.worker} to account ${where.accountId || "?"}.`)}
+          </span>
+          <label class="pg-label"
+            >${TOKEN_LABEL}: set into the config as cloudflare.apiToken when filled; empty keeps the config's own
+            <${Input} type="password" autoComplete="new-password" value=${form.token} onChange=${field("token")} placeholder="A token that can deploy to the account" />
+          </label>
+          <label class="pg-label"
+            >Images, by name: registry.cloudflare.com references pinned by digest (optional)
+            <${Textarea} className="pg-code" rows=${2} value=${form.images} onChange=${field("images")} />
+          </label>
+          ${images.error ? h`<span class="pg-warn pg-small">The images are no JSON: ${images.error}</span>` : null}
+          <label class="pg-label"
+            >Version (optional): the Worker version's message names it
+            <${Input} value=${form.version} onChange=${field("version")} />
+          </label>
+        </div>`;
+      }
+
+      const EMPTY_FORM = { config: "", token: "", images: "", version: "" };
+      /** A form from the last request's inputs: its release, images and version; never a config,
+       *  which no request carries, nor a token. */
+      const formOf = (input) => ({
+        ...EMPTY_FORM,
+        images: Object.keys(input.images || {}).length ? JSON.stringify(input.images, null, 2) : "",
+        version: input.version || "",
+      });
+
+      // ── THE CREATION: a multi-step flow, each step shown as it runs ──
+
+      function CreateDeployment({ root, project, releases, reloadReleases, onCreated }) {
+        const [form, setForm] = useState(EMPTY_FORM);
+        const [source, setSource] = useState({ kind: "folder" });
+        const [then, setThen] = useState("plan");
+        const [busy, setBusy] = useState(false);
+        const [error, setError] = useState("");
+        const { steps, track, reset } = useSteps();
+        const where = whereItDeploys(form.config);
+        const exists = where.path ? Boolean(project?.deployments?.[where.path]) : false;
+
+        async function submit(event) {
+          event.preventDefault();
+          if (where.problem) return setError(where.problem);
+          setBusy(true);
+          setError("");
+          reset();
+          try {
+            await track(
+              `Create ${where.path}`,
+              () => root.deployments.create(where.path),
+              () => "created: its facet runs here from now on",
+            );
+            let requestOffset;
+            if (then !== "create") {
+              const input = runInputOf(form, await prepareRelease(root, source, track));
+              reloadReleases();
+              ({ requestOffset } = await track(
+                `Ask for a ${then}`,
+                () => withHandle(root.deployments.get(where.path), (handle) => handle[then](input)),
+                (answer) =>
+                  `requested at offset ${answer.requestOffset}: follow it on the deployment`,
+              ));
+              setForm({ ...form, token: "" });
+            }
+            onCreated(where.path, requestOffset);
+          } catch (caught) {
+            if (!caught?.shown) setError(errorText(caught));
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        return h`<${Card}>
+          <${CardHeader}>
+            <${CardTitle}>New deployment<//>
+            <${CardDescription}>Paste a config with its secrets, give the Cloudflare API token, pick a release. The page creates the deployment, puts the release in the project's files and asks for the first run; the facet keeps the config.<//>
+          <//>
+          <${CardContent}>
+            <form class="pg-stack" onSubmit=${submit} autoComplete="off">
+              <${RunFields} form=${form} setForm=${setForm} />
+              <div class="pg-row pg-small">
+                <span class="pg-label">Path</span>
+                <span class="pg-mono">${where.path || "/deployments/<worker>"}</span>
+                ${exists ? h`<${Badge} variant="secondary">exists: create answers at once<//>` : null}
+              </div>
+              <span class="pg-label">Release</span>
+              <${ReleasePicker} source=${source} setSource=${setSource} releases=${releases} />
+              <div class="pg-row">
+                <${NativeSelect} aria-label="Then" value=${then} onChange=${(event) => setThen(event.target.value)}>
+                  <${NativeSelectOption} value="plan">then plan<//>
+                  <${NativeSelectOption} value="deploy">then deploy<//>
+                  <${NativeSelectOption} value="create">create only<//>
+                <//>
+                <${Button} type="submit" disabled=${busy}>${busy ? h`<${Spinner} />` : null}Create<//>
+              </div>
+              <${ErrorLine} error=${error} onDismiss=${() => setError("")} />
+              <${Steps} steps=${steps} />
+            </form>
+          <//>
+        <//>`;
+      }
+
+      // ── A DEPLOYMENT: its state, its verbs, its runs and its log ──
+
+      function DeploymentView({ root, path, releases, reloadReleases, view, setView, onDoor }) {
+        const [reopen, setReopen] = useState(0);
+        const context = useContextStub(() => root.cd(path), [root, path, reopen]);
+        const log = useIterateContext(context.stub, { history: "all", liveState: ["deployment"] });
+        const live = log.liveState.deployment;
+        const state = live?.value;
+        const loaded = live?.status === "live";
+        const runs = useMemo(() => runsOf(log.events), [log.events]);
+        const lastInput = runs.find((run) => run.request && ["plan", "deploy"].includes(run.kind))
+          ?.request.payload;
+        const [form, setForm] = useState(EMPTY_FORM);
+        const [source, setSource] = useState({ kind: "files" });
+        const [busy, setBusy] = useState("");
+        const [error, setError] = useState("");
+        const [confirming, setConfirming] = useState("");
+        const [inputsOpen, setInputsOpen] = useState(false);
+        const { steps, track, reset } = useSteps();
+        const tab = view.tab || "run";
+        const selectedRun = runs.find((run) => run.requestOffset === view.run) || runs[0];
+        // the list's row for this deployment shows the same front door, live
+        useEffect(() => {
+          onDoor(loaded ? { path, url: state?.url } : undefined);
+        }, [onDoor, loaded, path, state?.url]);
+
+        // the form starts from the newest plan or deploy request, and its release while the
+        // project's files still hold it
+        const filled = useRef(false);
+        useEffect(() => {
+          if (!lastInput || filled.current) return;
+          filled.current = true;
+          setForm(formOf(lastInput));
+        }, [lastInput]);
+        const lastFile = lastInput?.release?.file;
+        useEffect(() => {
+          if (lastFile && releases.some((release) => release.path === lastFile))
+            setSource((held) =>
+              held.kind === "files" && !held.path ? { kind: "files", path: lastFile } : held,
+            );
+        }, [lastFile, releases]);
+
+        /** One verb at a time: its button spins, and a failure no step showed lands on the error line. */
+        async function act(label, work) {
+          setBusy(label);
+          setError("");
+          reset();
+          try {
+            await work();
+          } catch (caught) {
+            if (!caught?.shown) setError(errorText(caught));
+          } finally {
+            setBusy("");
+          }
+        }
+
+        const run = (kind) =>
+          act(kind, async () => {
+            const input =
+              kind === "destroy"
+                ? undefined
+                : runInputOf(form, await prepareRelease(root, source, track));
+            if (input) reloadReleases();
+            const answer = await track(
+              `Ask for a ${kind}`,
+              () =>
+                withHandle(root.deployments.get(path), (handle) =>
+                  input ? handle[kind](input) : handle.destroy(),
+                ),
+              (answer) => `requested at offset ${answer.requestOffset}`,
+            );
+            // the run is what to watch now; the token went with the request
+            setForm((held) => ({ ...held, token: "" }));
+            setInputsOpen(false);
+            setView({ run: answer.requestOffset, tab: "run" });
+          });
+
+        const abort = () =>
+          act("abort", async () => {
+            await track(
+              "Abort the context",
+              () =>
+                withHandle(root.cd(path), (handle) =>
+                  handle.abort("asked from the deployments playground"),
+                ),
+              (event) =>
+                `itx/aborted at offset ${event.offset}: ${state?.run ? "the facet's claim revives the open run, and its next attempt starts" : "no run was open, so nothing waits for the revive"}`,
+            );
+            // the reset ends every subscription there: hold the context afresh
+            setTimeout(() => setReopen((n) => n + 1), 1500);
+          });
+
+        const remove = () =>
+          act("delete", () =>
+            track(
+              `Delete ${path}`,
+              () => root.deployments.delete(path),
+              () => "deleted: the teardown destroyed what the runs deployed",
+            ),
+          );
+
+        const open = state?.run;
+        const confirmWord = workerOf(path);
+        const spin = (label) => (busy === label ? h`<${Spinner} />` : null);
+        return h`<div class="pg-stack">
+          <${Card}>
+            <${CardHeader}>
+              <${CardTitle} className="pg-mono">${path}<//>
+              <${CardDescription}>
+                ${
+                  !loaded
+                    ? live?.status === "error"
+                      ? h`<span class="pg-error">${live.error}</span>`
+                      : "Connecting…"
+                    : state?.deletion
+                      ? state.deletion.status === "deleted"
+                        ? "Deleted. Its log stays, and its path cannot be created again."
+                        : "Its deletion was asked: the teardown destroys what the runs deployed."
+                      : state?.creation?.status !== "created"
+                        ? "Not created."
+                        : state?.url
+                          ? "Created and deployed. Its front door is below."
+                          : "Created. No deploy succeeded yet."
+                }
+              <//>
+              <${CardAction}>
+                ${open ? h`<${Badge}>${open.request.kind} · attempt ${open.attempt} · ${open.step}<//>` : h`<${Badge} variant="outline">idle<//>`}
+              <//>
+            <//>
+            <${CardContent} className="pg-stack">
+              ${loaded ? h`<${FrontDoor} url=${state?.url} />` : null}
+              <div class="pg-row">
+                <${Button} disabled=${Boolean(busy)} onClick=${() => run("plan")}>${spin("plan")}Plan<//>
+                <${Button} variant="outline" disabled=${Boolean(busy)} onClick=${() => run("deploy")}>${spin("deploy")}Deploy<//>
+                <${Button} variant="outline" disabled=${Boolean(busy)} onClick=${() => setConfirming("destroy")}>Destroy<//>
+                <${Button} variant="outline" disabled=${Boolean(busy)} onClick=${abort}>${spin("abort")}Abort the context<//>
+                <${Button} variant="destructive" disabled=${Boolean(busy)} onClick=${() => setConfirming("delete")}>Delete<//>
+                <${Button} variant="ghost" onClick=${() => setReopen((n) => n + 1)}>Refresh<//>
+                ${open ? h`<span class="pg-muted pg-small">A run is open: another ask is refused (RUN_IN_PROGRESS).</span>` : null}
+              </div>
+              ${
+                confirming
+                  ? h`<form
+                    class="pg-row"
+                    onSubmit=${(event) => {
+                      event.preventDefault();
+                      if (new FormData(event.currentTarget).get("confirm") !== confirmWord)
+                        return setError(`Type ${confirmWord} exactly, or cancel.`);
+                      setConfirming("");
+                      if (confirming === "destroy") run("destroy");
+                      else remove();
+                    }}
+                  >
+                    <span class="pg-small">${confirming === "destroy" ? "Destroy deletes the Worker and every resource Alchemy's state holds, data included. " : "Delete destroys everything first, then removes the deployment for good. "}Type <b class="pg-mono">${confirmWord}</b> to go on.</span>
+                    <${Input} name="confirm" aria-label="Confirm" className="pg-mono" style=${{ width: "260px" }} />
+                    <${Button} type="submit" variant="destructive" size="sm">${confirming === "destroy" ? "Destroy" : "Delete"}<//>
+                    <${Button} variant="ghost" size="sm" onClick=${() => setConfirming("")}>Cancel<//>
+                  </form>`
+                  : null
+              }
+              <${ErrorLine} error=${error || context.error} onDismiss=${error ? () => setError("") : undefined} />
+              <${Steps} steps=${steps} />
+              <details open=${inputsOpen} onToggle=${(event) => setInputsOpen(event.currentTarget.open)}>
+                <summary class="pg-label">
+                  ${`Run inputs: config, token, images, release${lastInput ? ", from the last request" : ""}`}
+                  <span class="pg-muted">${source.kind === "files" && source.path ? " · release " + short(source.path.replace("/releases/", "")) : ""}</span>
+                </summary>
+                <div class="pg-stack" style=${{ paddingTop: "8px" }}>
+                  <${RunFields} form=${form} setForm=${setForm} path=${path} />
+                  <span class="pg-label">Release</span>
+                  <${ReleasePicker} source=${source} setSource=${setSource} releases=${releases} />
+                </div>
+              </details>
+            <//>
+          <//>
+          <${Tabs} value=${tab} onValueChange=${(next) => setView({ tab: next })}>
+            <${TabsList}>
+              <${TabsTrigger} value="run">Runs (${runs.length})<//>
+              <${TabsTrigger} value="events">Event stream (${log.events.length})<//>
+            <//>
+            <${TabsContent} value="run">
+              <${RunsPanel}
+                runs=${runs}
+                selected=${selectedRun}
+                onSelect=${(offset) => setView({ run: offset })}
+                live=${state}
+                caughtUp=${log.caughtUp}
+                onInspect=${(offset) => setView({ tab: "events", stream: { event: offset } })}
+              />
+            <//>
+            <${TabsContent} value="events">
+              <div class="pg-two">
+                <div class="pg-stream">
+                  <${ContextView}
+                    title=${path}
+                    context=${log}
+                    error=${context.error}
+                    renderers=${renderers}
+                    state=${view.stream}
+                    onStateChange=${(patch) => setView({ stream: { ...view.stream, ...patch } })}
+                    className="min-h-0 flex-1"
+                  />
+                </div>
+                <${Card} size="sm">
+                  <${CardHeader}>
+                    <${CardTitle}>State<//>
+                    <${CardDescription}>The deployment facet's reduced state, live (${live?.status || "connecting"}).<//>
+                  <//>
+                  <${CardContent}><${JsonBlock} value=${state} /><//>
+                <//>
+              </div>
+            <//>
+          <//>
+        </div>`;
+      }
+
+      // ── THE RUN, step by step ──
+
+      function RunsPanel({ runs, selected, onSelect, live, caughtUp, onInspect }) {
+        if (!runs.length)
+          return h`<p class="pg-muted" style=${{ padding: "12px" }}>${caughtUp ? "No run yet. Plan one above." : "Reading the log…"}</p>`;
+        return h`<div class="pg-two">
+          <${RunDetail} run=${selected} live=${live} onInspect=${onInspect} />
+          <${Card} size="sm">
+            <${CardHeader}><${CardTitle}>Runs<//><//>
+            <${CardContent}>
+              ${runs.map((run) => {
+                const [word, variant] = standing(run);
+                return h`<button key=${run.requestOffset} type="button" class="pg-item" aria-current=${String(run.requestOffset === selected?.requestOffset)} onClick=${() => onSelect(run.requestOffset)}>
+                  <div class="pg-row"><b>${run.kind}</b> <span class="pg-muted pg-small">@${run.requestOffset}</span> <${Badge} variant=${variant}>${word}<//></div>
+                  <div class="pg-muted pg-small">${time(run.request?.createdAt)} · ${plural(run.attempts.length, "attempt")}${run.settled ? " · " + seconds(run.request?.createdAt, run.settled.createdAt) : ""}</div>
+                </button>`;
+              })}
+            <//>
+          <//>
+        </div>`;
+      }
+
+      /** What a run waits for after its last fact. */
+      function nextStep(run, attempt) {
+        if (!attempt) return "Waiting for the first attempt";
+        if (!attempt.staged && run.kind !== "destroy" && run.kind !== "teardown")
+          return "Staging the release";
+        if (!attempt.planned) return "Planning";
+        return run.kind === "plan" ? "Settling" : "Applying";
+      }
+
+      function RunDetail({ run, live, onInspect }) {
+        if (!run) return null;
+        const request = run.request?.payload || {};
+        const settled = run.settled?.payload;
+        const last = run.attempts.at(-1);
+        const [word, variant] = standing(run);
+        // a reset after the last attempt started: that attempt died with it
+        const abort = run.aborts?.findLast(
+          (event) => !last?.started || event.offset > last.started.offset,
+        );
+        const ended = settled?.status === "succeeded" || run.kind === "teardown";
+        /** The fact behind a step, as a link that opens it in the event stream. */
+        const at = (event) =>
+          event
+            ? h` <button type="button" class="pg-muted pg-small underline" onClick=${() => onInspect(event.offset)}>@${event.offset} · ${time(event.createdAt)}</button>`
+            : null;
+        const inputs = [
+          request.release && h`release <span class="pg-mono">${request.release.file}</span>`,
+          request.images && plural(Object.keys(request.images).length, "image"),
+          request.version && `version ${request.version}`,
+          request.accountId && h`account <span class="pg-mono">${request.accountId}</span>`,
+        ].filter(Boolean);
+        return h`<${Card}>
+          <${CardHeader}>
+            <${CardTitle}>${run.kind === "teardown" ? "The deletion's teardown" : `The ${run.kind}`} requested at offset ${run.requestOffset}<//>
+            <${CardDescription}>
+              ${run.request?.source?.principal?.email ? `by ${run.request.source.principal.email} · ` : ""}${time(run.request?.createdAt)}
+              ${live?.run?.requestOffset === run.requestOffset ? ` · the facet says: attempt ${live.run.attempt}, step ${live.run.step}` : ""}
+            <//>
+            <${CardAction}><${Badge} variant=${variant}>${word}<//><//>
+          <//>
+          <${CardContent} className="pg-stack">
+            <ol class="pg-steps">
+              <li class="pg-step">
+                <${Dot} status="done">✓<//>
+                <div>
+                  <div>Requested${at(run.request)}</div>
+                  ${request.kind === "destroy" ? h`<div class="pg-muted pg-small">Destroys what Alchemy's state holds.</div>` : null}
+                  ${inputs.length ? h`<div class="pg-muted pg-small">${inputs.map((part, index) => h`<${Fragment} key=${index}>${index ? " · " : ""}${part}<//>`)}</div>` : null}
+                </div>
+              </li>
+              ${run.attempts.map((attempt) => h`<${AttemptSteps} key=${attempt.n} run=${run} attempt=${attempt} current=${!run.settled && attempt === last} at=${at} onInspect=${onInspect} />`)}
+              ${
+                !run.settled
+                  ? h`<li class="pg-step">
+                    <${Dot} status="running" />
+                    <div>
+                      <div>${nextStep(run, last)}…</div>
+                      ${abort ? h`<div class="pg-warn pg-small">The context was reset at offset ${abort.offset}: the next attempt starts once the facet is revived.</div>` : null}
+                    </div>
+                  </li>`
+                  : h`<li class="pg-step">
+                    <${Dot} status=${ended ? "done" : settled?.status === "refused" ? "warn" : "failed"}>${ended ? "✓" : "✕"}<//>
+                    <div>
+                      <div>${run.kind === "teardown" ? "Deleted" : h`Settled <b>${settled?.status}</b> after ${plural(settled?.attempts, "attempt")}`}${at(run.settled)} · ${seconds(run.request?.createdAt, run.settled.createdAt)}</div>
+                      ${settled?.url ? h`<a class="underline pg-small" href=${settled.url} target="_blank" rel="noreferrer">${settled.url}</a>` : null}
+                      ${settled?.error ? h`<pre class="pg-json pg-error">${settled.error}</pre>` : null}
+                    </div>
+                  </li>`
+              }
+            </ol>
+            <details>
+              <summary class="pg-label">The request's payload</summary>
+              <${JsonBlock} value=${request} />
+            </details>
+          <//>
+        <//>`;
+      }
+
+      /** One attempt: started (and why it retries), the release staged, the plan, each resource applied. */
+      function AttemptSteps({ run, attempt, current, at, onInspect }) {
+        const applied = new Map(attempt.applied.map((event) => [event.payload.fqn, event]));
+        const resources = attempt.planned?.payload?.resources || [];
+        const applying = run.kind !== "plan";
+        const changing = resources.filter((resource) => resource.action !== "noop");
+        const retrying = attempt.started?.payload?.retrying;
+        return h`<${Fragment}>
+          <li class="pg-step">
+            <${Dot} status=${retrying ? "warn" : "done"}>${attempt.n}<//>
+            <div>
+              <div>Attempt ${attempt.n} ${attempt.started ? "started" : ""}${at(attempt.started)}</div>
+              ${retrying ? h`<div class="pg-warn pg-small">retrying: ${retrying}</div>` : null}
+            </div>
+          </li>
+          ${
+            attempt.staged
+              ? h`<li class="pg-step">
+                <${Dot} status="done">✓<//>
+                <div>Release staged: ${attempt.staged.payload.files} files, ${bytes(attempt.staged.payload.bytes)}${at(attempt.staged)}</div>
+              </li>`
+              : null
+          }
+          ${
+            attempt.planned
+              ? h`<li class="pg-step">
+                <${Dot} status="done">✓<//>
+                <div class="pg-stack" style=${{ gap: "4px" }}>
+                  <div>Planned: ${actionSummary(resources) || "nothing"}${at(attempt.planned)}</div>
+                  <table class="pg-table">
+                    <tbody>
+                      ${resources.map((resource) => {
+                        const fact = applied.get(resource.fqn);
+                        return h`<tr key=${resource.fqn}>
+                          <td><${Badge} variant=${resource.action === "noop" ? "outline" : resource.action === "delete" ? "destructive" : "secondary"}>${resource.action}<//></td>
+                          <td class="pg-mono">${resource.fqn}</td>
+                          <td class="pg-muted">${resource.type}</td>
+                          <td>
+                            ${
+                              !applying || resource.action === "noop"
+                                ? null
+                                : fact
+                                  ? h`<button type="button" class="pg-ok underline" onClick=${() => onInspect(fact.offset)}>${fact.payload.status}</button>`
+                                  : current
+                                    ? h`<${Spinner} className="size-3" />`
+                                    : h`<span class="pg-muted">—</span>`
+                            }
+                          </td>
+                        </tr>`;
+                      })}
+                    </tbody>
+                  </table>
+                  ${applying && changing.length ? h`<div class="pg-muted pg-small">Applied ${changing.filter((resource) => applied.has(resource.fqn)).length} of ${changing.length} changes.</div>` : null}
+                </div>
+              </li>`
+              : null
+          }
+        <//>`;
+      }
+
+      // ── THE FRONT DOOR: where a deployment answers ──
+
+      /** Where a deployment answers: the Worker's own URL, which the state holds after a deploy
+       *  succeeded, and its sign-in, version and MCP paths on it. The config, which names the
+       *  platform's own origins, stays in the facet: the page reads none. */
+      function FrontDoor({ url }) {
+        if (!url) return h`<span class="pg-muted pg-small">Not deployed yet.</span>`;
+        const os = url.replace(/\/+$/, "");
+        const link = (href, label) =>
+          h`<a class="underline" href=${href} target="_blank" rel="noreferrer">${label}</a>`;
+        return h`<div class="pg-stack pg-small" style=${{ gap: "2px" }}>
+          <div class="pg-row">
+            ${link(os + "/login", "Open")}${link(os + "/version", "/version")}
+            <span class="pg-muted">MCP</span><code class="pg-mono" title="MCP: copy this URL">${os + "/mcp"}</code>
+          </div>
+          <a class="pg-muted pg-mono underline" style=${{ overflowWrap: "anywhere" }} href=${url} target="_blank" rel="noreferrer">${url}</a>
+        </div>`;
+      }
+
+      /** A row's front door: the live one for the deployment on screen, else one read of its state. */
+      function useFrontDoor(root, path, live) {
+        const [read, setRead] = useState();
+        useEffect(() => {
+          if (live || !root) return;
+          let held = true;
+          const handle = root.deployments.get(path);
+          handle
+            .snapshot()
+            .then(({ state }) => held && setRead({ url: state.url }))
+            .catch(() => held && setRead({}))
+            .finally(() => dispose(handle));
+          return () => {
+            held = false;
+          };
+        }, [root, path, Boolean(live)]);
+        return live || read;
+      }
+
+      // ── THE PROJECT: its deployments, live ──
+
+      function DeploymentRow({ root, path, row, selected, onSelect, live }) {
+        const door = useFrontDoor(root, path, live);
+        return h`<div class="pg-item" aria-current=${String(selected)}>
+          <button type="button" onClick=${() => onSelect(path)}>
+            <div class="pg-mono" style=${{ overflowWrap: "anywhere" }}>${workerOf(path)}</div>
+            <div class="pg-muted pg-small">created ${new Date(row.createdAt).toLocaleString()}</div>
+          </button>
+          ${door ? h`<${FrontDoor} url=${door.url} />` : h`<${Spinner} className="size-3" />`}
+        </div>`;
+      }
+
+      function DeploymentList({ root, deployments, selected, selectedDoor, onSelect, status }) {
+        const paths = Object.keys(deployments || {}).sort();
+        return h`<${Card} size="sm">
+          <${CardHeader}>
+            <${CardTitle}>Deployments<//>
+            <${CardDescription}>Live from the project's catalog on /${status === "live" ? "." : ` (${status})`}<//>
+            <${CardAction}>
+              <${Button} size="sm" variant=${selected === "new" ? "secondary" : "outline"} onClick=${() => onSelect("new")}>New<//>
+            <//>
+          <//>
+          <${CardContent} className="pg-stack" style=${{ gap: "4px" }}>
+            ${
+              status !== "live" && !deployments
+                ? h`<${Spinner} />`
+                : paths.length
+                  ? paths.map(
+                      (path) => h`<${DeploymentRow}
+                        key=${path}
+                        root=${root}
+                        path=${path}
+                        row=${deployments[path]}
+                        selected=${path === selected}
+                        onSelect=${onSelect}
+                        live=${selectedDoor?.path === path ? selectedDoor : undefined}
+                      />`,
+                    )
+                  : h`<p class="pg-muted pg-small">No deployments yet. Create one.</p>`
+            }
+          <//>
+        <//>`;
+      }
+
+      function Workspace({ session, connection, onSignOut }) {
+        const { api, info } = session;
+        const [projects, setProjects] = useState();
+        const [projectsError, setProjectsError] = useState("");
+        // what the page shows is its address: the project, the deployment, the tab and the run
+        const [params, setParamsState] = useState(() =>
+          Object.fromEntries(new URLSearchParams(location.search)),
+        );
+        const [stream, setStream] = useState({});
+        const remembered =
+          params.project || localStorage.getItem("deployments:project:" + ISSUER) || "";
+        // by id or slug, among the projects this sign-in reaches; else the first
+        const projectId =
+          (
+            projects?.find((project) => project.id === remembered || project.slug === remembered) ||
+            projects?.[0]
+          )?.id || "";
+        const selected = params.deployment || "";
+        const view = { tab: params.tab, run: params.run ? Number(params.run) : undefined, stream };
+        const setParams = (patch) =>
+          setParamsState((held) => {
+            const next = { ...held, ...patch };
+            for (const [key, value] of Object.entries(next))
+              if (value === undefined || value === "") delete next[key];
+            history.replaceState(null, "", REDIRECT_URI + "?" + new URLSearchParams(next));
+            return next;
+          });
+        const setView = ({ stream: nextStream, ...patch }) => {
+          if (nextStream) setStream(nextStream);
+          if (Object.keys(patch).length) setParams(patch);
+        };
+        useEffect(() => {
+          let held = true;
+          api.projects.list().then(
+            (list) => held && setProjects(list),
+            (caught) => held && setProjectsError(errorText(caught)),
+          );
+          return () => {
+            held = false;
+          };
+        }, [api]);
+        const root = useContextStub(projectId ? () => api.projects.get(projectId) : null, [
+          api,
+          projectId,
+        ]);
+        const rootLog = useIterateContext(root.stub, {
+          consumes: [T.created, T.deleted],
+          liveState: ["project"],
+        });
+        const projectLive = rootLog.liveState.project;
+        const project = projectLive?.value;
+        const [releases, setReleases] = useState([]);
+        const [selectedDoor, setSelectedDoor] = useState();
+        const [releaseTick, setReleaseTick] = useState(0);
+        useEffect(() => {
+          if (!root.stub) return;
+          let held = true;
+          root.stub.files.list("/releases/").then(
+            (list) => held && setReleases(list),
+            () => held && setReleases([]),
+          );
+          return () => {
+            held = false;
+          };
+        }, [root.stub, releaseTick]);
+        const reloadReleases = () => setReleaseTick((n) => n + 1);
+
+        const pickProject = (id) => {
+          localStorage.setItem("deployments:project:" + ISSUER, id);
+          setParams({ project: id, deployment: undefined, run: undefined, tab: undefined });
+          setStream({});
+        };
+        const pick = (path) => {
+          setParams({ deployment: path, run: undefined });
+          setStream({});
+        };
+
+        return h`<div>
+          <header class="pg-row pg-header">
+            <b>iterate</b>
+            <span class="pg-muted">Deployments playground</span>
+            <span class="pg-muted pg-small">on <span class="pg-mono">${ISSUER}</span></span>
+            ${connection ? h`<${Badge} variant="secondary">${connection}<//>` : null}
+            <span style=${{ flex: 1 }}></span>
+            ${
+              projects
+                ? h`<${NativeSelect} aria-label="Project" value=${projectId} onChange=${(event) => pickProject(event.target.value)}>
+                  ${projects.map((project) => h`<${NativeSelectOption} key=${project.id} value=${project.id}>${project.slug}<//>`)}
+                <//>`
+                : projectsError
+                  ? h`<span class="pg-error pg-small">${projectsError}</span>`
+                  : h`<${Spinner} />`
+            }
+            <span class="pg-small pg-muted">${info.principal?.email || info.principal?.actor}</span>
+            <${Button} size="sm" variant="ghost" onClick=${onSignOut}>Sign out<//>
+          </header>
+          ${
+            projects && !projects.length
+              ? h`<p style=${{ padding: "16px" }}>This sign-in reaches no project. Sign in again and tick one.</p>`
+              : h`<div class="pg-shell">
+                <${DeploymentList}
+                  root=${root.stub}
+                  selectedDoor=${selectedDoor}
+                  deployments=${project?.deployments}
+                  selected=${selected}
+                  onSelect=${pick}
+                  status=${root.error ? "error" : projectLive?.status || "connecting"}
+                />
+                <main class="pg-stack" style=${{ minWidth: 0 }}>
+                  <${ErrorLine} error=${root.error || projectLive?.error} />
+                  ${
+                    !root.stub
+                      ? h`<${Spinner} />`
+                      : selected === "new" || !selected
+                        ? h`<${CreateDeployment}
+                          root=${root.stub}
+                          project=${project}
+                          releases=${releases}
+                          reloadReleases=${reloadReleases}
+                          onCreated=${(path, run) => setView({ deployment: path, run, tab: "run", stream: {} })}
+                        />`
+                        : h`<${DeploymentView}
+                          key=${projectId + selected}
+                          root=${root.stub}
+                          path=${selected}
+                          releases=${releases}
+                          reloadReleases=${reloadReleases}
+                          view=${view}
+                          setView=${setView}
+                          onDoor=${setSelectedDoor}
+                        />`
+                  }
+                </main>
+              </div>`
+          }
+        </div>`;
+      }
+
+      // ── signing in, and the one connection ──
+
+      function SignIn({ error, busy, onSignIn }) {
+        return h`<div style=${{ maxWidth: "460px", margin: "64px auto", padding: "0 16px" }}>
+          <${Card}>
+            <${CardHeader}>
+              <${CardTitle}>Deployments playground<//>
+              <${CardDescription}>Create deployments of core/os in one of your iterate projects on <span class="pg-mono">${ISSUER}</span>, run them, and watch every step land. <span class="pg-mono">?issuer=</span> picks another platform.<//>
+            <//>
+            <${CardContent} className="pg-stack">
+              <${Button} disabled=${busy} onClick=${onSignIn}>${busy ? h`<${Spinner} />` : null}Sign in with iterate<//>
+              <${ErrorLine} error=${error} />
+            <//>
+          <//>
+        </div>`;
+      }
+
+      /** How many times a closed connection is opened again on its own before the page asks. */
+      const RECONNECTS = 5;
+
+      function App() {
+        const [phase, setPhase] = useState({ kind: "starting" });
+        const generation = useRef(0);
+        const retries = useRef(0);
+
+        const connect = useCallback(async () => {
+          const id = ++generation.current;
+          let token;
+          try {
+            const signedIn = (await oauth.session())?.issuer === ISSUER;
+            token = signedIn ? await oauth.freshAccessToken() : null;
+          } catch (caught) {
+            // the platform refused the grant or did not answer: the person signs in again
+            return setPhase({ kind: "signed-out", error: errorText(caught) });
+          }
+          if (!token) return setPhase({ kind: "signed-out" });
+          setPhase((held) =>
+            held.session ? { ...held, kind: "reconnecting" } : { kind: "connecting" },
+          );
+          try {
+            // one WebSocket to the platform's /api, opened bare: the token is its first call
+            const socket = new WebSocket(ISSUER.replace(/^http/, "ws") + "/api");
+            const rpc = newWebSocketRpcSession(socket);
+            const api = rpc.authenticate({ type: "bearer", token });
+            const session = { api, id, info: await api.info(), dispose: () => dispose(rpc) };
+            if (generation.current !== id) return session.dispose();
+            retries.current = 0;
+            socket.addEventListener("close", () => {
+              if (generation.current === id) setPhase((held) => ({ ...held, kind: "closed" }));
+            });
+            setPhase({ kind: "connected", session });
+          } catch (caught) {
+            if (generation.current !== id) return;
+            if (caught?.code === "INVALID_CREDENTIALS") {
+              await oauth.signOut();
+              return setPhase({ kind: "signed-out", error: errorText(caught) });
+            }
+            setPhase((held) => ({ ...held, kind: "closed", error: errorText(caught) }));
+          }
+        }, []);
+
+        useEffect(() => {
+          const back = location.href;
+          const answer = new URL(back).searchParams;
+          (async () => {
+            if (answer.has("code") || answer.has("error")) {
+              // the code works once: a reload must not send it again
+              history.replaceState(null, "", REDIRECT_URI + (sessionStorage.getItem(BACK) || ""));
+              await oauth.finishSignIn(back);
+            }
+          })().then(connect, (caught) =>
+            setPhase({ kind: "signed-out", error: errorText(caught) }),
+          );
+        }, [connect]);
+
+        // a closed connection is opened again, a few times, then the page asks
+        useEffect(() => {
+          if (phase.kind !== "closed" || retries.current >= RECONNECTS) return;
+          const timer = setTimeout(connect, 1000 * 2 ** retries.current++);
+          return () => clearTimeout(timer);
+        }, [phase.kind, connect]);
+
+        const signIn = () => {
+          setPhase({ kind: "signed-out", busy: true });
+          sessionStorage.setItem(BACK, location.search);
+          oauth
+            .signIn(ISSUER)
+            .catch((caught) => setPhase({ kind: "signed-out", error: errorText(caught) }));
+        };
+        const signOut = async () => {
+          try {
+            await phase.session?.api.logout();
+          } catch {}
+          phase.session?.dispose();
+          await oauth.signOut();
+          setPhase({ kind: "signed-out" });
+        };
+
+        if (phase.kind === "starting" || (phase.kind === "connecting" && !phase.session))
+          return h`<div style=${{ padding: "16px" }} class="pg-row"><${Spinner} /> Connecting to ${ISSUER}…</div>`;
+        if (phase.kind === "signed-out" || !phase.session)
+          return h`<${SignIn} error=${phase.error} busy=${phase.busy} onSignIn=${signIn} />`;
+        const gaveUp = phase.kind === "closed" && retries.current >= RECONNECTS;
+        const note = gaveUp
+          ? "disconnected"
+          : phase.kind === "closed" || phase.kind === "reconnecting"
+            ? "reconnecting…"
+            : "";
+        return h`<${Fragment}>
+          ${
+            gaveUp
+              ? h`<div class="pg-row" style=${{ padding: "8px 16px" }}>
+                <span class="pg-error pg-small">The connection closed${phase.error ? ": " + phase.error : ""}.</span>
+                <${Button} size="sm" onClick=${() => {
+                  retries.current = 0;
+                  connect();
+                }}>Reconnect<//>
+              </div>`
+              : null
+          }
+          <${Workspace} key=${phase.session.id} session=${phase.session} connection=${note} onSignOut=${signOut} />
+        <//>`;
+      }
+
+      render(h`<${App} />`, document.getElementById("root"));
+    </script>
+  </body>
+</html>

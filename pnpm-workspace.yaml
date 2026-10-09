@@ -79,6 +79,7 @@ overrides:
   '@codemirror/state': 'catalog:'
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
   iterate: https://pkg.pr.new/iterate/private/iterate@c195c4951835d9ac646c38959f7a1aaff6a04c1b
+  workerd: 1.20261001.1
   wrangler: 'catalog:'
   ws: '8.21.3'
 
