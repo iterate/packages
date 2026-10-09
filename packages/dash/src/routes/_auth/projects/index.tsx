@@ -45,7 +45,7 @@ import {
   reloadOrganizationTree,
   useOrganizationTree,
 } from "../../../components/organization-tree.tsx";
-import { projectHostOf } from "../../../lib/origins.ts";
+import { projectHostOf, projectSiteOf } from "../../../lib/origins.ts";
 
 const shell = getRouteApi("/_auth");
 
@@ -98,7 +98,12 @@ function ProjectsPage() {
           <TableBody>
             {tree.organizations.flatMap((org) =>
               org.projects.map((project) => {
-                const host = projectHostOf(info, project.slug);
+                // as the sidebar's "Project site": the tree knows no hostname a project claimed
+                const host = projectSiteOf(info, {
+                  id: project.id,
+                  slug: project.slug,
+                  primaryHostname: null,
+                });
                 return (
                   <TableRow key={project.id}>
                     <TableCell className="font-mono font-medium">

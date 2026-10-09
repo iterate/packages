@@ -67,7 +67,7 @@ import {
   reloadOrganizationTree,
   useOrganizationTree,
 } from "../../../../components/organization-tree.tsx";
-import { projectHostOf } from "../../../../lib/origins.ts";
+import { projectSiteOf } from "../../../../lib/origins.ts";
 
 const shell = getRouteApi("/_auth");
 
@@ -84,6 +84,8 @@ const ProjectLive = z.looseObject({
     z.string(),
     z.looseObject({ provider: z.string(), connection: z.string(), account: z.string() }),
   ),
+  /** the hostname the project claimed as its primary, which its site's button opens */
+  primaryHostname: z.string().nullable().catch(null),
 });
 
 export const Route = createFileRoute("/_auth/projects/$slug/")({
@@ -109,7 +111,6 @@ function ProjectOverview() {
   const org = useOrganizationTree().organizations.find(
     (candidate) => candidate.id === project.orgId,
   );
-  const host = projectHostOf(info, project.slug);
   // the project's root context, held for the page's life; the route resolved the project already,
   // so a refusal leaves the plain overview
   const opened = useContextStub(() => api.projects.get(project.id), [api, project.id]);
@@ -128,6 +129,13 @@ function ProjectOverview() {
   const githubConnections = Object.values(parsed?.integrations || {}).filter(
     (row) => row.provider === "github",
   );
+  // the hostname the project claimed is unknown until its live state lands; meanwhile the ingress
+  // URL serves, and a page visit there goes on to it (core/os primary-hostname-redirect.ts)
+  const host = projectSiteOf(info, {
+    id: project.id,
+    slug: project.slug,
+    primaryHostname: parsed?.primaryHostname || null,
+  });
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       {creation?.status === "requested" ? (

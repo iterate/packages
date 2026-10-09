@@ -30,6 +30,7 @@ import {
   SidebarMenuSubItem,
 } from "@iterate-com/ui/components/ui/sidebar";
 import { SidebarRowSkeleton } from "@iterate-com/ui/components/app-shell";
+import { appHrefOf } from "../lib/origins.ts";
 import { useOrganizationTree } from "./organization-tree.tsx";
 
 /** The root loader's: the directory of apps this deployment has (apps.ts `appDirectory`). */
@@ -60,11 +61,15 @@ const ACCOUNT_PAGES = [
 export function ProjectNav({
   project,
   host,
+  platformOrigin,
   signingIn,
 }: {
   project: { slug: string };
   /** the project's own site; null when this deployment serves none */
   host: string | null;
+  /** the platform the dash is signed in to (`info().platformOrigin`): the app links connect to it
+   *  (origins.ts `appHrefOf`); unknown before sign-in */
+  platformOrigin?: string;
   /** before sign-in (the shell's frame, routes/_auth.tsx) the site is not known yet: a placeholder
    *  holds its row */
   signingIn?: boolean;
@@ -125,7 +130,7 @@ export function ProjectNav({
                 tooltip={`${app.name} for ${project.slug}`}
                 render={
                   <a
-                    href={`${app.url}/projects/${project.slug}`}
+                    href={appHrefOf(app.url, platformOrigin, `/projects/${project.slug}`)}
                     target="_blank"
                     rel="noreferrer"
                     aria-label={`${app.name} for ${project.slug}`}
@@ -144,8 +149,9 @@ export function ProjectNav({
 }
 
 /** Outside a project: the projects and organizations lists, the account pages; the tree — every
- *  organization the person belongs to, its projects under it; and the other first-party apps. */
-export function TopLevelNav() {
+ *  organization the person belongs to, its projects under it; and the other first-party apps, on
+ *  the platform the dash is signed in to (as `ProjectNav`'s). */
+export function TopLevelNav({ platformOrigin }: { platformOrigin?: string }) {
   const matchRoute = useMatchRoute();
   const { apps } = root.useLoaderData();
   return (
@@ -179,7 +185,12 @@ export function TopLevelNav() {
                   <SidebarMenuButton
                     tooltip={app.name}
                     render={
-                      <a href={app.url} target="_blank" rel="noreferrer" aria-label={app.name} />
+                      <a
+                        href={appHrefOf(app.url, platformOrigin, "/")}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={app.name}
+                      />
                     }
                   >
                     <ExternalLink />

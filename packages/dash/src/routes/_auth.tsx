@@ -30,7 +30,7 @@ import { Identifier } from "../components/identifier.tsx";
 import { DashBreadcrumbs } from "../components/dash-breadcrumbs.tsx";
 import { ProjectNav, TopLevelNav } from "../components/dash-nav.tsx";
 import { OrganizationTree, useOrganizationTree } from "../components/organization-tree.tsx";
-import { projectHostOf } from "../lib/origins.ts";
+import { projectSiteOf } from "../lib/origins.ts";
 import { iterateClient } from "../lib/iterate-client.ts";
 
 export const Route = createFileRoute("/_auth")({
@@ -142,9 +142,20 @@ function Shell() {
         }
         nav={
           active ? (
-            <ProjectNav project={active} host={projectHostOf(info, active.slug)} />
+            <ProjectNav
+              project={active}
+              // on the hostname this deployment's config pins to it; the shell never reads the
+              // one the project claimed, but a page visit on its ingress URL goes on there (core/os
+              // primary-hostname-redirect.ts)
+              host={projectSiteOf(info, {
+                id: active.id,
+                slug: active.slug,
+                primaryHostname: null,
+              })}
+              platformOrigin={info.platformOrigin}
+            />
           ) : (
-            <TopLevelNav />
+            <TopLevelNav platformOrigin={info.platformOrigin} />
           )
         }
         header={<DashBreadcrumbs project={active || null} page={page} />}

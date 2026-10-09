@@ -19,10 +19,27 @@ export function httpOriginOf(value: string): string | null {
   return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
 }
 
-/** A project's own site under this deployment's ingress (`projectUrlOf`) — null when the deployment
- *  serves no project hosts. The slug, never the id: the id is how a project is addressed, the slug is
- *  its label in a hostname or a path. The platform's origin is parsed first: it comes from the
- *  issuer's `info()`, and only an http(s) origin may become an href. */
+/** A first-party app's page `next` (apps.ts), through the app's `/.auth/connect` for the platform
+ *  the dash is signed in to, as Agents' link to the config repo goes: straight through for the app's
+ *  own issuer, a confirmation for another, so a self-hosted platform's person lands on their own
+ *  platform, not the app's default. A plain link when that origin is unknown (before sign-in) or not
+ *  http(s). */
+export function appHrefOf(
+  appUrl: string,
+  platformOrigin: string | undefined,
+  next: string,
+): string {
+  const issuer = platformOrigin ? httpOriginOf(platformOrigin) : null;
+  return issuer
+    ? `${appUrl}/.auth/connect?${new URLSearchParams({ issuer, next })}`
+    : `${appUrl}${next}`;
+}
+
+/** A project's default site under this deployment's ingress (`projectUrlOf`), whatever its primary
+ *  hostname (that is `projectSiteOf`) — null when the deployment serves no project hosts. The slug,
+ *  never the id: the id is how a project is addressed, the slug is its label in a hostname or a
+ *  path. The platform's origin is parsed first: it comes from the issuer's `info()`, and only an
+ *  http(s) origin may become an href. */
 export function projectHostOf(
   info: { platformOrigin: string; ingressRouting: IngressRouting },
   slug: string,
@@ -31,13 +48,37 @@ export function projectHostOf(
   return origin ? projectUrlOf(info.ingressRouting, origin, { project: slug })?.href || null : null;
 }
 
-/** Where a button a project's package registered leads (iterate/integrations `IntegrationTarget`),
- *  as an href, or null for no link: an absolute http(s) URL as the package wrote it, else the
- *  project's own page at `routingSlug` and `path`, composed as `itx.url` composes it
+/** A project's own site — its page at `routingSlug` (the apex when absent) and `path` (default "/")
+ *  — as an href, composed as `itx.url` and `itx.whoami().projectUrl` compose it
  *  (`projectPublicUrlOf`): on the project's primary hostname when it has one, the one this
  *  deployment's config pins to it first, then the one it claimed, else under this deployment's
- *  ingress; null when the platform's origin is not http(s). The page renders only targets the
- *  contract parsed, so the URL is http(s) and the path starts with one "/". */
+ *  ingress. Null when the deployment serves no project hosts or the platform's origin is not
+ *  http(s). */
+export function projectSiteOf(
+  info: {
+    platformOrigin: string;
+    ingressRouting: IngressRouting;
+    projectHostnames: readonly { hostname: string; project: string }[];
+  },
+  project: { id: string; slug: string; primaryHostname: string | null },
+  page: { routingSlug?: string | null; path?: string } = {},
+): string | null {
+  const origin = httpOriginOf(info.platformOrigin);
+  if (!origin) return null;
+  return (
+    projectPublicUrlOf(info.ingressRouting, origin, {
+      project: project.slug,
+      primaryHostname: pinnedHostnameOf(info.projectHostnames, project) ?? project.primaryHostname,
+      routingSlug: page.routingSlug,
+      path: page.path,
+    })?.href || null
+  );
+}
+
+/** Where a button a project's package registered leads (iterate/integrations `IntegrationTarget`),
+ *  as an href, or null for no link: an absolute http(s) URL as the package wrote it, else the
+ *  project's own page at `routingSlug` and `path` (`projectSiteOf`). The page renders only targets
+ *  the contract parsed, so the URL is http(s) and the path starts with one "/". */
 export function integrationTargetHrefOf(
   info: {
     platformOrigin: string;
@@ -47,17 +88,7 @@ export function integrationTargetHrefOf(
   project: { id: string; slug: string; primaryHostname: string | null },
   target: IntegrationTarget,
 ): string | null {
-  if ("url" in target) return target.url;
-  const origin = httpOriginOf(info.platformOrigin);
-  if (!origin) return null;
-  return (
-    projectPublicUrlOf(info.ingressRouting, origin, {
-      project: project.slug,
-      primaryHostname: pinnedHostnameOf(info.projectHostnames, project) ?? project.primaryHostname,
-      routingSlug: target.routingSlug,
-      path: target.path,
-    })?.href || null
-  );
+  return "url" in target ? target.url : projectSiteOf(info, project, target);
 }
 
 /** The issuer's link that adds a GitHub sign-in to this session's person (core/os identity.ts,
