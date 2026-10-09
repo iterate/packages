@@ -20,7 +20,7 @@ import {
   ChevronsUpDownIcon,
   EyeIcon,
   LogOutIcon,
-  ServerIcon,
+  TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
 import { cn } from "cn";
@@ -126,6 +126,7 @@ export function AppShell({
   locationKey: string;
   children: ReactNode;
 }) {
+  const platform = useConnectedPlatform();
   const defaultOpen = useSyncExternalStore(
     subscribeToNothing,
     () => !document.cookie.split("; ").includes("sidebar_state=false"),
@@ -165,7 +166,11 @@ export function AppShell({
             />
           ) : null}
           {account ? (
-            <AccountMenu email={account.email || account.actor} actions={accountActions} />
+            <AccountMenu
+              email={account.email || account.actor}
+              actions={accountActions}
+              platform={platform}
+            />
           ) : (
             <SidebarMenu>
               <SidebarMenuItem>
@@ -173,7 +178,6 @@ export function AppShell({
               </SidebarMenuItem>
             </SidebarMenu>
           )}
-          <PlatformLine />
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
@@ -385,16 +389,13 @@ function CollapseButton() {
   );
 }
 
-/** The page's one read of the gate (`PlatformLine`), and its answer once it has one. */
+/** The page's one read of the gate, and its answer once it has one. */
 let platformRead: Promise<void> | undefined;
 let platformAnswer: ConnectedPlatform | null = null;
 
-/** WHICH PLATFORM this app talks to (app-shell-platform.ts), so a person can tell a self-hosted
- *  platform from the app's own: quiet on the app's own platform, orange on any other, where a
- *  collapsed sidebar keeps the icon. Connecting to another platform is a full page load
- *  (`/.auth/connect`), so the page reads once, and a shell mounted again (the dash's frame, then
- *  its signed-in shell) shows the answer at once. A gate that does not answer leaves the line off. */
-function PlatformLine() {
+/** Connecting to another platform is a full page load (`/.auth/connect`), so the shell reads
+ *  once, including while the account loads. A remounted shell can use the cached answer. */
+function useConnectedPlatform() {
   const [platform, setPlatform] = useState(platformAnswer);
   useEffect(() => {
     let mounted = true;
@@ -409,24 +410,7 @@ function PlatformLine() {
       mounted = false;
     };
   }, []);
-  if (!platform) return null;
-  if (platform.isDefault)
-    return (
-      <p className="px-2 text-xs wrap-anywhere text-muted-foreground group-data-[collapsible=icon]:hidden">
-        Connected to {platform.host}
-      </p>
-    );
-  return (
-    <p
-      title={`Connected to ${platform.host}. This app's own platform is ${platform.defaultHost}.`}
-      className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-2 py-1.5 text-xs text-orange-900 group-data-[collapsible=icon]:border-0"
-    >
-      <ServerIcon className="size-4 shrink-0 text-orange-600" aria-hidden />
-      <span className="min-w-0 wrap-anywhere group-data-[collapsible=icon]:sr-only">
-        Connected to <strong className="font-semibold">{platform.host}</strong>
-      </span>
-    </p>
-  );
+  return platform;
 }
 
 /** SIGN IN AGAIN, through the issuer: the app's own logout (ends this sign-in's grant), then its
@@ -464,9 +448,53 @@ function ImpersonationMarker({ email, admin }: { email: string; admin: string })
   );
 }
 
-/** The signed-in person; Switch account… (`SIGN_IN_AGAIN`); and sign out: a POST to the app's own
- *  logout, which ends this browser's grant at the issuer. */
-function AccountMenu({ email, actions }: { email: string; actions?: ReactNode }) {
+/** The deployment beneath the account in the sidebar: quiet when it is the app's default. Any other
+ *  is orange with a warning mark, as it is again in the account menu (`DeploymentNote`). */
+function DeploymentLine({ platform }: { platform: ConnectedPlatform }) {
+  if (platform.isDefault)
+    return <span className="truncate text-xs text-muted-foreground">{platform.host}</span>;
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-xs text-orange-700">
+      {/* important: the menu button sets every svg in it to size-4 */}
+      <TriangleAlertIcon aria-hidden className="size-3!" />
+      <span className="truncate">{platform.host}</span>
+    </span>
+  );
+}
+
+/** The deployment in the account menu, its host in full. A custom one repeats the sidebar line's
+ *  mark and orange. */
+function DeploymentNote({ platform }: { platform: ConnectedPlatform }) {
+  if (platform.isDefault)
+    return (
+      <div className="flex flex-col gap-0.5 px-1.5 pt-1 pb-1.5 text-xs">
+        <span className="text-muted-foreground">Deployment</span>
+        <span className="min-w-0 font-medium wrap-anywhere">{platform.host}</span>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-0.5 px-1.5 pt-1 pb-1.5 text-xs">
+      <span className="text-muted-foreground">Custom deployment</span>
+      <span className="flex items-start gap-1 font-medium text-orange-700">
+        <TriangleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
+        <span className="min-w-0 wrap-anywhere">{platform.host}</span>
+      </span>
+    </div>
+  );
+}
+
+/** The signed-in person and the deployment the app is connected to; Switch account…
+ *  (`SIGN_IN_AGAIN`); and sign out: a POST to the app's own logout, which ends this browser's grant
+ *  at the issuer. */
+function AccountMenu({
+  email,
+  actions,
+  platform,
+}: {
+  email: string;
+  actions?: ReactNode;
+  platform: ConnectedPlatform | null;
+}) {
   const { isMobile } = useSidebar();
   const logout = useRef<HTMLFormElement>(null);
   const switchAccount = useRef<HTMLFormElement>(null);
@@ -479,13 +507,16 @@ function AccountMenu({ email, actions }: { email: string; actions?: ReactNode })
             render={
               <SidebarMenuButton
                 size="lg"
-                className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
+                className="h-auto min-h-12 group-data-[collapsible=icon]:min-h-0 data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
                 aria-label="Account"
               >
                 <Avatar className="size-8 rounded-lg">
                   <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="truncate text-left text-sm font-medium">{email}</span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left group-data-[collapsible=icon]:hidden">
+                  <span className="truncate text-sm font-medium">{email}</span>
+                  {platform ? <DeploymentLine platform={platform} /> : null}
+                </span>
                 <ChevronsUpDownIcon className="ml-auto" />
               </SidebarMenuButton>
             }
@@ -499,6 +530,7 @@ function AccountMenu({ email, actions }: { email: string; actions?: ReactNode })
             {/* Base UI: a menu label lives inside a group, never bare in the menu */}
             <DropdownMenuGroup>
               <DropdownMenuLabel className="truncate font-normal">{email}</DropdownMenuLabel>
+              {platform ? <DeploymentNote platform={platform} /> : null}
               {actions}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
