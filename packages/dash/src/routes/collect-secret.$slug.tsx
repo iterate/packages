@@ -2,7 +2,8 @@
 // One card outside the Dash's shell, framed like the issuer's sign-in and consent pages.
 // A visitor without a session signs in and returns here; one whose sign-in lacks the project
 // is offered another. The requester's description is markdown the page renders without HTML or
-// images, its links opening in a new tab with their host beside them.
+// images, its links opening in a new tab with their host beside them. A link with `redirectUrl` shows its
+// host, and the page goes there once the secret is saved, as an OAuth redirect does.
 
 // registers `itx.agents` on InstalledAppRoots
 import type {} from "iterate/agents";
@@ -44,6 +45,7 @@ export const Route = createFileRoute("/collect-secret/$slug")({
     description: z.string().optional().catch(undefined),
     fields: z.array(z.unknown()).optional().catch(undefined),
     agent: z.string().optional().catch(undefined),
+    redirectUrl: z.string().optional().catch(undefined),
   }),
   // the session dials a WebSocket, which never runs on the server
   ssr: false,
@@ -67,6 +69,12 @@ export const Route = createFileRoute("/collect-secret/$slug")({
   component: CollectSecret,
 });
 
+/** An http(s) URL without credentials, as `collectFromUser` checks the pin and `redirectUrl`. */
+const HttpUrl = z.url({ protocol: /^https?$/ }).refine((value) => {
+  const url = new URL(value);
+  return !url.username && !url.password;
+});
+
 /** A collection link's query as `collectFromUser` mints it. The origins are pinned as the platform
  *  pins them: http(s), no credentials, each URL reduced to its origin. */
 const CollectionLink = z.object({
@@ -79,12 +87,7 @@ const CollectionLink = z.object({
         path.startsWith(SECRETS_PREFIX) && SECRET_NAME.test(path.slice(SECRETS_PREFIX.length)),
     ),
   urls: z
-    .array(
-      z.url({ protocol: /^https?$/ }).refine((value) => {
-        const url = new URL(value);
-        return !url.username && !url.password;
-      }),
-    )
+    .array(HttpUrl)
     .min(1)
     .transform((urls) => [...new Set(urls.map((value) => new URL(value).origin))]),
   description: z.string().optional(),
@@ -105,6 +108,8 @@ const CollectionLink = z.object({
     .max(10)
     .optional(),
   agent: z.string().startsWith("/agents/").optional(),
+  // where the page goes once the secret is saved; the form shows its host first
+  redirectUrl: HttpUrl.optional(),
 });
 
 function CollectSecret() {
@@ -130,7 +135,9 @@ function CollectSecret() {
         </header>
         {saved ? (
           <p role="status" className="text-sm">
-            Saved. You can close this tab.
+            {link?.redirectUrl
+              ? `Saved. Taking you to ${new URL(link.redirectUrl).host}…`
+              : "Saved. You can close this tab."}
           </p>
         ) : (
           <>
@@ -140,7 +147,10 @@ function CollectSecret() {
                 projectId={project.id}
                 link={link}
                 existing={secrets.some((secret) => secret.path === link.path)}
-                onSaved={() => setSaved(true)}
+                onSaved={() => {
+                  setSaved(true);
+                  if (link.redirectUrl) window.location.replace(link.redirectUrl);
+                }}
               />
             ) : (
               <ErrorMessage>
@@ -254,6 +264,12 @@ function CollectSecretForm({
           <>
             <dt className="text-muted-foreground">Asked by</dt>
             <dd className="font-mono wrap-anywhere">{link.agent}</dd>
+          </>
+        ) : null}
+        {link.redirectUrl ? (
+          <>
+            <dt className="text-muted-foreground">Then opens</dt>
+            <dd className="font-mono wrap-anywhere">{new URL(link.redirectUrl).host}</dd>
           </>
         ) : null}
       </dl>
