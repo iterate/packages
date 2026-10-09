@@ -87,6 +87,7 @@ export function AppShell({
   switcherActions,
   nav,
   paletteEntries,
+  searchRow = true,
   header,
   account,
   accountActions,
@@ -112,6 +113,9 @@ export function AppShell({
   /** rows for ⌘K beside what it reads off `nav`: what the sidebar shows in a way it can't read
    *  (a file tree in its own shadow DOM) */
   paletteEntries?: AppPaletteEntry[];
+  /** the sidebar's "Search" row above `nav`; without it, ⌘K and the phone's header button still
+   *  open the palette */
+  searchRow?: boolean;
   /** what sits beside the phone's sidebar trigger in the header row */
   header?: ReactNode;
   /** who the app is signed in as (`info.principal`); "Sign out" posts to the SDK's `/.auth/logout`,
@@ -153,7 +157,7 @@ export function AppShell({
             onNavigate={onNavigate}
             actions={switcherActions}
           />
-          <PaletteSidebarButton onOpen={openPalette} />
+          {searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
         </SidebarHeader>
         {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the projects alone */}
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>

@@ -63,6 +63,7 @@ function Frame() {
       activeProjectId={slug || null}
       projectHref={(project) => `/projects/${project.slug}`}
       nav={slug ? <ProjectNav project={{ slug }} host={null} signingIn /> : <TopLevelNav />}
+      searchRow={false}
       header={<DashBreadcrumbs project={null} page={page} />}
       locationKey={href}
     >
@@ -158,6 +159,7 @@ function Shell() {
             <TopLevelNav platformOrigin={info.platformOrigin} />
           )
         }
+        searchRow={false}
         header={<DashBreadcrumbs project={active || null} page={page} />}
         account={info.principal}
         accountActions={
