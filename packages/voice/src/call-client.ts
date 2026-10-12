@@ -8,6 +8,7 @@
 // in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
 import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
+import { errorCode } from "iterate/lib";
 import type { VoiceApi } from "./api.ts";
 
 /** How often a live call says `keepalive`: the relay reaps a call after 60 s without device input,
@@ -119,7 +120,7 @@ export type VoiceCall<Context> = {
  *  `onFact` the call's facts, both in log order. Resolves once the press has landed and the
  *  subscription is live. */
 export async function startVoiceCall<
-  Context extends Pick<IterateContextApi, "subscribe" | "append">,
+  Context extends Pick<IterateContextApi, "subscribe" | "append" | "appendOffsets">,
 >(
   project: { voice: Pick<VoiceApi, "setupVoiceAgent">; cd(path: string): Context },
   options: {
@@ -182,6 +183,20 @@ export async function startVoiceCall<
 
   const inFlight = new Set<Promise<unknown>>();
   let open = true;
+  // A FRAME'S ANSWER IS ITS OFFSET ALONE (`appendOffsets`): the frame does not travel back down the
+  // device's link. A platform without the verb refuses it as no match; the frames then go as
+  // `append`s.
+  let framesAsAppends = false;
+  const appendFrame = async (event: Parameters<Context["append"]>[0]) => {
+    if (!framesAsAppends)
+      try {
+        return await itx.appendOffsets(event);
+      } catch (error) {
+        if (errorCode(error) !== "NO_ITX_EXPRESSION_MATCH") throw error;
+        framesAsAppends = true;
+      }
+    return await itx.append(event);
+  };
   const keepalive = setInterval(() => {
     void itx
       .append({ type: "events.iterate.com/voice-agent/keepalive", ephemeral: true, payload: {} })
@@ -199,12 +214,11 @@ export async function startVoiceCall<
         return false;
       }
       stats.micFramesSent += 1;
-      const sent = itx
-        .append({
-          type: "events.iterate.com/voice-agent/mic-frame",
-          ephemeral: true,
-          payload: { activation, pcm },
-        })
+      const sent = appendFrame({
+        type: "events.iterate.com/voice-agent/mic-frame",
+        ephemeral: true,
+        payload: { activation, pcm },
+      })
         .catch(() => {
           stats.micFramesFailed += 1;
         })

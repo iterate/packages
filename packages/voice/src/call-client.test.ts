@@ -2,6 +2,7 @@
 // the subscription hands its callbacks, the microphone's appends, the keepalive and the hang-up.
 // The relay's side of the call is voice-agent.ts's (agent.test.ts, worker.test.ts).
 import { expect, test, vi } from "vitest";
+import { codedError } from "iterate/lib";
 import { startVoiceCall, VOICE_CALL_KEEPALIVE_MS, type VoiceCallFact } from "./call-client.ts";
 
 test("a call opens /agents/voice/<client>/<UTC stamp>-<activation>, presses there and subscribes to the answer's frames and the call's facts", async () => {
@@ -107,6 +108,24 @@ test("microphone frames are ephemeral appends, five in flight at most: the sixth
   await call.hangUp("done");
 });
 
+test("a frame's answer is its offset alone (appendOffsets); a platform without the verb refuses it as no match, and the frames go as appends from then on", async () => {
+  const root = project();
+  const call = await startVoiceCall(root, callbacks());
+  call.sendMicFrame("frame-0");
+  await vi.waitFor(() => expect(root.appendOffsets).toHaveBeenCalledTimes(1));
+  root.appendOffsets.mockImplementation(async () => {
+    throw codedError("NO_ITX_EXPRESSION_MATCH", 'no rewrite rule matches "itx.appendOffsets"');
+  });
+  call.sendMicFrame("frame-1");
+  await vi.waitFor(() => expect(root.appendedTypes()).toHaveLength(2));
+  call.sendMicFrame("frame-2");
+  await vi.waitFor(() => expect(root.appendedTypes()).toHaveLength(3));
+  expect(call.stats).toMatchObject({ micFramesSent: 3, micFramesFailed: 0 });
+  // the first refusal settles it: frame-2 goes as an append without asking the verb again
+  expect(root.appendOffsets).toHaveBeenCalledTimes(2);
+  await call.hangUp("done");
+});
+
 test("a live call says keepalive every VOICE_CALL_KEEPALIVE_MS; hanging up waits for the frames in flight, appends call-ended and ends the subscription once it comes back", async () => {
   vi.useFakeTimers();
   const root = project();
@@ -198,6 +217,10 @@ function project() {
   });
   const context = {
     append,
+    // the frames' verb, recorded with the rest: the offsets alone come back
+    appendOffsets: vi.fn(async (...events: { type: string }[]) =>
+      (await append(...events)).map((_, index) => index),
+    ),
     subscribe: async (input: {
       name?: string;
       consumes?: string[];
@@ -224,6 +247,7 @@ function project() {
     presses,
     subscriptions,
     append,
+    appendOffsets: context.appendOffsets,
     appendedTypes: () => append.mock.calls.map(([event]) => event?.type),
     deliver: (events: unknown[]) => subscriptions[0]?.target(events),
   };

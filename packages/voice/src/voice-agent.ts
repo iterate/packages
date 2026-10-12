@@ -598,7 +598,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
    * call, so the runtime facts (dial ready, answer speaking) reach the page within a frame. */
   projectLiveState(state: VoiceState): VoiceLiveView {
     const dial = this.#dial;
-    return {
+    const view: VoiceLiveView = {
       phase: state.call
         ? dial?.activation === state.call.activation && dial.ready
           ? "live"
@@ -611,7 +611,23 @@ export class VoiceAgentProcessor extends StreamProcessor<
       transcript: state.transcript,
       lastEnd: state.lastEnd,
     };
+    /* The view of the last batch when nothing in it moved: the engine's `LiveState.set` then skips
+     * its JSON diff of the transcript, which it otherwise ran on every microphone batch. The
+     * reduce replaces the transcript and `lastEnd`, never mutates them, so the same object is the
+     * same value. */
+    const last = this.#lastLiveView;
+    if (
+      last &&
+      last.phase === view.phase &&
+      last.activation === view.activation &&
+      last.answering === view.answering &&
+      last.transcript === view.transcript &&
+      last.lastEnd === view.lastEnd
+    )
+      return last;
+    return (this.#lastLiveView = view);
   }
+  #lastLiveView: VoiceLiveView | undefined;
 
   processEvent(args: VoiceArgs): undefined {
     const { state, event, delivery } = args;
