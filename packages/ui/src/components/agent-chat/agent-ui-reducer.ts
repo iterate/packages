@@ -25,6 +25,9 @@ export type AgentUiLlmStep = {
   thinkingText: StreamText;
   /** Streamed response text — for code-mode agents this is source code. */
   responseText: StreamText;
+  /** Which answer to the request the streamed text is from (absent: 0): the next key's answer
+   *  after one failed part way replaces it. */
+  attempt?: number;
   /** Offset of the committed assistant context-added event carrying this
    * step's final text; links interpretation events back to the step. */
   assistantEventOffset?: number;
@@ -478,19 +481,27 @@ function reduceAgentUiEvent(
       // One coalesced window: the text and thinking it adds, as the processor extracted them.
       const frame = LlmResponseFrame.safeParse(event.payload);
       if (!frame.success) return state;
-      const { llmRequestOffset, responseDelta, thinkingDelta } = frame.data;
+      const { llmRequestOffset, responseDelta, thinkingDelta, attempt = 0 } = frame.data;
       if (!responseDelta && !thinkingDelta) return state;
-      return updateLlmStep(state, llmRequestOffset, (step) => ({
-        ...step,
-        responseText:
-          step.status === "running" && responseDelta !== ""
-            ? appendText(step.responseText, responseDelta)
-            : step.responseText,
-        thinkingText:
-          step.status === "running" && thinkingDelta !== ""
-            ? appendText(step.thinkingText, thinkingDelta)
-            : step.thinkingText,
-      }));
+      return updateLlmStep(state, llmRequestOffset, (step) => {
+        const showing = step.attempt ?? 0;
+        // a settled step streams no more, and a late window of an earlier answer shows nothing
+        if (step.status !== "running" || attempt < showing) return step;
+        // the first window of a later answer replaces what the failed one showed
+        const shown = attempt > showing ? { responseText: "", thinkingText: "" } : step;
+        return {
+          ...step,
+          attempt,
+          responseText:
+            responseDelta === ""
+              ? shown.responseText
+              : appendText(shown.responseText, responseDelta),
+          thinkingText:
+            thinkingDelta === ""
+              ? shown.thinkingText
+              : appendText(shown.thinkingText, thinkingDelta),
+        };
+      });
     }
 
     case "events.iterate.com/agent/llm-request-settled": {

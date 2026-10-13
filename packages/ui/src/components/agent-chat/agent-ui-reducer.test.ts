@@ -4,7 +4,7 @@
 // chat items and live active-work tail the agent feed renders.
 import { expect, test } from "vitest";
 import { RUN_DEADLINE_MS, type RunSettlement } from "iterate/stream/run";
-import { appendText } from "./chunked-text.ts";
+import { appendText, sliceText } from "./chunked-text.ts";
 import type { StreamEvent } from "./stream-event.ts";
 import {
   deriveAgentUiLiveStatus,
@@ -193,6 +193,37 @@ test("a cancelled settle's partialText extends streamed windows with the unflush
     outcome: "cancelled",
     responseText: "The lighthouse keeper",
   });
+});
+
+test("the next key's answer replaces what a failed answer streamed, and a late window of the failed one shows nothing", () => {
+  const frame = (attempt: number | undefined, responseDelta: string, thinkingDelta = "") => ({
+    type: "events.iterate.com/agent/llm-response-frame",
+    payload: { llmRequestOffset: 10, sequence: 0, responseDelta, thinkingDelta, attempt },
+  });
+  const state = reduceAll([
+    {
+      type: "events.iterate.com/agent/context-added",
+      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "go" },
+    },
+    {
+      type: "events.iterate.com/agent/llm-request-requested",
+      offset: 10,
+      payload: { model: "gpt-test" },
+    },
+    frame(undefined, "", "Weighing it"),
+    frame(undefined, "Half an ans"),
+    frame(1, "Counting"),
+    frame(0, "wer"), // the failed answer's last window, delivered late
+    frame(1, " now.", "Counted"),
+  ]);
+
+  const step = state.live?.steps[0];
+  if (step?.kind !== "llm") throw new Error("expected the llm step");
+  expect({
+    attempt: step.attempt,
+    response: sliceText(step.responseText),
+    thinking: sliceText(step.thinkingText),
+  }).toEqual({ attempt: 1, response: "Counting now.", thinking: "Counted" });
 });
 
 test("settles the activity into items when all work completes", () => {
