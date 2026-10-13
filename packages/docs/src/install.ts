@@ -89,8 +89,9 @@ export async function installDocs(
   // one deadline for the whole wait: the platform runs a publication it gave up on for now again
   // (core/os project/processor.ts PUBLICATION_RERUN_WAITS_MS), so the outcome after a give-up is
   // waited for too, and the commit's newest outcome is the answer — a later incarnation's included
-  const deadline = Date.now() + 120_000;
-  let outcome = await outcomeAfter(0, deadline - Date.now());
+  const timeoutMs = 120_000;
+  const deadline = Date.now() + timeoutMs;
+  let outcome = await outcomeAfter(0, timeoutMs);
   while (outcome.payload?.unavailable && deadline > Date.now()) {
     const later = await outcomeAfter(outcome.offset, deadline - Date.now()).catch(() => null);
     if (!later) break;
