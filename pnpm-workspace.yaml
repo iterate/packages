@@ -52,6 +52,9 @@ cleanupUnusedCatalogs: true
 minimumReleaseAge: 1440
 
 minimumReleaseAgeExclude:
+  - alchemy
+  - '@alchemy.run/*'
+  - '@distilled.cloud/*'
   - miniflare
   - wrangler
   - workerd
