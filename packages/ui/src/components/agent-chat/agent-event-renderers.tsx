@@ -154,6 +154,14 @@ export const agentEventRenderers: EventRenderers = {
   },
   "events.iterate.com/agent/token-usage-reported": (e) => {
     const p = record(e.payload);
+    // a compaction read the history it replaced: what it cost, not how full the context is now
+    if (p.kind === "compaction")
+      return (
+        <span className="text-muted-foreground">
+          The compaction read {num(p.inputTokens)} tokens and wrote {num(p.outputTokens)} (
+          {str(p.model)})
+        </span>
+      );
     return (
       <span className="text-muted-foreground">
         {num(p.inputTokens)} of {num(p.maxContextTokens)} context tokens used ({str(p.model)})
