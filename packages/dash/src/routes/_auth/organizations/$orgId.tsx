@@ -723,7 +723,7 @@ function Invitations({
             </Table>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No open invite links.</p>
+          <p className="font-readme text-sm text-muted-foreground">No open invite links.</p>
         )}
       </CardContent>
     </Card>

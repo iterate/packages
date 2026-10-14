@@ -21,7 +21,7 @@ export function DefaultNotFoundComponent({ action }: NotFoundFallbackProps = {})
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4 text-center">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">Page not found</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
+        <p className="font-readme max-w-md text-sm text-muted-foreground">
           The page you&apos;re looking for doesn&apos;t exist.
         </p>
       </div>
@@ -44,7 +44,7 @@ export function DefaultErrorComponent({ error, reset, secondaryAction }: ErrorFa
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4 text-center">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">Something went wrong</h1>
-        <p data-type="error" className="max-w-md text-sm text-muted-foreground">
+        <p data-type="error" className="font-readme max-w-md text-sm text-muted-foreground">
           {message}
         </p>
       </div>

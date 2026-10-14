@@ -116,7 +116,7 @@ function ProjectSecrets() {
             New secret
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           A secret is its path. In a worker or a script, put{" "}
           <code>getSecret("/secrets/&lt;name&gt;")</code> in an outbound request's URL or headers:
           the platform substitutes the value as the request leaves, and only towards the origins
@@ -129,12 +129,12 @@ function ProjectSecrets() {
         </p>
       )}
       {status && (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="font-readme text-sm text-muted-foreground">
           {status}
         </p>
       )}
       {secrets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No secrets yet.</p>
+        <p className="font-readme text-sm text-muted-foreground">No secrets yet.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <Table data-testid="secrets">
@@ -398,13 +398,13 @@ function SecretForm({
           </FieldDescription>
         </Field>
         {existing?.refresh && (
-          <p role="note" className="text-sm text-muted-foreground">
+          <p role="note" className="font-readme text-sm text-muted-foreground">
             This secret refreshes itself ({existing.refresh}). A value set from here has no refresh
             strategy — to keep one, set it from code with <code>refresh</code>.
           </p>
         )}
         {existing?.public && (
-          <p role="note" className="text-sm text-muted-foreground">
+          <p role="note" className="font-readme text-sm text-muted-foreground">
             This secret has public fields ({Object.keys(existing.public).join(", ")}), which the
             project reads from its list of secrets. The new value is a JSON object that carries each
             of them, and they stay public.

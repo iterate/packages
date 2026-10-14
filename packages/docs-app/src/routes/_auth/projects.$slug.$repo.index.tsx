@@ -64,7 +64,7 @@ function DocListPage() {
         </p>
       ) : null}
       {docs.kind === "loading" ? (
-        <p className="text-sm text-muted-foreground">Loading docs…</p>
+        <p className="font-readme text-sm text-muted-foreground">Loading docs…</p>
       ) : docs.kind === "failed" ? (
         <p role="alert" className="text-sm text-destructive">
           Couldn't list the docs: {docs.message}
@@ -84,7 +84,7 @@ function DocListPage() {
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">No docs yet.</p>
+        <p className="font-readme text-sm text-muted-foreground">No docs yet.</p>
       )}
     </main>
   );

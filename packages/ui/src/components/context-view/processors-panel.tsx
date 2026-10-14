@@ -149,7 +149,7 @@ export function ProcessorsPanel({
                 ))}
               </ul>
             )}
-            <p className="px-1 text-xs text-muted-foreground">
+            <p className="font-readme px-1 text-xs text-muted-foreground">
               {presence.rpcStubs.length === 0
                 ? "No rpc stub is lent to this context right now."
                 : `${presence.rpcStubs.length} rpc ${presence.rpcStubs.length === 1 ? "stub" : "stubs"} lent right now${
@@ -187,7 +187,7 @@ export function ProcessorsPanel({
             )}
             {liveCallbacks.length > 0 ? (
               <div className="flex flex-col gap-0.5">
-                <p className="text-xs text-muted-foreground">
+                <p className="font-readme text-xs text-muted-foreground">
                   Live callbacks: a session&apos;s subscription, delivered to the stub it lent
                 </p>
                 {liveCallbacks.map((row) => (
@@ -216,7 +216,7 @@ export function ProcessorsPanel({
               ) : null
             }
           >
-            <p className="text-xs text-muted-foreground">
+            <p className="font-readme text-xs text-muted-foreground">
               The core reduce: rewrite rules, subscriptions, schedules, fetch routes, open runs, the
               pause.
             </p>
@@ -474,7 +474,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Quiet({ children }: { children: ReactNode }) {
-  return <p className="text-xs text-muted-foreground">{children}</p>;
+  return <p className="font-readme text-xs text-muted-foreground">{children}</p>;
 }
 
 type Kind = "processor" | "callback" | "call";

@@ -44,7 +44,7 @@ function ProjectMcp() {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 p-4 md:p-8">
         <h1 className="text-2xl font-semibold tracking-tight">MCP</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           This deployment reports no usable MCP server address.
         </p>
       </div>
@@ -53,7 +53,7 @@ function ProjectMcp() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">MCP</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           One tool, <code>run</code>: a script evaluated at this project's root (<code>/</code>),
           under your grant. Every script you run is recorded on the project root's log.
         </p>

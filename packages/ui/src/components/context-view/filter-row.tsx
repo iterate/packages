@@ -99,7 +99,7 @@ export function FilterRow({
         ) : null}
       </div>
       {partial ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="font-readme text-xs text-muted-foreground">
           The filter searches the {loaded} events loaded; scroll up to load older ones.
         </p>
       ) : null}

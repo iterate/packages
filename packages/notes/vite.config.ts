@@ -19,7 +19,10 @@ export default defineConfig({
     // A chunk's preloaded dependencies resolve beside it, not at the origin's root: a proxied Notes
     // serves its chunks under a base path (packages/ui/src/apps/base-path.ts). Only the browser's scripts: a `?url`
     // stays a root path that the page prefixes itself, the same in the server render and the browser.
+    // A stylesheet's own `url()`s (the font files) resolve beside it too, under the same base path.
     renderBuiltUrl: (filename, { hostType, ssr }) =>
-      !ssr && hostType === "js" && filename.endsWith(".js") ? { relative: true } : undefined,
+      hostType === "css" || (!ssr && hostType === "js" && filename.endsWith(".js"))
+        ? { relative: true }
+        : undefined,
   },
 });

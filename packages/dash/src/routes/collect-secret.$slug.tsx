@@ -159,7 +159,7 @@ function CollectSecret() {
                   : "This link is incomplete. Ask your agent for a new one."}
               </ErrorMessage>
             )}
-            <p className="text-sm text-muted-foreground">
+            <p className="font-readme text-sm text-muted-foreground">
               Signed in as{" "}
               <strong className="font-medium text-foreground wrap-anywhere">
                 {info.principal.email || info.principal.actor}
@@ -302,7 +302,7 @@ function CollectSecretForm({
               />
             )}
             {input.public ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="font-readme text-xs text-muted-foreground">
                 Not a secret: the project reads it from its list of secrets.
               </p>
             ) : null}

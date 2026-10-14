@@ -202,7 +202,7 @@ function ProjectDomains() {
             Add domain
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Serve this project on a domain of your own: <code>iterate.example.com</code> is its site,
           and <code>&lt;app&gt;.iterate.example.com</code> each of its apps.
         </p>
@@ -499,7 +499,7 @@ function NextStep({
           zone={zone}
           guide={guide}
         />
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           {recheckWords(entry)} {checkNow}
         </p>
       </div>
@@ -537,7 +537,7 @@ function NextStep({
         <p className="text-[15px]">
           {guide.name} can't point a bare domain like <code>{hostname}</code> at another name.
         </p>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Use a subdomain instead, or move {hostname}'s DNS to a provider with CNAME flattening
           (Cloudflare's is free).
         </p>
@@ -557,7 +557,7 @@ function NextStep({
         <a href={cloudflare.connect.url} className={buttonVariants({ className: "self-start" })}>
           Connect with {cloudflare.connect.provider}
         </a>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           {recheckWords(entry)} {checkNow}
         </p>
         <details>
@@ -578,7 +578,7 @@ function NextStep({
           : "Add these records at your DNS provider."}
       </p>
       <ManualRecords records={cloudflare.records} zone={zone} guide={guide} />
-      <p className="text-sm text-muted-foreground">
+      <p className="font-readme text-sm text-muted-foreground">
         {recheckWords(entry)} {checkNow}
       </p>
     </div>
@@ -632,7 +632,7 @@ function Waiting({ lead, detail }: { lead: React.ReactNode; detail: React.ReactN
       <LoaderCircleIcon aria-hidden className="mt-1 size-4 shrink-0 motion-safe:animate-spin" />
       <div className="flex flex-col gap-1">
         <p className="text-[15px]">{lead}</p>
-        <p className="text-sm text-muted-foreground">{detail}</p>
+        <p className="font-readme text-sm text-muted-foreground">{detail}</p>
       </div>
     </div>
   );
@@ -711,13 +711,13 @@ function ManualRecords({
         </table>
       </div>
       {records.some((record) => record.type === "TXT") && (
-        <p className="text-xs text-muted-foreground">
+        <p className="font-readme text-xs text-muted-foreground">
           Add each record with the type it shows: the TXT record's value is its text, exactly as
           here.
         </p>
       )}
       {guide?.notes?.map((note) => (
-        <p key={note} className="text-xs text-muted-foreground">
+        <p key={note} className="font-readme text-xs text-muted-foreground">
           {note}
         </p>
       ))}

@@ -24,7 +24,7 @@ export function LiveStateValue({
     );
   if (state.value === undefined)
     return (
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <p className="font-readme flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner /> Connecting…
       </p>
     );

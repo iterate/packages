@@ -14,6 +14,7 @@
     "src/**/*.tsx",
     "examples/*.ts",
     "browser-entries.ts",
+    "scripts/*.ts",
     "tsdown.config.ts"
   ],
   "exclude": ["src/apps/server.ts", "src/apps/server.test.ts"]

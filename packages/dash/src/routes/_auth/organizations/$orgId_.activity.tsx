@@ -35,7 +35,7 @@ function OrganizationActivity() {
           </Link>{" "}
           <span className="text-muted-foreground">· Activity</span>
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Everything that happened to the organization: its name, its members, its invitation links
           and its projects.
         </p>

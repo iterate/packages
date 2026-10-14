@@ -134,7 +134,7 @@ function SetUpVoice({ project, needsOpenaiKey }: { project: string; needsOpenaiK
     <form action={setUp} className="mx-auto flex w-full max-w-xl flex-col gap-6 p-4 md:p-8">
       <div className="flex flex-col gap-2">
         <p className="text-2xl font-semibold">Set up voice</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           {needsOpenaiKey
             ? "Voice talks to OpenAI's live model with your key. Add it, then call your project from here."
             : "Your project's config installs voice. Once it has, you can call it from here."}
@@ -256,7 +256,7 @@ function Phone({ project }: { project: string }) {
       ) : null}
       {call ? (
         <section aria-label="Live state" className="flex flex-col gap-4">
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="font-readme flex items-center gap-2 text-sm text-muted-foreground">
             <CircleIcon
               className={cn(
                 "size-2 shrink-0",

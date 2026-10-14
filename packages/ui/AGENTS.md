@@ -30,6 +30,47 @@ aliases). The CLI only knows `button` is one of shadcn's components from the `ui
 which is why they live in `src/components/ui/`. Files of one item import each other relatively
 (`./filters.tsx`): they travel together.
 
+## The stylesheets
+
+- `src/styles/globals.css` (`@iterate-com/ui/globals.css`): shadcn's neutral look, which the
+  published `dist/styles.css` and the registry's component items are written against.
+- `src/styles/iterate.css` (`@iterate-com/ui/iterate.css`): iterate's look over it. Ubuntu
+  (`@fontsource/ubuntu`), the issuer's palette (`iterate/tokens.css`), square corners, hard
+  shadows on what floats, and the `font-readme` role: monospace for a description, help text or an
+  empty state, where `font-mono` is for ids, paths and code. `font-readme` generates nothing
+  without the look, so a component here that carries it is plain on a neutral page.
+
+The look is opt-in, three ways, all cut from `src/styles/iterate.css` (`scripts/iterate-look.ts`):
+
+```css
+/* an app's Tailwind stylesheet (the apps in this repo) */
+@import "@iterate-com/ui/globals.css";
+@import "@iterate-com/ui/iterate.css";
+```
+
+```html
+<!-- a no-build page: the overlay after the neutral stylesheet; the fonts load from beside it -->
+<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
+<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/iterate.css" />
+```
+
+```sh
+# an app in another repo, from the registry (below): writes the values into its stylesheet
+npx shadcn@latest add iterate/packages/theme
+```
+
+- **The overlay** (`dist/iterate.css`, published as `iterate.css`) is what a build of the look has
+  that `dist/styles.css` lacks: the custom properties, and the utilities whose values Tailwind
+  writes into the rule. `scripts/build-iterate-css.ts` cuts it at `pnpm build` and copies the
+  woff2 files it names into `dist/fonts/`.
+- **The `theme` item** is the file's values: `node scripts/ci/shadcn-registry.ts update` writes
+  them into `registry.json`, and Lint and Typecheck fails when they are stale. The round trip
+  adds it for real and checks the app's stylesheet has each value.
+- **One look**: `test/playwright/ui/iterate-look.spec.ts` styles the same elements all three ways
+  and expects the same computed styles, and the neutral stylesheet alone without them.
+- **`dist/styles.css` scans the package for class names**, `registry.json` and `scripts/` aside:
+  they name the look's utilities without using them.
+
 ## The registry
 
 It is a [GitHub registry](https://ui.shadcn.com/docs/registry/github). Copybara copies `packages/`

@@ -660,6 +660,85 @@
           "type": "registry:component"
         }
       ]
+    },
+    {
+      "name": "theme",
+      "description": "iterate's look over shadcn's: Ubuntu for the chrome and controls, monospace for ids, code and readme-like notes (font-readme), black on white, square corners, hard shadows on what floats.",
+      "type": "registry:theme",
+      "dependencies": [
+        "@fontsource/ubuntu"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-link": "var(--link)",
+          "font-sans": "\"Ubuntu\", ui-sans-serif, system-ui, sans-serif",
+          "font-readme": "var(--font-mono)",
+          "radius": "0",
+          "radius-xs": "0",
+          "radius-sm": "0",
+          "radius-md": "0",
+          "radius-lg": "0",
+          "radius-xl": "0",
+          "radius-2xl": "0",
+          "radius-3xl": "0",
+          "radius-4xl": "0",
+          "radius-full": "0",
+          "shadow-2xs": "0 0 #0000",
+          "shadow-xs": "0 0 #0000",
+          "shadow-sm": "0 0 #0000",
+          "shadow": "0 0 #0000",
+          "shadow-md": "3px 3px 0 0 var(--foreground)",
+          "shadow-lg": "4px 4px 0 0 var(--foreground)",
+          "shadow-xl": "6px 6px 0 0 var(--foreground)",
+          "shadow-2xl": "8px 8px 0 0 var(--foreground)"
+        },
+        "light": {
+          "radius": "0",
+          "background": "#ffffff",
+          "foreground": "#111111",
+          "card": "#ffffff",
+          "card-foreground": "#111111",
+          "popover": "#ffffff",
+          "popover-foreground": "#111111",
+          "primary": "#111111",
+          "primary-foreground": "#ffffff",
+          "secondary": "#f4f4f4",
+          "secondary-foreground": "#111111",
+          "muted": "#f4f4f4",
+          "muted-foreground": "#555555",
+          "accent": "#f4f4f4",
+          "accent-foreground": "#111111",
+          "destructive": "#a40000",
+          "border": "#dddddd",
+          "input": "#dddddd",
+          "ring": "#111111",
+          "link": "#0645ad",
+          "sidebar": "#ffffff",
+          "sidebar-foreground": "#111111",
+          "sidebar-primary": "#111111",
+          "sidebar-primary-foreground": "#ffffff",
+          "sidebar-accent": "#f4f4f4",
+          "sidebar-accent-foreground": "#111111",
+          "sidebar-border": "#dddddd",
+          "sidebar-ring": "#111111"
+        }
+      },
+      "css": {
+        "@import \"@fontsource/ubuntu/400.css\"": {},
+        "@import \"@fontsource/ubuntu/500.css\"": {},
+        "@import \"@fontsource/ubuntu/700.css\"": {},
+        "@layer base": {
+          ":where([data-slot=\"card-description\"], [data-slot=\"dialog-description\"], [data-slot=\"alert-dialog-description\"], [data-slot=\"sheet-description\"], [data-slot=\"field-description\"], [data-slot=\"empty-title\"], [data-slot=\"empty-description\"], [data-slot=\"command-empty\"], [data-slot=\"table-caption\"])": {
+            "@apply font-readme": {}
+          },
+          ":where([data-slot=\"dialog-content\"], [data-slot=\"alert-dialog-content\"])": {
+            "@apply shadow-lg": {}
+          },
+          ":where([data-slot=\"tooltip-content\"])": {
+            "@apply shadow-md": {}
+          }
+        }
+      }
     }
   ]
 }

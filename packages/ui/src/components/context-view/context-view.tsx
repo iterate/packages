@@ -268,7 +268,7 @@ export function ContextView({
           followTail={followTail}
           empty={
             error ? null : caughtUp ? (
-              <p className="px-3 sm:px-4 py-6 text-sm text-muted-foreground">
+              <p className="font-readme px-3 sm:px-4 py-6 text-sm text-muted-foreground">
                 {filtered ? "No event matches the filter." : emptyText}
               </p>
             ) : (

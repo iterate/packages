@@ -798,6 +798,9 @@ importers:
       '@codemirror/view':
         specifier: 'catalog:'
         version: 6.43.13
+      '@fontsource/ubuntu':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fsegurai/codemirror-theme-bundle':
         specifier: 'catalog:'
         version: 6.4.4(@codemirror/language@6.12.4)(@codemirror/state@6.7.6)(@codemirror/view@6.43.13)(@lezer/highlight@1.2.4)
@@ -855,6 +858,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      postcss:
+        specifier: 8.5.28
+        version: 8.5.28
       posthog-js:
         specifier: 'catalog:'
         version: 1.434.12(@types/react@19.3.0)(preact-render-to-string@6.6.5)(react@19.3.0)
@@ -1760,6 +1766,9 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource/ubuntu@5.3.0':
+    resolution: {integrity: sha512-LsjJXgE430QLs8LKfn1RIFbbdGAiZBU1gao8ASa4Z2kGNGh7lMb7Rzx09v3bLLuuK+3XA/JSLgPWTAbLD6r1fg==}
 
   '@fsegurai/codemirror-theme-abcdef@6.2.7':
     resolution: {integrity: sha512-jYvOoQsjQ5PcoY5rTZaGXJ0ouLXy1F1jHhqPgupeJ45wABdTYIbTrUn+yVZE/U9ttHeGk+jGAnSYTqSAwz2J+A==}
@@ -7126,6 +7135,8 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource/ubuntu@5.3.0': {}
 
   '@fsegurai/codemirror-theme-abcdef@6.2.7(@codemirror/language@6.12.4)(@codemirror/state@6.7.6)(@codemirror/view@6.43.13)(@lezer/highlight@1.2.4)':
     dependencies:

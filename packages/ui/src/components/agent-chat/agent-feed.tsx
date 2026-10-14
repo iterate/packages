@@ -477,7 +477,7 @@ function ScriptResult({ code }: { code: AgentUiCodeStep }) {
       ) : null}
       {code.result === undefined ? (
         code.errorMessage ? null : (
-          <p className="px-1.5 text-xs text-muted-foreground">
+          <p className="font-readme px-1.5 text-xs text-muted-foreground">
             Returned nothing — the turn ended here.
           </p>
         )

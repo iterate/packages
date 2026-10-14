@@ -1,0 +1,97 @@
+/* iterate's look for an app, over globals.css's neutral one. The first-party apps import it after
+   globals.css:
+
+     @import "@iterate-com/ui/globals.css";
+     @import "@iterate-com/ui/iterate.css";
+
+   The published dist/styles.css (no-build pages) and the registry's items do not, so a page outside
+   this repo keeps shadcn's neutral look unless it asks for this one. The issuer's pages (core/os)
+   have their own, all monospace: iterate/theme.css. tasks/ubuntu-font.md has the decisions. */
+
+/* Ubuntu (https://design.ubuntu.com/font), self-hosted: Vite copies the files beside the built
+   stylesheet. Each file's faces carry a unicode-range, so a browser fetches only the scripts a page
+   uses. No 300 and no italic; `font-semibold` (600) renders as 700. */
+@import "@fontsource/ubuntu/400.css";
+@import "@fontsource/ubuntu/500.css";
+@import "@fontsource/ubuntu/700.css";
+
+/* The issuer's palette: black on white, one grey fill, one light border, blue links. Its :root
+   comes after globals.css's, so it wins. */
+@import "iterate/tokens.css";
+
+:root {
+  /* The sidebar is the page: white, with the grey fill under the item you point at or are on. */
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+@theme inline {
+  --color-link: var(--link);
+
+  /* Three type roles:
+     - font-sans, Ubuntu: the page's base. The chrome, tables, headings and every control.
+     - font-mono: ids, paths, code and logs.
+     - font-readme: what reads like a readme. Descriptions, help text and empty states. Monospace,
+       as the issuer's pages are. Without this file the class generates nothing, so a component
+       that carries it is plain on a neutral page. */
+  --font-sans: "Ubuntu", ui-sans-serif, system-ui, sans-serif;
+  --font-readme: var(--font-mono);
+
+  /* Square: every `rounded-*`, `rounded` and `rounded-full` included (avatars, dots, pills). */
+  --radius: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+  --radius-full: 0;
+
+  /* Hard, offset shadows on what floats over the page: menus, selects and popovers (`shadow-md`),
+     sheets (`shadow-lg`), and dialogs and tooltips (the rule below). The small ones, on cards,
+     buttons, fields and the composer, are flat. `0 0 #0000` rather than `none`: Tailwind lists
+     the shadow after the rings in one box-shadow, where `none` would drop the focus ring. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow: 0 0 #0000;
+  --shadow-md: 3px 3px 0 0 var(--foreground);
+  --shadow-lg: 4px 4px 0 0 var(--foreground);
+  --shadow-xl: 6px 6px 0 0 var(--foreground);
+  --shadow-2xl: 8px 8px 0 0 var(--foreground);
+}
+
+@layer base {
+  /* The vendored components' descriptions and empty states read as the readme, keyed on their
+     data-slot so the files stay upstream's. :where() keeps the rule at no specificity: a class at
+     the call site still wins. */
+  :where(
+    [data-slot="card-description"],
+    [data-slot="dialog-description"],
+    [data-slot="alert-dialog-description"],
+    [data-slot="sheet-description"],
+    [data-slot="field-description"],
+    [data-slot="empty-title"],
+    [data-slot="empty-description"],
+    [data-slot="command-empty"],
+    [data-slot="table-caption"]
+  ) {
+    @apply font-readme;
+  }
+
+  /* The floating components whose vendored classes name no shadow. */
+  :where([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+    @apply shadow-lg;
+  }
+  :where([data-slot="tooltip-content"]) {
+    @apply shadow-md;
+  }
+}

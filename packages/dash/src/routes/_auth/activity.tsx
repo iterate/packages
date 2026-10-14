@@ -36,7 +36,7 @@ function ActivityPage() {
     <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 p-4 md:p-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Your account's record: every sign-in, token and consent, as the platform wrote it — and
           what the account fold made of it.
         </p>

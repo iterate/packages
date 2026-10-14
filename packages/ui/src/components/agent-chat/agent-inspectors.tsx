@@ -307,13 +307,13 @@ function ResponseView({
           {outcome.errorMessage}
         </pre>
       ) : outcome.status === "cancelled" && !streaming ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Cancelled{outcome.reason ? ` — ${outcome.reason}` : ""}
           {hasRaw ? " (partial output above)" : ""}
         </p>
       ) : null}
       {streaming && !hasRaw && !thinking ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <p className="font-readme flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3" /> Waiting for the first tokens…
         </p>
       ) : null}
@@ -431,7 +431,7 @@ function ScriptTraceContent({
           {settlement ? (
             <SerializedObjectCodeBlock data={settlement} />
           ) : (
-            <p className="text-sm text-muted-foreground">Not settled yet.</p>
+            <p className="font-readme text-sm text-muted-foreground">Not settled yet.</p>
           )}
         </TabsContent>
         <TabsContent value="agent" className="min-h-0 flex-1 overflow-y-auto border-t p-4">
@@ -444,7 +444,7 @@ function ScriptTraceContent({
               {trace.rendered}
             </MessageResponse>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="font-readme text-sm text-muted-foreground">
               Nothing was appended to the agent's context for this run — a script that returns
               nothing ends the turn.
             </p>

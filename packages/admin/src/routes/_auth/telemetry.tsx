@@ -154,7 +154,7 @@ function TelemetryPage() {
             <section key={title} className="flex flex-col gap-2">
               <h2 className="text-sm font-medium">{title}</h2>
               <Panel title={title} rows={rows} hours={hours} at={read.at} />
-              <p className="text-xs text-muted-foreground">
+              <p className="font-readme text-xs text-muted-foreground">
                 read {format(statistics.rows_read)} rows, {format(statistics.bytes_read / 1e6)} MB,
                 in {format(statistics.elapsed_ms)} ms
               </p>
@@ -162,7 +162,7 @@ function TelemetryPage() {
           );
         })
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           This deployment reads no custom metrics: its Worker has no Analytics SQL binding.
         </p>
       )}
@@ -194,7 +194,8 @@ function Panel({
         initialWidth={960}
       />
     );
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No data points.</p>;
+  if (rows.length === 0)
+    return <p className="font-readme text-sm text-muted-foreground">No data points.</p>;
   const columns = Object.keys(rows[0]!);
   return (
     <Table>

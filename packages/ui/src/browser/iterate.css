@@ -1,0 +1,5 @@
+/* What dist/iterate.css is cut from: the published stylesheet with iterate's look over it. The build
+   (scripts/build-iterate-css.ts) compiles this and styles.css alike and keeps only the rules that
+   differ, so a page that links dist/iterate.css after dist/styles.css gets the apps' look. */
+@import "./styles.css";
+@import "../styles/iterate.css";

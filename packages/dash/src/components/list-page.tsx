@@ -22,7 +22,7 @@ export function ListPage({
         {action}
       </div>
       {empty ? (
-        <div className="text-sm text-muted-foreground">{empty}</div>
+        <div className="font-readme text-sm text-muted-foreground">{empty}</div>
       ) : (
         <div className="overflow-x-auto rounded-lg border">{children}</div>
       )}

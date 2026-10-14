@@ -1,4 +1,5 @@
 @import "@iterate-com/ui/globals.css";
+@import "@iterate-com/ui/iterate.css";
 
 @source "../src/**/*.{ts,tsx}";
 /* Streamdown's built-in markdown components (headings, lists, tables…) carry Tailwind classes of

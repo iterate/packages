@@ -5,7 +5,7 @@ import { stepUpUrl } from "../lib/scopes.ts";
 // set is what `info.scopes` says.
 export function AllowOrganizations({ next }: { next: string }) {
   return (
-    <p className="text-sm text-muted-foreground">
+    <p className="font-readme text-sm text-muted-foreground">
       This session may not manage organizations.{" "}
       <a href={stepUpUrl(next)} className="underline underline-offset-4 hover:text-foreground">
         Allow the dash to manage organizations

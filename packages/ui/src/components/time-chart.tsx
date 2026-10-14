@@ -93,7 +93,8 @@ export function TimeChart({
       svgAnimation: { duration: 400, easing: "ease-out" },
     });
   }, [rows, from, to, bucket]);
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No data yet.</p>;
+  if (rows.length === 0)
+    return <p className="font-readme text-sm text-muted-foreground">No data yet.</p>;
   return (
     // categorical slots 1 to 5 of the validated default data-viz palette, in its order: every
     // adjacent pair passes the colorblind checks on white, but slots 3 to 5 are under 3:1 contrast,

@@ -300,7 +300,7 @@ function ProjectIntegrations() {
         <ErrorText>Couldn't load this project's integrations: {registryView.error}</ErrorText>
       ) : null}
       {projectView.settled && registryView.settled ? null : (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="font-readme text-sm text-muted-foreground">
           Loading…
         </p>
       )}
@@ -733,7 +733,7 @@ function IntegrationsGrid({
  *  iterate's apps. */
 function NoIntegrations() {
   return (
-    <p className="text-sm text-muted-foreground">
+    <p className="font-readme text-sm text-muted-foreground">
       No integrations are registered yet. A package of the project's worker adds its card here when
       the worker is published.{" "}
       <a
@@ -805,7 +805,10 @@ function IntegrationCardView({
             ) : null}
           </div>
           {card?.description && (
-            <p className="line-clamp-2 text-xs text-muted-foreground" title={card.description}>
+            <p
+              className="font-readme line-clamp-2 text-xs text-muted-foreground"
+              title={card.description}
+            >
               {card.description}
             </p>
           )}
@@ -1095,7 +1098,7 @@ function YourAccounts({
   if (status === "no-access")
     // only a sign-in provider has accounts of yours worth stepping up for
     return SIGN_IN_PROVIDERS.some((name) => name === provider) ? (
-      <p className="text-sm text-muted-foreground">
+      <p className="font-readme text-sm text-muted-foreground">
         <a href={stepUpUrl(stepUpNext)} className="underline underline-offset-4">
           Show your {title} accounts
         </a>
@@ -1103,7 +1106,10 @@ function YourAccounts({
     ) : null;
   if (status === "loading")
     return (
-      <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+      <p
+        role="status"
+        className="font-readme flex items-center gap-2 text-sm text-muted-foreground"
+      >
         <Spinner /> Your accounts
       </p>
     );
@@ -1135,7 +1141,7 @@ function YourAccounts({
             <li key={row.connection} className="flex items-center gap-3 py-2">
               <div className="min-w-0 flex-1">
                 <p className="[overflow-wrap:anywhere]">{row.account}</p>
-                {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+                {meta && <p className="font-readme text-xs text-muted-foreground">{meta}</p>}
                 {verbs.failed?.key === `use:${row.connection}` && (
                   <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
                 )}
@@ -1212,7 +1218,7 @@ function ConnectionItem({
         {row.account}
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        {meta && <p className="font-readme text-xs text-muted-foreground">{meta}</p>}
         {verbs.failed?.key === disconnectKeyOf(row) ? (
           <ErrorText className="text-xs">{verbs.failed.message}</ErrorText>
         ) : null}
@@ -1365,7 +1371,7 @@ function GithubInstallations({
       : null;
     return (
       <div className="flex flex-col gap-1">
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Your account has no GitHub sign-in, so where iterate's app is installed can't be listed.{" "}
           {addSignIn && (
             <a href={addSignIn} className="underline underline-offset-4">
@@ -1379,13 +1385,16 @@ function GithubInstallations({
   }
   if (installations === "loading")
     return (
-      <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+      <p
+        role="status"
+        className="font-readme flex items-center gap-2 text-sm text-muted-foreground"
+      >
         <Spinner /> Where iterate's app is installed
       </p>
     );
   if (installations === "failed")
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="font-readme text-sm text-muted-foreground">
         Couldn't ask GitHub where iterate's app is installed.
       </p>
     );
@@ -1547,7 +1556,7 @@ function OtherService({
           <pre className="rounded-md bg-muted px-3 py-2 text-xs whitespace-pre-wrap">{prompt}</pre>
         </Field>
         {platformOrigin && (
-          <p className="text-sm text-muted-foreground">
+          <p className="font-readme text-sm text-muted-foreground">
             The recipe your agent follows, for doing it by hand too:{" "}
             <a
               href={`${platformOrigin}/connect-a-service.md`}

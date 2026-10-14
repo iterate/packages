@@ -136,7 +136,7 @@ function SessionsPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
         {/* whose: the address and the person's id, copyable */}
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <p className="font-readme flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           {info.principal.email ? <span>{info.principal.email}</span> : null}
           <Identifier value={info.principal.actor} textClassName="text-xs" />
         </p>
@@ -201,7 +201,7 @@ function SessionList({
           )}
         </div>
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing on this page.</p>
+          <p className="font-readme text-sm text-muted-foreground">Nothing on this page.</p>
         ) : (
           <ul className="flex flex-col divide-y border-y" aria-label="Sessions">
             {[...items]
@@ -236,7 +236,7 @@ function SessionList({
                       )}
                     </p>
                     {metaOf(item, slugOf).map((line, lineIndex) => (
-                      <p key={line[0]} className="text-xs text-muted-foreground">
+                      <p key={line[0]} className="font-readme text-xs text-muted-foreground">
                         {line.map((part, index) => (
                           <span key={part}>
                             {index > 0 ? " · " : ""}
@@ -253,12 +253,12 @@ function SessionList({
                       </p>
                     ))}
                     {item.impersonatedBy && (
-                      <p className="text-xs text-muted-foreground">
+                      <p className="font-readme text-xs text-muted-foreground">
                         Started by {item.impersonatedBy}, signed in as you
                       </p>
                     )}
                     {item.mintedBy && (
-                      <p className="text-xs text-muted-foreground">
+                      <p className="font-readme text-xs text-muted-foreground">
                         Made by{" "}
                         {items.find((session) => session.id === item.mintedBy)?.name ??
                           "a session no longer listed"}
@@ -447,7 +447,7 @@ function NewToken({
               </Label>
             ))
           ) : (
-            <p className="text-sm text-muted-foreground">Create a project first.</p>
+            <p className="font-readme text-sm text-muted-foreground">Create a project first.</p>
           )}
         </fieldset>
         {error && (
@@ -617,11 +617,11 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
           Couldn't load your connected accounts: {person.error}
         </p>
       ) : !person.value ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="font-readme text-sm text-muted-foreground">
           Loading…
         </p>
       ) : accounts.length === 0 ? (
-        <p className="text-sm text-muted-foreground">None yet.</p>
+        <p className="font-readme text-sm text-muted-foreground">None yet.</p>
       ) : (
         <ul className="flex flex-col divide-y border-y" aria-label="Connected accounts">
           {accounts.map((row) => {
@@ -631,7 +631,7 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
               <li key={connectionKeyOf(row)} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium [overflow-wrap:anywhere]">{row.account}</p>
-                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  <p className="font-readme text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {INTEGRATION_PROVIDER_NAMES[row.provider]}
                     {projectsUsing.length > 0 && ` · Used by ${projectsUsing.join(", ")}`}
                   </p>

@@ -185,7 +185,7 @@ function ProjectAnalytics() {
       <section className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="font-medium">Live: the last hour</h2>
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <p className="font-readme flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
             {live ? `read ${new Date(live.at).toISOString().slice(11, 19)} UTC` : "reading…"}, again
             each 30 s
@@ -228,7 +228,7 @@ function ProjectAnalytics() {
       </section>
       <section className="flex flex-col gap-3">
         <h2 className="font-medium">The last 24 hours</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-readme text-sm text-muted-foreground">
           Rows reach the warehouse a minute or two after they happen.
         </p>
         <div className="grid gap-4 md:grid-cols-3">
@@ -249,7 +249,9 @@ function ProjectAnalytics() {
               <Await promise={day[index]!} fallback={<div className="h-40" />}>
                 {({ rows, error }) =>
                   error ? (
-                    <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+                    <p className="font-readme text-sm text-muted-foreground">
+                      Unavailable: {error}
+                    </p>
                   ) : (
                     <TimeChart
                       rows={rows}
@@ -354,7 +356,11 @@ function Chart({
         {headline && !error && <p className="text-xl font-semibold tabular-nums">{headline}</p>}
       </CardHeader>
       <CardContent>
-        {error ? <p className="text-sm text-muted-foreground">Unavailable: {error}</p> : children}
+        {error ? (
+          <p className="font-readme text-sm text-muted-foreground">Unavailable: {error}</p>
+        ) : (
+          children
+        )}
       </CardContent>
     </Card>
   );
@@ -427,7 +433,7 @@ function Activity() {
               </TabsContent>
             ))
           ) : (
-            <p className="text-sm text-muted-foreground">Reading…</p>
+            <p className="font-readme text-sm text-muted-foreground">Reading…</p>
           )}
         </Tabs>
       </CardContent>
@@ -439,7 +445,7 @@ function Activity() {
  *  20 in a table, a path's with its log lines and failed invocations. */
 function Busiest({ dimension, at, answer }: { dimension: Dimension; at: number; answer: Answer }) {
   if (answer.error)
-    return <p className="text-sm text-muted-foreground">Unavailable: {answer.error}</p>;
+    return <p className="font-readme text-sm text-muted-foreground">Unavailable: {answer.error}</p>;
   // the rows come oldest hour first, so a value's last row has its latest event
   const totals = new Map<string, Row & { events: number }>();
   const hourly = new Map<string, number>();
@@ -449,7 +455,9 @@ function Busiest({ dimension, at, answer }: { dimension: Dimension; at: number; 
     hourly.set(`${Number(row.t)} ${key}`, Number(row.events));
   }
   if (totals.size === 0)
-    return <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>;
+    return (
+      <p className="font-readme text-sm text-muted-foreground">No events in the last 24 hours.</p>
+    );
   const ranked = [...totals.values()].sort(
     (x, y) => y.events - x.events || String(x.key).localeCompare(String(y.key)),
   );
@@ -513,7 +521,7 @@ function Storage({ answer }: { answer: Promise<Answer> }) {
         <Await promise={answer} fallback={<Spinner />}>
           {({ rows, error }) =>
             error ? (
-              <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+              <p className="font-readme text-sm text-muted-foreground">Unavailable: {error}</p>
             ) : (
               <ResultTable
                 rows={rows}
@@ -643,7 +651,8 @@ function ResultTable({
   target: (row: Row) => RowTarget;
 }) {
   const open = useContext(OpenRow);
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
+  if (rows.length === 0)
+    return <p className="font-readme text-sm text-muted-foreground">{empty}</p>;
   return (
     <Table>
       <TableHeader>
@@ -706,7 +715,9 @@ function LatestEvents({ column, value }: { column: Dimension; value: string }) {
         </SheetDescription>
       </SheetHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        {!answer && <p className="text-sm text-muted-foreground">Reading its events…</p>}
+        {!answer && (
+          <p className="font-readme text-sm text-muted-foreground">Reading its events…</p>
+        )}
         {answer?.error && <p className="text-sm text-destructive">{answer.error}</p>}
         {answer?.sql && (
           <pre className="rounded-md bg-muted p-2 text-xs break-all whitespace-pre-wrap">
@@ -714,7 +725,9 @@ function LatestEvents({ column, value }: { column: Dimension; value: string }) {
           </pre>
         )}
         {answer?.sql && answer.rows.length === 0 && (
-          <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>
+          <p className="font-readme text-sm text-muted-foreground">
+            No events in the last 24 hours.
+          </p>
         )}
         {keyedRows(answer?.rows || []).map(({ key, row }) => (
           <RowJson key={key} row={row} />

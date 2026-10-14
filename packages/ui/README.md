@@ -46,6 +46,8 @@ polling for new ones.
       }
     </script>
     <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
+    <!-- optional: iterate's look (Ubuntu, square corners) over the neutral one -->
+    <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/iterate.css" />
   </head>
   <body>
     <script type="module">

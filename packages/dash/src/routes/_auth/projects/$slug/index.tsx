@@ -177,7 +177,7 @@ function ProjectOverview() {
       {creating ? null : creationKnown ? (
         <ConfigRepo key={project.id} project={project} githubConnections={githubConnections} />
       ) : (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="font-readme text-sm text-muted-foreground">Loading…</p>
       )}
       {org?.role === "owner" ? <DeleteProject project={project} /> : null}
     </div>
@@ -301,7 +301,7 @@ function ConfigRepo({
         />
       ) : read ? (
         <div className="flex items-center justify-between gap-3 border-y py-3">
-          <p className="text-sm text-muted-foreground">Not linked to a git remote</p>
+          <p className="font-readme text-sm text-muted-foreground">Not linked to a git remote</p>
           <Button type="button" onClick={() => void navigate({ search: { configRepo: "link" } })}>
             Link
           </Button>
@@ -399,7 +399,7 @@ function RemoteRow({
           <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
         </a>
         {outcome ? (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="font-readme text-sm text-muted-foreground">
             {outcome}
           </p>
         ) : null}
@@ -668,7 +668,7 @@ function DivergedChoice({
             >
               {`Keep ${diverged.name}'s`}
             </ActionButton>
-            <p className="text-sm text-muted-foreground">
+            <p className="font-readme text-sm text-muted-foreground">
               iterate&apos;s main becomes {diverged.name}&apos;s, and the project republishes.
             </p>
           </div>
@@ -682,7 +682,7 @@ function DivergedChoice({
             >
               Keep iterate&apos;s
             </ActionButton>
-            <p className="text-sm text-muted-foreground">
+            <p className="font-readme text-sm text-muted-foreground">
               {diverged.name}&apos;s main is overwritten with iterate&apos;s.
             </p>
           </div>
@@ -889,7 +889,7 @@ function ProjectCreationProgress({ configRepoSeeded }: { configRepoSeeded: boole
   return (
     <section className="rounded-lg border bg-card p-6" data-testid="project-creation-progress">
       <h2 className="text-lg font-semibold">Creating your project</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="font-readme mt-1 text-sm text-muted-foreground">
         Setting everything up — this page updates live as each step lands.
       </p>
       <ol className="mt-5 space-y-3">
@@ -954,10 +954,10 @@ function ProjectCreationFailed({ context, offset }: { context: ProjectContext; o
         <CircleXIcon aria-hidden="true" className="size-5" />
         <h2 className="text-lg font-semibold">Project creation failed</h2>
       </div>
-      <p data-type="error" className="mt-3 text-sm text-muted-foreground">
+      <p data-type="error" className="font-readme mt-3 text-sm text-muted-foreground">
         {error || "Reading what went wrong…"}
       </p>
-      <p className="mt-2 text-sm text-muted-foreground">
+      <p className="font-readme mt-2 text-sm text-muted-foreground">
         Try again — creating the project once more from the projects page is a new attempt; the
         project's log keeps the whole trail.
       </p>

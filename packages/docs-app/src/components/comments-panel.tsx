@@ -134,7 +134,9 @@ function ThreadCard({
         ))}
       </ol>
       {thread.resolved ? (
-        <p className="text-xs text-muted-foreground">Resolved by {nameOf(thread.resolved.by)}</p>
+        <p className="font-readme text-xs text-muted-foreground">
+          Resolved by {nameOf(thread.resolved.by)}
+        </p>
       ) : active ? (
         <CommentForm
           label="Reply"
@@ -217,7 +219,7 @@ function CommentItem({
 /** What a thread is about: its quote, struck through when the text is gone; nothing for the whole
  *  doc. */
 function Quoted({ quote, gone }: { quote: Quote | null; gone: boolean }) {
-  if (!quote) return <p className="text-xs text-muted-foreground">On the whole doc</p>;
+  if (!quote) return <p className="font-readme text-xs text-muted-foreground">On the whole doc</p>;
   return (
     <blockquote
       className={cn(

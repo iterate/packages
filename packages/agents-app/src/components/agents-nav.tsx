@@ -126,7 +126,7 @@ export function AgentsNav({
         <SidebarGroupContent>
           <SidebarMenu>
             {agents.length === 0 ? (
-              <p className="px-2 py-1 text-xs text-muted-foreground">No agents yet.</p>
+              <p className="font-readme px-2 py-1 text-xs text-muted-foreground">No agents yet.</p>
             ) : null}
             {ordered.recent.map(renderRow)}
           </SidebarMenu>

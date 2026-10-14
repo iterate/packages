@@ -183,7 +183,7 @@ export function EventInspector({
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t px-4 py-3">
               {!event ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="font-readme text-sm text-muted-foreground">
                   {readingDown ? (
                     <span className="flex items-center gap-2">
                       <Spinner /> Reading older events to reach #{shown}…
