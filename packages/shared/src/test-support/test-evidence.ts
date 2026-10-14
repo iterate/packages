@@ -2,11 +2,11 @@ import { z } from "zod";
 
 /**
  * THE TEST EVIDENCE FOLDER (docs/test-evidence.md): everything one test run leaves behind, in one
- * directory described by one manifest. A test run is one CI job attempt (the Test job, a preview's
- * or main's e2e job); a run on a laptop is next. Every producer writes below `root`: the Playwright
- * config reads these paths, and the workflows set TEST_TELEMETRY_ARTIFACT_DIR and FLAKE_RECORD_DIR to
- * them (scripts/ci/depot-workflows.test.ts holds them equal). After the runners,
- * `scripts/ci/test-evidence.ts write` adds the manifest, which lists every other file with its
+ * directory described by one manifest. A test run is one attempt of the Test job; a run on a laptop
+ * is next. Every producer writes below `root`: the Playwright config reads these paths, and the
+ * workflows set TEST_TELEMETRY_ARTIFACT_DIR and FLAKE_RECORD_DIR to them
+ * (scripts/ci/depot-workflows.test.ts holds them equal). After the runners,
+ * `scripts/ci/test-evidence.ts finalize` adds the manifest, which lists every other file with its
  * sha256; `upload` puts the folder in R2 as it is.
  *
  * Paths are relative to the repository root and are the ones the producers already used, so no
@@ -20,7 +20,7 @@ export const testEvidencePaths = {
   telemetry: "test-results/ci-telemetry/raw",
   /** The telemetry finalizer's completeness check (scripts/ci/test-telemetry-finalizer.ts). */
   telemetryCheck: "test-results/ci-telemetry/manifest.json",
-  /** createFlake/createFailing/retry record lines (./flake-record.ts), a directory per suite in the e2e jobs. */
+  /** createFlake/createFailing/retry record lines (./flake-record.ts), a directory per suite. */
   flakeRecords: "test-results/flake-records",
   /** Playwright's per-test output: trace.zip, screenshots, videos, error-context.md. */
   playwrightOutput: "test-results/playwright-output",
@@ -28,36 +28,11 @@ export const testEvidencePaths = {
   playwrightResults: "test-results/playwright-results.json",
   /** A CI shard's Playwright blob report, which the first shard merges into the HTML report. */
   playwrightBlob: "test-results/playwright-blob",
-  /** A `TestEvidenceTarget`: the deployment an e2e job's suites ran against. */
-  target: "test-results/target.json",
 };
 
 const Timestamp = z.iso.datetime({ offset: true });
 const GitObjectId = z.string().regex(/^[0-9a-f]{40}$/u);
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/u);
-
-/**
- * `target.json`: what an e2e job's suites were about to test, recorded just before they start
- * (scripts/os/preview.ts). A run against a preview deployed earlier (Preview OS's `action=e2e`
- * dispatch) tests whatever that deploy left, not the commit the job checked out, so this names the
- * deployment. The shape is the deploy's own `preview.json` summary, narrowed.
- */
-export const TestEvidenceTarget = z.object({
-  previewName: z.string().min(1),
-  /** The OS preview. */
-  url: z.url(),
-  /** Cloudflare's version id the OS preview's `/version` answered with; absent when it did not answer. */
-  deploymentId: z.string().min(1).optional(),
-  /** The client apps the specs ran against. They answer `/healthz` with `ok` and no version. */
-  apps: z.array(z.object({ name: z.string().min(1), url: z.url() })),
-  /** The test files the suite was about to run, from the repo root, when the pull request's head
-   *  commit selected them with a `Tests:` trailer (scripts/ci/tests-directive.ts). Absent when
-   *  the suite ran everything. */
-  selectedFiles: z.array(z.string().min(1)).min(1).optional(),
-  checkedAt: Timestamp,
-});
-
-export type TestEvidenceTarget = z.infer<typeof TestEvidenceTarget>;
 
 /**
  * The telemetry finalizer's verdict on the runners (`ci-telemetry/manifest.json`), as it wrote it:
@@ -138,8 +113,6 @@ export const TestEvidenceManifest = z.object({
   ),
   /** The telemetry finalizer's check; absent when it wrote none. */
   completeness: TestEvidenceCompleteness.optional(),
-  /** The deployment the suites ran against (`target.json`); only the e2e jobs have one. */
-  target: TestEvidenceTarget.optional(),
   /** From the first runner's start to the last runner's finish, by the runners' clocks; absent without runners. */
   timings: z.object({ startedAt: Timestamp, finishedAt: Timestamp }).optional(),
   /** One per raw telemetry artifact of this job attempt: which runner ran where, and its verdict. */
@@ -157,8 +130,8 @@ export const TestEvidenceManifest = z.object({
   ),
   /**
    * What the writer could not read: telemetry it could not parse, another attempt's telemetry, a
-   * finalizer check or target it could not read. The manifest is written anyway; the result says
-   * whether the tests passed.
+   * finalizer check it could not read. The manifest is written anyway; the result says whether the
+   * tests passed.
    */
   diagnostics: z.array(z.string()),
   /** Every file in the folder but this one, relative to the folder, sorted by path. */
