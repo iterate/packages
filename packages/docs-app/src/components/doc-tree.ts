@@ -26,7 +26,6 @@ const treeTheme: Record<string, string> = {
   "--trees-indent-guide-bg-override": "var(--sidebar-border)",
   "--trees-input-bg-override": "var(--background)",
   "--trees-accent-override": "var(--primary)",
-  "--trees-font-family-override": "inherit",
   "--trees-font-size-override": "14px",
   "--trees-padding-inline-override": "8px",
 };
@@ -66,6 +65,9 @@ export class DocTree {
     if (!parent) return;
     // custom properties reach into the tree's shadow root
     for (const [name, value] of Object.entries(treeTheme)) parent.style.setProperty(name, value);
+    // the sidebar's font, read here: `inherit` on a custom property inherits the property, which
+    // nothing above sets, so Pierre fell back to system-ui
+    parent.style.setProperty("--trees-font-family-override", getComputedStyle(parent).fontFamily);
     const state = this.#list.state();
     const paths = state.kind === "loaded" ? state.paths : [];
     const open = this.#openPath();
