@@ -141,7 +141,7 @@ export function RepoFileTree({
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1">
-        <span className="px-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        <span className="px-1 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
           Files
         </span>
         <Button

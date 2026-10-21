@@ -127,8 +127,7 @@ function Standing({
     case "own":
       return (
         <p className="break-all">
-          The project's own build, <span className="font-mono">{standing.installed}</span>, which it
-          upgrades itself.
+          The project's own build, <code>{standing.installed}</code>, which it upgrades itself.
         </p>
       );
     case "newest":

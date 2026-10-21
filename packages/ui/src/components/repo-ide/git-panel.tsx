@@ -7,9 +7,9 @@ import { Input } from "#/components/ui/input.tsx";
 type ChangeStatus = "added" | "deleted" | "modified";
 
 const STATUS_LETTERS: Record<ChangeStatus, { letter: string; className: string }> = {
-  added: { letter: "A", className: "text-green-600" },
-  deleted: { letter: "D", className: "text-red-600" },
-  modified: { letter: "M", className: "text-blue-600" },
+  added: { letter: "A", className: "text-success" },
+  deleted: { letter: "D", className: "text-destructive" },
+  modified: { letter: "M", className: "text-info" },
 };
 
 /** What the Source Control sidebar does: the IDE owns the working tree. */
@@ -173,7 +173,7 @@ function CommitForm({
 function SectionHeader({ title, buttons }: { title: string; buttons: ReactNode }) {
   return (
     <div className="flex items-center justify-between px-3 pt-2 pb-1">
-      <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+      <span className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </span>
       <span className="flex items-center gap-0.5">{buttons}</span>

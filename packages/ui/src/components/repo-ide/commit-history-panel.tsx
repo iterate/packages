@@ -51,7 +51,7 @@ export function CommitHistoryPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        <span className="flex items-center gap-1.5 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
           History
           {refreshing ? (
             <Loader2Icon
@@ -62,7 +62,7 @@ export function CommitHistoryPanel({
             />
           ) : null}
         </span>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-2xs text-muted-foreground">
           main · {commits.length} commit{commits.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -85,7 +85,7 @@ export function CommitHistoryPanel({
                   <span className="truncate text-xs" title={commit.message}>
                     {commit.message.split("\n")[0]}
                   </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                     <span className="min-w-0 truncate">{commit.author.name}</span>
                     <span className="shrink-0">{timeAgo(commit.timestamp)}</span>
                     <span className="ml-auto shrink-0 font-mono">{commit.oid.slice(0, 7)}</span>
@@ -132,7 +132,7 @@ function ExpandedCommit({
   return (
     <div className="mx-2 mb-1.5 flex flex-col gap-1.5 rounded-sm border bg-muted/30 px-2.5 py-2">
       <p className="text-xs whitespace-pre-wrap">{commit.message}</p>
-      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <div className="flex flex-col gap-0.5 text-2xs text-muted-foreground">
         <span className="truncate" title={commit.author.email}>
           {commit.author.name} &lt;{commit.author.email}&gt;
         </span>
@@ -144,15 +144,15 @@ function ExpandedCommit({
       </div>
       <div className="flex flex-col gap-0.5 border-t pt-1.5">
         {files.status === "pending" ? (
-          <span className="text-[11px] text-muted-foreground" data-spinner="true">
+          <span className="text-2xs text-muted-foreground" data-spinner="true">
             Loading commit…
           </span>
         ) : files.status === "failed" ? (
-          <span role="alert" data-type="error" className="text-[11px] text-destructive">
+          <span role="alert" data-type="error" className="text-2xs text-destructive">
             {files.message}
           </span>
         ) : files.value.length === 0 ? (
-          <span className="text-[11px] text-muted-foreground">No file changes.</span>
+          <span className="text-2xs text-muted-foreground">No file changes.</span>
         ) : (
           files.value.map((file) => (
             <button
@@ -165,10 +165,10 @@ function ExpandedCommit({
               <span
                 className={
                   file.status === "deleted"
-                    ? "w-3 shrink-0 font-mono text-xs font-semibold text-red-600"
+                    ? "w-3 shrink-0 font-mono text-xs font-semibold text-destructive"
                     : file.status === "added"
-                      ? "w-3 shrink-0 font-mono text-xs font-semibold text-green-600"
-                      : "w-3 shrink-0 font-mono text-xs font-semibold text-blue-600"
+                      ? "w-3 shrink-0 font-mono text-xs font-semibold text-success"
+                      : "w-3 shrink-0 font-mono text-xs font-semibold text-info"
                 }
               >
                 {file.status === "deleted" ? "D" : file.status === "added" ? "A" : "M"}

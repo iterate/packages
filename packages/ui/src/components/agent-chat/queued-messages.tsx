@@ -30,14 +30,14 @@ export function QueuedMessagesPanel({
       data-testid="queued-messages-panel"
     >
       <div className="flex items-center gap-2 px-1.5 py-1">
-        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate font-mono text-2xs text-muted-foreground">
           Queued for the next agent turn
         </span>
         {hiddenCount > 0 ? (
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="shrink-0 font-mono text-[11px] text-muted-foreground underline-offset-2 hover:underline sm:hidden"
+            className="shrink-0 font-mono text-2xs text-muted-foreground underline-offset-2 hover:underline sm:hidden"
           >
             {expanded ? "collapse" : `+${String(hiddenCount)} more`}
           </button>
@@ -48,7 +48,7 @@ export function QueuedMessagesPanel({
             size="sm"
             onClick={() => void onInterrupt()}
             disabled={isInterrupting}
-            className="ml-auto h-6 shrink-0 gap-1 px-2 text-[11px] text-red-700 hover:bg-red-50 hover:text-red-800"
+            className="ml-auto h-6 shrink-0 gap-1 px-2 text-2xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
             {isInterrupting ? (
               <Spinner className="size-3" />

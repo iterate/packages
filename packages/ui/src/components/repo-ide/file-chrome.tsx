@@ -33,10 +33,7 @@ export function FileChrome({
         </span>
         {readonly ? <LockIcon className="size-3 shrink-0 text-muted-foreground" /> : null}
         {status ? (
-          <Badge
-            variant={status === "deleted" ? "destructive" : "secondary"}
-            className="text-[10px]"
-          >
+          <Badge variant={status === "deleted" ? "destructive" : "secondary"} className="text-2xs">
             {status}
           </Badge>
         ) : null}

@@ -84,10 +84,12 @@ function threadAt(ranges: Map<string, MarkRange>, pos: number) {
 
 export const commentTheme = EditorView.baseTheme({
   ".cm-comment": {
-    backgroundColor: "color-mix(in oklab, #ffc53d 28%, transparent)",
-    borderBottom: "2px solid color-mix(in oklab, #ffc53d 80%, transparent)",
+    backgroundColor: "color-mix(in oklab, var(--highlight) 28%, transparent)",
+    borderBottom: "2px solid color-mix(in oklab, var(--highlight) 80%, transparent)",
   },
-  ".cm-comment-active": { backgroundColor: "color-mix(in oklab, #ffc53d 60%, transparent)" },
+  ".cm-comment-active": {
+    backgroundColor: "color-mix(in oklab, var(--highlight) 60%, transparent)",
+  },
 });
 
 /** Each range through the edit; typing just before or after a quote stays outside it, and a range

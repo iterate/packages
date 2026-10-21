@@ -268,7 +268,7 @@ function Subscriber({
             <span
               className={cn(
                 "ml-2",
-                row.hostedFacet.restarts > 0 ? "text-amber-700" : "text-muted-foreground",
+                row.hostedFacet.restarts > 0 ? "text-warning" : "text-muted-foreground",
               )}
               title="How often the platform failed the facet at its start and restarted it"
             >
@@ -291,7 +291,7 @@ function Subscriber({
             <span className="tabular-nums">
               #{row.cursor.confirmedOffset.toLocaleString()}
               {lag === undefined ? null : (
-                <span className={cn("ml-2", lag > 0 ? "text-amber-700" : "text-muted-foreground")}>
+                <span className={cn("ml-2", lag > 0 ? "text-warning" : "text-muted-foreground")}>
                   lag {lag.toLocaleString()}
                 </span>
               )}
@@ -328,7 +328,7 @@ function LiveCallback({ row, connected }: { row: ContextViewProcessor; connected
       <span className="shrink-0 text-muted-foreground tabular-nums">
         #{row.configuredAtOffset.toLocaleString()}
       </span>
-      <span className={cn("shrink-0", connected ? "text-emerald-700" : "text-muted-foreground")}>
+      <span className={cn("shrink-0", connected ? "text-success" : "text-muted-foreground")}>
         {connected ? "connected" : "gone"}
       </span>
     </p>
@@ -375,11 +375,11 @@ function Vitals({
           label="paused"
           value={paused ? "yes" : "no"}
           title={typeof paused?.reason === "string" ? paused.reason : undefined}
-          tone={paused ? "text-amber-700" : undefined}
+          tone={paused ? "text-warning" : undefined}
         />
       </div>
       <Sparkline counts={perMinute} />
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Appends per minute over the last hour{peak > 0 ? `, peak ${peak}` : ""}, from the loaded
         log.
       </p>
@@ -400,7 +400,7 @@ function Stat({
 }) {
   return (
     <div title={title}>
-      <div className="text-[10px] tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-2xs tracking-wide text-muted-foreground uppercase">{label}</div>
       <div className={cn("font-mono text-sm tabular-nums", tone)}>{value}</div>
     </div>
   );
@@ -423,10 +423,10 @@ function Sparkline({ counts }: { counts: readonly number[] }) {
     <svg
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
-      className="h-9 w-full text-sky-600"
+      className="h-9 w-full text-info"
       aria-hidden
     >
-      <polygon points={`0,${height} ${points} ${width},${height}`} className="fill-sky-500/10" />
+      <polygon points={`0,${height} ${points} ${width},${height}`} className="fill-info/10" />
       <polyline
         points={points}
         fill="none"
@@ -504,10 +504,10 @@ function statusOf(row: ContextViewProcessor, kind: Kind): { label: string; tone:
   if (row.cursor?.nextAttemptAtMs !== undefined)
     return {
       label: `retrying, attempt ${row.cursor.attempt}`,
-      tone: "text-amber-700",
+      tone: "text-warning",
     };
-  if (kind === "processor") return { label: "hosted", tone: "text-emerald-700" };
-  return { label: "delivering", tone: "text-emerald-700" };
+  if (kind === "processor") return { label: "hosted", tone: "text-success" };
+  return { label: "delivering", tone: "text-success" };
 }
 
 /** What a row consumes, short: its types without the `events.iterate.com/` prefix; none or `*` is

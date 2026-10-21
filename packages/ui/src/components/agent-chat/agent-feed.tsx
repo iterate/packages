@@ -102,7 +102,7 @@ export function AgentFeedItemRow({
               <button
                 type="button"
                 onClick={() => inspect.llmRequest(traceOffset)}
-                className="self-start text-[11px] text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                className="self-start text-2xs text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
                 title="See the model's raw response and the code this turn ran"
               >
                 trace ›
@@ -565,7 +565,7 @@ export function AgentLiveActivity({
           {doneSummary.codeCount > 0 ? (
             <CodeIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
           ) : (
-            <span className="shrink-0 text-[11px] leading-none text-muted-foreground/60">✦</span>
+            <span className="shrink-0 text-2xs leading-none text-muted-foreground/60">✦</span>
           )}
           <span>
             {formatAgentUiActivitySummary(live, {

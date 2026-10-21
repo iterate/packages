@@ -81,7 +81,13 @@ export function TimeChart({
         color: {
           scale: scaleOrdinal<string, string>()
             .domain(series)
-            .range([1, 2, 3, 4, 5].map((slot) => `var(--ts-chart-${slot})`)),
+            .range([
+              "var(--chart-1)",
+              "var(--chart-2)",
+              "var(--chart-3)",
+              "var(--chart-4)",
+              "var(--chart-5)",
+            ]),
           // labels at their own width, wrapping, so a long one (a context path) is not cut
           legend: colorLegend({ items: colorLegendItems({ justify: "start" }) }),
         },
@@ -99,7 +105,7 @@ export function TimeChart({
     // categorical slots 1 to 5 of the validated default data-viz palette, in its order: every
     // adjacent pair passes the colorblind checks on white, but slots 3 to 5 are under 3:1 contrast,
     // so a chart of more than two series has a table of its values beside it
-    <div className="min-w-0 [--ts-chart-1:#2a78d6] [--ts-chart-2:#eb6834] [--ts-chart-3:#1baf7a] [--ts-chart-4:#eda100] [--ts-chart-5:#e87ba4]">
+    <div className="min-w-0">
       <Chart
         definition={definition}
         height={height}

@@ -13,7 +13,9 @@
 // only into a page whose code the person trusts (tasks/project-backup.md "Secrets").
 //
 // The Content-Security-Policy lets the page reach its own origin and run scripts from esm.sh only,
-// so a script the page loads cannot send the key anywhere else.
+// so a script the page loads cannot send the key anywhere else. It looks like the platform's other
+// plain pages (iterate/standalone-page), whose one stylesheet the CSP allows by its hash.
+import { plainPageCssHash, standalonePage } from "iterate/standalone-page";
 import { BACKUPS_FOLDER } from "./export.ts";
 
 /** The page for the project `whoami` names, with the backups kept in its files. */
@@ -26,26 +28,14 @@ export function backupPage(
   // JSON inside a script element, `<` escaped so no value can close the element
   const data = JSON.stringify({ id: project.projectId, slug }).replaceAll("<", "\\u003c");
   return new Response(
-    `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Backup · ${escapeHtml(slug)}</title>
-    <script type="application/json" id="project">${data}</script>
-    <style>
-      body { font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-      h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; }
-      label { display: block; margin: 0.2rem 0; } .note { color: dimgray; font-size: 0.9rem; }
-      fieldset { border: 1px solid #ddd; border-radius: 6px; } button { margin-top: 0.8rem; }
-      pre { background: #f5f5f5; padding: 0.8rem; overflow-x: auto; white-space: pre-wrap; }
-    </style>
-  </head>
-  <body>
+    standalonePage({
+      title: `Backup · ${slug}`,
+      head: `<script type="application/json" id="project">${data}</script>`,
+      body: `
     <h1>Backup of ${escapeHtml(slug)}</h1>
 
     <h2>Export</h2>
-    <form action="export.zip" method="get">
+    <form class="stack" action="export.zip" method="get">
       <fieldset>
         <legend>Parts</legend>
         <label><input type="checkbox" name="part" value="kv" checked /> kv: every key and value</label>
@@ -61,13 +51,13 @@ export function backupPage(
     </form>
 
     <h2>Backups kept in this project</h2>
-    <form action="backup" method="post">
+    <form class="actions" action="backup" method="post">
       <button type="submit">Back up now</button>
-      <span class="note">Every part, into the project's files at /backups/, with up to 24 MB of files.</span>
+      <span class="muted">Every part, into the project's files at /backups/, with up to 24 MB of files.</span>
     </form>
     ${
       kept.length === 0
-        ? '<p class="note">None yet.</p>'
+        ? '<p class="muted">None yet.</p>'
         : `<ul>${kept
             .map(({ path, size }) => ({
               name: escapeHtml(path.slice(BACKUPS_FOLDER.length)),
@@ -77,24 +67,24 @@ export function backupPage(
             .sort((a, b) => b.name.localeCompare(a.name))
             .map(
               ({ name, size }) =>
-                `<li><a href="backups/${name}">${name}</a> (${size} bytes) <button type="button" data-open="backups/${name}">Restore from it</button></li>`,
+                `<li><a href="backups/${name}">${name}</a> (${size} bytes) <button type="button" class="link" data-open="backups/${name}">Restore from it</button></li>`,
             )
             .join("")}</ul>`
     }
 
     <h2>Restore</h2>
     <p><label>1. Choose a backup: <input type="file" id="archive" accept=".zip,application/zip" /></label>
-      <span class="note">or press <b>Restore from it</b> beside a backup kept above.</span></p>
-    <div id="steps" hidden>
+      <span class="muted">or press <b>Restore from it</b> beside a backup kept above.</span></p>
+    <div id="steps" class="stack" hidden>
       <p id="source"></p>
       <fieldset><legend>2. What to restore</legend><div id="parts"></div></fieldset>
       <p id="key-step" hidden>
         <label>3. The secrets key of the deployment this backup was taken on (optional):
           <input type="password" id="key" autocomplete="off" spellcheck="false" /></label>
-        <span class="note">It is sent once, with the restore, to this host only: the project's worker opens the sealed secrets with it and sets them. Without it, each secret gets a link that asks for its value again.</span>
+        <span class="muted">It is sent once, with the restore, to this host only: the project's worker opens the sealed secrets with it and sets them. Without it, each secret gets a link that asks for its value again.</span>
       </p>
       <button type="button" id="restore">Restore</button>
-      <p id="restoring" class="note" data-spinner="true" hidden>Restoring… each part is written in turn, and the report follows.</p>
+      <p id="restoring" class="muted" data-spinner="true" hidden>Restoring… each part is written in turn, and the report follows.</p>
     </div>
     <pre id="report" hidden></pre>
 
@@ -204,9 +194,8 @@ export function backupPage(
         byId("report").hidden = false;
       }
     </script>
-  </body>
-</html>
 `,
+    }),
     {
       headers: {
         "content-type": "text/html; charset=utf-8",
@@ -214,7 +203,7 @@ export function backupPage(
         "content-security-policy": [
           "default-src 'none'",
           `script-src 'nonce-${nonce}' https://esm.sh`,
-          "style-src 'unsafe-inline'",
+          `style-src ${plainPageCssHash}`,
           "connect-src 'self'",
           "form-action 'self'",
           "base-uri 'none'",

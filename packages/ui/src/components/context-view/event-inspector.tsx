@@ -173,7 +173,7 @@ export function EventInspector({
               <span className="hidden text-xs text-muted-foreground/70 sm:inline">
                 ← → page the log
               </span>
-              <span className="ml-auto flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+              <span className="ml-auto flex items-center gap-2 font-mono text-2xs text-muted-foreground">
                 {sincePrevious ? (
                   <span title="Since the previous event">{sincePrevious}</span>
                 ) : null}

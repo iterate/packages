@@ -1,51 +1,22 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
 
-/** The frame of a page outside any app's shell — the issuer's sign-in and consent pages, and the
- *  Dash's secret collection link — so they read as one family: one column on a plain background,
- *  centred on a larger screen. On a phone it starts at the top, as a phone's pages do. A `wide`
- *  page — the consent page's two columns — starts at the top on every screen. */
+/** The frame of a page outside any app's shell, such as the Dash's secret collection link. It is the
+ *  issuer's (core/os `StandalonePage`), so the page reads as the sign-in pages and www.iterate.com
+ *  do: one centred column, its content left-aligned, with nothing drawn around it. The space above
+ *  and below is padding: a margin would collapse through `body` and push its `min-h-svh` down the
+ *  page, so a page shorter than the window would scroll. */
 export function StandalonePage({
   children,
   className,
-  wide,
-}: {
-  children: ReactNode;
-  className?: string;
-  wide?: boolean;
-}) {
-  return (
-    <main
-      className={cn(
-        "flex min-h-svh justify-center px-4 py-8 sm:py-12",
-        !wide && "items-start sm:items-center sm:py-16",
-      )}
-    >
-      <div className={cn("flex w-full flex-col gap-6", wide ? "max-w-4xl" : "max-w-sm", className)}>
-        {children}
-      </div>
-    </main>
-  );
-}
-
-/** A narrow page's one card. Its chrome — border, rounding, shadow, padding — only from `sm` up: on
- *  a phone the content sits on the page itself, with nothing drawn around it. */
-export function StandaloneCard({
-  children,
-  className,
 }: {
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section
-      className={cn(
-        "flex flex-col gap-5 text-card-foreground sm:rounded-xl sm:border sm:bg-card sm:p-6 sm:shadow-xs",
-        className,
-      )}
-    >
+    <main className={cn("mx-auto flex max-w-210 flex-col gap-6 px-5 pt-14 pb-26", className)}>
       {children}
-    </section>
+    </main>
   );
 }
 

@@ -126,7 +126,7 @@ export function CorePrettyState({ state }: { state: unknown }) {
   return (
     <div className="flex flex-col gap-3 text-xs">
       {paused ? (
-        <p className="text-amber-700">Paused{paused.reason ? `: ${paused.reason}` : ""}</p>
+        <p className="text-warning">Paused{paused.reason ? `: ${paused.reason}` : ""}</p>
       ) : null}
       <dl className="grid grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5">
         {facts

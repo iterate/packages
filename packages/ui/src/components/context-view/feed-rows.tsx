@@ -84,7 +84,7 @@ export const RepeatRow = memo(function RepeatRow({
       <span className={cn(rowBody, "flex items-baseline gap-1.5")}>
         <EventSentence event={first} renderers={renderers} className="min-w-0" />
         <span
-          className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+          className="shrink-0 text-2xs text-muted-foreground tabular-nums"
           title={`${String(events.length)} times, ${formatClockTime(Date.parse(first.createdAt))} – ${formatClockTime(Date.parse(last.createdAt))}`}
         >
           ×{events.length}
@@ -121,7 +121,7 @@ export const HousekeepingRow = memo(function HousekeepingRow({
     >
       <RowOffset offset={first.offset} />
       <RowTimes event={first} previous={previous} />
-      <span className={cn(rowBody, "flex items-baseline gap-1 text-[13px]")}>
+      <span className={cn(rowBody, "flex items-baseline gap-1 text-xs")}>
         <Chevron open={open} />
         <span className="truncate">
           {events.length} housekeeping · {housekeepingSummary(events.map((e) => e.type))}

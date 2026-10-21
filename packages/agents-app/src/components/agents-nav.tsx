@@ -116,7 +116,7 @@ export function AgentsNav({
           <span>Agents</span>
           {busy > 0 ? (
             <span
-              className="ml-auto rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+              className="ml-auto rounded-full bg-success/10 px-1.5 py-0.5 text-2xs font-medium text-success"
               data-agents-busy={busy}
             >
               {busy} active or waiting
@@ -180,15 +180,15 @@ function AgentsNavRow({
               aria-label={STATUS_LABEL[status]}
               className={cn(
                 "absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-sidebar",
-                status === "running" && "bg-emerald-500 motion-safe:animate-pulse",
-                status === "waiting" && "bg-amber-500",
+                status === "running" && "bg-success motion-safe:animate-pulse",
+                status === "waiting" && "bg-warning",
               )}
             />
           ) : null}
         </span>
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm">{title}</span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground">{row.path}</span>
+          <span className="truncate font-mono text-2xs text-muted-foreground">{row.path}</span>
         </span>
       </SidebarMenuButton>
       <button

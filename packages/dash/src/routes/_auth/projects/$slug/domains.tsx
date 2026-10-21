@@ -90,16 +90,16 @@ const recentlyConnected = (entry: Hostname) =>
 /** Where a hostname stands, in the one word and the one dot its row shows: a pulsing dot while
  *  something is on its way, a still one while it waits on the owner. */
 function standingOf(entry: Hostname) {
-  const waiting = "bg-amber-500 motion-safe:animate-pulse";
+  const waiting = "bg-warning motion-safe:animate-pulse";
   if (entry.requested?.verb === "remove") return { label: "Removing…", dot: "bg-muted-foreground" };
   if (!entry.cloudflare && entry.requested) return { label: "Adding…", dot: waiting };
   if (entry.error && !entry.cloudflare) return { label: "Failed", dot: "bg-destructive" };
-  if (isLive(entry)) return { label: "Live", dot: "bg-emerald-500" };
+  if (isLive(entry)) return { label: "Live", dot: "bg-success" };
   if (entry.cloudflare?.status === "active" && !entry.claimed)
-    return { label: "Prove it's yours", dot: "bg-amber-500" };
+    return { label: "Prove it's yours", dot: "bg-warning" };
   if (entry.cloudflare?.status === "active") return { label: "Issuing certificate", dot: waiting };
   if (recentlyConnected(entry)) return { label: "Waiting for DNS", dot: waiting };
-  return { label: "Connect your DNS", dot: "bg-amber-500" };
+  return { label: "Connect your DNS", dot: "bg-warning" };
 }
 
 export const Route = createFileRoute("/_auth/projects/$slug/domains")({
@@ -335,7 +335,7 @@ function DefaultDomainRow({
     <li className="flex flex-col gap-2 py-5" data-hostname={url.host}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="flex max-w-full min-w-0 items-center gap-3">
-          <span aria-hidden className="size-2 shrink-0 rounded-full bg-emerald-500" />
+          <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
           <a
             href={site}
             target="_blank"
@@ -490,7 +490,7 @@ function NextStep({
   if (dns && !entry.claimed)
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-[15px]">
+        <p className="text-base">
           One record left: it proves <code>{hostname}</code> is yours, so no other project can take
           it.
         </p>
@@ -534,7 +534,7 @@ function NextStep({
   if (zone === hostname && guide?.apex === false && !cloudflare.connect)
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-[15px]">
+        <p className="text-base">
           {guide.name} can't point a bare domain like <code>{hostname}</code> at another name.
         </p>
         <p className="font-readme text-sm text-muted-foreground">
@@ -549,7 +549,7 @@ function NextStep({
   if (cloudflare.connect)
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-[15px]">
+        <p className="text-base">
           {entry.connectedAt
             ? `${cloudflare.connect.provider} hasn't shown the records yet. If you didn't approve them, connect again.`
             : `${zone || hostname}'s DNS is on ${cloudflare.connect.provider}. Approve the records there and you're done.`}
@@ -572,7 +572,7 @@ function NextStep({
     );
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[15px]">
+      <p className="text-base">
         {guide && zone
           ? `${zone}'s DNS is on ${guide.name}. Add these records there.`
           : "Add these records at your DNS provider."}
@@ -631,7 +631,7 @@ function Waiting({ lead, detail }: { lead: React.ReactNode; detail: React.ReactN
     <div className="flex gap-3" role="status">
       <LoaderCircleIcon aria-hidden className="mt-1 size-4 shrink-0 motion-safe:animate-spin" />
       <div className="flex flex-col gap-1">
-        <p className="text-[15px]">{lead}</p>
+        <p className="text-base">{lead}</p>
         <p className="font-readme text-sm text-muted-foreground">{detail}</p>
       </div>
     </div>
@@ -691,7 +691,7 @@ function ManualRecords({
               <th className="pb-1.5 font-medium">Value</th>
             </tr>
           </thead>
-          <tbody className="font-mono text-[13px]">
+          <tbody className="font-mono text-xs">
             {records.map((record) => {
               // a target name takes the provider's final dot; a TXT record's text never does
               const value =

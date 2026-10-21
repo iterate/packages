@@ -118,9 +118,9 @@ function changedLinesGutter(cm: CodeMirror, original: string): Extension {
     EditorView.baseTheme({
       ".cm-changed-lines-gutter": { width: "3px" },
       ".cm-changed-line-bar": { width: "3px", height: "100%", borderRadius: "2px" },
-      ".cm-changed-line-added": { backgroundColor: "#2da44e" },
-      ".cm-changed-line-modified": { backgroundColor: "#0969da" },
-      ".cm-changed-line-deleted": { backgroundColor: "#cf222e" },
+      ".cm-changed-line-added": { backgroundColor: "var(--success)" },
+      ".cm-changed-line-modified": { backgroundColor: "var(--info)" },
+      ".cm-changed-line-deleted": { backgroundColor: "var(--destructive)" },
     }),
   ];
 }
@@ -163,9 +163,9 @@ function baselineExtensions(
     EditorView.baseTheme({
       ".cm-chunkButtons button": {
         cursor: "pointer",
-        border: "1px solid #d0d7de",
+        border: "1px solid var(--border)",
         borderRadius: "3px",
-        background: "#fff",
+        background: "var(--background)",
         margin: "0 1px",
         padding: "0 5px",
         fontSize: "11px",

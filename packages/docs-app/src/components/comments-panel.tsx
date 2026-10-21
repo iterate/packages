@@ -36,7 +36,7 @@ export function CommentsPanel({
       {state.draft ? (
         <article
           aria-label="New comment"
-          className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs ring-2 ring-amber-300"
+          className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs ring-2 ring-highlight"
         >
           <Quoted quote={state.draft.quote} gone={false} />
           <CommentForm
@@ -88,7 +88,7 @@ function ThreadCard({
       aria-current={active || undefined}
       className={cn(
         "flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs",
-        active ? "ring-2 ring-amber-300" : "cursor-pointer",
+        active ? "ring-2 ring-highlight" : "cursor-pointer",
         thread.resolved && "opacity-80",
       )}
       onClick={() => {
@@ -223,7 +223,7 @@ function Quoted({ quote, gone }: { quote: Quote | null; gone: boolean }) {
   return (
     <blockquote
       className={cn(
-        "line-clamp-2 border-l-2 border-amber-400 pl-2 text-xs text-muted-foreground",
+        "line-clamp-2 border-l-2 border-highlight pl-2 text-xs text-muted-foreground",
         gone && "line-through",
       )}
     >

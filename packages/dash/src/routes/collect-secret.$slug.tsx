@@ -1,5 +1,5 @@
 // /collect-secret/<slug> — the collection-link page; see `collectFromUser` in core/lib/src/api.ts.
-// One card outside the Dash's shell, framed like the issuer's sign-in and consent pages.
+// A page outside the Dash's shell, in the issuer's frame: the sign-in and consent pages'.
 // A visitor without a session signs in and returns here; one whose sign-in lacks the project
 // is offered another. The requester's description is markdown the page renders without HTML or
 // images, its links opening in a new tab with their host beside them. A link with `redirectUrl` shows its
@@ -23,13 +23,8 @@ import type { IterateContextApiWith } from "iterate/api";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Field, FieldLabel } from "@iterate-com/ui/components/ui/field";
 import { Input } from "@iterate-com/ui/components/ui/input";
-import { IterateLogo } from "@iterate-com/ui/components/iterate-logo";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import {
-  ErrorMessage,
-  StandaloneCard,
-  StandalonePage,
-} from "@iterate-com/ui/components/standalone-page";
+import { ErrorMessage, StandalonePage } from "@iterate-com/ui/components/standalone-page";
 import { Textarea } from "@iterate-com/ui/components/ui/textarea";
 import { iterateClient } from "../lib/iterate-client.ts";
 import { SECRET_NAME, SECRETS_PREFIX, secretMaterialOf } from "../lib/secrets.ts";
@@ -125,49 +120,42 @@ function CollectSecret() {
       ? parsedLink.data
       : null;
   return (
-    <StandalonePage className="max-w-100">
-      <StandaloneCard>
-        <header className="flex items-center gap-3">
-          <IterateLogo alt="" className="size-8" />
-          <h1 className="min-w-0 text-xl font-semibold tracking-tight wrap-anywhere">
-            Save a secret for {project.slug}
-          </h1>
-        </header>
-        {saved ? (
-          <p role="status" className="text-sm">
-            {link?.redirectUrl
-              ? `Saved. Taking you to ${new URL(link.redirectUrl).host}…`
-              : "Saved. You can close this tab."}
+    <StandalonePage>
+      <h1 className="text-2xl font-bold wrap-anywhere">Save a secret for {project.slug}</h1>
+      {saved ? (
+        <p role="status" className="text-sm">
+          {link?.redirectUrl
+            ? `Saved. Taking you to ${new URL(link.redirectUrl).host}…`
+            : "Saved. You can close this tab."}
+        </p>
+      ) : (
+        <>
+          {link ? (
+            <CollectSecretForm
+              api={api}
+              projectId={project.id}
+              link={link}
+              existing={secrets.some((secret) => secret.path === link.path)}
+              onSaved={() => {
+                setSaved(true);
+                if (link.redirectUrl) window.location.replace(link.redirectUrl);
+              }}
+            />
+          ) : (
+            <ErrorMessage>
+              {parsedLink.success
+                ? "This link is for a different project or iterate instance. Ask your agent for a new one."
+                : "This link is incomplete. Ask your agent for a new one."}
+            </ErrorMessage>
+          )}
+          <p className="font-readme text-sm text-muted-foreground">
+            Signed in as{" "}
+            <strong className="font-medium text-foreground wrap-anywhere">
+              {info.principal.email || info.principal.actor}
+            </strong>
           </p>
-        ) : (
-          <>
-            {link ? (
-              <CollectSecretForm
-                api={api}
-                projectId={project.id}
-                link={link}
-                existing={secrets.some((secret) => secret.path === link.path)}
-                onSaved={() => {
-                  setSaved(true);
-                  if (link.redirectUrl) window.location.replace(link.redirectUrl);
-                }}
-              />
-            ) : (
-              <ErrorMessage>
-                {parsedLink.success
-                  ? "This link is for a different project or iterate instance. Ask your agent for a new one."
-                  : "This link is incomplete. Ask your agent for a new one."}
-              </ErrorMessage>
-            )}
-            <p className="font-readme text-sm text-muted-foreground">
-              Signed in as{" "}
-              <strong className="font-medium text-foreground wrap-anywhere">
-                {info.principal.email || info.principal.actor}
-              </strong>
-            </p>
-          </>
-        )}
-      </StandaloneCard>
+        </>
+      )}
     </StandalonePage>
   );
 }
@@ -245,7 +233,7 @@ function CollectSecretForm({
   };
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-5">
+    <form onSubmit={save} className="flex max-w-lg flex-col gap-5">
       {link.description ? <RequesterDescription markdown={link.description} /> : null}
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
         <dt className="text-muted-foreground">Path</dt>

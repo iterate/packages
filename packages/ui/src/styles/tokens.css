@@ -1,0 +1,38 @@
+/* What packages/ui's components use beyond shadcn's own variables, with neutral values: the status
+   colours, the highlight, chart series and the smallest text size. globals.css imports it, and
+   iterate.css gives the status colours iterate's values (iterate/tokens.css). The registry gives each
+   component item the ones its files use (scripts/ci/shadcn-registry.ts), so an app that installs one
+   has them. */
+
+@theme inline {
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-highlight: var(--highlight);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  /* The type scale: Tailwind's steps, and one smaller for a badge, a counter or a timestamp in a
+     dense row. Controls, tables and the sidebar are text-sm; prose is text-base; headings text-lg
+     and up. lint/design-tokens.test.ts refuses a size off the scale (text-[11px]). */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
+}
+
+:root {
+  /* A status, dark enough to be text on white. The same colour is its dot (bg-success) and, at a
+     tenth, its tint (bg-success/10). */
+  --success: oklch(0.508 0.118 165.612);
+  --warning: oklch(0.555 0.163 48.998);
+  --info: oklch(0.5 0.134 242.749);
+  /* A marker pen's yellow, under the text a comment is about. */
+  --highlight: #ffc53d;
+  /* Series in a chart: distinct hues that mean nothing on their own. */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+}

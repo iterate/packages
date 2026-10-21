@@ -6,7 +6,8 @@
 
    The published dist/styles.css (no-build pages) and the registry's items do not, so a page outside
    this repo keeps shadcn's neutral look unless it asks for this one. The issuer's pages (core/os)
-   have their own, all monospace: iterate/theme.css. tasks/ubuntu-font.md has the decisions. */
+   have their own, all monospace: iterate/theme.css. tasks/complete/2026-10-14-ubuntu-font.md and
+   tasks/design-system.md have the decisions. */
 
 /* Ubuntu (https://design.ubuntu.com/font), self-hosted: Vite copies the files beside the built
    stylesheet. Each file's faces carry a unicode-range, so a browser fetches only the scripts a page
@@ -15,8 +16,8 @@
 @import "@fontsource/ubuntu/500.css";
 @import "@fontsource/ubuntu/700.css";
 
-/* The issuer's palette: black on white, one grey fill, one light border, blue links. Its :root
-   comes after globals.css's, so it wins. */
+/* The issuer's palette: black on white, one grey fill, one light border, blue links, and the status
+   colours. Its :root comes after globals.css's, so it wins. */
 @import "iterate/tokens.css";
 
 :root {
@@ -85,6 +86,13 @@
     [data-slot="table-caption"]
   ) {
     @apply font-readme;
+  }
+
+  /* An id, a path or a command inline in a sentence: monospace on the grey fill, so it stands out
+     from prose that is itself monospace (font-readme). A block (`pre`) keeps no fill. */
+  :where(:not(pre) > code) {
+    @apply bg-muted px-1;
+    box-decoration-break: clone;
   }
 
   /* The floating components whose vendored classes name no shadow. */

@@ -117,11 +117,11 @@ export function ContextTree({
             if (event.key === "Escape") setQuery("");
           }}
         />
-        <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1 font-sans text-[10px] text-muted-foreground">
+        <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1 font-sans text-2xs text-muted-foreground">
           {needle ? "↵ go" : "/"}
         </kbd>
       </form>
-      <ul className="min-h-0 flex-1 overflow-y-auto font-mono text-[13px]">
+      <ul className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
         {(matches || rows).map((item) => {
           const indent = { paddingLeft: `${String(8 + (matches ? 0 : item.depth) * 12)}px` };
           const label = matches ? item.path : item.name;
@@ -153,7 +153,7 @@ export function ContextTree({
           );
         })}
       </ul>
-      <p className="px-2 text-[11px] text-muted-foreground">
+      <p className="px-2 text-2xs text-muted-foreground">
         {matches
           ? `${String(matches.length)} of ${String(total)} contexts`
           : total > 1

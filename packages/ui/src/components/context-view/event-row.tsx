@@ -39,13 +39,14 @@ export function formatDelta(ms: number): string {
   return `+${String(Math.floor(minutes / 60))}h${String(minutes % 60)}m`;
 }
 
-/** The gap's colour by its size: a second or more is green, then amber, orange, and a pause of
- *  ten minutes or more red — where the log went quiet stands out. */
+/** The gap's colour by its size: under ten seconds the success colour, then the warning colour, a
+ *  faded destructive, and the destructive colour for a pause of ten minutes or more — where the log
+ *  went quiet stands out. */
 function deltaColor(ms: number): string {
-  if (ms < 10_000) return "text-emerald-600";
-  if (ms < 60_000) return "text-amber-600";
-  if (ms < 600_000) return "text-orange-600";
-  return "text-red-600";
+  if (ms < 10_000) return "text-success";
+  if (ms < 60_000) return "text-warning";
+  if (ms < 600_000) return "text-destructive/70";
+  return "text-destructive";
 }
 
 /** The frame every row shares: full width, the columns on one line from `sm` (a phone wraps the
@@ -58,10 +59,9 @@ export const rowClass = (selected?: boolean) =>
   );
 
 const OFFSET =
-  "shrink-0 font-mono text-[11px] text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
-const CLOCK = "shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums sm:w-[8ch]";
-const GAP =
-  "shrink-0 font-mono text-[11px] tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
+  "shrink-0 font-mono text-2xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
+const CLOCK = "shrink-0 font-mono text-2xs text-muted-foreground tabular-nums sm:w-[8ch]";
+const GAP = "shrink-0 font-mono text-2xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
 
 /** `#123`, right-aligned in the gutter the view sizes to its largest offset (`--offset-width`). */
 export function RowOffset({ offset }: { offset: number }) {
@@ -87,7 +87,7 @@ export function RowGutter({ times }: { times?: boolean }) {
 /** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 shrink-0 truncate text-xs text-muted-foreground max-sm:font-mono max-sm:text-[11px] sm:ml-auto">
+    <span className="max-w-48 shrink-0 truncate text-xs text-muted-foreground max-sm:font-mono max-sm:text-2xs sm:ml-auto">
       {who}
     </span>
   );
@@ -205,7 +205,7 @@ export const EventRow = memo(function EventRow({
         ) : (
           <EventSentence event={event} renderers={renderers} />
         )}
-        {mode === "pretty-raw" ? <RawLine event={event} className="mt-0.5 text-[11px]" /> : null}
+        {mode === "pretty-raw" ? <RawLine event={event} className="mt-0.5 text-2xs" /> : null}
       </span>
       {showWho && who ? <RowWho who={who} /> : null}
     </button>

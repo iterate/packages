@@ -34,11 +34,18 @@ which is why they live in `src/components/ui/`. Files of one item import each ot
 
 - `src/styles/globals.css` (`@iterate-com/ui/globals.css`): shadcn's neutral look, which the
   published `dist/styles.css` and the registry's component items are written against.
+- `src/styles/tokens.css`, which globals.css imports: what our components use beyond shadcn's
+  variables, with neutral values. The status colours (`success`, `warning`, `info`, beside
+  shadcn's `destructive`), `highlight`, `chart-1` to `chart-5`, and `text-2xs`. A registry
+  component item carries the ones its files use as `cssVars` (`scripts/component-tokens.ts`).
+  `lint/design-tokens.test.ts` refuses a raw palette class, a hex colour or an arbitrary text size
+  in any package's `src/` and in `core/os/src`, outside these files and the vendored components.
 - `src/styles/iterate.css` (`@iterate-com/ui/iterate.css`): iterate's look over it. Ubuntu
   (`@fontsource/ubuntu`), the issuer's palette (`iterate/tokens.css`), square corners, hard
-  shadows on what floats, and the `font-readme` role: monospace for a description, help text or an
-  empty state, where `font-mono` is for ids, paths and code. `font-readme` generates nothing
-  without the look, so a component here that carries it is plain on a neutral page.
+  shadows on what floats, inline `<code>` on the grey fill, and the `font-readme` role: monospace
+  for a description, help text or an empty state, where `font-mono` is for ids, paths and code.
+  `font-readme` generates nothing without the look, so a component here that carries it is plain
+  on a neutral page.
 
 The look is opt-in, three ways, all cut from `src/styles/iterate.css` (`scripts/iterate-look.ts`):
 

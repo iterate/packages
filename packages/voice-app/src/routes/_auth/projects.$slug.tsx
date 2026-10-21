@@ -261,7 +261,7 @@ function Phone({ project }: { project: string }) {
               className={cn(
                 "size-2 shrink-0",
                 view?.answering
-                  ? "fill-emerald-500 text-emerald-500"
+                  ? "fill-success text-success"
                   : "fill-muted-foreground/40 text-muted-foreground/40",
               )}
             />

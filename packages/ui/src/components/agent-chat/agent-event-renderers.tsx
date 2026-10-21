@@ -15,7 +15,7 @@ const firstLine = (text: string, max = 160) => {
 /** The role a context item was added as — the model's conversation has four. */
 const role = (name: string) => (
   <>
-    <span className="rounded bg-muted px-1 font-mono text-[10px] uppercase text-muted-foreground">
+    <span className="rounded bg-muted px-1 font-mono text-2xs uppercase text-muted-foreground">
       {name}
     </span>{" "}
   </>

@@ -913,9 +913,9 @@ function StatusText({ status }: { status: IntegrationStatus }) {
     <p
       data-type={status.kind === "error" ? "error" : undefined}
       className={cn(
-        "inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-left text-[11px] font-medium [overflow-wrap:anywhere]",
-        status.kind === "ok" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        status.kind === "attention" && "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        "inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-left text-2xs font-medium [overflow-wrap:anywhere]",
+        status.kind === "ok" && "bg-success/10 text-success",
+        status.kind === "attention" && "bg-warning/10 text-warning",
         status.kind === "error" && "bg-destructive/10 text-destructive",
       )}
     >
@@ -923,7 +923,7 @@ function StatusText({ status }: { status: IntegrationStatus }) {
         aria-hidden="true"
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          { ok: "bg-emerald-500", attention: "bg-amber-500", error: "bg-destructive" }[status.kind],
+          { ok: "bg-success", attention: "bg-warning", error: "bg-destructive" }[status.kind],
         )}
       />
       {status.text || { ok: "OK", attention: "Needs attention", error: "Failed" }[status.kind]}

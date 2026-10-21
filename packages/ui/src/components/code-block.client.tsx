@@ -162,7 +162,7 @@ function CopyButton({ label, text }: { label: string; text: () => string }) {
           />
         }
       >
-        {copied ? <Check className="h-2 w-2 text-green-500" /> : <Copy className="h-2 w-2" />}
+        {copied ? <Check className="h-2 w-2 text-success" /> : <Copy className="h-2 w-2" />}
       </TooltipTrigger>
       <TooltipContent>
         <p>{label}</p>

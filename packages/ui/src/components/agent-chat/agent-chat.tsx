@@ -224,8 +224,8 @@ export function AgentChat({
           <CircleIcon
             className={cn(
               "size-2 shrink-0",
-              status.tone === "live" && "animate-pulse fill-emerald-500 text-emerald-500",
-              status.tone === "amber" && "fill-amber-500 text-amber-500",
+              status.tone === "live" && "animate-pulse fill-success text-success",
+              status.tone === "amber" && "fill-warning text-warning",
               status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
             )}
           />
@@ -244,9 +244,7 @@ export function AgentChat({
             </TabsTrigger>
             <TabsTrigger value="events" className="text-xs">
               Events
-              <span className="font-mono text-[10px] text-muted-foreground/70">
-                {events.length}
-              </span>
+              <span className="font-mono text-2xs text-muted-foreground/70">{events.length}</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>

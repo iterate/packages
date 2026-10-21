@@ -431,7 +431,7 @@ function ImpersonationMarker({ email, admin }: { email: string; admin: string })
       method="post"
       action={SIGN_IN_AGAIN}
       role="status"
-      className="flex flex-col gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-1.5"
+      className="flex flex-col gap-1.5 rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-foreground group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-1.5"
     >
       <div className="flex items-center gap-2">
         <EyeIcon className="size-4 shrink-0" aria-label="Signed in as someone else" />
@@ -439,12 +439,12 @@ function ImpersonationMarker({ email, admin }: { email: string; admin: string })
           Signed in as <strong className="font-semibold">{email}</strong>
         </span>
       </div>
-      <span className="truncate text-amber-800 group-data-[collapsible=icon]:hidden">
+      <span className="truncate text-warning group-data-[collapsible=icon]:hidden">
         You are {admin}
       </span>
       <button
         type="submit"
-        className="rounded-md bg-amber-900 px-2 py-1 font-medium text-amber-50 hover:bg-amber-800 group-data-[collapsible=icon]:hidden"
+        className="rounded-md bg-warning px-2 py-1 font-medium text-primary-foreground hover:bg-warning/90 group-data-[collapsible=icon]:hidden"
       >
         Stop impersonating
       </button>
@@ -458,7 +458,7 @@ function DeploymentLine({ platform }: { platform: ConnectedPlatform }) {
   if (platform.isDefault)
     return <span className="truncate text-xs text-muted-foreground">{platform.host}</span>;
   return (
-    <span className="flex min-w-0 items-center gap-1 text-xs text-orange-700">
+    <span className="flex min-w-0 items-center gap-1 text-xs text-warning">
       {/* important: the menu button sets every svg in it to size-4 */}
       <TriangleAlertIcon aria-hidden className="size-3!" />
       <span className="truncate">{platform.host}</span>
@@ -479,7 +479,7 @@ function DeploymentNote({ platform }: { platform: ConnectedPlatform }) {
   return (
     <div className="flex flex-col gap-0.5 px-1.5 pt-1 pb-1.5 text-xs">
       <span className="text-muted-foreground">Custom deployment</span>
-      <span className="flex items-start gap-1 font-medium text-orange-700">
+      <span className="flex items-start gap-1 font-medium text-warning">
         <TriangleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
         <span className="min-w-0 wrap-anywhere">{platform.host}</span>
       </span>

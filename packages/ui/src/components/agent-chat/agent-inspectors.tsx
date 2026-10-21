@@ -147,7 +147,7 @@ function LlmTraceContent({
           {copied ? <CheckIcon /> : <CopyIcon />}
           Copy JSON
         </Button>
-        <span className="ml-auto text-[10px] text-muted-foreground/70">
+        <span className="ml-auto text-2xs text-muted-foreground/70">
           rebuilt from the log: every context item before the request, as the agent sends them
         </span>
       </div>
@@ -156,7 +156,7 @@ function LlmTraceContent({
           <section key={message.offset} className="border-b border-border/60 px-5 py-3">
             <div className="mb-2 flex items-baseline gap-2">
               <RoleChip name={message.role} />
-              <span className="font-mono text-[10px] text-muted-foreground/60">
+              <span className="font-mono text-2xs text-muted-foreground/60">
                 #{message.offset} · {message.content.length.toLocaleString()} chars
               </span>
             </div>
@@ -173,7 +173,7 @@ function LlmTraceContent({
           <section className="px-5 py-3">
             <div className="mb-2 flex items-baseline gap-2">
               <RoleChip name="derived" />
-              <span className="font-mono text-[10px] text-muted-foreground/60">
+              <span className="font-mono text-2xs text-muted-foreground/60">
                 what the loop did with the answer
               </span>
             </div>
@@ -246,18 +246,18 @@ function ResponseView({
       <div className="flex items-baseline gap-2">
         <RoleChip name="response" />
         {streaming ? (
-          <span className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground/60">
+          <span className="inline-flex items-center gap-1 font-mono text-2xs text-muted-foreground/60">
             <Spinner className="size-2.5" /> streaming
           </span>
         ) : hasRaw ? (
-          <span className="font-mono text-[10px] text-muted-foreground/60">
+          <span className="font-mono text-2xs text-muted-foreground/60">
             {raw!.length.toLocaleString()} chars
           </span>
         ) : null}
       </div>
       {thinking ? (
         <div>
-          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
+          <p className="mb-1 font-mono text-2xs uppercase tracking-wider text-muted-foreground/60">
             reasoning
           </p>
           <div className="max-w-full whitespace-pre-wrap text-sm italic leading-relaxed text-muted-foreground">
@@ -268,7 +268,7 @@ function ResponseView({
       ) : null}
       {hasRaw ? (
         <div>
-          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
+          <p className="mb-1 font-mono text-2xs uppercase tracking-wider text-muted-foreground/60">
             raw response
           </p>
           <div className="max-h-96 overflow-y-auto rounded-lg">
@@ -279,7 +279,7 @@ function ResponseView({
       {script ? (
         <div>
           <div className="mb-1 flex items-center gap-2">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-emerald-700">
+            <p className="font-mono text-2xs uppercase tracking-wider text-success">
               parsed script
             </p>
             {scriptRequestOffset ? (
@@ -332,9 +332,9 @@ function Outcome({ outcome }: { outcome: LlmTrace["outcome"] }) {
       {" · "}
       <span
         className={cn(
-          outcome.status === "succeeded" && "text-emerald-600",
+          outcome.status === "succeeded" && "text-success",
           outcome.status === "failed" && "text-destructive",
-          outcome.status === "cancelled" && "text-amber-600",
+          outcome.status === "cancelled" && "text-warning",
         )}
       >
         {outcome.status}
@@ -348,12 +348,12 @@ function RoleChip({ name }: { name: string }) {
   return (
     <span
       className={cn(
-        "font-mono text-[10px] font-semibold uppercase tracking-wider",
-        name === "system" && "text-purple-700",
-        name === "developer" && "text-purple-700/80",
-        name === "user" && "text-blue-700",
-        name === "assistant" && "text-emerald-700",
-        name === "response" && "text-amber-700",
+        "font-mono text-2xs font-semibold uppercase tracking-wider",
+        name === "system" && "text-foreground",
+        name === "developer" && "text-muted-foreground",
+        name === "user" && "text-info",
+        name === "assistant" && "text-success",
+        name === "response" && "text-warning",
         name === "derived" && "text-muted-foreground",
       )}
     >
@@ -408,7 +408,7 @@ function ScriptTraceContent({
           {trace.settlement ? (
             <>
               {" · "}
-              <span className={failed ? "text-destructive" : "text-emerald-600"}>
+              <span className={failed ? "text-destructive" : "text-success"}>
                 {failed ? "failed" : "succeeded"} in{" "}
                 {formatAgentUiDuration(trace.settlement.atMs - trace.requestedAtMs)}
               </span>

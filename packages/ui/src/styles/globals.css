@@ -5,6 +5,8 @@
    no-scrollbar, scroll-fade and shimmer. The `shadcn` devDependency pins it with the CLI.
    https://ui.shadcn.com/docs/tailwind-v4 */
 @import "shadcn/tailwind.css";
+/* What our components use beyond shadcn's own variables. */
+@import "./tokens.css";
 
 @source "../**/*.{ts,tsx}";
 

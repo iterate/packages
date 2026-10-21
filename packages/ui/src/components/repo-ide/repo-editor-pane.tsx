@@ -140,7 +140,7 @@ function DeletedFile({
     <FileChrome path={path} status="deleted">
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
         <span>
-          <span className="font-mono">{path}</span> is {staged ? "staged" : "marked"} for deletion.
+          <code>{path}</code> is {staged ? "staged" : "marked"} for deletion.
         </span>
         <Button variant="outline" size="sm" onClick={onRestore}>
           Restore

@@ -73,7 +73,7 @@ function StripButton({
     >
       <Icon className="size-4" />
       {badge > 0 ? (
-        <span className="absolute -top-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+        <span className="absolute -top-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-primary text-2xs font-semibold text-primary-foreground">
           {badge}
         </span>
       ) : null}
