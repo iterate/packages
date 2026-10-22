@@ -12,8 +12,9 @@
 // COMMENTS are events this tab appends to the doc's context (@iterate-com/docs/comments); the
 // threads come back in the processor's live state, and the editor highlights each one's text
 // (comment-marks.ts). A comment being written is a draft here until its thread comes back.
+import { closeSearchPanel, openSearchPanel } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, panels } from "@codemirror/view";
 import * as Y from "yjs";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import { z } from "zod";
@@ -112,6 +113,8 @@ export class DocSession {
   #languageSupport: Extension = [];
   #previewTimer: ReturnType<typeof setTimeout> | undefined;
   #view: EditorView | null = null;
+  /** Where the editor's find panel goes: in the page's sticky bar (`mountPanels`). */
+  #panels: HTMLDivElement | null = null;
   #collab: DocCollab | null = null;
   #undo: Y.UndoManager | null = null;
   #collabStatus: CollabStatus = { kind: "opening" };
@@ -149,6 +152,17 @@ export class DocSession {
     for (const listener of this.#listeners) listener();
   }
 
+  /** The find panel's place in the page's sticky bar, as a React ref: there it stays in view as the
+   *  doc scrolls, and covers nothing. Its element is made on first use, by this ref or `mount`'s,
+   *  so neither need come first. */
+  mountPanels = (parent: HTMLDivElement | null) => {
+    parent?.appendChild(this.#panelsElement());
+  };
+
+  #panelsElement() {
+    return (this.#panels ||= document.createElement("div"));
+  }
+
   /** The editor's element, as a React ref: the view and the doc's connection live while it's
    *  mounted. Closing the tab before this tab's edits have been sent asks first; closing it tells
    *  the doc's processor this tab has left, as unmounting does. */
@@ -175,11 +189,24 @@ export class DocSession {
     // a closing tab never unmounts: say goodbye now, if the socket lasts long enough to carry it
     const leave = () => void this.#collab?.close();
     window.addEventListener("pagehide", leave);
+    // Cmd/Ctrl-F with the focus elsewhere on the page finds in the file too, as the editor's own
+    // keymap does once it has focus. Not from another text field, nor on an html file's Preview,
+    // where the editor is hidden and the browser's find is the one that sees the page.
+    const find = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== "f" || event.defaultPrevented) return;
+      const textField = 'input, textarea, [contenteditable]:not([contenteditable="false"])';
+      if (event.target instanceof Element && event.target.closest(textField)) return;
+      if (this.#state.mode === "preview") return;
+      event.preventDefault();
+      openSearchPanel(view);
+    };
+    window.addEventListener("keydown", find);
     void this.#goLive(view, attachment);
     return () => {
       attachment.unmounted = true;
       window.removeEventListener("beforeunload", warnIfUnsent);
       window.removeEventListener("pagehide", leave);
+      window.removeEventListener("keydown", find);
       for (const cleanup of attachment.cleanups.reverse()) cleanup();
       clearTimeout(this.#previewTimer);
       this.#previewTimer = undefined;
@@ -270,6 +297,7 @@ export class DocSession {
             preview: this.#preview,
           })
         : codeEditorExtensions({ language: this.#language.of(this.#languageSupport) }),
+      panels({ topContainer: this.#panelsElement() }),
       // the text box is named by the file it edits
       EditorView.contentAttributes.of({ "aria-label": this.options.path }),
       commentMarks,
@@ -451,6 +479,8 @@ export class DocSession {
   setMode(mode: DocMode) {
     if (mode === "rich" || mode === "markdown")
       this.#view?.dispatch({ effects: this.#preview.reconfigure(previewExtensions(mode)) });
+    // the find panel is in the page's bar, not the editor, so hiding the editor would leave it up
+    if (mode === "preview" && this.#view) closeSearchPanel(this.#view);
     this.#set({ mode });
     if (mode !== "preview") this.#view?.focus();
   }

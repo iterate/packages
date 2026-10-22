@@ -61,37 +61,41 @@ export function DocEditor({
   const views = modes[kind];
   return (
     <div className="flex flex-1 flex-col">
-      <div className="sticky top-0 z-10 flex min-h-11 flex-wrap items-center justify-between gap-2 border-b bg-background px-4 py-1.5">
-        {kind === "markdown" ? <FormattingBar session={session} /> : <span />}
-        <div className="flex items-center gap-2">
-          <Button
-            size="xs"
-            variant="ghost"
-            title="Comment on the selection (⌘⌥M)"
-            disabled={state.status.kind === "opening"}
-            // keeps the editor's selection, which is what the comment is on
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => session.startComment()}
-          >
-            <MessageSquarePlus />
-            Comment
-          </Button>
-          {views.length > 0 ? (
-            <div role="group" aria-label="Mode" className="flex rounded-lg border p-0.5">
-              {views.map(([mode, label]) => (
-                <Button
-                  key={mode}
-                  size="xs"
-                  variant={state.mode === mode ? "secondary" : "ghost"}
-                  aria-pressed={state.mode === mode}
-                  onClick={() => session.setMode(mode)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          ) : null}
+      <div className="sticky top-0 z-10 border-b bg-background">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 px-4 py-1.5">
+          {kind === "markdown" ? <FormattingBar session={session} /> : <span />}
+          <div className="flex items-center gap-2">
+            <Button
+              size="xs"
+              variant="ghost"
+              title="Comment on the selection (⌘⌥M)"
+              disabled={state.status.kind === "opening"}
+              // keeps the editor's selection, which is what the comment is on
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => session.startComment()}
+            >
+              <MessageSquarePlus />
+              Comment
+            </Button>
+            {views.length > 0 ? (
+              <div role="group" aria-label="Mode" className="flex rounded-lg border p-0.5">
+                {views.map(([mode, label]) => (
+                  <Button
+                    key={mode}
+                    size="xs"
+                    variant={state.mode === mode ? "secondary" : "ghost"}
+                    aria-pressed={state.mode === mode}
+                    onClick={() => session.setMode(mode)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
+        {/* the find panel (Cmd/Ctrl-F) */}
+        <div ref={session.mountPanels} />
       </div>
       <div className="flex flex-1 flex-col md:flex-row">
         <div

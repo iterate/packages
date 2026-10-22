@@ -19,6 +19,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
 import { bracketMatching, indentOnInput, LanguageDescription } from "@codemirror/language";
+import { search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import {
   drawSelection,
@@ -97,6 +98,61 @@ const theme = EditorView.theme({
   ".cm-line": { lineHeight: "1.7" },
 });
 
+/** Find in the file, Cmd/Ctrl-F (`searchKeymap`, ahead of the default keymap so Escape closes it):
+ *  CodeMirror draws only the lines near the screen, so the browser's find misses the rest. The
+ *  panel goes in the page's sticky bar (doc-session.ts `mountPanels`), and a match lands mid-page,
+ *  clear of the bars above and below. */
+const find = [
+  search({
+    top: true,
+    scrollToMatch: (range) => EditorView.scrollIntoView(range, { y: "center" }),
+  }),
+  // over Atomic's theme, whose panel is dark and its buttons CodeMirror's dark gradients
+  Prec.highest(
+    EditorView.theme({
+      ".cm-panels": {
+        backgroundColor: "var(--background)",
+        color: "var(--foreground)",
+        borderTop: "1px solid var(--border)",
+      },
+      ".cm-panel.cm-search": { padding: "6px 36px 6px 16px", fontSize: "13px" },
+      ".cm-panel.cm-search input[type=text], .cm-panel.cm-search button": {
+        height: "26px",
+        margin: "2px 6px 2px 0",
+        borderRadius: "0",
+        border: "1px solid var(--border)",
+        backgroundColor: "var(--background)",
+        backgroundImage: "none",
+        color: "var(--foreground)",
+        fontSize: "13px",
+      },
+      ".cm-panel.cm-search input[type=text]": { width: "16rem", padding: "0 8px" },
+      ".cm-panel.cm-search input[type=text]:focus": {
+        outline: "none",
+        borderColor: "var(--foreground)",
+      },
+      ".cm-panel.cm-search button": { padding: "0 10px" },
+      ".cm-panel.cm-search button:hover": { backgroundColor: "var(--accent)" },
+      ".cm-panel.cm-search label": { color: "var(--muted-foreground)", fontSize: "13px" },
+      ".cm-panel.cm-search input[type=checkbox]": { accentColor: "var(--foreground)" },
+      ".cm-panel.cm-search button[name=close]": {
+        top: "8px",
+        right: "12px",
+        border: "none",
+        padding: "0 6px",
+        fontSize: "18px",
+        color: "var(--muted-foreground)",
+      },
+      // blue, apart from comments' yellow (comment-marks.ts)
+      ".cm-searchMatch": { backgroundColor: "color-mix(in oklab, var(--info) 18%, transparent)" },
+      ".cm-searchMatch.cm-searchMatch-selected": {
+        backgroundColor: "color-mix(in oklab, var(--info) 38%, transparent)",
+        outline: "1px solid var(--info)",
+      },
+    }),
+  ),
+];
+
 /** Everything but the preview, which `preview` holds so a mode switch can swap it. */
 export function docEditorExtensions(options: {
   mode: EditorMode;
@@ -125,9 +181,16 @@ export function docEditorExtensions(options: {
     atomicEditorTheme,
     theme,
     formattingKeymap,
+    find,
     // Tab indents the line, which nests a list item, and the editor keeps focus (indentWithTab):
     // Escape then Tab moves focus on, as CodeMirror's docs on trapping Tab describe.
-    keymap.of([...closeBracketsKeymap, ...markdownKeymap, indentWithTab, ...defaultKeymap]),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...searchKeymap,
+      ...markdownKeymap,
+      indentWithTab,
+      ...defaultKeymap,
+    ]),
     options.preview.of(previewExtensions(options.mode)),
   ];
 }
@@ -153,7 +216,8 @@ export function codeEditorExtensions(options: { language: Extension }): Extensio
     theme,
     // over Atomic's theme, which hides the gutters
     Prec.highest(codeTheme),
-    keymap.of([...closeBracketsKeymap, indentWithTab, ...defaultKeymap]),
+    find,
+    keymap.of([...closeBracketsKeymap, ...searchKeymap, indentWithTab, ...defaultKeymap]),
     options.language,
   ];
 }
