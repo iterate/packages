@@ -3,6 +3,9 @@ import type { EditorView } from "@codemirror/view";
 import {
   Bold,
   Code,
+  Heading1,
+  Heading2,
+  Heading3,
   Italic,
   Link,
   List,
@@ -10,12 +13,22 @@ import {
   ListOrdered,
   MessageSquarePlus,
   Minus,
+  Pilcrow,
   Redo2,
   Strikethrough,
   Table,
+  TextQuote,
   Undo2,
 } from "lucide-react";
+import { AppShellPageMenu } from "@iterate-com/ui/components/app-shell";
 import { Button } from "@iterate-com/ui/components/ui/button";
+import {
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+} from "@iterate-com/ui/components/ui/dropdown-menu";
 import { NativeSelect, NativeSelectOption } from "@iterate-com/ui/components/ui/native-select";
 import { Separator } from "@iterate-com/ui/components/ui/separator";
 import {
@@ -42,7 +55,8 @@ const modes: Record<"markdown" | "html" | "code", [DocMode, string][]> = {
 };
 
 /** The doc page's editor: formatting bar (markdown's), the view switch, the text (or an html
- *  file's preview) with its comments beside it, who else is here and where saving stands. */
+ *  file's preview) with its comments beside it, who else is here and where saving stands. On a
+ *  phone the bar's controls are in the header's ⋯ menu instead. */
 export function DocEditor({
   session,
   path,
@@ -61,8 +75,53 @@ export function DocEditor({
   const views = modes[kind];
   return (
     <div className="flex flex-1 flex-col">
-      <div className="sticky top-0 z-10 border-b bg-background">
-        <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 px-4 py-1.5">
+      <AppShellPageMenu>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            disabled={state.status.kind === "opening"}
+            onClick={() => session.startComment()}
+          >
+            <MessageSquarePlus />
+            Comment
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        {views.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup
+              aria-label="Mode"
+              value={state.mode}
+              onValueChange={(mode: DocMode) => session.setMode(mode)}
+            >
+              {views.map(([mode, label]) => (
+                <DropdownMenuRadioItem key={mode} value={mode} closeOnClick>
+                  {label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </>
+        ) : null}
+        {kind === "markdown" ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup aria-label="Formatting" className="grid grid-cols-6">
+              {[...FORMATTING.flat(), ...BLOCK_TYPES].map(({ label, icon, run }) => (
+                <DropdownMenuItem
+                  key={label}
+                  aria-label={label}
+                  title={label}
+                  className="justify-center p-2"
+                  onClick={() => run(session)}
+                >
+                  {icon}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </>
+        ) : null}
+      </AppShellPageMenu>
+      <div className="sticky top-0 z-10 bg-background md:border-b">
+        <div className="hidden min-h-11 flex-wrap items-center justify-between gap-2 px-4 py-1.5 md:flex">
           {kind === "markdown" ? <FormattingBar session={session} /> : <span />}
           <div className="flex items-center gap-2">
             <Button
@@ -169,12 +228,62 @@ function StatusText({ status, onRetry }: { status: DocStatus; onRetry: () => voi
   return status.by.length > 0 ? `${saved} (${status.by.join(", ")})` : saved;
 }
 
-/** MDXEditor's bar, more or less: every button is a text edit on the markdown (commands.ts), so it
- *  works in Markdown mode too. Buttons keep the editor's focus and selection (mousedown). */
+/** A formatting command: the bar's button, the phone menu's item. */
+type Formatting = { label: string; icon: React.ReactNode; run: (session: DocSession) => void };
+
+/** A text edit on the markdown (commands.ts), so it works in Markdown mode too. */
+const edit = (command: (view: EditorView) => boolean) => (session: DocSession) =>
+  session.run(command);
+
+/** The bar's buttons, in the groups its separators part. */
+const FORMATTING: Formatting[][] = [
+  [
+    { label: "Undo", icon: <Undo2 />, run: (session) => session.undo() },
+    { label: "Redo", icon: <Redo2 />, run: (session) => session.redo() },
+  ],
+  [
+    { label: "Bold", icon: <Bold />, run: edit((view) => toggleWrap(view, "**")) },
+    { label: "Italic", icon: <Italic />, run: edit((view) => toggleWrap(view, "_")) },
+    {
+      label: "Strikethrough",
+      icon: <Strikethrough />,
+      run: edit((view) => toggleWrap(view, "~~")),
+    },
+    { label: "Inline code", icon: <Code />, run: edit((view) => toggleWrap(view, "`")) },
+  ],
+  [
+    { label: "Bulleted list", icon: <List />, run: edit((view) => setLinePrefix(view, "- ")) },
+    {
+      label: "Numbered list",
+      icon: <ListOrdered />,
+      run: edit((view) => setLinePrefix(view, "1. ")),
+    },
+    {
+      label: "Checklist",
+      icon: <ListChecks />,
+      run: edit((view) => setLinePrefix(view, "- [ ] ")),
+    },
+  ],
+  [
+    { label: "Link", icon: <Link />, run: edit(promptLink) },
+    { label: "Table", icon: <Table />, run: edit((view) => insertBlock(view, TABLE_TEMPLATE)) },
+    { label: "Divider", icon: <Minus />, run: edit((view) => insertBlock(view, "---")) },
+  ],
+];
+
+/** The block types: the bar's select, the phone menu's last row. Each sets the markers its lines
+ *  start with. */
+const BLOCK_TYPES: Formatting[] = [
+  { label: "Paragraph", icon: <Pilcrow />, run: edit((view) => setLinePrefix(view, "")) },
+  { label: "Heading 1", icon: <Heading1 />, run: edit((view) => setLinePrefix(view, "# ")) },
+  { label: "Heading 2", icon: <Heading2 />, run: edit((view) => setLinePrefix(view, "## ")) },
+  { label: "Heading 3", icon: <Heading3 />, run: edit((view) => setLinePrefix(view, "### ")) },
+  { label: "Quote", icon: <TextQuote />, run: edit((view) => setLinePrefix(view, "> ")) },
+];
+
+/** MDXEditor's bar, more or less. Buttons keep the editor's focus and selection (mousedown). */
 function FormattingBar({ session }: { session: DocSession }) {
-  const button = (label: string, icon: React.ReactNode, command: (view: EditorView) => boolean) =>
-    action(label, icon, () => session.run(command));
-  const action = (label: string, icon: React.ReactNode, onClick: () => void) => (
+  const button = ({ label, icon, run }: Formatting) => (
     <Button
       key={label}
       size="icon-sm"
@@ -182,56 +291,39 @@ function FormattingBar({ session }: { session: DocSession }) {
       aria-label={label}
       title={label}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
+      onClick={() => run(session)}
     >
       {icon}
     </Button>
   );
+  const [history, inline, lists, blocks] = FORMATTING;
   return (
     <div role="toolbar" aria-label="Formatting" className="flex flex-wrap items-center gap-0.5">
-      {action("Undo", <Undo2 />, () => session.undo())}
-      {action("Redo", <Redo2 />, () => session.redo())}
+      {history.map(button)}
       <Separator orientation="vertical" className="mx-1 h-5" />
-      {button("Bold", <Bold />, (view) => toggleWrap(view, "**"))}
-      {button("Italic", <Italic />, (view) => toggleWrap(view, "_"))}
-      {button("Strikethrough", <Strikethrough />, (view) => toggleWrap(view, "~~"))}
-      {button("Inline code", <Code />, (view) => toggleWrap(view, "`"))}
+      {inline.map(button)}
       <Separator orientation="vertical" className="mx-1 h-5" />
-      {button("Bulleted list", <List />, (view) => setLinePrefix(view, "- "))}
-      {button("Numbered list", <ListOrdered />, (view) => setLinePrefix(view, "1. "))}
-      {button("Checklist", <ListChecks />, (view) => setLinePrefix(view, "- [ ] "))}
+      {lists.map(button)}
       <Separator orientation="vertical" className="mx-1 h-5" />
       <NativeSelect
         size="sm"
         aria-label="Block type"
         value=""
-        onChange={(event) => {
-          const prefix = BLOCK_TYPES[event.target.value] || "";
-          session.run((view) => setLinePrefix(view, prefix));
-        }}
+        onChange={(event) =>
+          BLOCK_TYPES.find((type) => type.label === event.target.value)?.run(session)
+        }
       >
         <NativeSelectOption value="" disabled>
           Block type
         </NativeSelectOption>
-        <NativeSelectOption value="paragraph">Paragraph</NativeSelectOption>
-        <NativeSelectOption value="h1">Heading 1</NativeSelectOption>
-        <NativeSelectOption value="h2">Heading 2</NativeSelectOption>
-        <NativeSelectOption value="h3">Heading 3</NativeSelectOption>
-        <NativeSelectOption value="quote">Quote</NativeSelectOption>
+        {BLOCK_TYPES.map(({ label }) => (
+          <NativeSelectOption key={label} value={label}>
+            {label}
+          </NativeSelectOption>
+        ))}
       </NativeSelect>
       <Separator orientation="vertical" className="mx-1 h-5" />
-      {button("Link", <Link />, promptLink)}
-      {button("Table", <Table />, (view) => insertBlock(view, TABLE_TEMPLATE))}
-      {button("Divider", <Minus />, (view) => insertBlock(view, "---"))}
+      {blocks.map(button)}
     </div>
   );
 }
-
-/** The block-type menu's choices, by option value: the markers their lines start with. */
-const BLOCK_TYPES: Record<string, string> = {
-  paragraph: "",
-  h1: "# ",
-  h2: "## ",
-  h3: "### ",
-  quote: "> ",
-};

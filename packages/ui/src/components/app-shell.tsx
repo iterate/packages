@@ -1,11 +1,14 @@
 // The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
 // project switcher in its header, the app's own navigation in its body, the collapse button, the
 // account menu and the platform the app is connected to in its footer, the rail) and the page
-// beside it under a header row that carries the phone's sidebar trigger — and ⌘K, a palette over
-// the projects and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
+// beside it under a header row that carries the phone's sidebar trigger and a page's own menu
+// (`AppShellPageMenu`) — and ⌘K, a palette over the projects and the sidebar's pages
+// (app-shell-palette.tsx). Router-agnostic on purpose: the app
 // hands over hrefs and its current location, nothing from TanStack comes in here.
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -14,12 +17,15 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   CheckIcon,
   ChevronsLeftIcon,
   ChevronsUpDownIcon,
+  EllipsisIcon,
   EyeIcon,
   LogOutIcon,
+  SearchIcon,
   TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
@@ -39,6 +45,7 @@ import {
 import { readConnectedPlatform, type ConnectedPlatform } from "./app-shell-platform.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -140,6 +147,8 @@ export function AppShell({
   const navRef = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<SidebarNavItem[] | null>(null);
   const openPalette = () => setPalette(readSidebarNav(navRef.current));
+  // the header row's end, where a page's menu goes (`AppShellPageMenu`)
+  const [pageMenuSlot, setPageMenuSlot] = useState<HTMLElement | null>(null);
   usePaletteShortcut(
     useCallback(() => setPalette((open) => (open ? null : readSidebarNav(navRef.current))), []),
   );
@@ -186,12 +195,18 @@ export function AppShell({
         <SidebarRail />
       </Sidebar>
       <SidebarInset className="min-w-0 overflow-hidden">
-        <header className="flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1">
+        <header className="group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1">
           <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
-          <PaletteHeaderButton onOpen={openPalette} />
-          {header}
+          {/* in a page's menu instead on a phone, while it has one */}
+          <div className="flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden">
+            <PaletteHeaderButton onOpen={openPalette} />
+            {header}
+          </div>
+          <div ref={setPageMenuSlot} className="ml-auto flex items-center" />
         </header>
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+        <PageMenuContext value={{ slot: pageMenuSlot, openPalette, header }}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+        </PageMenuContext>
       </SidebarInset>
       <AppShellPalette
         nav={palette}
@@ -203,6 +218,52 @@ export function AppShell({
         onNavigate={onNavigate}
       />
     </SidebarProvider>
+  );
+}
+
+const PageMenuContext = createContext<{
+  slot: HTMLElement | null;
+  openPalette: () => void;
+  header: ReactNode;
+} | null>(null);
+
+/** A page's own controls on a phone, behind a ⋯ at the end of the header row: the row's `header`
+ *  and Search move in above them, so the row is the sidebar trigger and the ⋯ alone. `children`
+ *  are `DropdownMenuItem`s (in `DropdownMenuGroup`s). Hidden from `md` up, where the page shows
+ *  its controls itself: the page hides them below `md`, so one breakpoint decides both, in CSS. */
+export function AppShellPageMenu({ children }: { children: ReactNode }) {
+  const shell = useContext(PageMenuContext);
+  if (!shell) throw new Error("AppShellPageMenu is drawn inside an AppShell");
+  if (!shell.slot) return null;
+  return createPortal(
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        data-page-menu
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="md:hidden"
+            aria-label="More"
+            title="More"
+          />
+        }
+      >
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56 rounded-lg">
+        {shell.header ? <div className="px-1.5 py-1">{shell.header}</div> : null}
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={shell.openPalette}>
+            <SearchIcon />
+            Search
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>,
+    shell.slot,
   );
 }
 
