@@ -57,8 +57,8 @@ The look is opt-in, three ways, all cut from `src/styles/iterate.css` (`scripts/
 
 ```html
 <!-- a no-build page: the overlay after the neutral stylesheet; the fonts load from beside it -->
-<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
-<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/iterate.css" />
+<link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/styles.css" />
+<link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/iterate.css" />
 ```
 
 ```sh
@@ -142,16 +142,16 @@ and uses it too:
 <script type="importmap">
   {
     "imports": {
-      "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@<version>/",
-      "react": "https://esm.sh/@iterate-com/ui@<version>/react",
-      "react/": "https://esm.sh/@iterate-com/ui@<version>/react/",
-      "react-dom": "https://esm.sh/@iterate-com/ui@<version>/react-dom",
-      "react-dom/": "https://esm.sh/@iterate-com/ui@<version>/react-dom/",
-      "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5?external=react,react-dom"
+      "@iterate-com/ui/": "https://esm.iterate.com/@iterate-com/ui@<version>/",
+      "react": "https://esm.iterate.com/@iterate-com/ui@<version>/react",
+      "react/": "https://esm.iterate.com/@iterate-com/ui@<version>/react/",
+      "react-dom": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom",
+      "react-dom/": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom/",
+      "@tanstack/react-query": "https://esm.iterate.com/@tanstack/react-query@5?external=react,react-dom"
     }
   }
 </script>
-<link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
+<link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/styles.css" />
 <div id="root" class="flex h-screen flex-col"></div>
 <script type="module">
   import { html, render, useState } from "@iterate-com/ui/page";
@@ -196,7 +196,7 @@ esm.sh with `?external=react,react-dom`, which leaves its `react` and `react-dom
 of the packages it brings, for the page's import map:
 
 ```json
-"recharts": "https://esm.sh/recharts@3.10.1?external=react,react-dom"
+"recharts": "https://esm.iterate.com/recharts@3.10.1?external=react,react-dom"
 ```
 
 `examples/events-chart-page.ts` is a whole page: a context's events charted by recharts, above the

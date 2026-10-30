@@ -36,18 +36,18 @@ polling for new ones.
     <script type="importmap">
       {
         "imports": {
-          "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@<version>/",
-          "react": "https://esm.sh/@iterate-com/ui@<version>/react",
-          "react/": "https://esm.sh/@iterate-com/ui@<version>/react/",
-          "react-dom": "https://esm.sh/@iterate-com/ui@<version>/react-dom",
-          "react-dom/": "https://esm.sh/@iterate-com/ui@<version>/react-dom/",
-          "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5?external=react,react-dom"
+          "@iterate-com/ui/": "https://esm.iterate.com/@iterate-com/ui@<version>/",
+          "react": "https://esm.iterate.com/@iterate-com/ui@<version>/react",
+          "react/": "https://esm.iterate.com/@iterate-com/ui@<version>/react/",
+          "react-dom": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom",
+          "react-dom/": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom/",
+          "@tanstack/react-query": "https://esm.iterate.com/@tanstack/react-query@5?external=react,react-dom"
         }
       }
     </script>
-    <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/styles.css" />
+    <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/styles.css" />
     <!-- optional: iterate's look (Ubuntu, square corners) over the neutral one -->
-    <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@<version>/iterate.css" />
+    <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/iterate.css" />
   </head>
   <body>
     <script type="module">

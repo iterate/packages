@@ -89,7 +89,7 @@ export function backupPage(
     <pre id="report" hidden></pre>
 
     <script type="module" nonce="${nonce}">
-      import { strFromU8, strToU8, unzipSync, zipSync } from "https://esm.sh/fflate@0.8.3";
+      import { strFromU8, strToU8, unzipSync, zipSync } from "https://esm.iterate.com/fflate@0.8.3";
 
       const project = JSON.parse(document.getElementById("project").textContent);
       const byId = (id) => document.getElementById(id);
@@ -202,7 +202,7 @@ export function backupPage(
         "cache-control": "no-store",
         "content-security-policy": [
           "default-src 'none'",
-          `script-src 'nonce-${nonce}' https://esm.sh`,
+          `script-src 'nonce-${nonce}' https://esm.iterate.com`,
           `style-src ${plainPageCssHash}`,
           "connect-src 'self'",
           "form-action 'self'",

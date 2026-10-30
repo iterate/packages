@@ -41,16 +41,16 @@ export async function eventsChartPage(itx: {
     <script type="importmap">
       {
         "imports": {
-          "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@main/",
-          "react": "https://esm.sh/@iterate-com/ui@main/react",
-          "react/": "https://esm.sh/@iterate-com/ui@main/react/",
-          "react-dom": "https://esm.sh/@iterate-com/ui@main/react-dom",
-          "react-dom/": "https://esm.sh/@iterate-com/ui@main/react-dom/",
-          "recharts": "https://esm.sh/recharts@3.10.1?external=react,react-dom"
+          "@iterate-com/ui/": "https://esm.iterate.com/@iterate-com/ui@main/",
+          "react": "https://esm.iterate.com/@iterate-com/ui@main/react",
+          "react/": "https://esm.iterate.com/@iterate-com/ui@main/react/",
+          "react-dom": "https://esm.iterate.com/@iterate-com/ui@main/react-dom",
+          "react-dom/": "https://esm.iterate.com/@iterate-com/ui@main/react-dom/",
+          "recharts": "https://esm.iterate.com/recharts@3.10.1?external=react,react-dom"
         }
       }
     </script>
-    <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@main/styles.css" />
+    <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@main/styles.css" />
     <script type="application/json" id="project">${data}</script>
   </head>
   <body>

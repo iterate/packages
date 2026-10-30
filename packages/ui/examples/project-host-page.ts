@@ -37,9 +37,9 @@ export async function projectHostPage(itx: {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Contexts</title>
     <script type="importmap">
-      { "imports": { "@iterate-com/ui/": "https://esm.sh/@iterate-com/ui@main/" } }
+      { "imports": { "@iterate-com/ui/": "https://esm.iterate.com/@iterate-com/ui@main/" } }
     </script>
-    <link rel="stylesheet" href="https://esm.sh/@iterate-com/ui@main/styles.css" />
+    <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@main/styles.css" />
     <script type="application/json" id="project">${data}</script>
   </head>
   <body>
