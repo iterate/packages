@@ -31,7 +31,7 @@ export function CommentsPanel({
   return (
     <aside
       aria-label="Comments"
-      className="flex shrink-0 flex-col gap-3 border-t p-3 md:sticky md:top-11 md:max-h-[calc(100svh-5.5rem)] md:w-80 md:self-start md:overflow-y-auto md:border-t-0 md:border-l"
+      className="flex shrink-0 flex-col gap-3 border-t p-3 md:sticky md:top-0 md:max-h-[calc(100svh-4.75rem)] md:w-80 md:self-start md:overflow-y-auto md:border-t-0 md:border-l"
     >
       {state.draft ? (
         <article

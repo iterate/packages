@@ -4,17 +4,11 @@ import type { Principal } from "iterate/principal";
 import type { AppPaletteEntry } from "#/components/app-shell-palette-entries.ts";
 import { AppShell, type AppShellProject } from "#/components/app-shell.tsx";
 import { DefaultPendingComponent } from "#/components/route-defaults.tsx";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "#/components/ui/breadcrumb.tsx";
 
 /** A project's page in an app that shows one project at a time (Notes, Voice): the shared
  *  `AppShell` with that project picked in its switcher, each project at `/projects/<slug>` under
- *  the page's `basePath`, and `<app> › <slug>` in the header. */
+ *  the page's `basePath`. The switcher names the app and the project, so the header row adds
+ *  nothing of its own: a desktop shows it only for a page's own row (`AppShellPageHeader`). */
 export function ProjectAppShell({
   app,
   projects,
@@ -48,17 +42,6 @@ export function ProjectAppShell({
       projects={projects}
       activeProjectId={project.id}
       projectHref={(item) => `${basePath}/projects/${item.slug}`}
-      header={
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem className="hidden md:inline-flex">{app}</BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden md:inline-flex" />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="font-mono">{project.slug}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      }
       nav={nav}
       paletteEntries={paletteEntries}
       account={account}

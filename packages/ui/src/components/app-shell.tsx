@@ -1,9 +1,9 @@
 // The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
 // project switcher in its header, the app's own navigation in its body, the collapse button, the
 // account menu and the platform the app is connected to in its footer, the rail) and the page
-// beside it under a header row that carries the phone's sidebar trigger and a page's own menu
-// (`AppShellPageMenu`) — and ⌘K, a palette over the projects and the sidebar's pages
-// (app-shell-palette.tsx). Router-agnostic on purpose: the app
+// beside it under a header row that carries the phone's sidebar trigger, a page's own row
+// (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the projects
+// and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
 // hands over hrefs and its current location, nothing from TanStack comes in here.
 import {
   createContext,
@@ -123,7 +123,8 @@ export function AppShell({
   /** the sidebar's "Search" row above `nav`; without it, ⌘K and the phone's header button still
    *  open the palette */
   searchRow?: boolean;
-  /** what sits beside the phone's sidebar trigger in the header row */
+  /** what sits beside the phone's sidebar trigger in the header row; without it, a desktop shows
+   *  the row only while a page puts its own in it (`AppShellPageHeader`) */
   header?: ReactNode;
   /** who the app is signed in as (`info.principal`); "Sign out" posts to the SDK's `/.auth/logout`,
    *  "Switch account…" signs in again through the issuer's consent. A platform admin signed in as
@@ -147,7 +148,9 @@ export function AppShell({
   const navRef = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<SidebarNavItem[] | null>(null);
   const openPalette = () => setPalette(readSidebarNav(navRef.current));
-  // the header row's end, where a page's menu goes (`AppShellPageMenu`)
+  // the header row's middle and end, where a page's own row (`AppShellPageHeader`) and its menu
+  // (`AppShellPageMenu`) go
+  const [pageHeaderSlot, setPageHeaderSlot] = useState<HTMLElement | null>(null);
   const [pageMenuSlot, setPageMenuSlot] = useState<HTMLElement | null>(null);
   usePaletteShortcut(
     useCallback(() => setPalette((open) => (open ? null : readSidebarNav(navRef.current))), []),
@@ -195,18 +198,34 @@ export function AppShell({
         <SidebarRail />
       </Sidebar>
       <SidebarInset className="min-w-0 overflow-hidden">
-        <header className="group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1">
+        <header
+          className={cn(
+            "group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1",
+            // a page's own row is a toolbar: even padding, a rule under it
+            "has-[[data-page-header]]:border-b has-[[data-page-header]]:py-1.5",
+            // the trigger, Search and the ⋯ are a phone's: on a desktop the row would be empty
+            !header && "md:hidden md:has-[[data-page-header]]:flex",
+          )}
+        >
           <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
           {/* in a page's menu instead on a phone, while it has one */}
-          <div className="flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden">
+          <div
+            className={cn(
+              "flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden",
+              !header && "md:hidden",
+            )}
+          >
             <PaletteHeaderButton onOpen={openPalette} />
             {header}
           </div>
-          <div ref={setPageMenuSlot} className="ml-auto flex items-center" />
+          <div ref={setPageHeaderSlot} className="flex min-w-0 flex-1 items-center empty:hidden" />
+          <div ref={setPageMenuSlot} className="ml-auto flex items-center md:hidden" />
         </header>
-        <PageMenuContext value={{ slot: pageMenuSlot, openPalette, header }}>
+        <PageSlotsContext
+          value={{ header: pageHeaderSlot, menu: pageMenuSlot, openPalette, appHeader: header }}
+        >
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
-        </PageMenuContext>
+        </PageSlotsContext>
       </SidebarInset>
       <AppShellPalette
         nav={palette}
@@ -221,20 +240,39 @@ export function AppShell({
   );
 }
 
-const PageMenuContext = createContext<{
-  slot: HTMLElement | null;
+const PageSlotsContext = createContext<{
+  header: HTMLElement | null;
+  menu: HTMLElement | null;
   openPalette: () => void;
-  header: ReactNode;
+  /** the app's `header`, which a phone shows in the page's menu */
+  appHeader: ReactNode;
 } | null>(null);
+
+/** A page's own row of the header: what it shows above itself (a doc's path and its controls), in
+ *  the row the shell has anyway, between the phone's sidebar trigger and the page's ⋯. The row gets
+ *  a rule under it while a page has one, and a desktop shows it then even when the app gave the
+ *  shell no `header`. */
+export function AppShellPageHeader({ children }: { children: ReactNode }) {
+  const shell = useContext(PageSlotsContext);
+  if (!shell) throw new Error("AppShellPageHeader is drawn inside an AppShell");
+  if (!shell.header) return null;
+  return createPortal(
+    // one line on a phone, where the page's controls are in its ⋯: what's too long truncates
+    <div data-page-header className="flex min-w-0 flex-1 items-center gap-x-4 gap-y-1 md:flex-wrap">
+      {children}
+    </div>,
+    shell.header,
+  );
+}
 
 /** A page's own controls on a phone, behind a ⋯ at the end of the header row: the row's `header`
  *  and Search move in above them, so the row is the sidebar trigger and the ⋯ alone. `children`
  *  are `DropdownMenuItem`s (in `DropdownMenuGroup`s). Hidden from `md` up, where the page shows
  *  its controls itself: the page hides them below `md`, so one breakpoint decides both, in CSS. */
 export function AppShellPageMenu({ children }: { children: ReactNode }) {
-  const shell = useContext(PageMenuContext);
+  const shell = useContext(PageSlotsContext);
   if (!shell) throw new Error("AppShellPageMenu is drawn inside an AppShell");
-  if (!shell.slot) return null;
+  if (!shell.menu) return null;
   return createPortal(
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -252,7 +290,7 @@ export function AppShellPageMenu({ children }: { children: ReactNode }) {
         <EllipsisIcon />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56 rounded-lg">
-        {shell.header ? <div className="px-1.5 py-1">{shell.header}</div> : null}
+        {shell.appHeader ? <div className="px-1.5 py-1">{shell.appHeader}</div> : null}
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={shell.openPalette}>
             <SearchIcon />
@@ -263,7 +301,7 @@ export function AppShellPageMenu({ children }: { children: ReactNode }) {
         {children}
       </DropdownMenuContent>
     </DropdownMenu>,
-    shell.slot,
+    shell.menu,
   );
 }
 

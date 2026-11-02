@@ -548,7 +548,6 @@
         "iterate"
       ],
       "registryDependencies": [
-        "breadcrumb",
         "iterate/packages/app-shell",
         "iterate/packages/route-defaults"
       ],

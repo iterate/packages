@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { EditorView } from "@codemirror/view";
 import {
   Bold,
@@ -20,7 +20,8 @@ import {
   TextQuote,
   Undo2,
 } from "lucide-react";
-import { AppShellPageMenu } from "@iterate-com/ui/components/app-shell";
+import { AppShellPageHeader, AppShellPageMenu } from "@iterate-com/ui/components/app-shell";
+import { StreamLink, streamHref, type StreamTarget } from "@iterate-com/ui/components/stream-link";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import {
   DropdownMenuGroup,
@@ -54,9 +55,10 @@ const modes: Record<"markdown" | "html" | "code", [DocMode, string][]> = {
   code: [],
 };
 
-/** The doc page's editor: formatting bar (markdown's), the view switch, the text (or an html
- *  file's preview) with its comments beside it, who else is here and where saving stands. On a
- *  phone the bar's controls are in the header's ⋯ menu instead. */
+/** The doc page's editor: one row in the shell's header (the doc's path, markdown's formatting bar,
+ *  who else is here, the view switch, Stream ↗), the text (or an html file's preview) with its
+ *  comments beside it, and where saving stands. On a phone the row's controls are in the header's ⋯
+ *  menu instead. */
 export function DocEditor({
   session,
   path,
@@ -67,12 +69,13 @@ export function DocEditor({
   path: string;
   /** a link back to the doc list */
   back: React.ReactNode;
-  /** the doc's context in the dash (`StreamLink`) */
-  stream: React.ReactNode;
+  /** the doc's context, which "Stream ↗" opens in the dash */
+  stream: StreamTarget;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.state, session.state);
   const { kind } = session.options;
   const views = modes[kind];
+  const streamUrl = streamHref(stream);
   return (
     <div className="flex flex-1 flex-col">
       <AppShellPageMenu>
@@ -119,11 +122,29 @@ export function DocEditor({
             </DropdownMenuGroup>
           </>
         ) : null}
+        {streamUrl ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem render={<a href={streamUrl} target="_blank" rel="noreferrer" />}>
+              Stream ↗
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </AppShellPageMenu>
-      <div className="sticky top-0 z-10 bg-background md:border-b">
-        <div className="hidden min-h-11 flex-wrap items-center justify-between gap-2 px-4 py-1.5 md:flex">
-          {kind === "markdown" ? <FormattingBar session={session} /> : <span />}
-          <div className="flex items-center gap-2">
+      <AppShellPageHeader>
+        <p className="flex min-w-0 gap-2 font-mono text-xs text-muted-foreground">
+          {back}
+          <span aria-hidden>/</span>
+          <span className="truncate">{path}</span>
+        </p>
+        {kind === "markdown" ? <FormattingBar session={session} /> : null}
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {state.others.length > 0 && (
+            <p aria-label="Also here" className="text-xs text-muted-foreground">
+              Also here: {state.others.join(", ")}
+            </p>
+          )}
+          <div className="hidden items-center gap-2 md:flex">
             <Button
               size="xs"
               variant="ghost"
@@ -152,44 +173,28 @@ export function DocEditor({
               </div>
             ) : null}
           </div>
+          <span className="hidden md:flex">
+            <StreamLink {...stream} />
+          </span>
         </div>
-        {/* the find panel (Cmd/Ctrl-F) */}
-        <div ref={session.mountPanels} />
-      </div>
+      </AppShellPageHeader>
+      {/* the find panel (Cmd/Ctrl-F) */}
+      <div ref={session.mountPanels} className="sticky top-0 z-10 bg-background" />
       <div className="flex flex-1 flex-col md:flex-row">
         <div
           className={
-            kind === "markdown"
-              ? "mx-auto w-full min-w-0 max-w-3xl flex-1 px-4 md:px-8"
-              : "flex w-full min-w-0 flex-1 flex-col px-4"
+            state.mode === "preview"
+              ? "flex min-w-0 flex-1 flex-col"
+              : kind === "markdown"
+                ? "mx-auto w-full min-w-0 max-w-3xl flex-1 px-4 md:px-8"
+                : "flex w-full min-w-0 flex-1 flex-col px-4"
           }
         >
-          <div className="flex flex-wrap justify-between gap-2 pt-4 text-xs text-muted-foreground">
-            <p className="flex gap-2 font-mono">
-              {back}
-              <span aria-hidden>/</span>
-              <span>{path}</span>
-            </p>
-            <div className="flex gap-3">
-              {state.others.length > 0 && (
-                <p aria-label="Also here">Also here: {state.others.join(", ")}</p>
-              )}
-              {stream}
-            </div>
-          </div>
-          {state.mode === "preview" ? (
-            <iframe
-              title={`Preview of ${path}`}
-              // its own opaque origin: the page's scripts run, and reach nothing of the app's
-              sandbox="allow-scripts allow-popups allow-forms"
-              srcDoc={state.previewText}
-              className="mt-3 min-h-[70vh] w-full flex-1 rounded-md border bg-white"
-            />
-          ) : null}
+          {state.mode === "preview" ? <Preview path={path} html={state.previewText} /> : null}
           {/* mounted in Preview too: the text stays live, and the preview follows it */}
           <div
             ref={session.mount}
-            className={state.mode === "preview" ? "hidden" : "docs-editor pt-2"}
+            className={state.mode === "preview" ? "hidden" : "docs-editor pt-4"}
           />
         </div>
         {state.threads.length > 0 || state.draft ? (
@@ -203,6 +208,33 @@ export function DocEditor({
         <StatusText status={state.status} onRetry={() => session.reconnect()} />
       </p>
     </div>
+  );
+}
+
+/** An html file's Preview, filling the page under the header: a sandboxed frame (its own opaque
+ *  origin: the page's scripts run, and reach nothing of the app's) at a blob: URL of its own. Not
+ *  `srcdoc`: an about:srcdoc page resolves `#…` against the app's URL, so its
+ *  `history.replaceState(null, "", "#2")` throws and a `#` link loads the app into the frame. */
+function Preview({ path, html }: { path: string; html: string }) {
+  const load = useCallback(
+    (frame: HTMLIFrameElement | null) => {
+      if (!frame) return;
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+      frame.src = url;
+      return () => URL.revokeObjectURL(url);
+    },
+    [html],
+  );
+  return (
+    <iframe
+      // a new frame for each version of the text: one frame loading each in turn would add a step to
+      // the tab's Back for every one
+      key={html}
+      ref={load}
+      title={`Preview of ${path}`}
+      sandbox="allow-scripts allow-popups allow-forms"
+      className="w-full flex-1 bg-white"
+    />
   );
 }
 
@@ -298,7 +330,11 @@ function FormattingBar({ session }: { session: DocSession }) {
   );
   const [history, inline, lists, blocks] = FORMATTING;
   return (
-    <div role="toolbar" aria-label="Formatting" className="flex flex-wrap items-center gap-0.5">
+    <div
+      role="toolbar"
+      aria-label="Formatting"
+      className="hidden flex-wrap items-center gap-0.5 md:flex"
+    >
       {history.map(button)}
       <Separator orientation="vertical" className="mx-1 h-5" />
       {inline.map(button)}

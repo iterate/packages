@@ -16,7 +16,6 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@iterate-com/ui/components/ui/empty";
-import { StreamLink } from "@iterate-com/ui/components/stream-link";
 import { DocEditor } from "../../components/doc-editor.tsx";
 import { DocSession } from "../../editor/doc-session.ts";
 import { repoPath } from "../../lib/docs-repo.ts";
@@ -113,14 +112,12 @@ function DocPage() {
           {repo}
         </Link>
       }
-      stream={
-        <StreamLink
-          dashOrigin={dashOrigin}
-          platformOrigin={info.platformOrigin}
-          project={slug}
-          path={docContextPath({ repo: repoPath(docRepo), path })}
-        />
-      }
+      stream={{
+        dashOrigin,
+        platformOrigin: info.platformOrigin,
+        project: slug,
+        path: docContextPath({ repo: repoPath(docRepo), path }),
+      }}
     />
   );
 }
