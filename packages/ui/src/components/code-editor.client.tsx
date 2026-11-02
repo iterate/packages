@@ -5,10 +5,11 @@ import { basicSetup } from "codemirror";
 import { acceptCompletion, autocompletion, type Completion } from "@codemirror/autocomplete";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
-import { Prec } from "@codemirror/state";
-import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
-import { vsCodeLight } from "@fsegurai/codemirror-theme-bundle";
+import { Compartment, Prec } from "@codemirror/state";
+import { EditorView, keymap, placeholder as placeholderExt, ViewPlugin } from "@codemirror/view";
+import { vsCodeDark, vsCodeLight } from "@fsegurai/codemirror-theme-bundle";
 import { cn } from "cn";
+import { systemCodeMirrorTheme } from "#/lib/codemirror-theme.ts";
 
 /** What `complete` offers at the caret: CodeMirror filters and ranks `options` by what is typed
  *  from `from` on, and keeps the list while the typed text matches `validFor`. */
@@ -86,7 +87,7 @@ export function CodeEditor({
           },
         ]),
         basicSetup,
-        vsCodeLight,
+        systemCodeMirrorTheme({ Compartment, ViewPlugin, vsCodeLight, vsCodeDark }),
         (language === "json" ? json : yaml)(),
         EditorView.lineWrapping,
         placeholder ? placeholderExt(placeholder) : [],
@@ -110,7 +111,7 @@ export function CodeEditor({
         EditorView.updateListener.of((update) => {
           if (update.docChanged) emitValueChange(update.state.doc.toString());
         }),
-        // over vsCodeLight, whose active line and completion colours would otherwise win
+        // over the VS Code theme, whose active line and completion colours would otherwise win
         Prec.highest(
           EditorView.theme({
             "&": {

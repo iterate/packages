@@ -21,18 +21,19 @@
   --text-2xs--line-height: calc(1 / 0.6875);
 }
 
+/* Each colour is light-dark(light, dark), so a registry item carries both as one value. */
 :root {
-  /* A status, dark enough to be text on white. The same colour is its dot (bg-success) and, at a
-     tenth, its tint (bg-success/10). */
-  --success: oklch(0.508 0.118 165.612);
-  --warning: oklch(0.555 0.163 48.998);
-  --info: oklch(0.5 0.134 242.749);
+  /* A status, dark enough to be text on white (light enough on black). The same colour is its dot
+     (bg-success) and, at a tenth, its tint (bg-success/10). */
+  --success: light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223));
+  --warning: light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429));
+  --info: light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661));
   /* A marker pen's yellow, under the text a comment is about. */
-  --highlight: #ffc53d;
+  --highlight: light-dark(#ffc53d, #755800);
   /* Series in a chart: distinct hues that mean nothing on their own. */
-  --chart-1: #2a78d6;
-  --chart-2: #eb6834;
-  --chart-3: #1baf7a;
-  --chart-4: #eda100;
-  --chart-5: #e87ba4;
+  --chart-1: light-dark(#2a78d6, #78b4ff);
+  --chart-2: light-dark(#eb6834, #ff966b);
+  --chart-3: light-dark(#1baf7a, #65d6a6);
+  --chart-4: light-dark(#eda100, #f4c45f);
+  --chart-5: light-dark(#e87ba4, #f3a0c0);
 }

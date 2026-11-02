@@ -158,9 +158,6 @@ export function RepoFileTree({
       <FileTree
         model={model}
         className="min-h-0 flex-1 overflow-y-auto"
-        // Pierre themes itself with CSS light-dark(); the editor beside it is light only
-        // (vsCodeLight), so the tree is pinned to light too
-        style={{ colorScheme: "light" }}
         renderContextMenu={(item, context) => (
           <RepoTreeContextMenu
             item={item}

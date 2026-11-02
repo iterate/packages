@@ -13,7 +13,7 @@
 //   stale). `themeItem` turns the file into the item's fields, as shadcn 4.21's `add` applies them:
 //   `cssVars.theme` into the app's `@theme inline`, `cssVars.light` into its `:root`, each replacing
 //   the app's own value, and `css` as written (an `@import "<package>"` after the app's last import,
-//   and `@layer base` rules with their `@apply`).
+//   `color-scheme` into its `:root`, and `@layer base` rules with their `@apply`).
 //
 // test/playwright/ui/iterate-look.spec.ts holds the three to one look: the same elements, styled each
 // way, compute the same styles.
@@ -124,10 +124,17 @@ export function packagesOf(css: string) {
 export function themeItem(input: { css: string; read: (specifier: string) => string }) {
   const theme: Record<string, string> = {};
   const light: Record<string, string> = {};
-  const css: Record<string, Record<string, Record<string, Record<string, never> | string>>> = {};
+  // `@import "<package>"`, `:root`'s declarations that are not colours (`color-scheme`), and each
+  // `@layer`'s rules
+  const css: Record<
+    string,
+    Record<string, Record<string, Record<string, never> | string> | string>
+  > = {};
   const addLight = (container: Container) =>
     container.each((node) => {
-      if (node.type === "decl") light[node.prop.replace(/^--/, "")] = node.value;
+      if (node.type !== "decl") return;
+      if (node.prop.startsWith("--")) light[node.prop.slice(2)] = node.value;
+      else (css[":root"] ||= {})[node.prop] = node.value;
     });
   postcss.parse(input.css).each((node) => {
     if (node.type === "comment") return;
@@ -187,8 +194,8 @@ function packageOf(specifier: string) {
 }
 
 /** What `shadcn add` of the theme item (`item`) left out of the app's stylesheet (`css`, after the
- *  add): each theme value in its `@theme inline`, each light value in its `:root`, each import and
- *  each base rule. Empty when the app has the look. Pure. */
+ *  add): each theme value in its `@theme inline`, each light value and `color-scheme` in its
+ *  `:root`, each import and each base rule. Empty when the app has the look. Pure. */
 export function themeAppliedProblems(input: { item: ReturnType<typeof themeItem>; css: string }) {
   const root = postcss.parse(input.css);
   const declsOf = (containers: Container[]) =>
@@ -227,9 +234,16 @@ export function themeAppliedProblems(input: { item: ReturnType<typeof themeItem>
       if (!imports.has(key)) problems.push(`${key} missing`);
       continue;
     }
-    for (const [selector, body] of Object.entries(rules))
+    for (const [selector, body] of Object.entries(rules)) {
+      // a declaration of `:root` itself
+      if (typeof body === "string") {
+        if (light.get(selector) !== body)
+          problems.push(`${key} ${selector}: ${light.get(selector)}`);
+        continue;
+      }
       for (const line of Object.keys(body))
         if (!baseRules.get(selector)?.includes(line)) problems.push(`${selector} lacks ${line}`);
+    }
   }
   return problems;
 }

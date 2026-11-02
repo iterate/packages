@@ -57,9 +57,9 @@ const formattingKeymap = Prec.highest(
   ),
 );
 
-/** Atomic's colours from the app's theme (packages/ui globals.css), which is light only: Atomic's
- *  own defaults are a dark theme, inline code and code blocks' syntax colours included (the `hl-`
- *  ones, GitHub's light palette here; a fence's language name is `hl-variable`). */
+/** Atomic's colours from the app's theme (packages/ui globals.css): Atomic's own defaults are a
+ *  dark theme, inline code and code blocks' syntax colours included (the `hl-` ones, GitHub's
+ *  light and dark palettes here, as the OS is; a fence's language name is `hl-variable`). */
 const theme = EditorView.theme({
   "&": {
     "--atomic-editor-fg": "var(--foreground)",
@@ -78,18 +78,18 @@ const theme = EditorView.theme({
     "--atomic-editor-selection-bg": "var(--accent)",
     "--atomic-editor-font": "var(--font-sans, system-ui)",
     "--atomic-editor-measure": "100%",
-    "--atomic-editor-hl-comment": "#6a737d",
-    "--atomic-editor-hl-escape": "#005cc5",
-    "--atomic-editor-hl-function": "#6f42c1",
-    "--atomic-editor-hl-invalid": "#cb2431",
-    "--atomic-editor-hl-keyword": "#d73a49",
-    "--atomic-editor-hl-number": "#005cc5",
-    "--atomic-editor-hl-operator": "#d73a49",
-    "--atomic-editor-hl-property": "#005cc5",
-    "--atomic-editor-hl-regexp": "#032f62",
-    "--atomic-editor-hl-string": "#032f62",
-    "--atomic-editor-hl-tag": "#22863a",
-    "--atomic-editor-hl-type": "#e36209",
+    "--atomic-editor-hl-comment": "light-dark(#6a737d, #8b949e)",
+    "--atomic-editor-hl-escape": "light-dark(#005cc5, #79c0ff)",
+    "--atomic-editor-hl-function": "light-dark(#6f42c1, #d2a8ff)",
+    "--atomic-editor-hl-invalid": "light-dark(#cb2431, #f85149)",
+    "--atomic-editor-hl-keyword": "light-dark(#d73a49, #ff7b72)",
+    "--atomic-editor-hl-number": "light-dark(#005cc5, #79c0ff)",
+    "--atomic-editor-hl-operator": "light-dark(#d73a49, #ff7b72)",
+    "--atomic-editor-hl-property": "light-dark(#005cc5, #79c0ff)",
+    "--atomic-editor-hl-regexp": "light-dark(#032f62, #a5d6ff)",
+    "--atomic-editor-hl-string": "light-dark(#032f62, #a5d6ff)",
+    "--atomic-editor-hl-tag": "light-dark(#22863a, #7ee787)",
+    "--atomic-editor-hl-type": "light-dark(#e36209, #ffa657)",
     "--atomic-editor-hl-variable": "var(--foreground)",
     fontSize: "15px",
   },

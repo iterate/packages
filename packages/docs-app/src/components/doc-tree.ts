@@ -10,8 +10,7 @@
 import { FileTree } from "@pierre/trees";
 import type { DocList } from "../lib/doc-list.ts";
 
-/** Pierre's colours from the sidebar's (packages/ui globals.css), and light only like the app:
- *  its own defaults follow the OS's scheme with light-dark(). */
+/** Pierre's colours from the sidebar's (packages/ui globals.css). */
 const treeTheme: Record<string, string> = {
   // the sidebar's own, not transparent: a truncated name's "…" is painted over in this colour
   "--trees-bg-override": "var(--sidebar)",
@@ -97,7 +96,6 @@ export class DocTree {
         canRename: (item) => item.path === this.#naming,
         onRename: (event) => void this.#named(event.sourcePath, event.destinationPath),
       },
-      unsafeCSS: ":host { color-scheme: light; }",
     });
     tree.render({ containerWrapper: parent });
     this.#tree = tree;

@@ -36,15 +36,19 @@ test("the overlay keeps what the look's build has and the neutral build lacks, i
 test("a stylesheet the theme item was added to is checked for each of its values", () => {
   const item = themeItem({
     css: `@import "@fontsource/ubuntu/400.css";
-:root { --background: #ffffff; }
+:root { color-scheme: light dark; --background: light-dark(#ffffff, #111111); }
 @theme inline { --font-sans: "Ubuntu", sans-serif; }
 @layer base { :where([data-slot="card-description"]) { @apply font-readme; } }`,
     read: () => "",
   });
+  expect(item).toMatchObject({
+    cssVars: { light: { background: "light-dark(#ffffff, #111111)" } },
+    css: { ":root": { "color-scheme": "light dark" } },
+  });
   const added = `@import "tailwindcss";
 @import "@fontsource/ubuntu/400.css";
 @theme inline { --color-background: var(--background); --font-sans: "Ubuntu", sans-serif; }
-:root { --background: #ffffff; }
+:root { --background: light-dark(#ffffff, #111111); color-scheme: light dark; }
 @layer base { :where([data-slot="card-description"]) { @apply font-readme; } }`;
 
   expect(themeAppliedProblems({ item, css: added })).toEqual([]);
@@ -53,12 +57,14 @@ test("a stylesheet the theme item was added to is checked for each of its values
       item,
       css: added
         .replace('@import "@fontsource/ubuntu/400.css";', "")
-        .replace("#ffffff", "oklch(1 0 0)")
+        .replace("light-dark(#ffffff, #111111)", "oklch(1 0 0)")
+        .replace(" color-scheme: light dark;", "")
         .replace("@apply font-readme;", ""),
     }),
   ).toEqual([
     ":root --background: oklch(1 0 0)",
     '@import "@fontsource/ubuntu/400.css" missing',
+    ":root color-scheme: undefined",
     ':where([data-slot="card-description"]) lacks @apply font-readme',
   ]);
 });

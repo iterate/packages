@@ -121,7 +121,7 @@ export async function agentChatPage(scope: {
           \${path
             ? html\`<\${Chat} key=\${path} path=\${path} />\`
             : html\`<p class="p-4 text-sm text-muted-foreground">This project has no agents yet.</p>\`}
-          <\${Toaster} theme="light" />
+          <\${Toaster} />
         </div>\`;
       }
 

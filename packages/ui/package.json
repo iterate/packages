@@ -90,6 +90,7 @@
       "./components/ui/tabs": "./dist/components/ui/tabs.mjs",
       "./components/ui/textarea": "./dist/components/ui/textarea.mjs",
       "./components/ui/tooltip": "./dist/components/ui/tooltip.mjs",
+      "./lib/codemirror-theme": "./dist/lib/codemirror-theme.mjs",
       "./lib/plain-left-click": "./dist/lib/plain-left-click.mjs",
       "./styles.css": "./dist/styles.css",
       "./iterate.css": "./dist/iterate.css",
