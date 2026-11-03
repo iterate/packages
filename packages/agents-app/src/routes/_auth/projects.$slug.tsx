@@ -8,10 +8,10 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
-import { useIterateContext } from "iterate/react";
+import { facetSnapshotOf, useIterateContext } from "iterate/react";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
 import { ProjectAppFrame } from "@iterate-com/ui/components/project-app-shell";
 import {
@@ -34,7 +34,8 @@ import {
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 import { AgentsNav } from "../../components/agents-nav.tsx";
 import { newWebAgentPath } from "../../lib/web-agent.ts";
-import { useAgentSummaries } from "../../lib/use-agent-summaries.ts";
+import { agentRowsOf } from "../../lib/agent-summary.ts";
+import { useAgentRows } from "../../lib/use-agent-rows.ts";
 
 // The project's agents in the sidebar, and one agent's chat (`AgentChat`, whose file says what a
 // chat is) beside them. The project stub is held for the page's life; the agent's context is
@@ -71,20 +72,18 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
       return {
         projects,
         project,
-        agents: [],
+        catalog: null,
         agent: undefined,
-        installed: false,
       };
-    const agents = await context.read(async (api) => {
+    const catalog = await context.read(async (api) => {
       using itx = api.projects.get(project.id);
-      return await withAgents(itx).agents.list();
+      return await facetSnapshotOf(itx, "agents");
     });
     return {
       projects,
       project,
-      agents,
-      agent: deps.agent || agents[0]?.path,
-      installed: true,
+      catalog,
+      agent: deps.agent || agentRowsOf(catalog.state)[0]?.path,
     };
   },
   // the project's frame from the URL while the page reads
@@ -100,8 +99,8 @@ function AgentsPage() {
   const href = useRouterState({ select: (state) => state.location.href });
   // the loader sends a sign-in the project is missing from off to sign in again, so it is here
   const project = data.project.id;
-  const paths = useMemo(() => data.agents.map((item) => item.path), [data.agents]);
-  const summaries = useAgentSummaries(api, project, paths);
+  const installed = Boolean(data.catalog);
+  const agents = useAgentRows(api, project, data.catalog);
   return (
     <AppShell
       app="Agents"
@@ -112,9 +111,8 @@ function AgentsPage() {
         <AgentsNav
           project={project}
           slug={data.project.slug}
-          agents={data.agents}
-          summaries={summaries}
-          installed={data.installed}
+          agents={agents}
+          installed={installed}
           agent={data.agent}
           onCreate={async () => {
             // An agent is its path; a new one is born at this moment's path.
@@ -148,7 +146,7 @@ function AgentsPage() {
     >
       {data.agent ? (
         <AgentConversation key={`${project}${data.agent}`} project={project} path={data.agent} />
-      ) : data.installed ? (
+      ) : installed ? (
         <Empty>
           <EmptyHeader>
             <EmptyTitle>No agents yet</EmptyTitle>

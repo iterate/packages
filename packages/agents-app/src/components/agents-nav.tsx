@@ -1,9 +1,9 @@
 // The sidebar's body for this app (the frame around it is packages/ui's AppShell): "New agent" and
-// the project's agents, most recently active first — each titled by the first thing a person said
-// to it, its path beneath, and a dot while it runs or waits on a person (agent-summary.ts, kept live
-// by use-agent-summaries.ts). Pinned agents sit in their own list above, pins kept per project in
-// this browser. An agent IS its path (`/agents/...`); "New agent" births one at a generated path
-// and the page opens it — no name to type.
+// the project's agents, most recently active first. Each shows its name or the first thing a
+// person said to it, with its path beneath (agent-summary.ts, kept live by use-agent-rows.ts;
+// neither reads an agent). Pinned agents sit in their own list above, pins kept per project in this
+// browser. An agent IS its path (`/agents/...`); "New agent" births one at a generated path and the
+// page opens it — no name to type.
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { BotIcon, PinIcon, SquarePenIcon } from "lucide-react";
@@ -17,20 +17,13 @@ import {
 } from "@iterate-com/ui/components/ui/sidebar";
 import { toast } from "sonner";
 import { cn } from "cn";
-import {
-  countActiveOrWaiting,
-  orderAgents,
-  type AgentRow,
-  type AgentStatus,
-} from "../lib/agent-summary.ts";
-import type { AgentLiveSummary } from "../lib/use-agent-summaries.ts";
+import { orderAgents, type AgentRow } from "../lib/agent-summary.ts";
 import { usePinnedAgents } from "../lib/use-pinned-agents.ts";
 
 export function AgentsNav({
   project,
   slug,
   agents,
-  summaries,
   agent,
   onCreate,
   installed,
@@ -41,25 +34,14 @@ export function AgentsNav({
   slug: string;
   /** whether the project has `itx.agents`: without it there is nothing to create an agent with */
   installed: boolean;
-  agents: { path: string; createdAt: string }[];
-  /** each agent's live summary by path; absent while its subscription connects */
-  summaries: Readonly<Record<string, AgentLiveSummary>>;
+  agents: AgentRow[];
   agent: string | undefined;
   /** Births an agent at a fresh path; the page navigates to it once it exists. */
   onCreate: () => Promise<void>;
 }) {
   const [creating, setCreating] = useState(false);
   const { pinned, togglePinned } = usePinnedAgents(project);
-  const rows = useMemo<AgentRow[]>(
-    () =>
-      agents.map(({ path, createdAt }) => {
-        const live = summaries[path];
-        return { path, createdAt, summary: live?.kind === "live" ? live.summary : undefined };
-      }),
-    [agents, summaries],
-  );
-  const ordered = useMemo(() => orderAgents(rows, pinned), [rows, pinned]);
-  const busy = countActiveOrWaiting(rows);
+  const ordered = useMemo(() => orderAgents(agents, pinned), [agents, pinned]);
   async function create() {
     if (creating) return;
     setCreating(true);
@@ -76,7 +58,6 @@ export function AgentsNav({
       key={row.path}
       slug={slug}
       row={row}
-      unavailable={summaries[row.path]?.kind === "unavailable"}
       active={row.path === agent}
       pinned={pinned.has(row.path)}
       onTogglePinned={() => togglePinned(row.path)}
@@ -112,17 +93,7 @@ export function AgentsNav({
         </SidebarGroup>
       ) : null}
       <SidebarGroup>
-        <SidebarGroupLabel className="gap-2">
-          <span>Agents</span>
-          {busy > 0 ? (
-            <span
-              className="ml-auto rounded-full bg-success/10 px-1.5 py-0.5 text-2xs font-medium text-success"
-              data-agents-busy={busy}
-            >
-              {busy} active or waiting
-            </span>
-          ) : null}
-        </SidebarGroupLabel>
+        <SidebarGroupLabel>Agents</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             {agents.length === 0 ? (
@@ -136,56 +107,29 @@ export function AgentsNav({
   );
 }
 
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  running: "Running",
-  waiting: "Paused — waiting for you",
-  idle: "Idle",
-};
-
 function AgentsNavRow({
   slug,
   row,
-  unavailable,
   active,
   pinned,
   onTogglePinned,
 }: {
   slug: string;
   row: AgentRow;
-  unavailable: boolean;
   active: boolean;
   pinned: boolean;
   onTogglePinned: () => void;
 }) {
-  const status = row.summary?.status;
-  const title = row.summary?.title || row.path.split("/").filter(Boolean).at(-1) || row.path;
-  const tooltip = [
-    row.path,
-    status ? STATUS_LABEL[status] : unavailable ? "Live status unavailable" : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const title = row.title || row.path.split("/").filter(Boolean).at(-1) || row.path;
   return (
-    <SidebarMenuItem data-agent-path={row.path} data-agent-status={status || "unknown"}>
+    <SidebarMenuItem data-agent-path={row.path}>
       <SidebarMenuButton
         size="lg"
         isActive={active}
-        tooltip={tooltip}
+        tooltip={row.path}
         render={<Link to="/projects/$slug" params={{ slug }} search={{ agent: row.path }} />}
       >
-        <span className="relative flex shrink-0">
-          <BotIcon />
-          {status === "running" || status === "waiting" ? (
-            <span
-              aria-label={STATUS_LABEL[status]}
-              className={cn(
-                "absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-sidebar",
-                status === "running" && "bg-success motion-safe:animate-pulse",
-                status === "waiting" && "bg-warning",
-              )}
-            />
-          ) : null}
-        </span>
+        <BotIcon />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm">{title}</span>
           <span className="truncate font-mono text-2xs text-muted-foreground">{row.path}</span>
