@@ -13,6 +13,7 @@ import {
   COMMENT_EDITED,
   COMMENT_REPLIED,
   COMMENT_RESOLVED,
+  COMMENT_ROUTED,
 } from "./comments.ts";
 import {
   COMMIT_NOTICED,
@@ -177,6 +178,24 @@ test("people comment, reply and resolve, an agent replies for one of them, and o
   );
 });
 
+test("a thread routed to the agent that answers it says which, until it's routed elsewhere", async () => {
+  const doc = openDoc({ "plan.md": "# Plan\n\nWe fly in on Tuesday.\n" });
+  const misha = await doc.join("misha@iterate.com");
+  const agent = "/agents/assistant/2026-10-31-comment-t1";
+
+  misha.append(COMMENT_ADDED, { thread: "t1", quote: null, body: "Book the flights?" });
+  // the project's code hands the thread to an agent of its own, which the page shows working
+  doc.appendAsProjectCode(COMMENT_ROUTED, { thread: "t1", to: agent });
+  await vi.waitFor(async () =>
+    expect(await doc.live()).toMatchObject({ threads: [{ id: "t1", routedTo: agent }] }),
+  );
+
+  doc.appendAsProjectCode(COMMENT_ROUTED, { thread: "t1", to: null });
+  await vi.waitFor(async () =>
+    expect(await doc.live()).toMatchObject({ threads: [{ id: "t1", routedTo: null }] }),
+  );
+});
+
 test("a typo fixed under a comment keeps the comment, and a deleted sentence detaches it", async () => {
   const doc = openDoc({
     "plan.md": "The hotle is booked for three nights near the station.\n\nBring a coat.\n",
@@ -337,6 +356,9 @@ function openDoc(
         payload,
         source: { onBehalfOf: { principal: { actor: email, email }, run: "/@1" } },
       }),
+    /** What the project's own code appends (its `processEvent`'s `itx`, at the root). */
+    appendAsProjectCode: (type: string, payload: Record<string, unknown>) =>
+      log.stream.append({ type, payload, source: { origin: "/" } }),
     /** What the root's docs processor appends when a commit changed the doc. */
     notice: () =>
       log.stream.append({ type: COMMIT_NOTICED, ephemeral: true, payload: { commitOid: "?" } }),

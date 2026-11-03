@@ -83,6 +83,9 @@ async (itx) => {
 };
 ```
 
+To ask a person for comments rather than edits, link the doc's page with `?mode=comment` on the
+end: it opens read-only, with Comment to hand.
+
 `quote: null` comments on the whole doc. The other events, each appended the same way:
 
 | type                    | payload                          |                                            |
@@ -92,6 +95,7 @@ async (itx) => {
 | `docs/comment-deleted`  | `{ thread, comment }`            | your own only; a thread goes with its last |
 | `docs/comment-resolved` | `{ thread }`                     | anyone's thread                            |
 | `docs/comment-reopened` | `{ thread }`                     |                                            |
+| `docs/comment-routed`   | `{ thread, to }`                 | `to`: the agent's context that answers it  |
 
 A thread's first comment's id is the thread's.
 

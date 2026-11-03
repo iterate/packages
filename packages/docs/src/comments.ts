@@ -11,6 +11,8 @@
 //   docs/comment-edited      a comment's new body, by its author
 //   docs/comment-deleted     a comment gone, by its author (the thread goes with its last comment)
 //   docs/comment-resolved    a thread done; docs/comment-reopened undoes it
+//   docs/comment-routed      the context a thread's comments go to (an agent that answers them), so
+//                            the page can show what that context is doing; a later one replaces it
 //   docs/comment-reanchored  the doc's processor, after a save: the thread's quote refreshed from
 //                            the text it now matches loosely, or null when nothing matches (detached)
 import { z } from "zod";
@@ -23,6 +25,7 @@ export const COMMENT_DELETED = "docs/comment-deleted";
 export const COMMENT_RESOLVED = "docs/comment-resolved";
 export const COMMENT_REOPENED = "docs/comment-reopened";
 export const COMMENT_REANCHORED = "docs/comment-reanchored";
+export const COMMENT_ROUTED = "docs/comment-routed";
 
 /** Every comment event, as a doc's processor consumes them. */
 export const commentEvents = [
@@ -33,6 +36,7 @@ export const commentEvents = [
   COMMENT_RESOLVED,
   COMMENT_REOPENED,
   COMMENT_REANCHORED,
+  COMMENT_ROUTED,
 ];
 
 export const Quote = z.object({ exact: z.string().min(1), prefix: z.string(), suffix: z.string() });
@@ -60,6 +64,8 @@ export const CommentEdited = z.object({
 export const CommentDeleted = z.object({ thread: z.string(), comment: z.string() });
 export const ThreadRef = z.object({ thread: z.string() });
 export const CommentReanchored = z.object({ thread: z.string(), quote: Quote.nullable() });
+/** `to`: a context's path (`/agents/assistant/2026-10-31-comment-4ae622dc`), or null for nowhere. */
+export const CommentRouted = z.object({ thread: z.string(), to: z.string().min(1).nullable() });
 
 export const Comment = z.object({
   /** the thread's id for its first comment */
@@ -81,6 +87,8 @@ export const CommentThread = z.object({
   /** its quote matches nothing in the text as last saved */
   detached: z.boolean(),
   resolved: z.object({ by: z.string(), at: z.string() }).nullable(),
+  /** the context its comments go to (`docs/comment-routed`); absent in a build before it */
+  routedTo: z.string().nullable().default(null),
   comments: z.array(Comment),
 });
 export type CommentThread = z.infer<typeof CommentThread>;
@@ -118,6 +126,7 @@ export function reduceComments(threads: CommentThread[], event: StreamEvent): Co
           quote,
           detached: false,
           resolved: null,
+          routedTo: null,
           comments: [
             { id: thread, author, via: via || null, body, at: event.createdAt, edited: false },
           ],
@@ -188,6 +197,13 @@ export function reduceComments(threads: CommentThread[], event: StreamEvent): Co
         anchor.data.quote
           ? { ...thread, quote: anchor.data.quote, detached: false }
           : { ...thread, detached: true },
+      );
+    }
+    case COMMENT_ROUTED: {
+      const routed = CommentRouted.safeParse(event.payload);
+      if (!routed.success) return threads;
+      return update(routed.data.thread, (thread) =>
+        thread.routedTo === routed.data.to ? thread : { ...thread, routedTo: routed.data.to },
       );
     }
     default:

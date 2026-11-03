@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Check, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Check, Circle, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { Quote } from "@iterate-com/docs/anchor";
 import type { Comment } from "@iterate-com/docs/comments";
 import { Button } from "@iterate-com/ui/components/ui/button";
@@ -14,7 +14,7 @@ export function CommentsPanel({
   state,
 }: {
   session: DocSession;
-  state: Pick<DocSessionState, "threads" | "active" | "draft" | "editing">;
+  state: Pick<DocSessionState, "threads" | "active" | "draft" | "editing" | "thinking">;
 }) {
   const open = state.threads.filter((thread) => !thread.resolved);
   const card = (thread: ThreadView) => (
@@ -24,6 +24,7 @@ export function CommentsPanel({
       thread={thread}
       active={state.active === thread.id}
       editing={state.editing && state.editing.thread === thread.id ? state.editing.comment : null}
+      thinking={Boolean(thread.routedTo && state.thinking.includes(thread.routedTo))}
     />
   );
   const gone = open.filter((thread) => !thread.attached);
@@ -36,6 +37,7 @@ export function CommentsPanel({
       {state.draft ? (
         <article
           aria-label="New comment"
+          ref={reveal}
           className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs ring-2 ring-highlight"
         >
           <Quoted quote={state.draft.quote} gone={false} />
@@ -69,17 +71,26 @@ export function CommentsPanel({
   );
 }
 
+/** Brings a new comment's box into view: on a phone the panel is below the whole doc. A ref of its
+ *  own, not an inline one, so it runs once, when the box appears. */
+function reveal(element: HTMLElement | null) {
+  element?.scrollIntoView({ block: "nearest" });
+}
+
 function ThreadCard({
   session,
   thread,
   active,
   editing,
+  thinking,
 }: {
   session: DocSession;
   thread: ThreadView;
   active: boolean;
   /** which of its comments this person is editing */
   editing: string | null;
+  /** the agent it's routed to is thinking now */
+  thinking: boolean;
 }) {
   const me = session.options.user.name;
   return (
@@ -133,6 +144,15 @@ function ThreadCard({
           />
         ))}
       </ol>
+      {thinking ? (
+        <p
+          role="status"
+          className="flex items-center gap-1.5 font-readme text-xs text-muted-foreground"
+        >
+          <Circle aria-hidden className="size-2 animate-pulse fill-success text-success" />
+          Thinking…
+        </p>
+      ) : null}
       {thread.resolved ? (
         <p className="font-readme text-xs text-muted-foreground">
           Resolved by {nameOf(thread.resolved.by)}
@@ -270,7 +290,8 @@ function CommentForm({
         defaultValue={defaultValue}
         rows={2}
         autoFocus={Boolean(onCancel)}
-        className="min-h-0 text-sm"
+        // the Textarea's own size: 16px on a phone, where iOS zooms in on a smaller field it focuses
+        className="min-h-0"
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();

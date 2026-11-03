@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link, notFound, useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useMemo } from "react";
+import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
 import { docContextPath } from "@iterate-com/docs/frames";
 import { docsModule, ensureDoc, installDocs } from "@iterate-com/docs/install";
@@ -33,8 +34,11 @@ const docsBuild = createServerFn({ method: "GET" }).handler(async () => {
 
 /** One doc: `/projects/<slug>/<repo name>/<path in the repo>`, read at the repo's tip for the
  *  first paint; the editor goes live on the doc's processor (doc-session.ts), which runs the
- *  @iterate-com/docs build the project's config installs (`docs.ts`, @iterate-com/docs/install). */
+ *  @iterate-com/docs build the project's config installs (`docs.ts`, @iterate-com/docs/install).
+ *  `?mode=comment` opens it to comment on, not to edit (doc-session.ts `commentOnly`). */
 export const Route = createFileRoute("/_auth/projects/$slug/$repo/$")({
+  // taken as it comes: any other mode, or a mangled one, opens the doc to edit
+  validateSearch: z.object({ mode: z.literal("comment").optional().catch(undefined) }),
   loader: async ({ context, params }) => {
     const path = params._splat || "";
     const kind = fileKind(path);
@@ -62,6 +66,7 @@ function DocPage() {
   const { dashOrigin } = root.useLoaderData();
   const { api, project, info } = Route.useRouteContext();
   const { slug, repo } = Route.useParams();
+  const commentOnly = Route.useSearch().mode === "comment";
   const { repo: docRepo, path, text, kind } = data;
   const userName = info.principal.email || info.principal.actor;
   // One session per doc and person, keyed on values: a new session is a new editor and a new tab
@@ -74,6 +79,7 @@ function DocPage() {
         kind: kind === "binary" ? "code" : kind,
         text,
         user: { name: userName },
+        commentOnly,
         open: async () => {
           const itx = await api.projects.get(project.id);
           try {
@@ -98,18 +104,23 @@ function DocPage() {
           }
         },
       }),
-    [docRepo, path, kind, text, userName, api, project.id],
+    [docRepo, path, kind, text, userName, commentOnly, api, project.id],
   );
   if (kind === "binary") return <Binary path={path} />;
   if (!data.installed) return <NotInstalled project={project.id} />;
   return (
     <DocEditor
-      key={`${docRepo}/${path}`}
+      key={`${docRepo}/${path}${commentOnly ? "?mode=comment" : ""}`}
       session={session}
       path={path}
       back={
         <Link to="/projects/$slug/$repo" params={{ slug, repo }} className="hover:text-foreground">
           {repo}
+        </Link>
+      }
+      edit={
+        <Link to="." search={{}} className="underline hover:text-foreground">
+          Edit
         </Link>
       }
       stream={{

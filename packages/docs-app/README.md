@@ -23,6 +23,10 @@ The base path handling is Notes', shared in
   Rich / Markdown switch that turns the preview off. Frontmatter shows as page properties in Rich
   mode. Any other text file opens in a code editor, an html file on a sandboxed Preview beside its
   Source.
+- `?mode=comment` on a doc's URL opens it to comment on: the text stays read-only (a tap on a phone
+  selects, with no keyboard), others' edits still arrive live, there is no formatting, and Comment
+  is in the doc's bar on a phone too ([src/editor/doc-session.ts](src/editor/doc-session.ts)
+  `commentOnly`). Edit drops it.
 - Co-editing: opening a doc enables its processor (`ensureDoc`) from the
   [`@iterate-com/docs`](../../packages/docs/README.md) build the project's config pins; a project
   without one gets an "Install Docs in this project" button (`installDocs`, this deployment's
@@ -34,8 +38,10 @@ The base path handling is Notes', shared in
   ([src/editor/doc-session.ts](src/editor/doc-session.ts)).
 - Comments: threads in a right-hand panel, events on the doc's context
   ([`@iterate-com/docs/comments`](../../packages/docs/src/comments.ts)), each highlighted on the text
-  its quote finds ([src/editor/comment-marks.ts](src/editor/comment-marks.ts)). `Stream ↗` beside
-  the doc's path opens its context in the dash.
+  its quote finds ([src/editor/comment-marks.ts](src/editor/comment-marks.ts)). An open thread
+  routed to an agent (`routedTo`) shows "Thinking…" while that agent's own live state says so, read
+  as Agent Chat's status strip reads it. `Stream ↗` beside the doc's path opens its context in the
+  dash.
 
 The prd iterate project serves it at `docs--iterate.iterate.app` and `docs.iterate.com`: two
 members-only fetch routes on the project, one by routing slug and one by hostname, to the prd

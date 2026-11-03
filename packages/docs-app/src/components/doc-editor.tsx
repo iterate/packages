@@ -58,24 +58,44 @@ const modes: Record<"markdown" | "html" | "code", [DocMode, string][]> = {
 /** The doc page's editor: one row in the shell's header (the doc's path, markdown's formatting bar,
  *  who else is here, the view switch, Stream ↗), the text (or an html file's preview) with its
  *  comments beside it, and where saving stands. On a phone the row's controls are in the header's ⋯
- *  menu instead. */
+ *  menu instead. A doc opened to comment on (`commentOnly`) has no formatting, and a bar of its own
+ *  under that row at every width, as a phone's row has no room for Comment. */
 export function DocEditor({
   session,
   path,
   back,
+  edit,
   stream,
 }: {
   session: DocSession;
   path: string;
   /** a link back to the doc list */
   back: React.ReactNode;
+  /** a link to this doc opened to edit, which a doc opened to comment on offers */
+  edit: React.ReactNode;
   /** the doc's context, which "Stream ↗" opens in the dash */
   stream: StreamTarget;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.state, session.state);
-  const { kind } = session.options;
+  const { kind, commentOnly } = session.options;
   const views = modes[kind];
   const streamUrl = streamHref(stream);
+  const comment = (
+    <Button
+      size="xs"
+      // what a doc opened to comment on is for, once there's something to comment on
+      variant={commentOnly && state.selecting ? "default" : "ghost"}
+      // a doc opened to comment on takes no focus, so no keys
+      title={commentOnly ? "Comment on the selection" : "Comment on the selection (⌘⌥M)"}
+      disabled={state.status.kind === "opening"}
+      // keeps the editor's selection, which is what the comment is on
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => session.startComment()}
+    >
+      <MessageSquarePlus />
+      Comment
+    </Button>
+  );
   return (
     <div className="flex flex-1 flex-col">
       <AppShellPageMenu>
@@ -104,7 +124,7 @@ export function DocEditor({
             </DropdownMenuRadioGroup>
           </>
         ) : null}
-        {kind === "markdown" ? (
+        {kind === "markdown" && !commentOnly ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup aria-label="Formatting" className="grid grid-cols-6">
@@ -137,7 +157,7 @@ export function DocEditor({
           <span aria-hidden>/</span>
           <span className="truncate">{path}</span>
         </p>
-        {kind === "markdown" ? <FormattingBar session={session} /> : null}
+        {kind === "markdown" && !commentOnly ? <FormattingBar session={session} /> : null}
         <div className="ml-auto flex shrink-0 items-center gap-3">
           {state.others.length > 0 && (
             <p aria-label="Also here" className="text-xs text-muted-foreground">
@@ -145,18 +165,7 @@ export function DocEditor({
             </p>
           )}
           <div className="hidden items-center gap-2 md:flex">
-            <Button
-              size="xs"
-              variant="ghost"
-              title="Comment on the selection (⌘⌥M)"
-              disabled={state.status.kind === "opening"}
-              // keeps the editor's selection, which is what the comment is on
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => session.startComment()}
-            >
-              <MessageSquarePlus />
-              Comment
-            </Button>
+            {commentOnly ? null : comment}
             {views.length > 0 ? (
               <div role="group" aria-label="Mode" className="flex rounded-lg border p-0.5">
                 {views.map(([mode, label]) => (
@@ -178,8 +187,19 @@ export function DocEditor({
           </span>
         </div>
       </AppShellPageHeader>
-      {/* the find panel (Cmd/Ctrl-F) */}
-      <div ref={session.mountPanels} className="sticky top-0 z-10 bg-background" />
+      <div className="sticky top-0 z-10 bg-background">
+        {commentOnly ? (
+          <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b px-4 py-1.5">
+            <p className="font-readme text-xs text-muted-foreground">
+              {state.selecting ? "Comment on the selected text" : "Select text to comment on it"} ·{" "}
+              {edit}
+            </p>
+            {comment}
+          </div>
+        ) : null}
+        {/* the find panel (Cmd/Ctrl-F) */}
+        <div ref={session.mountPanels} />
+      </div>
       <div className="flex flex-1 flex-col md:flex-row">
         <div
           className={

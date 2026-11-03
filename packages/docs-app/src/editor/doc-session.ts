@@ -7,11 +7,15 @@
 // The editor opens read-only on the text the page loaded, and goes live once the tab has synced
 // with the doc's processor (collab.ts): from then on the editor is bound to the shared Y.Text
 // (y-codemirror.next), and the processor saves. Its live state (`commitOid`, `dirty`, `savedBy`,
-// `saveError`) is what the status line says.
+// `saveError`) is what the status line says. A doc opened to comment on (`commentOnly`) stays
+// read-only once live: everyone else's edits still arrive, and a tap on a phone selects text instead
+// of raising the keyboard.
 //
 // COMMENTS are events this tab appends to the doc's context (@iterate-com/docs/comments); the
 // threads come back in the processor's live state, and the editor highlights each one's text
-// (comment-marks.ts). A comment being written is a draft here until its thread comes back.
+// (comment-marks.ts). A comment being written is a draft here until its thread comes back. An open
+// thread routed to an agent (`routedTo`) follows that agent's own live state, so the thread says when
+// the agent is thinking about it, the scripts it runs included.
 import { closeSearchPanel, openSearchPanel } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, panels } from "@codemirror/view";
@@ -72,6 +76,10 @@ export type DocSessionState = {
   threads: ThreadView[];
   /** The selected thread: clicked in the panel, or the one the cursor is in. */
   active: string | null;
+  /** The contexts open threads are routed to whose agent is thinking now. */
+  thinking: string[];
+  /** Text is selected: a comment started now is on it, not on the whole doc. */
+  selecting: boolean;
   draft: Draft | null;
   /** The comment of this person's being edited. */
   editing: { thread: string; comment: string } | null;
@@ -85,17 +93,49 @@ type DocSessionOptions = {
   text: string;
   /** Who's typing, as the others see them. */
   user: { name: string };
+  /** Opened to read and comment on, never to edit: the page's `?mode=comment`. Not a `DocMode`,
+   *  which is how the text shows (Rich or Markdown); this is what the person may do to it. */
+  commentOnly: boolean;
   /** Open the doc's context, set up for co-editing (`ensureDoc`); `dispose` lets it go. */
   open: () => Promise<{ context: IterateContextApi; dispose: () => void }>;
 };
 
 const Seed = z.object({ rev: z.number(), state: DocLiveState });
 
+/** What an agent is doing: the fields of its `agent` facet's live state (iterate/agents contract.ts
+ *  `stateSchema`) that say it is at work on a turn. */
+const AgentLive = z.object({
+  paused: z.object({ reason: z.string() }).nullable(),
+  /** a model request about to start, or under way */
+  pendingLlmRequestTrigger: z.object({}).nullable(),
+  openRequest: z.object({ model: z.string() }).nullable(),
+  /** a script its model answered with, not yet started, and the scripts running */
+  awaitingRun: z.object({}).nullable(),
+  pendingRuns: z.record(z.string(), z.unknown()),
+});
+
+/** Whether an agent is thinking: not paused, and asking its model or running a script it answered
+ *  with. It is briefly neither when a script has ended and the agent has not yet passed its result
+ *  to the model. */
+function isThinking(agent: z.infer<typeof AgentLive>) {
+  const working =
+    agent.pendingLlmRequestTrigger ||
+    agent.openRequest ||
+    agent.awaitingRun ||
+    Object.keys(agent.pendingRuns).length > 0;
+  return !agent.paused && Boolean(working);
+}
+
+const AgentSeed = z.object({ rev: z.number(), state: z.unknown() });
+
 /** A tab's awareness state as collab.ts sets it: whose tab it is. */
 const AwarenessUser = z.object({ user: z.object({ name: z.string().min(1) }) });
 
 /** One mount of the editor: whether it's gone, and what to let go when it goes. */
 type Attachment = { unmounted: boolean; cleanups: (() => void)[] };
+
+/** An editor that shows the text and takes no typing: a phone shows no keyboard for it. */
+const readOnly: Extension = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
 
 /** The first view of each kind of file. */
 const firstMode: Record<DocSessionOptions["kind"], DocMode> = {
@@ -123,6 +163,8 @@ export class DocSession {
   /** The threads as last listed, and their order and attachment: the panel changes with these. */
   #listed: CommentThread[] = [];
   #threadsKey = "";
+  /** Each context an open thread is routed to, followed while one is: what letting it go takes. */
+  #routes = new Map<string, () => void>();
 
   options: DocSessionOptions;
 
@@ -135,6 +177,8 @@ export class DocSession {
       previewText: options.text,
       threads: [],
       active: null,
+      thinking: [],
+      selecting: false,
       draft: null,
       editing: null,
     };
@@ -172,11 +216,7 @@ export class DocSession {
       parent,
       state: EditorState.create({
         doc: this.options.text,
-        extensions: [
-          this.#extensions(),
-          EditorState.readOnly.of(true),
-          EditorView.editable.of(false),
-        ],
+        extensions: [this.#extensions(), readOnly],
       }),
     });
     this.#view = view;
@@ -210,6 +250,8 @@ export class DocSession {
       for (const cleanup of attachment.cleanups.reverse()) cleanup();
       clearTimeout(this.#previewTimer);
       this.#previewTimer = undefined;
+      for (const letGo of this.#routes.values()) letGo();
+      this.#routes.clear();
       this.#view = null;
       this.#collab = null;
       this.#context = null;
@@ -275,9 +317,12 @@ export class DocSession {
             this.#extensions(),
             yCollab(collab.text, collab.awareness, { undoManager: this.#undo }),
             keymap.of(yUndoManagerKeymap),
+            this.options.commentOnly ? readOnly : [],
           ],
         }),
       );
+      // a new state has no selection, and no update tells the listener that
+      this.#set({ selecting: false });
       this.#refresh();
       this.#threadsChanged();
     } catch (error) {
@@ -307,6 +352,8 @@ export class DocSession {
       EditorView.updateListener.of((update) => {
         if (update.startState.field(commentMarks) !== update.state.field(commentMarks))
           this.#listThreads();
+        const selecting = !update.state.selection.main.empty;
+        if (selecting !== this.#state.selecting) this.#set({ selecting });
       }),
       this.options.kind === "html"
         ? EditorView.updateListener.of((update) => {
@@ -362,6 +409,65 @@ export class DocSession {
     if (draft && threads.some((thread) => thread.id === draft.thread)) this.#set({ draft: null });
     this.#mark(this.#state.active);
     this.#listThreads();
+    this.#followRoutes();
+  }
+
+  /** Follow the agent each open thread is routed to, and let go of those none is routed to now. A
+   *  context with no agent, or one this person can't read, is never thinking. */
+  #followRoutes() {
+    const context = this.#context;
+    if (!context) return;
+    const threads = this.#live ? this.#live.threads : [];
+    const routes = new Set(
+      threads.flatMap((thread) => (!thread.resolved && thread.routedTo ? [thread.routedTo] : [])),
+    );
+    for (const [path, letGo] of this.#routes) {
+      if (routes.has(path)) continue;
+      letGo();
+      this.#routes.delete(path);
+      this.#setThinking(path, false);
+    }
+    for (const path of routes) {
+      if (this.#routes.has(path)) continue;
+      const agent = context.cd(path);
+      const abort = new AbortController();
+      const connected = connectLiveState<unknown>(agent, {
+        key: "agent",
+        readSeed: async () =>
+          AgentSeed.parse(await agent.invoke("itx.facets.get('agent').liveSnapshot()")),
+        signal: abort.signal,
+      }).then((live) => {
+        const read = () => {
+          // let go of: a last change on its way in is no one's
+          if (abort.signal.aborted) return;
+          const parsed = AgentLive.safeParse(live.store.get());
+          this.#setThinking(path, parsed.success && isThinking(parsed.data));
+        };
+        read();
+        return { live, unsubscribe: live.store.subscribe(read) };
+      });
+      connected.catch(() => undefined);
+      this.#routes.set(path, () => {
+        abort.abort();
+        void connected
+          .then(({ live, unsubscribe }) => {
+            unsubscribe();
+            return live.dispose();
+          })
+          .catch(() => undefined)
+          // a context's stub, like the doc's, disposes though `cd`'s type doesn't say so
+          .finally(() => (agent as unknown as Disposable)[Symbol.dispose]());
+      });
+    }
+  }
+
+  #setThinking(path: string, thinking: boolean) {
+    if (this.#state.thinking.includes(path) === thinking) return;
+    this.#set({
+      thinking: thinking
+        ? [...this.#state.thinking, path]
+        : this.#state.thinking.filter((each) => each !== path),
+    });
   }
 
   /** Tell the editor what to highlight, and which thread is selected. */

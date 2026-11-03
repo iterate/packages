@@ -11,7 +11,8 @@ import { COMMIT_NOTICED, DOC_LEFT, DOC_OPENED, EDIT_FRAME } from "./frames.ts";
 
 export const DocContract = defineProcessorContract({
   slug: "doc",
-  version: "2",
+  // 3: threads' `routedTo` (comments.ts `docs/comment-routed`)
+  version: "3",
   description:
     "Holds an open doc's text as Yjs, applies its editors' edits, autosaves it to its repo, and reduces its comments.",
   stateSchema: z.object({ threads: z.array(CommentThread).default([]) }),
