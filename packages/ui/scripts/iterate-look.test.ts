@@ -36,19 +36,19 @@ test("the overlay keeps what the look's build has and the neutral build lacks, i
 test("a stylesheet the theme item was added to is checked for each of its values", () => {
   const item = themeItem({
     css: `@import "@fontsource/ubuntu/400.css";
-:root { color-scheme: light dark; --background: light-dark(#ffffff, #111111); }
+:root { color-scheme: dark; --background: #111111; }
 @theme inline { --font-sans: "Ubuntu", sans-serif; }
 @layer base { :where([data-slot="card-description"]) { @apply font-readme; } }`,
     read: () => "",
   });
   expect(item).toMatchObject({
-    cssVars: { light: { background: "light-dark(#ffffff, #111111)" } },
-    css: { ":root": { "color-scheme": "light dark" } },
+    cssVars: { light: { background: "#111111" } },
+    css: { ":root": { "color-scheme": "dark" } },
   });
   const added = `@import "tailwindcss";
 @import "@fontsource/ubuntu/400.css";
 @theme inline { --color-background: var(--background); --font-sans: "Ubuntu", sans-serif; }
-:root { --background: light-dark(#ffffff, #111111); color-scheme: light dark; }
+:root { --background: #111111; color-scheme: dark; }
 @layer base { :where([data-slot="card-description"]) { @apply font-readme; } }`;
 
   expect(themeAppliedProblems({ item, css: added })).toEqual([]);
@@ -57,8 +57,8 @@ test("a stylesheet the theme item was added to is checked for each of its values
       item,
       css: added
         .replace('@import "@fontsource/ubuntu/400.css";', "")
-        .replace("light-dark(#ffffff, #111111)", "oklch(1 0 0)")
-        .replace(" color-scheme: light dark;", "")
+        .replace("#111111", "oklch(1 0 0)")
+        .replace(" color-scheme: dark;", "")
         .replace("@apply font-readme;", ""),
     }),
   ).toEqual([

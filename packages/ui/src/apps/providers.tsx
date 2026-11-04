@@ -15,9 +15,7 @@ export function AppProviders(props: { children: ReactNode; posthogApiKey?: strin
     // https://github.com/mui/base-ui/blob/master/docs/src/app/(docs)/react/components/tooltip/page.mdx
     <TooltipProvider delay={0}>
       {props.children}
-      {/* light or dark as the OS is: the vendored Toaster asks next-themes, and with no
-          ThemeProvider mounted that is "system" */}
-      <Toaster />
+      <Toaster theme="dark" />
     </TooltipProvider>
   );
 }

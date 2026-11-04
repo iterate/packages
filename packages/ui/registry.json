@@ -39,9 +39,9 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
-          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))",
-          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
+          "success": "oklch(0.765 0.177 163.223)",
+          "warning": "oklch(0.828 0.189 84.429)",
+          "info": "oklch(0.746 0.16 232.661)"
         }
       },
       "files": [
@@ -173,7 +173,7 @@
           "color-warning": "var(--warning)"
         },
         "light": {
-          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+          "warning": "oklch(0.828 0.189 84.429)"
         }
       },
       "files": [
@@ -216,7 +216,6 @@
         "yaml"
       ],
       "registryDependencies": [
-        "iterate/packages/codemirror-theme",
         "spinner",
         "tooltip"
       ],
@@ -225,7 +224,7 @@
           "color-success": "var(--success)"
         },
         "light": {
-          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))"
+          "success": "oklch(0.765 0.177 163.223)"
         }
       },
       "files": [
@@ -257,9 +256,6 @@
         "cn",
         "codemirror"
       ],
-      "registryDependencies": [
-        "iterate/packages/codemirror-theme"
-      ],
       "files": [
         {
           "path": "src/components/code-editor.tsx",
@@ -268,21 +264,6 @@
         {
           "path": "src/components/code-editor.client.tsx",
           "type": "registry:component"
-        }
-      ]
-    },
-    {
-      "name": "codemirror-theme",
-      "type": "registry:lib",
-      "description": "VS Code light or dark for a CodeMirror editor, as the OS is, swapped in place when it changes.",
-      "dependencies": [
-        "@codemirror/state",
-        "@codemirror/view"
-      ],
-      "files": [
-        {
-          "path": "src/lib/codemirror-theme.ts",
-          "type": "registry:lib"
         }
       ]
     },
@@ -332,9 +313,9 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
-          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))",
-          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
+          "success": "oklch(0.765 0.177 163.223)",
+          "warning": "oklch(0.828 0.189 84.429)",
+          "info": "oklch(0.746 0.16 232.661)"
         }
       },
       "files": [
@@ -587,7 +568,6 @@
         "badge",
         "button",
         "input",
-        "iterate/packages/codemirror-theme",
         "tabs"
       ],
       "cssVars": {
@@ -598,8 +578,8 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
-          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
+          "success": "oklch(0.765 0.177 163.223)",
+          "info": "oklch(0.746 0.16 232.661)"
         }
       },
       "files": [
@@ -738,11 +718,11 @@
           "color-chart-5": "var(--chart-5)"
         },
         "light": {
-          "chart-1": "light-dark(#2a78d6, #78b4ff)",
-          "chart-2": "light-dark(#eb6834, #ff966b)",
-          "chart-3": "light-dark(#1baf7a, #65d6a6)",
-          "chart-4": "light-dark(#eda100, #f4c45f)",
-          "chart-5": "light-dark(#e87ba4, #f3a0c0)"
+          "chart-1": "#78b4ff",
+          "chart-2": "#ff966b",
+          "chart-3": "#65d6a6",
+          "chart-4": "#f4c45f",
+          "chart-5": "#f3a0c0"
         }
       },
       "files": [
@@ -754,7 +734,7 @@
     },
     {
       "name": "theme",
-      "description": "iterate's look over shadcn's: Ubuntu for the chrome and controls, monospace for ids, code and readme-like notes (font-readme), black on white, square corners, hard shadows on what floats.",
+      "description": "iterate's look over shadcn's: Ubuntu for the chrome and controls, monospace for ids, code and readme-like notes (font-readme), light on dark, square corners, hard shadows on what floats.",
       "type": "registry:theme",
       "dependencies": [
         "@fontsource/ubuntu"
@@ -785,36 +765,36 @@
         },
         "light": {
           "radius": "0",
-          "background": "light-dark(#ffffff, #111111)",
-          "foreground": "light-dark(#111111, #eeeeee)",
-          "card": "light-dark(#ffffff, #111111)",
-          "card-foreground": "light-dark(#111111, #eeeeee)",
-          "popover": "light-dark(#ffffff, #111111)",
-          "popover-foreground": "light-dark(#111111, #eeeeee)",
-          "primary": "light-dark(#111111, #eeeeee)",
-          "primary-foreground": "light-dark(#ffffff, #111111)",
-          "secondary": "light-dark(#f4f4f4, #222222)",
-          "secondary-foreground": "light-dark(#111111, #eeeeee)",
-          "muted": "light-dark(#f4f4f4, #222222)",
-          "muted-foreground": "light-dark(#555555, #aaaaaa)",
-          "accent": "light-dark(#f4f4f4, #222222)",
-          "accent-foreground": "light-dark(#111111, #eeeeee)",
-          "destructive": "light-dark(#a40000, #ff8080)",
-          "success": "light-dark(#1a7f37, #75d994)",
-          "warning": "light-dark(#9a6700, #e8bb63)",
-          "info": "light-dark(#0e7490, #72cadd)",
-          "border": "light-dark(#dddddd, #444444)",
-          "input": "light-dark(#dddddd, #444444)",
-          "ring": "light-dark(#111111, #eeeeee)",
-          "link": "light-dark(#0645ad, #8ab4f8)",
-          "sidebar": "light-dark(#ffffff, #111111)",
-          "sidebar-foreground": "light-dark(#111111, #eeeeee)",
-          "sidebar-primary": "light-dark(#111111, #eeeeee)",
-          "sidebar-primary-foreground": "light-dark(#ffffff, #111111)",
-          "sidebar-accent": "light-dark(#f4f4f4, #222222)",
-          "sidebar-accent-foreground": "light-dark(#111111, #eeeeee)",
-          "sidebar-border": "light-dark(#dddddd, #444444)",
-          "sidebar-ring": "light-dark(#111111, #eeeeee)"
+          "background": "#111111",
+          "foreground": "#eeeeee",
+          "card": "#111111",
+          "card-foreground": "#eeeeee",
+          "popover": "#111111",
+          "popover-foreground": "#eeeeee",
+          "primary": "#eeeeee",
+          "primary-foreground": "#111111",
+          "secondary": "#222222",
+          "secondary-foreground": "#eeeeee",
+          "muted": "#222222",
+          "muted-foreground": "#aaaaaa",
+          "accent": "#222222",
+          "accent-foreground": "#eeeeee",
+          "destructive": "#ff8080",
+          "success": "#75d994",
+          "warning": "#e8bb63",
+          "info": "#72cadd",
+          "border": "#444444",
+          "input": "#444444",
+          "ring": "#eeeeee",
+          "link": "#8ab4f8",
+          "sidebar": "#111111",
+          "sidebar-foreground": "#eeeeee",
+          "sidebar-primary": "#eeeeee",
+          "sidebar-primary-foreground": "#111111",
+          "sidebar-accent": "#222222",
+          "sidebar-accent-foreground": "#eeeeee",
+          "sidebar-border": "#444444",
+          "sidebar-ring": "#eeeeee"
         }
       },
       "css": {
@@ -822,7 +802,7 @@
         "@import \"@fontsource/ubuntu/500.css\"": {},
         "@import \"@fontsource/ubuntu/700.css\"": {},
         ":root": {
-          "color-scheme": "light dark"
+          "color-scheme": "dark"
         },
         "@layer base": {
           ":where([data-slot=\"card-description\"], [data-slot=\"dialog-description\"], [data-slot=\"alert-dialog-description\"], [data-slot=\"sheet-description\"], [data-slot=\"field-description\"], [data-slot=\"empty-title\"], [data-slot=\"empty-description\"], [data-slot=\"command-empty\"], [data-slot=\"table-caption\"])": {
