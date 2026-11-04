@@ -80,6 +80,29 @@ test.for<{
   expect(summary(sent)).toMatchObject(heard);
 });
 
+test("frames longer than the 100 ms cap never run past the 5 s burst plus 1.2× real time", () => {
+  const pacer = new MicPacer();
+  // 5.1 s held, in 300 ms frames: 5 s is not a whole number of them
+  for (let index = 0; index < 17; index++) pacer.push(`frame-${index}`, 300);
+  pacer.start(0);
+  let sentMs = 0;
+  let aheadMs = 0;
+  let lastAtMs = 0;
+  for (let atMs = 0; atMs <= 1_000; atMs += 10)
+    for (const pcm of pacer.take(atMs))
+      if (pcm.startsWith("frame-")) {
+        sentMs += 300;
+        aheadMs = Math.max(aheadMs, sentMs - 1.2 * atMs);
+        lastAtMs = atMs;
+      }
+  // 16 frames at once (4.8 s), the 17th once the bucket holds a whole frame
+  expect({ sentMs, aheadMs: Math.round(aheadMs), lastAtMs }).toEqual({
+    sentMs: 5_100,
+    aheadMs: 4_992,
+    lastAtMs: 90,
+  });
+});
+
 test("the queue holds 6 s of audio and refuses the frame that would take it past", () => {
   const pacer = new MicPacer();
   const accepted = Array.from({ length: MIC_QUEUE_MAX_MS / 50 + 1 }, () =>

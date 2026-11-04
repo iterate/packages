@@ -1,26 +1,44 @@
 /// <reference path="./markdown.d.ts" />
 /**
- * The voice service, explicitly mounted at `itx.voice`, is what
- * a device calls on the button press:
+ * The voice service, explicitly mounted at `itx.voice`, is what a device calls when it connects:
  *
- *   await root.voice.setupVoiceAgent({ streamPath, activation, screen? })   // → { streamPath }
+ *   await root.voice.ensureVoiceDevice({ client, screen? })   // → { path, agentPath }
  *
- * The call is an agent: normal agent creation establishes the parent link (to the context that
- * pressed), catalog entry and the agents app's processor, which answers every delegation. Then one
- * append installs the voice relay's subscription, starts the call (so the relay dials the provider
- * before the first microphone frame arrives) and gives the agent its spoken-conversation
- * instructions. The device carries no source or class name: the relay is `voice.ts`'s class of
- * the project's published config, the module this worker is (install.ts `voiceAgentFacetSpec`).
+ * A device has two contexts, made once and kept: its agent (`/agents/voice/<client>`, normal agent
+ * creation: the parent link to the context that asked, the catalog entry and the agents app's
+ * processor, which answers every delegation) and its relay (`/voice/<client>`, the voice relay's
+ * subscription and a parent link of its own). Two, because a context's birth restarts what it
+ * runs, and an agent's cold build must never sit in front of the relay's dial. The press is then
+ * the device's ONE append to the relay's context, `call-started`, with nothing created on it. The
+ * device carries no source or class name: the relay is `voice.ts`'s class of the project's
+ * published config, the module this worker is (install.ts `voiceAgentFacetSpec`).
  */
 import type { AgentsRootApi } from "iterate/agents";
 import type { IterateContextApi } from "iterate/api";
 import { bytesToBase64 } from "iterate/lib";
 import { IterateConfigEntrypoint } from "iterate/sdk";
+import { z } from "zod";
 import type { VoiceApi } from "./api.ts";
 import { voiceAgentFacetSpec } from "./install.ts";
 import { ScreenInfo, ScreenImageInput, renderScreenPixels } from "./screen.ts";
 import SCREEN_CONTEXT from "./screen-context.md";
 import VOICE_CONTEXT from "./voice-context.md";
+
+/** A device's name in its two paths: a Kit board's `itx.clients` name, or the installation id a
+ *  browser or the CLI keeps. */
+const VoiceDeviceName = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+
+/** The device agent's `agent/configured` patch: no debounce, and an idle summary 15 minutes after
+ *  its last request, while the provider still holds its history in cache. */
+const DEVICE_AGENT_CONFIG = { llmRequestDebounceMs: 0, idleCompactionAfterMs: 15 * 60_000 };
+
+/** The first 16 hex digits of the words' SHA-256: what keys an instruction to its words. */
+async function shortDigest(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest).subarray(0, 8), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
 
 export default class VoiceWorker extends IterateConfigEntrypoint implements VoiceApi {
   async health() {
@@ -147,68 +165,118 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
     };
   }
 
-  /** The press. `activation` is the device's call identity: the call starts under it at boot and
-   * the microphone frames carry it. */
-  async setupVoiceAgent(options: Parameters<VoiceApi["setupVoiceAgent"]>[0]) {
-    const { streamPath } = options;
-    if (!streamPath.startsWith("/")) {
-      throw new Error(`voice streamPath must be absolute; received ${JSON.stringify(streamPath)}`);
-    }
+  /** Provisioning, before any press: the device's agent at `/agents/voice/<client>`, told how to
+   *  answer a spoken call, and its relay at `/voice/<client>`, each linked to the context that asked.
+   *  Idempotent: for a provisioned device it is one append to each context, which changes nothing. */
+  async ensureVoiceDevice(options: Parameters<VoiceApi["ensureVoiceDevice"]>[0]) {
+    const client = VoiceDeviceName.parse(options.client);
     // the device `setImage` will be asked to draw on, so it is held to the same name
-    const screenDevice = options.screen
-      ? ScreenImageInput.shape.device.parse(options.screen)
-      : undefined;
+    const screen = options.screen ? ScreenImageInput.shape.device.parse(options.screen) : undefined;
+    const path = `/voice/${client}`;
+    const agentPath = `/agents/voice/${client}`;
+    // The link goes to the context that asked (`callerPath`), not to the root this worker runs as:
+    // every context linked to the root inherits `itx.voice`, and a device holds no more than the
+    // context that provisioned it.
+    const caller = this.callerPath();
     // `itx.agents` is the rewrite rule the agents app mounts on the root, installed by the same init
     // case, and this scope is the root's, so it is the root collection, `at` included.
     using itx = this.getItx() as IterateContextApi & { agents: AgentsRootApi } & Disposable;
-    // Normal agent creation establishes the parent link and the agent that answers the call's
-    // delegations, before the relay needs project code or egress. The link goes to the context
-    // that asked (`callerPath`), not to the root this worker runs as: every context linked to the
-    // root inherits `itx.voice`, and a call's agent holds no more than the context that placed it.
-    await itx.agents.at(this.callerPath()).create(streamPath);
-    /* The agent's instructions are its own `context-added` items, which start no turn: the
-     * first turn is the first hand-over (voice-agent.ts). */
-    const instruction = (key: string, content: string) => ({
+    await itx.agents.at(caller).create(agentPath);
+    /* Each instruction is keyed by its words, so a build with new words adds them once. They start
+     * no turn: the first turn is the first hand-over. */
+    const instruction = async (name: string, content: string) => ({
       type: "events.iterate.com/agent/context-added",
-      idempotencyKey: `voice-agent/${key}:${options.activation}`,
+      idempotencyKey: `voice-device/${name}:${await shortDigest(content)}`,
       payload: {
         role: "developer",
         content,
         llmRequestPolicy: { behaviour: "dont-trigger-request" },
       },
     });
-    await itx.cd(streamPath).append(
-      {
-        type: "events.iterate.com/itx/subscription-configured",
-        payload: {
-          name: "voice-agent",
-          target: [
-            "itx",
-            "facets",
-            ["get", "voice-agent", voiceAgentFacetSpec],
-            "processEventBatch",
-          ],
-          /* Every durable event, plus the two ephemeral types a processor only sees by name. */
-          consumes: [
-            "*",
-            "events.iterate.com/voice-agent/mic-frame",
-            "events.iterate.com/voice-agent/keepalive",
-          ],
+    await Promise.all([
+      itx.cd(agentPath).append(
+        await instruction("voice-context", VOICE_CONTEXT),
+        ...(screen
+          ? [
+              await instruction(
+                `screen-context:${screen}`,
+                SCREEN_CONTEXT.replaceAll("{{DEVICE}}", screen),
+              ),
+            ]
+          : []),
+        /* A person on a call is waiting: the agent answers a hand-over at once, with no window
+         * for more words. Between calls, the agent's history gets its idle summary. Keyed by
+         * its values, like the instructions, so a build with new ones patches them once. */
+        {
+          type: "events.iterate.com/agent/configured",
+          idempotencyKey: `voice-device/configured:${await shortDigest(JSON.stringify(DEVICE_AGENT_CONFIG))}`,
+          payload: { config: DEVICE_AGENT_CONFIG },
         },
-      },
-      {
-        type: "events.iterate.com/voice-agent/call-started",
-        idempotencyKey: `voice-agent/call:${options.activation}`,
-        payload: {
-          activation: options.activation,
-          conversationId: `conv_${options.activation}`,
+        /* What the relay needs of the agent's log, copied to the relay's: its status, its
+         * messages, a pause, and each failed script. */
+        {
+          type: "events.iterate.com/itx/subscription-configured",
+          idempotencyKey: `voice-device/copy-to:${path}`,
+          payload: {
+            name: "voice-relay",
+            consumes: [
+              "events.iterate.com/agent/summary-updated",
+              "events.iterate.com/agent/web-message-sent",
+              "events.iterate.com/agent/paused",
+            ],
+            target: { path, payload: "payload" },
+          },
         },
-      },
-      instruction("voice-context", VOICE_CONTEXT),
-      ...(screenDevice
-        ? [instruction("screen-context", SCREEN_CONTEXT.replaceAll("{{DEVICE}}", screenDevice))]
-        : []),
-    );
-    return { streamPath };
+        /* The platform never copies an `itx/*` event, so a failed script reaches the relay as
+         * the agent's own report of it, the note its next turn reads (iterate/agents
+         * result-render.ts). */
+        {
+          type: "events.iterate.com/itx/subscription-configured",
+          idempotencyKey: `voice-device/script-failures-to:${path}`,
+          payload: {
+            name: "voice-relay-script-failed",
+            consumes: ["events.iterate.com/agent/context-added"],
+            filter: `$substring(payload.content, 0, 18) = "Your script failed"`,
+            target: {
+              path,
+              type: "events.iterate.com/voice-agent/script-failed",
+              payload: `{ "report": $substring(payload.content, 0, 300) }`,
+            },
+          },
+        },
+      ),
+      itx.cd(path).append(
+        {
+          type: "events.iterate.com/itx/rewrite-rule-configured",
+          idempotencyKey: "voice-device/parent",
+          payload: { match: "itx", target: `itx.cd(${JSON.stringify(caller)})` },
+        },
+        {
+          type: "events.iterate.com/itx/subscription-configured",
+          idempotencyKey: "voice-device/relay",
+          payload: {
+            name: "voice-agent",
+            target: [
+              "itx",
+              "facets",
+              ["get", "voice-agent", voiceAgentFacetSpec],
+              "processEventBatch",
+            ],
+            /* Every durable event, plus the two ephemeral types a processor only sees by name. */
+            consumes: [
+              "*",
+              "events.iterate.com/voice-agent/mic-frame",
+              "events.iterate.com/voice-agent/keepalive",
+            ],
+          },
+        },
+        {
+          type: "events.iterate.com/voice-agent/device-provisioned",
+          idempotencyKey: `voice-device/provisioned:${agentPath}`,
+          payload: { agentPath },
+        },
+      ),
+    ]);
+    return { path, agentPath };
   }
 }

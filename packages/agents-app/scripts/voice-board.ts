@@ -2,8 +2,8 @@
 //
 // The board holds its own session to the worker and lent its capabilities on the project root
 // (`itx.clients.<device_name>`, underscores for anything that is not an identifier character). This
-// script asks it to start a conversation (a remote press), watches the conversation's context for
-// what the provider heard and said, speaks the prompt out of this Mac's speaker so the board's
+// script asks it to start a call (a remote press), watches the device's relay context for what the
+// provider heard and said in that call (its activation), speaks the prompt out of this Mac's speaker so the board's
 // microphone has to hear it, and reports the end-to-end evidence:
 // the call became active (and how long that took), microphone frames left the device, an answer
 // reached its speaker, and the provider transcribed the words and the board answered them.
@@ -28,7 +28,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  dropped device, and the proof fails with it. */
 const Health = z.looseObject({
   callActive: z.boolean().optional(),
+  /** The device's relay context, `/voice/<device>`, the same for every call. */
   conversation: z.string().optional(),
+  /** The call in progress. */
+  activation: z.string().optional(),
   framesSent: z.number().optional(),
   spkWrites: z.number().optional(),
   uptimeMs: z.number().optional(),
@@ -66,11 +69,13 @@ export default async function voiceBoard(
   await kit.conversation.start();
   let callActiveMs: number | null = null;
   let streamPath = "";
+  let activation = "";
   for (let attempt = 0; attempt < 60; attempt++) {
     const health = Health.parse(await kit.health());
     if (health.callActive) {
       callActiveMs = Date.now() - askedAt;
       streamPath = health.conversation || "";
+      activation = health.activation || "";
       break;
     }
     await sleep(500);
@@ -79,7 +84,10 @@ export default async function voiceBoard(
     `call active after ${String(callActiveMs)} ms on ${streamPath || "(no stream path reported)"}`,
   );
   if (callActiveMs === null) throw new Error("FAIL: call never became active");
-  if (!streamPath) throw new Error("FAIL: health did not report the conversation's stream path");
+  if (!streamPath || !activation)
+    throw new Error(
+      "FAIL: health did not report the device's relay path and the call's activation",
+    );
 
   // WATCH BEFORE SPEAKING: transcripts are durable, speaker frames are not; a subscription opened
   // before the words are said sees both.
@@ -103,6 +111,8 @@ export default async function voiceBoard(
       for (const raw of events) {
         const event = JSON.parse(JSON.stringify(raw));
         const p = event.payload ?? {};
+        // the device's relay context holds every call it makes: this call's only
+        if (p.activation !== activation) continue;
         if (event.type === "events.iterate.com/voice-agent/speaker-frame" && p.lastFrameOfAnswer)
           answers += 1;
         else if (event.type === "events.iterate.com/voice-agent/utterance-transcribed")
@@ -128,7 +138,7 @@ export default async function voiceBoard(
   let spkWrites = 0;
   for (let attempt = 0; attempt < 40; attempt++) {
     const after = Health.parse(await kit.health());
-    if (after.conversation === streamPath) {
+    if (after.activation === activation) {
       framesSent = Math.max(framesSent, after.framesSent ?? 0);
       spkWrites = Math.max(spkWrites, after.spkWrites ?? 0);
     }
@@ -158,6 +168,7 @@ export default async function voiceBoard(
       {
         device: DEVICE,
         streamPath,
+        activation,
         callActiveMs,
         framesSent,
         spkWrites,

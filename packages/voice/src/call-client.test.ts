@@ -1,36 +1,43 @@
-// call-client.test.ts — `startVoiceCall` over a fake project root: the path and the press, what
-// the subscription hands its callbacks, the microphone's appends, the keepalive and the hang-up.
-// The relay's side of the call is voice-agent.ts's (agent.test.ts, worker.test.ts).
+// call-client.test.ts — `connectVoiceDevice` over a fake project root: provisioning and the one
+// subscription, the press, what the subscription hands each call, the microphone's appends, the
+// keepalive, the opening deadline, words given to the voice, a move to a new link and the hang-up.
+// The relay's side of the call is voice-agent.ts's
+// (voice-agent.test.ts, worker.test.ts).
 import { expect, test, vi } from "vitest";
+import type { StreamPage } from "iterate/api";
 import { codedError } from "iterate/lib";
-import { startVoiceCall, VOICE_CALL_KEEPALIVE_MS, type VoiceCallFact } from "./call-client.ts";
+import {
+  connectVoiceDevice,
+  VOICE_CALL_KEEPALIVE_MS,
+  VOICE_CALL_OPENING_DEADLINE_MS,
+  type VoiceCallFact,
+} from "./call-client.ts";
 
-test("a call opens /agents/voice/<client>/<UTC stamp>-<activation>, presses there and subscribes to the answer's frames and the call's facts", async () => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-09-28T10:11:12.345Z"));
+test("a device provisions itself and subscribes once to its relay's context; each call is one append of call-started, and frames follow it at once", async () => {
   const root = project();
-  const call = await startVoiceCall(root, callbacks());
-  vi.useRealTimers();
+  const device = await connectVoiceDevice(root, { client: "cli" });
+  const first = device.call(handlers());
+  first.sendMicFrame("frame-0");
+  await first.pressed;
+  await first.hangUp("done");
+  const second = device.call(handlers());
 
-  expect(call).toMatchObject({
-    activation: expect.stringMatching(/^[0-9a-f]{32}$/),
-    // allow-high-entropy-next-line: the UTC stamp of the fake clock above
-    streamPath: `/agents/voice/cli/20260928101112-${call.activation}`,
-  });
+  expect(device).toMatchObject({ path: "/voice/cli", agentPath: "/agents/voice/cli" });
   expect(root).toMatchObject({
-    cdPaths: [call.streamPath],
-    presses: [{ streamPath: call.streamPath, activation: call.activation }],
+    provisioned: [{ client: "cli" }],
+    cdPaths: ["/voice/cli"],
     subscriptions: [
       {
-        name: `cli-${call.activation}`,
+        name: expect.stringMatching(/^cli-[0-9a-f]{8}$/),
         consumes: [
           "events.iterate.com/voice-agent/speaker-frame",
+          "events.iterate.com/agent/web-message-sent",
           "events.iterate.com/voice-agent/call-started",
           "events.iterate.com/voice-agent/conversation-accepted",
           "events.iterate.com/voice-agent/call-ended",
+          "events.iterate.com/voice-agent/audio-trimmed",
           "events.iterate.com/voice-agent/utterance-transcribed",
           "events.iterate.com/voice-agent/answer-transcribed",
-          "events.iterate.com/agent/context-added",
           "events.iterate.com/voice-agent/provider-error-reported",
           "events.iterate.com/voice-agent/provider-disconnected",
         ],
@@ -38,30 +45,55 @@ test("a call opens /agents/voice/<client>/<UTC stamp>-<activation>, presses ther
       },
     ],
   });
-  await call.hangUp("done");
+  expect(root.append.mock.calls.map(([event]) => event)).toMatchObject([
+    {
+      type: "events.iterate.com/voice-agent/call-started",
+      idempotencyKey: `voice-agent/call:${first.activation}`,
+      payload: { activation: first.activation },
+    },
+    // the frame, without waiting for the press's answer
+    { type: "events.iterate.com/voice-agent/mic-frame", payload: { activation: first.activation } },
+    {
+      type: "events.iterate.com/voice-agent/call-ended",
+      payload: { activation: first.activation },
+    },
+    {
+      type: "events.iterate.com/voice-agent/call-started",
+      payload: { activation: second.activation },
+    },
+  ]);
+  expect(first.activation).toMatch(/^[0-9a-f]{32}$/);
+  expect(second).not.toMatchObject({ activation: first.activation });
+  device.close();
+  expect(root.subscriptions).toMatchObject([{ disposed: true }]);
 });
 
-test("the call's own speaker frames and its facts reach the callbacks and the stats; another call's frames and unknown rows do not", async () => {
+test("the subscription hands each call its own frames and facts, and the agent's messages while it lasts; the client times the press to acceptance and to first audio", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const root = project();
-  const heard = callbacks();
-  const call = await startVoiceCall(root, heard);
+  const device = await connectVoiceDevice(root, { client: "cli" });
+  const heard = handlers();
+  const call = device.call(heard);
   const pcm = btoa(String.fromCharCode(...new Uint8Array(3_200))); // 100 ms of PCM16
+  vi.advanceTimersByTime(900);
+  root.deliver([
+    accepted(call.activation),
+    accepted("another-call"),
+    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "Four." } },
+    { type: "events.iterate.com/agent/paused", payload: {} },
+  ]);
+  vi.advanceTimersByTime(300);
   root.deliver([
     frame(call.activation, { pcm, clearSpeakerBufferBeforeFrame: true }),
     frame("another-call", { pcm }),
     frame(call.activation, { pcm: "", lastFrameOfAnswer: true }),
     {
-      type: "events.iterate.com/voice-agent/conversation-accepted",
-      payload: { handshakeTookMs: 812, upgradeTookMs: 240, activation: call.activation },
+      type: "events.iterate.com/voice-agent/answer-transcribed",
+      payload: { activation: call.activation, text: "Four." },
     },
-    { type: "events.iterate.com/voice-agent/answer-transcribed", payload: { text: "Four." } },
-    { type: "events.iterate.com/voice-agent/answer-transcribed", payload: {} },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", content: "What is two plus two?" },
-    },
-    { type: "events.iterate.com/agent/paused", payload: {} },
+    { type: "events.iterate.com/voice-agent/answer-transcribed", payload: { text: "Lost." } },
   ]);
+  vi.useRealTimers();
 
   expect(heard).toMatchObject({
     frames: [
@@ -71,22 +103,26 @@ test("the call's own speaker frames and its facts reach the callbacks and the st
     facts: [
       {
         type: "events.iterate.com/voice-agent/conversation-accepted",
-        payload: { handshakeTookMs: 812, upgradeTookMs: 240 },
+        payload: { activation: call.activation, handshakeTookMs: 812 },
       },
+      { type: "events.iterate.com/agent/web-message-sent", payload: { message: "Four." } },
       { type: "events.iterate.com/voice-agent/answer-transcribed", payload: { text: "Four." } },
-      {
-        type: "events.iterate.com/agent/context-added",
-        payload: { role: "user", content: "What is two plus two?" },
-      },
     ],
   });
-  expect(call.stats).toMatchObject({ spkChunksReceived: 1, spkMsReceived: 100, handshakeMs: 812 });
+  expect(call.stats).toMatchObject({
+    spkChunksReceived: 1,
+    spkMsReceived: 100,
+    handshakeMs: 812,
+    pressToAcceptedMs: 900,
+    pressToFirstAudioMs: 1_200,
+  });
   await call.hangUp("done");
 });
 
 test("microphone frames are ephemeral appends, five in flight at most: the sixth is dropped and a failed append is counted", async () => {
   const root = project();
-  const call = await startVoiceCall(root, callbacks());
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
+  await call.pressed;
   const held = Promise.withResolvers<void>();
   root.append.mockImplementation(async () => {
     await held.promise;
@@ -97,7 +133,7 @@ test("microphone frames are ephemeral appends, five in flight at most: the sixth
   await vi.waitFor(() => expect(call.stats).toMatchObject({ micFramesFailed: 5 }));
 
   expect(sent).toEqual([true, true, true, true, true, false]);
-  expect(root.append.mock.calls[0]).toEqual([
+  expect(root.append.mock.calls[1]).toEqual([
     {
       type: "events.iterate.com/voice-agent/mic-frame",
       ephemeral: true,
@@ -105,36 +141,44 @@ test("microphone frames are ephemeral appends, five in flight at most: the sixth
     },
   ]);
   expect(call.stats).toMatchObject({ micFramesSent: 5, micFramesDropped: 1, micFramesFailed: 5 });
-  await call.hangUp("done");
 });
 
 test("a frame's answer is its offset alone (appendOffsets); a platform without the verb refuses it as no match, and the frames go as appends from then on", async () => {
   const root = project();
-  const call = await startVoiceCall(root, callbacks());
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
   call.sendMicFrame("frame-0");
   await vi.waitFor(() => expect(root.appendOffsets).toHaveBeenCalledTimes(1));
   root.appendOffsets.mockImplementation(async () => {
     throw codedError("NO_ITX_EXPRESSION_MATCH", 'no rewrite rule matches "itx.appendOffsets"');
   });
   call.sendMicFrame("frame-1");
-  await vi.waitFor(() => expect(root.appendedTypes()).toHaveLength(2));
-  call.sendMicFrame("frame-2");
   await vi.waitFor(() => expect(root.appendedTypes()).toHaveLength(3));
+  call.sendMicFrame("frame-2");
+  await vi.waitFor(() => expect(root.appendedTypes()).toHaveLength(4));
   expect(call.stats).toMatchObject({ micFramesSent: 3, micFramesFailed: 0 });
   // the first refusal settles it: frame-2 goes as an append without asking the verb again
   expect(root.appendOffsets).toHaveBeenCalledTimes(2);
   await call.hangUp("done");
 });
 
-test("a live call says keepalive every VOICE_CALL_KEEPALIVE_MS; hanging up waits for the frames in flight, appends call-ended and ends the subscription once it comes back", async () => {
+test("a live call says keepalive every VOICE_CALL_KEEPALIVE_MS; hanging up waits for the frames in flight, appends call-ended and stops once it comes back", async () => {
   vi.useFakeTimers();
   const root = project();
-  const heard = callbacks();
-  const call = await startVoiceCall(root, heard);
+  const heard = handlers();
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(heard);
+  root.deliver([accepted(call.activation)]);
   await vi.advanceTimersByTimeAsync(VOICE_CALL_KEEPALIVE_MS * 2);
-  expect(root.appendedTypes()).toEqual([
-    "events.iterate.com/voice-agent/keepalive",
-    "events.iterate.com/voice-agent/keepalive",
+  expect(root.append.mock.calls.slice(1).map(([event]) => event)).toEqual([
+    {
+      type: "events.iterate.com/voice-agent/keepalive",
+      ephemeral: true,
+      payload: { activation: call.activation },
+    },
+    {
+      type: "events.iterate.com/voice-agent/keepalive",
+      ephemeral: true,
+      payload: { activation: call.activation },
+    },
   ]);
 
   const held = Promise.withResolvers<never[]>();
@@ -149,7 +193,7 @@ test("a live call says keepalive every VOICE_CALL_KEEPALIVE_MS; hanging up waits
   await vi.advanceTimersByTimeAsync(VOICE_CALL_KEEPALIVE_MS * 2);
   vi.useRealTimers();
 
-  expect(root.append.mock.calls.slice(3)).toEqual([
+  expect(root.append.mock.calls.slice(4)).toEqual([
     [
       {
         type: "events.iterate.com/voice-agent/call-ended",
@@ -157,52 +201,151 @@ test("a live call says keepalive every VOICE_CALL_KEEPALIVE_MS; hanging up waits
       },
     ],
   ]);
-  expect(heard.facts).toMatchObject([
-    { type: "events.iterate.com/voice-agent/call-ended", payload: { reason: "hung up" } },
-  ]);
-  expect(root.subscriptions).toMatchObject([{ disposed: true }]);
+  expect(heard.facts.at(-1)).toMatchObject({
+    type: "events.iterate.com/voice-agent/call-ended",
+    payload: { reason: "hung up" },
+  });
   expect(call.sendMicFrame("after the end")).toBe(false);
 });
 
-test("hanging up keeps the subscription for the answer's last frames until call-ended comes back, and ends it after a bounded wait when it does not", async () => {
+test("hanging up waits for call-ended to come back with the answer's last frames, and gives up after a bounded wait when it does not", async () => {
   vi.useFakeTimers();
   const root = project();
-  const heard = callbacks();
-  const call = await startVoiceCall(root, heard);
+  const heard = handlers();
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(heard);
+  await call.pressed;
   root.append.mockImplementationOnce(async () => []); // this call-ended never comes back
   const hungUp = call.hangUp("done");
   await vi.advanceTimersByTimeAsync(0);
   root.deliver([frame(call.activation, { pcm: "", lastFrameOfAnswer: true })]);
-  expect(root.subscriptions).toMatchObject([{ disposed: false }]);
   await vi.advanceTimersByTimeAsync(5_000);
   await hungUp;
+  root.deliver([frame(call.activation, { pcm: "", lastFrameOfAnswer: true })]);
   vi.useRealTimers();
 
+  // the frame after the hang-up belongs to no call
   expect(heard).toMatchObject({ frames: [{ pcm: "", lastFrameOfAnswer: true }] });
-  expect(root.subscriptions).toMatchObject([{ disposed: true }]);
 });
 
-test("a press that answers another path is refused", async () => {
+test("a call the relay neither accepts nor ends within 5 s of the press ends, saying so, and takes no more frames", async () => {
+  vi.useFakeTimers();
   const root = project();
-  root.voice.setupVoiceAgent.mockResolvedValue({ streamPath: "/agents/voice/somewhere-else" });
-  await expect(startVoiceCall(root, callbacks())).rejects.toThrow(
-    /setupVoiceAgent answered \/agents\/voice\/somewhere-else/,
-  );
+  const heard = handlers();
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(heard);
+  await vi.advanceTimersByTimeAsync(VOICE_CALL_OPENING_DEADLINE_MS);
+  vi.useRealTimers();
+
+  expect(heard.facts).toMatchObject([
+    {
+      type: "events.iterate.com/voice-agent/call-ended",
+      payload: {
+        activation: call.activation,
+        reason: "the relay did not accept the call within 5000ms of the press",
+      },
+    },
+  ]);
+  expect(call.sendMicFrame("too late")).toBe(false);
 });
 
-/** A project root whose `itx.voice` answers the press, and the one context the call opens:
- *  records the paths, presses, subscriptions and appends; `deliver` plays rows to the
+/** A project root whose `itx.voice` provisions devices, and the relay's context the device opens:
+ *  records what was provisioned, the paths, subscriptions and appends; `deliver` plays rows to the
  *  subscription. */
+test("a device whose link dropped moves to the new one: its call's frames and words go there, the facts that committed in the gap are read from the log once, and an ephemeral frame's offset hides no later fact", async () => {
+  const before = project();
+  const device = await connectVoiceDevice(before, { client: "phone-447700900001" });
+  const heard = handlers();
+  const call = device.call(heard);
+  before.deliver([
+    { ...accepted(call.activation), offset: 7 },
+    // an ephemeral frame's offset, which the context's next incarnation may give a durable event
+    { ...frame(call.activation, { pcm: "", lastFrameOfAnswer: true }), ephemeral: true, offset: 9 },
+  ]);
+  const after = project();
+  // committed while the link was down (7, 8) and just after the new subscription began (9): a
+  // callback subscription starts from now, so the log is where 8 is
+  const answer = {
+    type: "events.iterate.com/voice-agent/answer-transcribed",
+    payload: { activation: call.activation, text: "Good evening." },
+    offset: 9,
+  };
+  after.log.push(
+    { ...accepted(call.activation), offset: 7 },
+    {
+      type: "events.iterate.com/voice-agent/utterance-transcribed",
+      payload: { activation: call.activation, text: "Hello?" },
+      offset: 8,
+    },
+    answer,
+  );
+  await device.moveTo(after);
+  call.sendMicFrame("frame-after-move");
+  await call.speak("I do apologise, the line dropped for a moment.");
+  // the new subscription delivers 9 too: handed on once
+  after.deliver([answer]);
+  expect({
+    before: { subscriptions: before.subscriptions, appended: before.appendedTypes() },
+    after: {
+      // copied before the check below asks the fake for the context
+      cdPaths: [...after.cdPaths],
+      readAfter: after.readEvents.mock.calls.map(([afterOffset]) => afterOffset),
+      subscriptions: after.subscriptions,
+      appended: after.append.mock.calls.map(([event]) => event),
+    },
+    facts: heard.facts.map((fact) => fact.type),
+    itxIsTheNewLink: device.itx === after.cd("/voice/phone-447700900001"),
+  }).toMatchObject({
+    before: {
+      subscriptions: [{ disposed: true }],
+      appended: ["events.iterate.com/voice-agent/call-started"],
+    },
+    after: {
+      cdPaths: ["/voice/phone-447700900001"],
+      readAfter: [7],
+      subscriptions: [{ disposed: false }],
+      appended: [
+        {
+          type: "events.iterate.com/voice-agent/mic-frame",
+          payload: { activation: call.activation },
+        },
+        {
+          type: "events.iterate.com/voice-agent/words-given",
+          payload: {
+            activation: call.activation,
+            text: "I do apologise, the line dropped for a moment.",
+          },
+        },
+      ],
+    },
+    facts: [
+      "events.iterate.com/voice-agent/conversation-accepted",
+      "events.iterate.com/voice-agent/utterance-transcribed",
+      "events.iterate.com/voice-agent/answer-transcribed",
+    ],
+    itxIsTheNewLink: true,
+  });
+});
+
+test("a device closed while it moves keeps no subscription on the new link", async () => {
+  const before = project();
+  const device = await connectVoiceDevice(before, { client: "cli" });
+  const after = project();
+  const moving = device.moveTo(after);
+  device.close();
+  await moving;
+  expect(after.subscriptions).toMatchObject([{ disposed: true }]);
+});
+
 function project() {
+  const provisioned: { client: string; screen?: string }[] = [];
   const cdPaths: string[] = [];
-  const presses: { streamPath?: string; activation: string }[] = [];
   const subscriptions: {
     name?: string;
     consumes?: string[];
+    afterOffset?: number;
     target: (events: unknown[]) => void;
     disposed: boolean;
   }[] = [];
-  // The log hands a call's terminal back to the call's subscription, as the real one does.
+  // The log hands a call's terminal back to the subscription, as the real one does.
   const append = vi.fn(async (...events: { type: string }[]): Promise<never[]> => {
     const ended = events.filter(
       (event) => event.type === "events.iterate.com/voice-agent/call-ended",
@@ -211,12 +354,21 @@ function project() {
       if (ended.length > 0 && !subscription.disposed) subscription.target(ended);
     return [];
   });
-  const setupVoiceAgent = vi.fn(async (options: { streamPath?: string; activation: string }) => {
-    presses.push(options);
-    return { streamPath: options.streamPath || "" };
+  const ensureVoiceDevice = vi.fn(async (options: { client: string; screen?: string }) => {
+    provisioned.push(options);
+    return { path: `/voice/${options.client}`, agentPath: `/agents/voice/${options.client}` };
   });
+  /** What `readEvents` reads: the log as the test sets it. */
+  const log: { offset: number; type: string; payload: unknown }[] = [];
+  const readEvents = vi.fn(async (afterOffset = 0): Promise<StreamPage> => ({
+    // the test's events carry what the client reads of them, not a stored event's every field
+    events: log.filter((event) => event.offset > afterOffset) as unknown as StreamPage["events"],
+    scannedThroughOffset: Math.max(afterOffset, ...log.map((event) => event.offset)),
+    atHead: true,
+  }));
   const context = {
     append,
+    readEvents,
     // the frames' verb, recorded with the rest: the offsets alone come back
     appendOffsets: vi.fn(async (...events: { type: string }[]) =>
       (await append(...events)).map((_, index) => index),
@@ -224,12 +376,14 @@ function project() {
     subscribe: async (input: {
       name?: string;
       consumes?: string[];
+      afterOffset?: number;
       target: unknown;
     }): Promise<{ [Symbol.dispose](): void }> => {
       // the client hands a function target; the SDK's type also admits an expression
       const subscription = {
         name: input.name,
         consumes: input.consumes,
+        afterOffset: input.afterOffset,
         target: input.target as (events: unknown[]) => void,
         disposed: false,
       };
@@ -238,26 +392,27 @@ function project() {
     },
   };
   return {
-    voice: { setupVoiceAgent },
+    voice: { ensureVoiceDevice },
     cd(path: string) {
       cdPaths.push(path);
       return context;
     },
+    provisioned,
     cdPaths,
-    presses,
     subscriptions,
     append,
     appendOffsets: context.appendOffsets,
+    log,
+    readEvents,
     appendedTypes: () => append.mock.calls.map(([event]) => event?.type),
     deliver: (events: unknown[]) => subscriptions[0]?.target(events),
   };
 }
 
-function callbacks() {
+function handlers() {
   const frames: unknown[] = [];
   const facts: VoiceCallFact[] = [];
   return {
-    client: "cli",
     frames,
     facts,
     onSpeakerFrame: (speakerFrame: unknown) => void frames.push(speakerFrame),
@@ -268,6 +423,13 @@ function callbacks() {
 function frame(activation: string, payload: Record<string, unknown>) {
   return {
     type: "events.iterate.com/voice-agent/speaker-frame",
-    payload: { activation, conversationId: "conv", ...payload },
+    payload: { activation, ...payload },
+  };
+}
+
+function accepted(activation: string) {
+  return {
+    type: "events.iterate.com/voice-agent/conversation-accepted",
+    payload: { activation, pressToDialMs: 40, handshakeTookMs: 812, upgradeTookMs: 240, heldMs: 0 },
   };
 }

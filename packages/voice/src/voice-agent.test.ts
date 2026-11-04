@@ -1,5 +1,6 @@
-// voice-agent.test.ts — the relay between the live voice model and the agent on the call's context:
-// what each delegation hands the agent, and what of the agent's answers the live model is sent.
+// voice-agent.test.ts — the relay between the live voice model and the device's agent: what each
+// delegation hands the agent, what of the agent's answers the live model is sent, and which press
+// opens which call.
 // The relay runs bare, its provider a fake socket this file speaks for, the agent's side a log the
 // hand-overs and answers are committed to; the microphone's path to the provider is pinned only as
 // far as the relay's own queue and pacer reach (mic-pacer.test.ts holds the pacing cases). The
@@ -31,11 +32,19 @@ type Step =
   | { answer: string; text: string; besideScript?: true }
   /** A running script sent the person words (`sendMessage`): no request offset. */
   | { scriptSends: string }
-  /** A script the context ran failed. */
+  /** A script the agent ran failed: its own report of it, copied to the relay. */
   | { scriptFails: string }
+  /** The caller typed words into the call (voice-call.ts `--say`). */
+  | { typed: string }
+  /** The caller's device gave the voice words to say in the call under `activation` (default:
+   *  the first call's), such as a phone bridge's opening line. */
+  | { given: string; activation?: string }
   | { agentPaused: string }
-  /** The device sends this many 50 ms microphone frames, each its own audio. */
-  | { micFrames: number }
+  /** The device sends this many 50 ms microphone frames, each its own audio, for the call under
+   *  `activation` (default: the first call's). */
+  | { micFrames: number; activation?: string }
+  /** The device presses again, under this activation. */
+  | { press: string }
   /** The provider started the session. */
   | { providerReady: true }
   /** The clock moves on this far, 20 ms at a time, and every wait that falls due on the way ends. */
@@ -56,7 +65,7 @@ test.for<{
       { request: "r1" },
       { answer: "r1", text: "It is noon in London." },
     ],
-    toAgent: ["Person: What time is it in London?"],
+    toAgent: ["New call.\nPerson: What time is it in London?"],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       { type: "session.commentary.append", delegation_id: "d1", content: "It is noon in London." },
@@ -73,7 +82,7 @@ test.for<{
       { request: "r2" },
       { answer: "r2", text: "It is noon in London." },
     ],
-    toAgent: ["Person: What time is it in London?"],
+    toAgent: ["New call.\nPerson: What time is it in London?"],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       {
@@ -100,7 +109,7 @@ test.for<{
       { elapseMs: 20_000 },
       { status: "Tidying up" },
     ],
-    toAgent: ["Person: Add chocolate to my order."],
+    toAgent: ["New call.\nPerson: Add chocolate to my order."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       {
@@ -126,14 +135,14 @@ test.for<{
       { elapseMs: 11_000 },
       { scriptFails: "TypeError: waitrose.getTrolly is not a function" },
     ],
-    toAgent: ["Person: What's in my trolley?"],
+    toAgent: ["New call.\nPerson: What's in my trolley?"],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       {
         type: "session.commentary.append",
         delegation_id: "d1",
         content:
-          "Progress: a script failed (runtime): TypeError: waitrose.getTrolly is not a function",
+          "Progress: a script failed (runtime, after 1 s): TypeError: waitrose.getTrolly is not a function",
       },
     ],
   },
@@ -147,7 +156,7 @@ test.for<{
       { scriptSends: "On it, this takes a minute." },
       { status: "Rebuilding the trolley" },
     ],
-    toAgent: ["Person: Reorder last week's shop."],
+    toAgent: ["New call.\nPerson: Reorder last week's shop."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       {
@@ -171,7 +180,10 @@ test.for<{
       { heard: "London.", atMs: 4_000 },
       { delegates: "d2" },
     ],
-    toAgent: ["Person: What is the weather like?", "Voice: Which city?\nPerson: London."],
+    toAgent: [
+      "New call.\nPerson: What is the weather like?",
+      "Voice: Which city?\nPerson: London.",
+    ],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       { type: "session.thinking.append", delegation_id: "d2", content: HANDED_OVER },
@@ -189,7 +201,7 @@ test.for<{
       { request: "r2" },
       { answer: "r2", text: "Here is a division exercise." },
     ],
-    toAgent: ["Person: Show me an exercise.", "Person: Make it division."],
+    toAgent: ["New call.\nPerson: Show me an exercise.", "Person: Make it division."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       { type: "session.thinking.append", delegation_id: "d2", content: HANDED_OVER },
@@ -210,7 +222,7 @@ test.for<{
       { answer: "r1", text: "Bye for now. HANG_UP" },
       { elapseMs: HANG_UP_GOODBYE_GRACE_MS },
     ],
-    toAgent: ["Person: Bye, hang up please."],
+    toAgent: ["New call.\nPerson: Bye, hang up please."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       { type: "session.commentary.append", delegation_id: "d1", content: "Bye for now." },
@@ -224,7 +236,7 @@ test.for<{
       { delegates: "d1" },
       { agentPaused: "the model failed 3 times in a row" },
     ],
-    toAgent: ["Person: Add a joke to the website."],
+    toAgent: ["New call.\nPerson: Add a joke to the website."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
       {
@@ -233,6 +245,47 @@ test.for<{
         content: "The agent stopped working on the request: the model failed 3 times in a row",
       },
     ],
+  },
+  {
+    name: "words typed into the call are a hand-over of it: no delegation to acknowledge, and the agent's answer is spoken",
+    steps: [
+      { typed: "What time is it in London?" },
+      { request: "r1" },
+      { answer: "r1", text: "It is noon in London." },
+    ],
+    toAgent: ["New call.\nPerson (typed): What time is it in London?"],
+    toLiveModel: [
+      { type: "session.commentary.append", delegation_id: null, content: "It is noon in London." },
+    ],
+  },
+  {
+    name: "words the device gives its call are said at once, before any hand-over, while an earlier call's script words and another call's given words are not",
+    steps: [
+      { scriptSends: "The report from your last call is ready." },
+      { given: "Words for a call that is over.", activation: "earlier" },
+      { given: "Good evening. The restaurant has your table at eight." },
+    ],
+    toAgent: [],
+    toLiveModel: [
+      {
+        type: "session.commentary.append",
+        delegation_id: null,
+        content: "Good evening. The restaurant has your table at eight.",
+      },
+    ],
+  },
+  {
+    name: "what the agent says before this call handed it anything is an earlier call's: never spoken, and its goodbye hangs nothing up",
+    steps: [
+      { request: "r0" },
+      { status: "Tidying up after the last call" },
+      { heard: "Hello?", atMs: 0 },
+      { delegates: "d1" },
+      { answer: "r0", text: "Bye for now. HANG_UP" },
+      { elapseMs: HANG_UP_GOODBYE_GRACE_MS },
+    ],
+    toAgent: ["New call.\nPerson: Hello?"],
+    toLiveModel: [{ type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER }],
   },
 ])("$name", async ({ steps, toAgent, toLiveModel, ended }) => {
   const call = await liveCall();
@@ -264,14 +317,62 @@ test("audio past the 6 s queue ends the call, and a fact says how much the live 
   const call = await liveCall([], new Map(), {}, { ready: false });
   await call.take({ micFrames: MIC_QUEUE_MAX_MS / 50 + 1 });
   expect({
-    endings: call.outcome().endings,
+    ended: call.facts("events.iterate.com/voice-agent/call-ended"),
     trimmed: call.facts("events.iterate.com/voice-agent/audio-trimmed"),
     heard: call.heard(),
   }).toEqual({
-    endings: ["more than 6000ms of microphone audio queued for the provider"],
+    ended: [
+      {
+        activation: "test",
+        reason: "more than 6000ms of microphone audio queued for the provider",
+        // how far the call got: dialled at once, never accepted
+        startup: { pressToDialMs: 0, trimmedMs: 6_050 },
+      },
+    ],
     trimmed: [{ activation: "test", ms: 6_050 }],
     heard: [],
   });
+});
+
+test("a press on a device that was never provisioned ends at once, saying how to provision it, and dials nothing", async () => {
+  const call = await liveCall([], new Map(), {}, { provisioned: false });
+  expect({ endings: call.outcome().endings, starts: call.sent("session.start") }).toEqual({
+    endings: [
+      "this device is not provisioned: itx.voice.ensureVoiceDevice({ client }) provisions it",
+    ],
+    starts: [],
+  });
+});
+
+test("a new press while a call is live ends that call first and dials the new one; a repeated press changes nothing", async () => {
+  const call = await liveCall();
+  await call.take({ press: "test" });
+  await call.take({ press: "second" });
+  await call.take({ providerReady: true });
+  expect({
+    ended: call.facts("events.iterate.com/voice-agent/call-ended"),
+    accepted: call.facts("events.iterate.com/voice-agent/conversation-accepted"),
+    starts: call.sent("session.start").length,
+    // the live view is the new call's: the old one's end is not its aftermath
+    view: call.liveView(),
+  }).toMatchObject({
+    ended: [{ activation: "test", reason: "a new call started on this device" }],
+    accepted: [{ activation: "test" }, { activation: "second" }],
+    starts: 2,
+    view: { phase: "live", activation: "second", lastEnd: null },
+  });
+});
+
+test("frames that reach the relay just before their call's press wait for it, and are what the live model hears first", async () => {
+  const call = await liveCall();
+  await call.take({ micFrames: 2, activation: "second" });
+  await call.take({ press: "second" });
+  await call.take({ providerReady: true });
+  await call.take({ elapseMs: 100 });
+  expect({
+    accepted: call.facts("events.iterate.com/voice-agent/conversation-accepted").at(-1),
+    heard: call.heard(),
+  }).toMatchObject({ accepted: { activation: "second", heldMs: 100 }, heard: frames(0, 2) });
 });
 
 test("audio held through the handshake reaches the provider at once and in order, and accepted says how much", async () => {
@@ -288,12 +389,25 @@ test("audio held through the handshake reaches the provider at once and in order
     afterHalfASecond,
     afterASecond: call.heard(),
   }).toMatchObject({
-    accepted: [{ activation: "test", heldMs: 1_000 }],
+    accepted: [
+      { activation: "test", pressToDialMs: 0, handshakeTookMs: 0, upgradeTookMs: 0, heldMs: 1_000 },
+    ],
     // credit for what was held, up to GPT-Live's 5 s burst: the first words are heard at once
     atStart: frames(0, 20),
     // and nothing beyond them: the wall clock has not reached their end, so no silence yet
     afterHalfASecond: frames(0, 20),
     afterASecond: frames(0, 20),
+  });
+});
+
+test("words given before the session starts are said once it does", async () => {
+  const call = await liveCall([], new Map(), {}, { ready: false });
+  await call.take({ given: "Good evening." });
+  const beforeReady = call.sent("session.commentary.append");
+  await call.take({ providerReady: true });
+  expect({ beforeReady, afterReady: call.sent("session.commentary.append") }).toMatchObject({
+    beforeReady: [],
+    afterReady: [{ delegation_id: null, content: "Good evening." }],
   });
 });
 
@@ -335,7 +449,7 @@ test("a project's liveModel, liveVoice and liveInstructions shape the session st
       model: "gpt-live-2",
       audio: { output: { voice: "vesper" } },
       instructions: expect.stringMatching(
-        new RegExp(`^You are Jeeves, on ${PATH}\\.\\nBackchannel policy`),
+        new RegExp(`^You are Jeeves, on ${AGENT_PATH}\\.\\nBackchannel policy`),
       ),
     },
   });
@@ -350,16 +464,17 @@ type LoggedEvent = {
   source: { origin: string };
 };
 
-/** A call on a bare relay, `call-started` delivered and the provider's session started. The log is
- *  the call's context: the relay's appends and the agent's events are committed to it in order and
- *  delivered back as the engine delivers them, only what the contract consumes, payloads parsed by
- *  its schemas. The clock moves only when a step lets time pass, and a wait ends only then.
- *  `restart` is the next incarnation: the log folded, no socket. */
+/** A call on a bare relay of a provisioned device, `call-started` delivered and the provider's
+ *  session started. The log is the device's context: the relay's appends and the agent's events,
+ *  as the agent's row copies them, are committed to it in order and delivered back as the engine
+ *  delivers them, only what the contract consumes, payloads parsed by its schemas. The clock moves
+ *  only when a step lets time pass, and a wait ends only then. `restart` is the next incarnation:
+ *  the log folded, no socket. */
 async function liveCall(
   log: LoggedEvent[] = [],
   requests = new Map<string, number>(),
   hooks: { liveModel?: string; liveVoice?: string; liveInstructions?: LiveInstructions } = {},
-  { ready = true } = {},
+  { ready = true, provisioned = true } = {},
 ) {
   const toAgent: string[] = [];
   const sent: Record<string, unknown>[] = [];
@@ -376,8 +491,7 @@ async function liveCall(
     },
   };
   const processor = new VoiceAgentProcessor({
-    projectContext: async () => JSON.stringify({ projectId: "prj_test", path: PATH }),
-    callPath: async () => PATH,
+    projectContext: async () => JSON.stringify({ projectId: "prj_test", path: RELAY_PATH }),
     liveModel: () => hooks.liveModel,
     liveVoice: () => hooks.liveVoice,
     liveInstructions: () => hooks.liveInstructions,
@@ -385,8 +499,9 @@ async function liveCall(
     sleep: (ms) => new Promise<void>((resolve) => sleeps.push({ dueAtMs: clockMs + ms, resolve })),
     // The relay only listens on, sends on and closes its provider's socket.
     dialProvider: async () => socket as unknown as WebSocket,
-    messageAgent: async (words) => {
-      toAgent.push(words);
+    messageAgent: async (path, words) => {
+      // words for any context but the device's agent would be a hand-over to the wrong agent
+      toAgent.push(path === AGENT_PATH ? words : `(to ${path}) ${words}`);
       return commit({
         type: "events.iterate.com/agent/context-added",
         payload: { role: "user", content: words, actor: { type: "user" } },
@@ -408,14 +523,14 @@ async function liveCall(
   const background = (work: () => Promise<unknown>) => void work();
   function commit({ type, payload = {} }: { type: string; payload?: Record<string, unknown> }) {
     const offset = log.length + 1;
-    const createdAt = new Date(offset * 1000).toISOString();
+    const createdAt = new Date(clockMs).toISOString();
     const event: LoggedEvent = {
       type,
       payload,
       offset,
       createdAt,
-      path: PATH,
-      source: { origin: PATH },
+      path: RELAY_PATH,
+      source: { origin: RELAY_PATH },
     };
     log.push(event);
     const delivered = consumed(event);
@@ -438,9 +553,14 @@ async function liveCall(
     await flush();
   };
   if (log.length === 0) {
+    if (provisioned)
+      commit({
+        type: "events.iterate.com/voice-agent/device-provisioned",
+        payload: { agentPath: AGENT_PATH },
+      });
     commit({
       type: "events.iterate.com/voice-agent/call-started",
-      payload: { activation: "test", conversationId: "conv_test" },
+      payload: { activation: "test" },
     });
     await flush();
     if (ready) await provider({ type: "session.started" });
@@ -459,6 +579,10 @@ async function liveCall(
     restart: () => liveCall(log, requests, hooks),
     /** The `session.start` the relay sent the live model. */
     sessionStart: () => sent.find((message) => message.type === "session.start"),
+    /** Every message of `type` the relay sent the live model. */
+    sent: (type: string) => sent.filter((message) => message.type === type),
+    /** What a page renders of the call now. */
+    liveView: () => processor.projectLiveState(state),
     /** What the live model heard, in order: the device's frames by name, and silence. */
     heard: () =>
       sent
@@ -507,11 +631,18 @@ async function liveCall(
         });
       } else if ("scriptFails" in step) {
         commit({
-          type: "events.iterate.com/itx/run-settled",
-          payload: {
-            requestOffset: 1,
-            settlement: { status: "failed", error: step.scriptFails, failureKind: "runtime" },
-          },
+          type: "events.iterate.com/voice-agent/script-failed",
+          payload: { report: `Your script failed (runtime, after 1 s):\n${step.scriptFails}` },
+        });
+      } else if ("typed" in step) {
+        commit({
+          type: "events.iterate.com/voice-agent/words-typed",
+          payload: { activation: "test", text: step.typed },
+        });
+      } else if ("given" in step) {
+        commit({
+          type: "events.iterate.com/voice-agent/words-given",
+          payload: { activation: step.activation || "test", text: step.given },
         });
       } else if ("agentPaused" in step) {
         commit({ type: "events.iterate.com/agent/paused", payload: { reason: step.agentPaused } });
@@ -522,9 +653,14 @@ async function liveCall(
           micFrames.set(pcm, `frame ${micFrames.size}`);
           commit({
             type: "events.iterate.com/voice-agent/mic-frame",
-            payload: { activation: "test", pcm },
+            payload: { activation: step.activation || "test", pcm },
           });
         }
+      } else if ("press" in step) {
+        commit({
+          type: "events.iterate.com/voice-agent/call-started",
+          payload: { activation: step.press },
+        });
       } else if ("providerReady" in step) {
         await provider({ type: "session.started" });
       } else {
@@ -541,7 +677,8 @@ async function liveCall(
   };
 }
 
-const PATH = "/agents/voice/test";
+const RELAY_PATH = "/voice/test";
+const AGENT_PATH = "/agents/voice/test";
 
 /** The names `heard` gives the device's frames `from` up to `to`. */
 function frames(from: number, to: number): string[] {

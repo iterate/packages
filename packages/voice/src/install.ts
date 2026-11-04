@@ -19,14 +19,14 @@ const PUBLISHED: Omit<FacetSpec, "className"> = {
   source: ["itx", ["cd", "/"], "config"],
 };
 
-/** The relay facet each press puts beside its call's agent (worker.ts `setupVoiceAgent`). */
+/** The relay facet each device's own context runs (worker.ts `ensureVoiceDevice`). */
 export const voiceAgentFacetSpec: FacetSpec = {
   className: "VoiceAgentDurableObject",
   ...PUBLISHED,
 };
 
 /** Idempotent: the screen font a screen script embeds (screen-context.md), and the `itx.voice` rule
- *  to `voice.ts`'s default export. Voice runs on the agents app, every call an agent, which the same
+ *  to `voice.ts`'s default export. Voice runs on the agents app, every device an agent, which the same
  *  init case installs (`installAgents`). */
 export async function installVoice(
   itx: Pick<IterateContextApi, "append"> & { kv: Pick<IterateContextApi["kv"], "put"> },
@@ -38,7 +38,7 @@ export async function installVoice(
       match: "itx.voice",
       target: ["itx", "workers", ["get", PUBLISHED]],
       description:
-        "The project's installed voice service: setupVoiceAgent({ streamPath, activation, screen? }), setImage({ device, image }), health()",
+        "The project's installed voice service: ensureVoiceDevice({ client, screen? }), setImage({ device, image }), health()",
     },
   });
 }
@@ -183,8 +183,8 @@ export async function voiceVersion(project: {
  * AN UPGRADE of the project's voice to `version`: the root package.json's pin, committed on the tip
  * it read (refused if main moved meanwhile; a file already so commits nothing, and the tip's outcome
  * answers), then that commit's outcome on `/`, past any give-up for now (`unavailable`), which
- * leaves it owed. Published, a press from 5 s on loads the new build (`voiceAgentFacetSpec`);
- * refused, main moving on included, it throws why and the person upgrades again. Answers the
+ * leaves it owed. Published, each device's relay loads the new build at its next event
+ * (`voiceAgentFacetSpec`); refused, main moving on included, it throws why and the person upgrades again. Answers the
  * commit. The agents app is the platform's own (iterate/agents) and upgrades with it.
  */
 export async function upgradeVoice(

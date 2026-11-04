@@ -1,11 +1,14 @@
-// call-client.ts — ONE voice call from a client, the device's calls: the press opens a fresh context
-// at `/agents/voice/<client>/<UTC yyyymmddHHMMSS>-<activation>` (`itx.voice.setupVoiceAgent` puts the
-// relay and the agent on it and starts the call, pipelined with a subscription for the answer's
-// frames and the call's facts); microphone frames go up as ephemeral `mic-frame` appends, a
-// `keepalive` every 20 s says the caller is still there through a quiet stretch, and hanging up
-// appends `call-ended`. packages/voice-app's page runs it with the browser's worklets and
-// packages/agents-app/scripts/voice-call.ts from Node with WAV files; Kit's firmware speaks the same calls
-// in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
+// call-client.ts — a device's calls as a client makes them. `connectVoiceDevice` provisions the
+// device (`itx.voice.ensureVoiceDevice`) and subscribes ONCE to its relay's context; each `call()` is
+// then the press, ONE append of `call-started` under a new activation, after which microphone
+// frames go up at once as ephemeral `mic-frame` appends, never waiting for an answer. A `keepalive`
+// every 20 s says the caller is still there through a quiet stretch, and hanging up appends
+// `call-ended`. The subscription routes each frame and fact to its call by activation. A client whose
+// link to the project can drop (a phone bridge under `iterate provide`) carries its device to the
+// new link with `moveTo`.
+// packages/voice-app's page runs it with the browser's worklets and
+// packages/agents-app/scripts/voice-call.ts from Node with WAV files; Kit's firmware speaks the same
+// calls in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
 import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
 import { errorCode } from "iterate/lib";
@@ -15,9 +18,17 @@ import type { VoiceApi } from "./api.ts";
  *  and a caller who listens quietly sends none. */
 export const VOICE_CALL_KEEPALIVE_MS = 20_000;
 
+/** A call the relay has neither accepted nor ended this long after the press ends here, saying
+ *  so: the relay's own opening deadline is 5 s from its dial. */
+export const VOICE_CALL_OPENING_DEADLINE_MS = 5_000;
+
 /** A slow link drops microphone frames rather than queueing them: at most this many appends in
  *  flight at once. */
 const MAX_MIC_FRAMES_IN_FLIGHT = 5;
+
+/** A move reads at most this many pages of 200 events from the gap: a link is down for seconds,
+ *  and a call writes a few events a second. */
+const MOVE_GAP_PAGES = 10;
 
 /** How long hanging up waits for a `call-ended` to come back through the subscription before it
  *  ends it. The subscription delivers in log order, so once the echo is here every speaker frame
@@ -44,48 +55,61 @@ const SpeakerFrame = z.object({
   }),
 });
 
-/** The call's facts, as much of each payload as a caller reads (voice-agent.ts's contract and
- *  iterate/agents' write them; their other fields pass through). */
-const VoiceCallFact = z.discriminatedUnion("type", [
+/** A call's facts, as much of each payload as a caller reads (voice-agent.ts's contract writes
+ *  them; their other fields pass through). Each names its call's activation. */
+const CallFact = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("events.iterate.com/voice-agent/call-started"),
-    payload: z.looseObject({ conversationId: z.string() }),
+    payload: z.looseObject({ activation: z.string() }),
   }),
   z.object({
     type: z.literal("events.iterate.com/voice-agent/conversation-accepted"),
-    payload: z.looseObject({ handshakeTookMs: z.number(), upgradeTookMs: z.number() }),
-  }),
-  z.object({
-    type: z.literal("events.iterate.com/voice-agent/call-ended"),
-    payload: z.looseObject({ reason: z.string() }),
-  }),
-  z.object({
-    type: z.literal("events.iterate.com/voice-agent/utterance-transcribed"),
-    payload: z.looseObject({ text: z.string() }),
-  }),
-  z.object({
-    type: z.literal("events.iterate.com/voice-agent/answer-transcribed"),
-    payload: z.looseObject({ text: z.string() }),
-  }),
-  // What the relay hands the call's agent, and the agent's replies (iterate/agents' contract).
-  z.object({
-    type: z.literal("events.iterate.com/agent/context-added"),
     payload: z.looseObject({
-      role: z.string(),
-      content: z.string(),
-      llmRequestOffset: z.number().optional(),
+      activation: z.string(),
+      pressToDialMs: z.number(),
+      handshakeTookMs: z.number(),
+      upgradeTookMs: z.number(),
+      heldMs: z.number(),
     }),
   }),
   z.object({
+    type: z.literal("events.iterate.com/voice-agent/call-ended"),
+    payload: z.looseObject({ activation: z.string(), reason: z.string() }),
+  }),
+  z.object({
+    type: z.literal("events.iterate.com/voice-agent/audio-trimmed"),
+    payload: z.looseObject({ activation: z.string(), ms: z.number() }),
+  }),
+  z.object({
+    type: z.literal("events.iterate.com/voice-agent/utterance-transcribed"),
+    payload: z.looseObject({ activation: z.string(), text: z.string() }),
+  }),
+  z.object({
+    type: z.literal("events.iterate.com/voice-agent/answer-transcribed"),
+    payload: z.looseObject({ activation: z.string(), text: z.string() }),
+  }),
+  z.object({
     type: z.literal("events.iterate.com/voice-agent/provider-error-reported"),
-    payload: z.looseObject({ message: z.string() }),
+    payload: z.looseObject({ activation: z.string(), message: z.string() }),
   }),
   z.object({
     type: z.literal("events.iterate.com/voice-agent/provider-disconnected"),
-    payload: z.looseObject({ reason: z.string() }),
+    payload: z.looseObject({ activation: z.string(), reason: z.string() }),
   }),
 ]);
-export type VoiceCallFact = z.infer<typeof VoiceCallFact>;
+
+/** What the client reads of any delivered event to hand each durable one on once: its offset, and
+ *  whether it is ephemeral. */
+const StoredEvent = z.looseObject({ offset: z.number(), ephemeral: z.boolean().optional() });
+
+/** The device's agent's messages, which a row on its context copies to the relay's: they name no
+ *  call, so each goes to the calls in progress. */
+const AgentMessage = z.object({
+  type: z.literal("events.iterate.com/agent/web-message-sent"),
+  payload: z.looseObject({ message: z.string(), llmRequestOffset: z.number().optional() }),
+});
+
+export type VoiceCallFact = z.infer<typeof CallFact> | z.infer<typeof AgentMessage>;
 
 /** What this client saw of the call, counted here because the relay cannot see the last hop. */
 export type VoiceCallStats = {
@@ -97,92 +121,126 @@ export type VoiceCallStats = {
   spkChunksReceived: number;
   spkMsReceived: number;
   handshakeMs: number | null;
+  /** The press to `conversation-accepted`, on this client's clock. */
+  pressToAcceptedMs: number | null;
+  /** The press to the answer's first audio, on this client's clock. */
+  pressToFirstAudioMs: number | null;
 };
 
-export type VoiceCall<Context> = {
-  /** The call's own context: what a live-state view subscribes to, and where a caller appends
-   *  anything else the call carries. */
-  itx: Context;
-  streamPath: string;
+/** One call: its press is already on its way when `call()` returns. */
+export type VoiceCall = {
   activation: string;
   stats: VoiceCallStats;
+  /** Settles once the press has landed; rejects with why it was refused. */
+  pressed: Promise<void>;
   /** Append one microphone frame (16 kHz mono PCM16, base64) without waiting for it; false when
-   *  the link is too slow and the frame was dropped. */
+   *  the link is too slow and the frame was dropped, or the call is over. */
   sendMicFrame(pcm: string): boolean;
+  /** Give the voice words to say in this call, such as a phone bridge's opening line
+   *  (`voice-agent/words-given`), appended once the press has landed: said at once, or once the
+   *  session starts. */
+  speak(text: string): Promise<void>;
   /** Stop the microphone and the keepalive, wait for the frames in flight, append `call-ended`
-   *  with `reason`, wait (at most 2 s) for the answer's last frames to arrive, and end the
-   *  subscription. */
+   *  with `reason` unless the call is already over, and wait (at most 2 s) for the answer's last
+   *  frames to arrive. */
   hangUp(reason: string): Promise<void>;
 };
 
-/** Place a call on `project` (a root whose `itx.voice` is installed). `client` names the caller
- *  in the call's path (`web`, `cli`); `onSpeakerFrame` gets the answer's frames for this call,
- *  `onFact` the call's facts, both in log order. Resolves once the press has landed and the
- *  subscription is live. */
-export async function startVoiceCall<
-  Context extends Pick<IterateContextApi, "subscribe" | "append" | "appendOffsets">,
->(
-  project: { voice: Pick<VoiceApi, "setupVoiceAgent">; cd(path: string): Context },
-  options: {
-    client: string;
+export type VoiceDevice<Context> = {
+  /** The relay's context on the device's current link: what a live-state view subscribes to. */
+  readonly itx: Context;
+  /** The relay's context path, `/voice/<client>`. */
+  path: string;
+  /** The device's agent, `/agents/voice/<client>`, which answers every call's delegations. */
+  agentPath: string;
+  /** The press. `onSpeakerFrame` gets this call's answer frames, `onFact` its facts and the
+   *  agent's messages while it lasts, both in log order. */
+  call(handlers: {
     onSpeakerFrame(frame: VoiceCallSpeakerFrame): void;
     onFact(fact: VoiceCallFact): void;
-  },
-): Promise<VoiceCall<Context>> {
-  const { client, onSpeakerFrame, onFact } = options;
-  const activation = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-  const streamPath = `/agents/voice/${client}/${stamp}-${activation}`;
-  const itx = project.cd(streamPath);
-  const stats: VoiceCallStats = {
-    micFramesSent: 0,
-    micFramesDropped: 0,
-    micFramesFailed: 0,
-    spkChunksReceived: 0,
-    spkMsReceived: 0,
-    handshakeMs: null,
+  }): VoiceCall;
+  /** The link the device rode on is gone (`iterate provide` reconnected): carry it to `project`,
+   *  the new link's root. Calls in progress send their frames and keepalives there; a new
+   *  subscription starts, and the log after the last fact delivered is read, so a `call-ended` or a
+   *  transcript that landed in the gap still arrives. The answer's audio from the gap is lost: it is
+   *  ephemeral. */
+  moveTo(project: { cd(path: string): Context }): Promise<void>;
+  /** End the subscription; a call in progress is not hung up. */
+  close(): void;
+};
+
+/** A call's own part of the subscription: what it hands its frames and facts to. */
+type CallRoute = {
+  speakerFrame(frame: VoiceCallSpeakerFrame): void;
+  fact(fact: VoiceCallFact): void;
+};
+
+/** Provision `client` on `project` (a root whose `itx.voice` is installed) and subscribe to its
+ *  relay's context. `client` names the device: a Kit board's `itx.clients` name, or the
+ *  installation id a browser or the CLI keeps. Resolves once both have answered. */
+export async function connectVoiceDevice<
+  Context extends Pick<IterateContextApi, "subscribe" | "append" | "appendOffsets" | "readEvents">,
+>(
+  project: { voice: Pick<VoiceApi, "ensureVoiceDevice">; cd(path: string): Context },
+  options: { client: string; screen?: string },
+): Promise<VoiceDevice<Context>> {
+  const { path, agentPath } = await project.voice.ensureVoiceDevice({
+    client: options.client,
+    screen: options.screen,
+  });
+  let itx = project.cd(path);
+  const calls = new Map<string, CallRoute>();
+  /** The offset of the last durable event delivered: a moved device reads the log after it. An
+   *  ephemeral event's offset is not counted: a new incarnation of the context numbers its next
+   *  durable events from the last durable one, so they can reuse an ephemeral frame's offset. */
+  let lastOffset: number | undefined;
+  /** While `moveTo` reads the gap, what the new subscription delivers waits here. */
+  let held: unknown[] | null = null;
+  let closed = false;
+  /** Events, in log order, to their calls: each durable one once, though a move reads it from the
+   *  log and the new subscription may deliver it too. */
+  const deliver = (events: unknown[]) => {
+    for (const event of events) {
+      const stored = StoredEvent.safeParse(event);
+      if (stored.success && !stored.data.ephemeral) {
+        const { offset } = stored.data;
+        if (lastOffset !== undefined && offset <= lastOffset) continue;
+        lastOffset = offset;
+      }
+      route(event);
+    }
   };
-  const callEnded = Promise.withResolvers<void>();
-  // THE PRESS, pipelined with the subscription: neither waits for the other's answer.
-  const [{ streamPath: settledPath }, subscription] = await Promise.all([
-    project.voice.setupVoiceAgent({ streamPath, activation }),
-    itx.subscribe({
-      name: `${client}-${activation}`,
+  /** A live-callback subscription starts from now: it ignores `afterOffset`. */
+  const subscribeOn = (context: Context) =>
+    context.subscribe({
+      name: `${options.client}-${randomHex(4)}`,
       consumes: [
         "events.iterate.com/voice-agent/speaker-frame",
-        ...VoiceCallFact.options.map((fact) => fact.shape.type.value),
+        AgentMessage.shape.type.value,
+        ...CallFact.options.map((fact) => fact.shape.type.value),
       ],
       target: (events) => {
-        for (const event of events) {
-          const frame = SpeakerFrame.safeParse(event);
-          if (frame.success) {
-            if (frame.data.payload.activation !== activation) continue;
-            if (frame.data.payload.pcm) {
-              stats.spkChunksReceived += 1;
-              // base64 carries 3 bytes in every 4 characters; PCM16 at 16 kHz is 32 bytes a millisecond
-              const bytes = Math.floor((frame.data.payload.pcm.replace(/=+$/, "").length * 3) / 4);
-              stats.spkMsReceived += bytes / 32;
-            }
-            onSpeakerFrame(frame.data.payload);
-            continue;
-          }
-          const fact = VoiceCallFact.safeParse(event);
-          if (!fact.success) continue;
-          if (fact.data.type === "events.iterate.com/voice-agent/conversation-accepted")
-            stats.handshakeMs = fact.data.payload.handshakeTookMs;
-          if (fact.data.type === "events.iterate.com/voice-agent/call-ended") callEnded.resolve();
-          onFact(fact.data);
-        }
+        if (held) held.push(...events);
+        else deliver(events);
       },
-    }),
-  ]);
-  if (settledPath !== streamPath)
-    throw new Error(`setupVoiceAgent answered ${settledPath} for ${streamPath}`);
+    });
+  /** One delivered event to its call; the agent's messages to every call in progress. */
+  function route(event: unknown): void {
+    const frame = SpeakerFrame.safeParse(event);
+    if (frame.success) {
+      calls.get(frame.data.payload.activation)?.speakerFrame(frame.data.payload);
+      return;
+    }
+    const message = AgentMessage.safeParse(event);
+    if (message.success) {
+      for (const call of calls.values()) call.fact(message.data);
+      return;
+    }
+    const fact = CallFact.safeParse(event);
+    if (fact.success) calls.get(fact.data.payload.activation)?.fact(fact.data);
+  }
+  let subscription = await subscribeOn(itx);
 
-  const inFlight = new Set<Promise<unknown>>();
-  let open = true;
   // A FRAME'S ANSWER IS ITS OFFSET ALONE (`appendOffsets`): the frame does not travel back down the
   // device's link. A platform without the verb refuses it as no match; the frames then go as
   // `append`s.
@@ -197,56 +255,178 @@ export async function startVoiceCall<
       }
     return await itx.append(event);
   };
-  const keepalive = setInterval(() => {
-    void itx
-      .append({ type: "events.iterate.com/voice-agent/keepalive", ephemeral: true, payload: {} })
-      .catch(() => undefined);
-  }, VOICE_CALL_KEEPALIVE_MS);
+
   return {
-    itx,
-    streamPath,
-    activation,
-    stats,
-    sendMicFrame(pcm) {
-      if (!open) return false;
-      if (inFlight.size >= MAX_MIC_FRAMES_IN_FLIGHT) {
-        stats.micFramesDropped += 1;
-        return false;
-      }
-      stats.micFramesSent += 1;
-      const sent = appendFrame({
-        type: "events.iterate.com/voice-agent/mic-frame",
-        ephemeral: true,
-        payload: { activation, pcm },
-      })
-        .catch(() => {
-          stats.micFramesFailed += 1;
-        })
-        .finally(() => inFlight.delete(sent));
-      inFlight.add(sent);
-      return true;
+    get itx() {
+      return itx;
     },
-    async hangUp(reason) {
-      open = false;
-      clearInterval(keepalive);
-      await Promise.all(inFlight);
-      const appended = await itx
+    path,
+    agentPath,
+    call({ onSpeakerFrame, onFact }) {
+      const activation = randomHex(16);
+      const pressedAt = Date.now();
+      const stats: VoiceCallStats = {
+        micFramesSent: 0,
+        micFramesDropped: 0,
+        micFramesFailed: 0,
+        spkChunksReceived: 0,
+        spkMsReceived: 0,
+        handshakeMs: null,
+        pressToAcceptedMs: null,
+        pressToFirstAudioMs: null,
+      };
+      const ended = Promise.withResolvers<void>();
+      let open = true;
+      let over = false;
+      const inFlight = new Set<Promise<unknown>>();
+      const end = (reason: string) =>
+        itx
+          .append({
+            type: "events.iterate.com/voice-agent/call-ended",
+            payload: { activation, reason },
+          })
+          .then(
+            () => true,
+            () => false,
+          );
+      const openingDeadline = setTimeout(() => {
+        if (stats.pressToAcceptedMs === null && !over)
+          void end(
+            `the relay did not accept the call within ${VOICE_CALL_OPENING_DEADLINE_MS}ms of the press`,
+          );
+      }, VOICE_CALL_OPENING_DEADLINE_MS);
+      const keepalive = setInterval(() => {
+        void itx
+          .append({
+            type: "events.iterate.com/voice-agent/keepalive",
+            ephemeral: true,
+            payload: { activation },
+          })
+          .catch(() => undefined);
+      }, VOICE_CALL_KEEPALIVE_MS);
+      const stop = () => {
+        open = false;
+        clearTimeout(openingDeadline);
+        clearInterval(keepalive);
+      };
+      calls.set(activation, {
+        speakerFrame(frame) {
+          if (frame.pcm) {
+            stats.pressToFirstAudioMs ??= Date.now() - pressedAt;
+            stats.spkChunksReceived += 1;
+            // base64 carries 3 bytes in every 4 characters; PCM16 at 16 kHz is 32 bytes a millisecond
+            const bytes = Math.floor((frame.pcm.replace(/=+$/, "").length * 3) / 4);
+            stats.spkMsReceived += bytes / 32;
+          }
+          onSpeakerFrame(frame);
+        },
+        fact(fact) {
+          if (fact.type === "events.iterate.com/voice-agent/conversation-accepted") {
+            stats.handshakeMs = fact.payload.handshakeTookMs;
+            stats.pressToAcceptedMs = Date.now() - pressedAt;
+            clearTimeout(openingDeadline);
+          }
+          onFact(fact);
+          if (fact.type === "events.iterate.com/voice-agent/call-ended") {
+            over = true;
+            stop();
+            calls.delete(activation);
+            ended.resolve();
+          }
+        },
+      });
+      // THE PRESS: one append, and the frames follow it at once.
+      const pressed = itx
         .append({
-          type: "events.iterate.com/voice-agent/call-ended",
-          payload: { activation, reason },
+          type: "events.iterate.com/voice-agent/call-started",
+          idempotencyKey: `voice-agent/call:${activation}`,
+          payload: { activation },
         })
-        .then(
-          () => true,
-          () => false,
-        );
-      if (appended) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          callEnded.promise,
-          new Promise((resolve) => (timer = setTimeout(resolve, HANG_UP_ECHO_MS))),
-        ]);
-        clearTimeout(timer);
+        .then(() => undefined);
+      pressed.catch(() => {
+        stop();
+        calls.delete(activation);
+      });
+      return {
+        activation,
+        stats,
+        pressed,
+        sendMicFrame(pcm) {
+          if (!open) return false;
+          if (inFlight.size >= MAX_MIC_FRAMES_IN_FLIGHT) {
+            stats.micFramesDropped += 1;
+            return false;
+          }
+          stats.micFramesSent += 1;
+          const sent = appendFrame({
+            type: "events.iterate.com/voice-agent/mic-frame",
+            ephemeral: true,
+            payload: { activation, pcm },
+          })
+            .catch(() => {
+              stats.micFramesFailed += 1;
+            })
+            .finally(() => inFlight.delete(sent));
+          inFlight.add(sent);
+          return true;
+        },
+        async speak(text) {
+          // after the press, so the relay reads the words with their call open
+          await pressed;
+          await itx.append({
+            type: "events.iterate.com/voice-agent/words-given",
+            payload: { activation, text },
+          });
+        },
+        async hangUp(reason) {
+          stop();
+          await Promise.all(inFlight);
+          if (!over && (await end(reason))) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              ended.promise,
+              new Promise((resolve) => (timer = setTimeout(resolve, HANG_UP_ECHO_MS))),
+            ]);
+            clearTimeout(timer);
+          }
+          calls.delete(activation);
+        },
+      };
+    },
+    async moveTo(next) {
+      try {
+        subscription[Symbol.dispose]();
+      } catch {
+        // the old link is gone, and its subscription with it
       }
+      itx = next.cd(path);
+      held = [];
+      try {
+        const moved = await subscribeOn(itx);
+        if (closed) {
+          moved[Symbol.dispose]();
+          return;
+        }
+        subscription = moved;
+        // What committed while the link was down is in the log, after the last durable offset this
+        // device delivered; MOVE_GAP_PAGES bounds the read.
+        if (lastOffset === undefined) return;
+        let after = lastOffset;
+        for (let page = 0; page < MOVE_GAP_PAGES; page++) {
+          const read = await itx.readEvents(after, 200);
+          deliver(read.events);
+          if (read.atHead) return;
+          after = read.scannedThroughOffset;
+        }
+      } finally {
+        const waiting = held;
+        held = null;
+        deliver(waiting);
+      }
+    },
+    close() {
+      closed = true;
+      calls.clear();
       try {
         subscription[Symbol.dispose]();
       } catch {
@@ -254,4 +434,10 @@ export async function startVoiceCall<
       }
     },
   };
+}
+
+function randomHex(bytes: number): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }

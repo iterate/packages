@@ -21,7 +21,7 @@ test("installVoice stores the screen font and writes the itx.voice rule to voice
           payload: {
             match: "itx.voice",
             target: ["itx", "workers", ["get", published]],
-            description: expect.stringContaining("setupVoiceAgent"),
+            description: expect.stringContaining("ensureVoiceDevice"),
           },
         },
       ],

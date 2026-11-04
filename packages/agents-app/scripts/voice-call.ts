@@ -1,21 +1,21 @@
 // scripts/voice-call.ts — ONE voice conversation from Node, the shape the ESP32 HAVPE has: a warm
-// authenticated capnweb session, then "press the button = a new stream now". The call itself is
-// `@iterate-com/voice/call`'s client (the press, the subscription, the microphone appends, the
-// keepalive, the terminal — prepare the project at https://k.iterate.com); this script feeds it
-// microphone frames from a 16 kHz mono PCM16 WAV (or one silent frame, with `--say`'s words handed
-// to the call's agent as a person's message), writes what came back to a WAV and prints the
-// timeline from the press.
+// authenticated capnweb session and a provisioned device, then "press the button = one append".
+// The call itself is `@iterate-com/voice/call`'s client (provisioning, the subscription, the press,
+// the microphone appends, the keepalive, the terminal — prepare the project at
+// https://k.iterate.com); this script feeds it microphone frames from a 16 kHz mono PCM16 WAV (or
+// one silent frame, with `--say`'s words typed into the call),
+// writes what came back to a WAV and prints the timeline from the press.
 //
 //   WORKER_BASE_URL=https://os.iterate.com ITERATE_BEARER_TOKEN=itk_… \
 //   node scripts/voice-call.ts --utterance ask.wav --out answer.wav
-//   node scripts/voice-call.ts --say "Say exactly: ready."
+//   node scripts/voice-call.ts --say "Say exactly: ready." --device cli-laptop
 //
 // ITERATE_BEARER_TOKEN is a personal access token for the project
 // (`pnpm exec iterate --config prd tokens create`). PROJECT=prj-voice.
 import type {} from "iterate/agents";
 import type {} from "@iterate-com/voice";
 import { readFileSync, writeFileSync } from "node:fs";
-import { startVoiceCall } from "@iterate-com/voice/call";
+import { connectVoiceDevice } from "@iterate-com/voice/call";
 import type { RpcPromise } from "capnweb";
 import type { IterateContextApiWith } from "iterate/api";
 import { createCli } from "trpc-cli";
@@ -74,8 +74,8 @@ function wavFromPcm(pcm: Uint8Array): Uint8Array {
   return Buffer.concat([header, pcm]);
 }
 
-/** ONE voice conversation on a fresh context through the call client; prints the timeline from
- *  the press. PROJECT (env) names the project, default prj-voice. */
+/** ONE voice conversation on a provisioned device through the call client; prints the timeline
+ *  from the press. PROJECT (env) names the project, default prj-voice. */
 export default async function voiceCall(
   options: {
     /** A 16 kHz mono PCM16 WAV to send as microphone frames. */
@@ -87,6 +87,9 @@ export default async function voiceCall(
     out?: string;
     /** How long to keep the microphone open with silence after the utterance (the model answers then). */
     listenMs?: number;
+    /** The device this CLI calls as: its installation id, the same on every run so its agent
+     *  remembers; default cli. */
+    device?: string;
   } = {},
 ): Promise<void> {
   const PROJECT = process.env.PROJECT || "prj-voice";
@@ -108,8 +111,12 @@ export default async function voiceCall(
   >;
   await root.whoami();
   console.log(`session + project root ready in ${now() - warm0}ms`);
+  // What a device does when it connects: provisioning and the one subscription, never on a press.
+  const provisioned0 = now();
+  const device = await connectVoiceDevice(root, { client: options.device || "cli" });
+  console.log(`device ${device.path} provisioned and subscribed in ${now() - provisioned0}ms`);
 
-  // THE PRESS: a fresh context, its agent and the relay on it, a live callback for the answer.
+  // THE PRESS: one append; a live callback for the answer.
   const t0 = now();
   const at = () => now() - t0;
   const marks: Record<string, number> = {};
@@ -118,8 +125,7 @@ export default async function voiceCall(
   let ended: string | null = null;
   let accepted: (() => void) | null = null;
   const acceptedPromise = new Promise<void>((resolve) => (accepted = resolve));
-  const call = await startVoiceCall(root, {
-    client: "cli",
+  const call = device.call({
     onSpeakerFrame: (frame) => {
       marks.firstSpeakerFrame ??= at();
       if (frame.pcm) speaker.push(Buffer.from(frame.pcm, "base64"));
@@ -145,13 +151,9 @@ export default async function voiceCall(
           transcript.push(`assistant: ${fact.payload.text}`);
           console.log(`[${at()}ms] assistant: ${fact.payload.text}`);
           break;
-        case "events.iterate.com/agent/context-added":
-          // What the relay handed the agent, and the agent's replies (a script step, or the
-          // answer the live model speaks).
-          if (fact.payload.role === "user")
-            console.log(`[${at()}ms] to the agent: ${fact.payload.content}`);
-          if (fact.payload.role === "assistant" && fact.payload.llmRequestOffset)
-            console.log(`[${at()}ms] agent: ${fact.payload.content.slice(0, 300)}`);
+        case "events.iterate.com/agent/web-message-sent":
+          // The agent's answer, which the live model speaks, or words a script sent.
+          console.log(`[${at()}ms] agent: ${fact.payload.message.slice(0, 300)}`);
           break;
         case "events.iterate.com/voice-agent/provider-error-reported":
         case "events.iterate.com/voice-agent/provider-disconnected":
@@ -184,14 +186,21 @@ export default async function voiceCall(
     call.sendMicFrame(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).toString("base64"));
     frameIndex++;
     if (SAY && frameIndex === 1) {
-      // Nothing to say into the microphone: hand the agent the words once the call is live.
-      void acceptedPromise.then(() => root.agents.get(call.streamPath).message(SAY));
+      // Nothing to say into the microphone: type the words into the call once it is live, a
+      // hand-over of this call like a spoken request, so the relay speaks the agent's answer.
+      void acceptedPromise.then(() =>
+        device.itx.append({
+          type: "events.iterate.com/voice-agent/words-typed",
+          payload: { activation: call.activation, text: SAY },
+        }),
+      );
     }
     if (ended) break;
   }
 
   await call.hangUp("voice-call script done");
   marks.terminalSent = at();
+  device.close();
 
   const pcm = Buffer.concat(speaker);
   writeFileSync(OUT, wavFromPcm(pcm));
@@ -199,7 +208,8 @@ export default async function voiceCall(
     JSON.stringify(
       {
         project: PROJECT,
-        path: call.streamPath,
+        path: device.path,
+        agentPath: device.agentPath,
         activation: call.activation,
         stats: call.stats,
         speakerMs: pcm.length / BYTES_PER_MS,

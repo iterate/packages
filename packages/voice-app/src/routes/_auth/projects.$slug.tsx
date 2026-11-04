@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { useActionState, useRef, useState } from "react";
+import { Suspense, use, useActionState, useRef, useState } from "react";
 import { CircleIcon } from "lucide-react";
 import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
@@ -14,7 +14,7 @@ import { cn } from "cn";
 import { buildStanding } from "iterate/package-builds";
 import { ensureVoiceAgent, upgradeVoice, voiceVersion } from "@iterate-com/voice/install";
 import { openAudio, type AudioSession } from "../../audio.ts";
-import { startCall, type Call, type CallFact } from "../../call.ts";
+import { openDevice, startCall, type Call, type CallFact } from "../../call.ts";
 
 /** The relay's live view (@iterate-com/voice VoiceLiveView), validated on every read. */
 const VoiceLiveView = z.object({
@@ -78,7 +78,9 @@ function CallPage() {
     >
       {voice.installed && voice.hasOpenaiKey ? (
         <>
-          <Phone key={project.id} project={project.id} />
+          <Suspense fallback={<PhoneGettingReady />}>
+            <Phone key={project.id} project={project.id} />
+          </Suspense>
           {voice.build ? (
             <div className="mx-auto w-full max-w-xl px-4 pb-4 md:px-8 md:pb-8">
               <AppBuild
@@ -169,10 +171,26 @@ function SetUpVoice({ project, needsOpenaiKey }: { project: string; needsOpenaiK
   );
 }
 
-/** The phone: Call opens the microphone inside the click (the browser wants the gesture) and
+/** The phone while this browser's device is provisioned. */
+function PhoneGettingReady() {
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-4 md:p-8">
+      <p className="text-2xl font-semibold">Talk to your project</p>
+      <div>
+        <Button size="lg" className="rounded-full px-8" disabled data-spinner>
+          Getting ready…
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The phone: this browser is a device of the project, provisioned when the page opens, so Call
+ *  only presses. Call opens the microphone inside the click (the browser wants the gesture) and
  *  places the call; Hang up ends it and reports what this browser saw. */
 function Phone({ project }: { project: string }) {
   const { api } = Route.useRouteContext();
+  const device = use(openDevice(api, project));
   // the microphone and speaker of the call in progress: read by Hang up, never rendered
   const audio = useRef<AudioSession>(undefined);
   const [call, setCall] = useState<Call>();
@@ -188,11 +206,11 @@ function Phone({ project }: { project: string }) {
     setFacts([]);
     let opened: AudioSession | undefined; // the session THIS press opened, not the render's state
     try {
+      if (!device.ok) throw new Error(device.error);
       opened = await openAudio(); // inside the click: the browser wants a gesture
       audio.current = opened;
-      const started = await startCall({
-        api,
-        projectId: project,
+      const started = startCall({
+        device: device.device,
         audio: opened,
         onFact: (fact) => setFacts((previous) => [...previous.slice(-19), fact]),
       });
@@ -215,7 +233,7 @@ function Phone({ project }: { project: string }) {
         const speaker = await opened.speaker.stats();
         const s = call.stats;
         setLastStats(
-          `last call: handshake ${s.handshakeMs ?? "?"} ms · mic ${s.micFramesSent} frames sent, ${s.micFramesDropped} dropped · ` +
+          `last call: accepted ${s.pressToAcceptedMs ?? "?"} ms and first audio ${s.pressToFirstAudioMs ?? "?"} ms after the press, handshake ${s.handshakeMs ?? "?"} ms · mic ${s.micFramesSent} frames sent, ${s.micFramesDropped} dropped · ` +
             `speaker ${s.spkChunksReceived} chunks (${Math.round(s.spkMsReceived)} ms) received, ${speaker.playedMs} ms played, ${speaker.underruns} underruns`,
         );
       }
@@ -241,11 +259,22 @@ function Phone({ project }: { project: string }) {
             Hang up
           </Button>
         ) : (
-          <Button size="lg" className="rounded-full px-8" onClick={onCall} disabled={busy}>
+          <Button
+            size="lg"
+            className="rounded-full px-8"
+            onClick={onCall}
+            disabled={busy || !device.ok}
+          >
             {busy ? "Connecting…" : "Call"}
           </Button>
         )}
       </div>
+      <p className="font-mono text-xs text-muted-foreground">Device {device.name}</p>
+      {device.ok ? null : (
+        <p role="alert" data-type="error" className="text-sm break-words text-destructive">
+          {device.error}
+        </p>
+      )}
       {error ? (
         <p role="alert" data-type="error" className="text-sm break-words text-destructive">
           {error}

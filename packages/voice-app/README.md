@@ -12,11 +12,15 @@ Node), with the browser's microphone and speaker on either end and the relay's l
 - `src/server.ts` — `appServerEntry` (`packages/ui/src/apps/server.ts`), every app's Worker
   entry, with Voice's client name and home.
 - `src/routes/_auth/projects.$slug.tsx` — the one page. `useLiveState` from `iterate/react` subscribes to the
-  relay's `voice-agent` live view (phase, answering, transcript, last end) on the call's context.
-- `src/call.ts` — one call: `itx.voice.health()`, then `startVoiceCall` (`@iterate-com/voice/call`:
-  the press on a fresh `/agents/voice/web/…` context, the subscription, the `mic-frame` appends, the
-  keepalive and `call-ended` on hang up) wired to the worklets: the capture's frames go up, the
-  answer's frames go to the playback queue.
+  relay's `voice-agent` live view (phase, answering, transcript, last end) on the device's relay
+  context.
+- `src/call.ts` — the browser as a device: `openDevice` provisions it when the page opens
+  (`connectVoiceDevice` from `@iterate-com/voice/call`: `itx.voice.ensureVoiceDevice` and one
+  subscription), named by an installation id the browser keeps (`web-<12 hex>`, in
+  `localStorage`), so every call from this browser goes to one agent that remembers. `startCall` is
+  the press, one append, with the `mic-frame` appends, the keepalive and `call-ended` on hang up,
+  wired to the worklets: the capture's frames go up from the press, the answer's frames go to the
+  playback queue.
 - `src/audio.ts` + `public/worklets/*.js` — one 16 kHz `AudioContext`; the capture worklet posts
   50 ms PCM16 frames, the playback worklet drains a queue of answer chunks (cleared when the relay
   says so). Modeled on the recorder and stream player of OpenAI's realtime console.

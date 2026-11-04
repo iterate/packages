@@ -12,7 +12,8 @@ export const PCM16_BYTES_PER_MS = 32;
 /** The pacer sends at most this multiple of real time, so a backlog drains without a burst. */
 const PACE = 1.2;
 
-/** The most credit the pacer saves up while it runs, in audio ms. */
+/** The most credit the pacer saves up while it runs, in audio ms (one frame, when a frame is
+ *  longer). */
 const CREDIT_CAP_MS = 100;
 
 /** The most held audio that goes to the provider at once when it gets ready, so a person's first
@@ -70,12 +71,12 @@ export class MicPacer {
   take(nowMs: number): string[] {
     if (this.#startedAtMs === null) return [];
     /* The burst credit from `start` is above the cap until it is spent; the cap limits only what
-     * the pacer saves up after it. */
-    if (this.#creditMs < CREDIT_CAP_MS) {
-      this.#creditMs = Math.min(
-        CREDIT_CAP_MS,
-        this.#creditMs + (nowMs - this.#refilledAtMs) * PACE,
-      );
+     * the pacer saves up after it. A frame goes only on credit it has, never borrowed, so what was
+     * sent never runs ahead of the burst plus 1.2× the time since `start`; the bucket therefore
+     * holds one whole frame when the next frame is longer than the cap. */
+    const capMs = Math.max(CREDIT_CAP_MS, this.#frames[0]?.ms ?? 0);
+    if (this.#creditMs < capMs) {
+      this.#creditMs = Math.min(capMs, this.#creditMs + (nowMs - this.#refilledAtMs) * PACE);
     }
     this.#refilledAtMs = nowMs;
     const elapsedMs = nowMs - this.#startedAtMs;
@@ -86,8 +87,7 @@ export class MicPacer {
     for (;;) {
       const head = this.#frames[0];
       if (head) {
-        /* A frame longer than the cap goes on a full bucket and borrows the rest. */
-        if (this.#creditMs < Math.min(head.ms, CREDIT_CAP_MS)) break;
+        if (this.#creditMs < head.ms) break;
         this.#frames.shift();
         this.#queuedMs -= head.ms;
         this.#creditMs -= head.ms;

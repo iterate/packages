@@ -58,88 +58,144 @@ test("an incorrect device acknowledgment stops the upload", async () => {
 });
 
 test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_edition"])(
-  "%s: the press puts the relay beside the call's agent and gives the agent its instructions, the screen guide only to a screen",
+  "%s: provisioning makes the device's agent, told how to answer a call, and its relay on a context of its own; the screen guide only to a screen",
   async (device) => {
-    const { worker, append, at, create } = await harness();
+    const { worker, appended, at, create } = await harness();
     const screen = device !== "home_assistant_voice_preview_edition";
-    const streamPath = `/agents/voice/${device}/2026-09-28-101500-test`;
-    await worker.setupVoiceAgent({
-      streamPath,
-      activation: "test",
-      ...(screen && { screen: device }),
-    });
-    expect(at).toHaveBeenCalledExactlyOnceWith("/");
-    expect(create).toHaveBeenCalledExactlyOnceWith(streamPath);
-    expect(create.mock.invocationCallOrder[0]).toBeLessThan(append.mock.invocationCallOrder[0]!);
-    expect(append).toHaveBeenCalledTimes(1);
-    const events = append.mock.calls[0]!;
+    const path = `/voice/${device}`;
+    const agentPath = `/agents/voice/${device}`;
     expect(
-      events
-        .filter((event) => event.type === "events.iterate.com/itx/subscription-configured")
-        .map((event) => event.payload),
-    ).toEqual([
-      {
-        name: "voice-agent",
-        target: [
-          "itx",
-          "facets",
-          [
-            "get",
-            "voice-agent",
-            {
-              className: "VoiceAgentDurableObject",
-              mainModule: "voice.ts",
-              source: ["itx", ["cd", "/"], "config"],
-            },
-          ],
-          "processEventBatch",
-        ],
-        consumes: expect.arrayContaining(["*"]),
-      },
-    ]);
+      await worker.ensureVoiceDevice({ client: device, ...(screen && { screen: device }) }),
+    ).toEqual({ path, agentPath });
+    expect(at).toHaveBeenCalledExactlyOnceWith("/");
+    expect(create).toHaveBeenCalledExactlyOnceWith(agentPath);
     const guide = (name: string) =>
       readFileSync(new URL(`./${name}`, import.meta.url), "utf8").replaceAll("{{DEVICE}}", device);
     // Instructions start no turn: the agent's first turn is the first hand-over.
-    expect(
-      events
-        .filter((event) => event.type === "events.iterate.com/agent/context-added")
-        .map((event) => event.payload),
-    ).toEqual([
-      {
+    const instruction = (content: string) => ({
+      type: "events.iterate.com/agent/context-added",
+      idempotencyKey: expect.stringMatching(/^voice-device\/.+:[0-9a-f]{16}$/),
+      payload: {
         role: "developer",
-        content: guide("voice-context.md"),
+        content,
         llmRequestPolicy: { behaviour: "dont-trigger-request" },
       },
-      ...(screen
-        ? [
-            {
-              role: "developer",
-              content: guide("screen-context.md"),
-              llmRequestPolicy: { behaviour: "dont-trigger-request" },
+    });
+    expect(appended).toEqual({
+      [agentPath]: [
+        [
+          instruction(guide("voice-context.md")),
+          ...(screen ? [instruction(guide("screen-context.md"))] : []),
+          // no debounce for a waiting caller; the idle summary 15 minutes after a request
+          {
+            type: "events.iterate.com/agent/configured",
+            idempotencyKey: expect.stringMatching(/^voice-device\/configured:[0-9a-f]{16}$/),
+            payload: { config: { llmRequestDebounceMs: 0, idleCompactionAfterMs: 900_000 } },
+          },
+          {
+            type: "events.iterate.com/itx/subscription-configured",
+            idempotencyKey: `voice-device/copy-to:${path}`,
+            payload: {
+              name: "voice-relay",
+              consumes: [
+                "events.iterate.com/agent/summary-updated",
+                "events.iterate.com/agent/web-message-sent",
+                "events.iterate.com/agent/paused",
+              ],
+              target: { path, payload: "payload" },
             },
-          ]
-        : []),
-    ]);
+          },
+          {
+            type: "events.iterate.com/itx/subscription-configured",
+            idempotencyKey: `voice-device/script-failures-to:${path}`,
+            payload: expect.objectContaining({
+              name: "voice-relay-script-failed",
+              consumes: ["events.iterate.com/agent/context-added"],
+              target: expect.objectContaining({
+                path,
+                type: "events.iterate.com/voice-agent/script-failed",
+              }),
+            }),
+          },
+        ],
+      ],
+      [path]: [
+        [
+          {
+            type: "events.iterate.com/itx/rewrite-rule-configured",
+            idempotencyKey: "voice-device/parent",
+            payload: { match: "itx", target: 'itx.cd("/")' },
+          },
+          {
+            type: "events.iterate.com/itx/subscription-configured",
+            idempotencyKey: "voice-device/relay",
+            payload: {
+              name: "voice-agent",
+              target: [
+                "itx",
+                "facets",
+                [
+                  "get",
+                  "voice-agent",
+                  {
+                    className: "VoiceAgentDurableObject",
+                    mainModule: "voice.ts",
+                    source: ["itx", ["cd", "/"], "config"],
+                  },
+                ],
+                "processEventBatch",
+              ],
+              consumes: [
+                "*",
+                "events.iterate.com/voice-agent/mic-frame",
+                "events.iterate.com/voice-agent/keepalive",
+              ],
+            },
+          },
+          {
+            type: "events.iterate.com/voice-agent/device-provisioned",
+            idempotencyKey: `voice-device/provisioned:${agentPath}`,
+            payload: { agentPath },
+          },
+        ],
+      ],
+    });
   },
 );
 
-test("a screen that is not an itx.clients name is refused before the agent exists", async () => {
+test("provisioning a provisioned device appends the same keyed rows, which the log keeps once", async () => {
+  const { worker, appended } = await harness();
+  await worker.ensureVoiceDevice({ client: "web-1a2b3c", screen: "zectrix_note4" });
+  const first = structuredClone(appended);
+  await worker.ensureVoiceDevice({ client: "web-1a2b3c", screen: "zectrix_note4" });
+  expect(appended).toEqual(
+    Object.fromEntries(
+      Object.entries(first).map(([path, batches]) => [path, [...batches, ...batches]]),
+    ),
+  );
+});
+
+test.for([
+  { name: "a device name that is not one path segment", client: "../agents", screen: undefined },
+  {
+    name: "a screen that is not an itx.clients name",
+    client: "waveshare",
+    screen: "waveshare-rlcd-4-2",
+  },
+])("$name is refused before the agent exists", async ({ client, screen }) => {
   const { worker, create } = await harness();
-  await expect(
-    worker.setupVoiceAgent({
-      streamPath: "/agents/voice/waveshare/2026-09-28-101500-test",
-      activation: "test",
-      screen: "waveshare-rlcd-4-2",
-    }),
-  ).rejects.toThrow();
+  await expect(worker.ensureVoiceDevice({ client, screen })).rejects.toThrow();
   expect(create).not.toHaveBeenCalled();
 });
 
-test("the press's agent is created by the collection as the context that asked sees it: its parent link is that context, not the root this worker runs as", async () => {
-  const { worker, at, create } = await harness(png(3, 0), {}, "/child");
-  await worker.setupVoiceAgent({ streamPath: "/child/v", activation: "pin" });
+test("the device's agent and relay are linked to the context that asked, not to the root this worker runs as", async () => {
+  const { worker, appended, at, create } = await harness(png(3, 0), {}, "/child");
+  await worker.ensureVoiceDevice({ client: "pin" });
   expect(at).toHaveBeenCalledExactlyOnceWith("/child");
-  expect(create).toHaveBeenCalledExactlyOnceWith("/child/v");
+  expect(create).toHaveBeenCalledExactlyOnceWith("/agents/voice/pin");
+  expect(appended["/voice/pin"]?.[0]?.[0]).toMatchObject({
+    payload: { match: "itx", target: 'itx.cd("/child")' },
+  });
 });
 
 // Regression: a photo URL in the September 21 voice stream returned HTTP 404.
@@ -359,23 +415,27 @@ async function harness(image = png(3, 0), infoOverride = {}, callerPath = "/") {
     return chunk.offset + Buffer.from(chunk.data, "base64").length;
   });
   const screen = { setImage, info: vi.fn(async () => info) };
-  const append = vi.fn(async (...events: any[]) => {
-    for (const event of events) admitLoadedCodeRow(event, "/agents/voice/test");
-    return [];
-  });
+  /** Each context's appends, a batch per call, as the platform's app wall admits them there. */
+  const appended: Record<string, unknown[][]> = {};
   const create = vi.fn(async (_path: string) => ({}));
   const at = vi.fn((_base: string) => ({ create }));
   const itx = {
     agents: { at },
     browser: { quickAction },
     clients: { waveshare_rlcd_4_2: { screen }, zectrix_note4: { screen }, tiny: { screen } },
-    cd: vi.fn(() => ({ append })),
+    cd: vi.fn((path: string) => ({
+      append: async (...events: any[]) => {
+        for (const event of events) admitLoadedCodeRow(event, path);
+        (appended[path] ??= []).push(events);
+        return [];
+      },
+    })),
   };
   return {
     worker: new VoiceWorker({ ITX: { get: () => itx } }, callerPath),
     quickAction,
     setImage,
-    append,
+    appended,
     at,
     create,
   };

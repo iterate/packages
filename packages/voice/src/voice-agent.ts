@@ -1,11 +1,12 @@
 /**
- * One GPT-Live voice call as a facet processor, one facet per conversation
- * context: it holds the provider socket, forwards microphone frames in and
- * speaker frames out, and folds the transcript. The context is an agent
- * (`itx.agents.at(caller).create` in worker.ts), and the agents app's processor runs on
- * it beside this one: each delegation the live model raises is handed to that
- * agent as a message (`itx.agents.get(path).message(words)`), and the agent's
- * answers go back to the live model to speak.
+ * A device's GPT-Live calls as a facet processor on the device's own context, `/voice/<device>`:
+ * it holds the provider socket, forwards microphone frames in and speaker frames out, and folds
+ * the transcript. The device's agent is a context of its own, `/agents/voice/<device>`
+ * (worker.ts `ensureVoiceDevice` provisions both, before any press): each delegation the live
+ * model raises is handed to that agent as a message (`itx.agents.get(path).message(words)`), and
+ * the agent's answers, which a row on its context copies here, go back to the live model to
+ * speak. A call is one activation: the device's `call-started` opens it, and the relay dials in
+ * the batch that carries it.
  */
 // registers `itx.agents` on InstalledAppRoots
 import type {} from "iterate/agents";
@@ -20,12 +21,22 @@ import {
   type ProcessEventArgs,
   type ReduceArgs,
 } from "iterate/stream/processor";
-import { RunEventCatalog } from "iterate/stream/run";
 import { z } from "zod";
 import { MIC_QUEUE_MAX_MS, MicPacer, PCM16_BYTES_PER_MS } from "./mic-pacer.ts";
 
-/** The device's call identity: the press mints it, the frames carry it. */
+/** The device's call identity: the press mints it, and every fact and frame of the call carries it. */
 const Activation = z.string().min(1).max(64);
+
+/** How far one activation got before the live model answered, for its `call-ended`. */
+const StartupSummary = z.looseObject({
+  /** `call-started`'s commit to the dial, the stream's clock to the facet's. */
+  pressToDialMs: z.number(),
+  handshakeTookMs: z.number().optional(),
+  upgradeTookMs: z.number().optional(),
+  heldMs: z.number().optional(),
+  trimmedMs: z.number().optional(),
+});
+type StartupSummary = z.infer<typeof StartupSummary>;
 
 /** Fixed GPT-Live session configuration. */
 const LIVE = {
@@ -54,6 +65,12 @@ const IDLE_TIMEOUT_MS = 60_000;
 /** The microphone pacer's tick (mic-pacer.ts): a frame its credit cannot cover yet waits at most
  * this long beyond it. */
 const MIC_PACER_TICK_MS = 20;
+
+/** A device sends frames from the press, never waiting for an answer, so a frame can reach the
+ *  relay a moment before its own `call-started` does. Up to this much audio of an activation the
+ *  relay has no call for waits for that call; past it, or once another activation's frame comes,
+ *  it is not a press in flight and is dropped. */
+const EARLY_FRAMES_MAX_MS = 1_000;
 
 /** The idle stamp in the fold advances in steps of this, not per frame: the deadline is a
  * minute, so most microphone batches leave the reduced state untouched. */
@@ -126,8 +143,8 @@ interface TranscriptTurn {
   text: string;
 }
 
-/** Fold one finished turn onto the recap: the newest 20 turns, each cut to 600 characters, well
- * inside the provider's 128-message / 8,192-token `input` history. */
+/** Fold one finished turn onto the call's transcript for the live view: the newest 20 turns, each
+ * cut to 600 characters. */
 function foldTranscriptTurn(transcript: TranscriptTurn[], turn: TranscriptTurn): TranscriptTurn[] {
   const text = turn.text.length > 600 ? `${turn.text.slice(0, 600)}…` : turn.text;
   return [...transcript, { role: turn.role, text }].slice(-20);
@@ -190,14 +207,14 @@ function peakOfBase64Pcm16(base64: string): number {
 /** Everything that outlives the Durable Object holding the socket. No queues, no byte counts, no
  * "is speaking" flag: reduced state that depends on a buffer no restart can replay is a lie. */
 const VoiceState = z.object({
-  /** The rolling recap of finished turns, folded from the transcript events and seeded as history
-   * into every fresh provider session, so a re-dial resumes the conversation. */
+  /** The device's agent, which provisioning names: every hand-over goes there. */
+  agentPath: z.string().nullable().default(null),
+  /** The current call's newest finished turns, for the live view; a new call starts empty. */
   transcript: z
     .array(z.strictObject({ role: z.enum(["listener", "assistant"]), text: z.string() }))
     .default([]),
   call: z
     .object({
-      conversationId: z.string(),
       activation: Activation,
       /** When the stream committed the device's most recent input (a mic frame or a keepalive).
        * The device's input only: the agent's own speech leaves no durable event. */
@@ -223,18 +240,28 @@ export type VoiceLiveView = {
 
 const VoiceAgentContract = defineProcessorContract({
   slug: "voice-agent",
-  version: "2.1.0",
+  version: "3.0.0",
   description:
-    "Runs a GPT-Live voice call in the conversation's own Durable Object, relaying audio both ways as it arrives and the live model's delegations to the agent on the same context.",
+    "Runs a device's GPT-Live calls on the device's own context, relaying audio both ways as it arrives and the live model's delegations to the device's agent.",
   stateSchema: VoiceState,
   events: {
-    /* The device's half is one verb and a heartbeat: here is audio, I am still here. */
+    "events.iterate.com/voice-agent/device-provisioned": {
+      description:
+        "The device has its two contexts: this one, the relay's, and its agent's, which every hand-over goes to.",
+      payloadSchema: z.looseObject({ agentPath: z.string().startsWith("/") }),
+    },
+    /* The device's half of a call is the press, audio, a heartbeat and the hang-up. */
+    "events.iterate.com/voice-agent/call-started": {
+      description:
+        "The press: the device's one append that opens a call under a new activation. The relay dials in the batch that carries it.",
+      payloadSchema: z.looseObject({ activation: Activation }),
+    },
     "events.iterate.com/voice-agent/keepalive": {
       description:
         "The client's call UI is alive, said every ~20s: feeds the idle deadline so a caller " +
         "who waits quietly is not reaped at 60s of mic silence.",
       ephemeral: true,
-      payloadSchema: z.strictObject({}),
+      payloadSchema: z.looseObject({ activation: Activation }),
     },
     "events.iterate.com/voice-agent/mic-frame": {
       description: "One capture chunk of the call named by its activation.",
@@ -245,16 +272,12 @@ const VoiceAgentContract = defineProcessorContract({
         pcm: z.string(),
       }),
     },
-    "events.iterate.com/voice-agent/call-started": {
-      description:
-        "The press opened the call: the device's activation and the conversation id derived from it.",
-      payloadSchema: z.looseObject({ activation: Activation, conversationId: z.string() }),
-    },
     "events.iterate.com/voice-agent/conversation-accepted": {
       description: "The provider started the session; the call is live.",
       payloadSchema: z.looseObject({
         activation: Activation,
-        conversationId: z.string(),
+        /** `call-started`'s commit to the dial, the stream's clock to the facet's. */
+        pressToDialMs: z.number(),
         /** Facet clock: dial to usable. */
         handshakeTookMs: z.number(),
         /** Facet clock: dial to the provider's 101, the egress and upgrade share of the handshake. */
@@ -271,23 +294,28 @@ const VoiceAgentContract = defineProcessorContract({
       payloadSchema: z.looseObject({ activation: Activation, ms: z.number() }),
     },
     "events.iterate.com/voice-agent/call-ended": {
-      description: "The call is over; the device appends it too (the hang-up button).",
-      payloadSchema: z.looseObject({ activation: Activation, reason: z.string() }),
+      description:
+        "The call is over; the device appends it too (the hang-up button). The relay's own says how far the call got.",
+      payloadSchema: z.looseObject({
+        activation: Activation,
+        reason: z.string(),
+        startup: StartupSummary.optional(),
+      }),
     },
     "events.iterate.com/voice-agent/provider-error-reported": {
       description: "The provider reported an error, verbatim.",
-      payloadSchema: z.looseObject({ conversationId: z.string(), message: z.string() }),
+      payloadSchema: z.looseObject({ activation: Activation, message: z.string() }),
     },
     "events.iterate.com/voice-agent/provider-disconnected": {
       description: "The provider's session or socket closed under a live call.",
-      payloadSchema: z.looseObject({ conversationId: z.string(), reason: z.string() }),
+      payloadSchema: z.looseObject({ activation: Activation, reason: z.string() }),
     },
     /* The durable transcript: one event per finished turn per side, grouped from the provider's
-     * timeline fragments. The fold keeps a recap of these and seeds every new session with it. */
+     * timeline fragments. The fold keeps the call's newest turns for the live view. */
     "events.iterate.com/voice-agent/utterance-transcribed": {
       description: "The provider's transcription of one finished listener turn.",
       payloadSchema: z.looseObject({
-        conversationId: z.string(),
+        activation: Activation,
         text: z.string(),
         key: z.string().optional(),
       }),
@@ -297,7 +325,7 @@ const VoiceAgentContract = defineProcessorContract({
         "The provider's own transcript of one finished spoken answer — what was said, not " +
         "necessarily what was heard: the listener may have talked over it.",
       payloadSchema: z.looseObject({
-        conversationId: z.string(),
+        activation: Activation,
         text: z.string(),
         key: z.string().optional(),
       }),
@@ -307,7 +335,6 @@ const VoiceAgentContract = defineProcessorContract({
       ephemeral: true,
       payloadSchema: z.looseObject({
         activation: Activation,
-        conversationId: z.string(),
         /** 16 kHz mono PCM16, base64. Empty on a frame whose only job is the end marker. */
         pcm: z.string(),
         /** Throw away everything queued, then play this frame. */
@@ -316,18 +343,36 @@ const VoiceAgentContract = defineProcessorContract({
         lastFrameOfAnswer: z.boolean().optional(),
       }),
     },
+    "events.iterate.com/voice-agent/script-failed": {
+      description:
+        "A script of the device's agent failed: the agent's context copies its own report of the failure (the `context-added` that begins \"Your script failed\") here, which the voice must be able to say.",
+      payloadSchema: z.looseObject({ report: z.string() }),
+    },
+    "events.iterate.com/voice-agent/words-typed": {
+      description:
+        "Words a caller typed into the call instead of saying them (voice-call.ts `--say`): the relay hands them to the agent as a hand-over of this call.",
+      payloadSchema: z.looseObject({ activation: Activation, text: z.string().min(1) }),
+    },
+    "events.iterate.com/voice-agent/words-given": {
+      description:
+        "Words a caller's device gives the voice to say in this call, such as a phone bridge's opening line: the relay passes them to the live model to say at once, as the agent's own words go, once the session has started.",
+      payloadSchema: z.looseObject({ activation: Activation, text: z.string().min(1) }),
+    },
   },
-  /* The agent on this context owns its events; its messages are what the live model speaks. The
-   * context runs the agent's scripts: a failed one is progress the voice must not paper over. */
-  processorDeps: [AgentContract, RunEventCatalog],
+  /* The device's agent owns its events, and a row on its context copies the ones a call needs
+   * here: its messages are what the live model speaks. */
+  processorDeps: [AgentContract],
   consumes: [
     "events.iterate.com/agent/summary-updated",
     "events.iterate.com/agent/web-message-sent",
     "events.iterate.com/agent/paused",
-    "events.iterate.com/itx/run-settled",
+    "events.iterate.com/voice-agent/script-failed",
+    "events.iterate.com/voice-agent/words-typed",
+    "events.iterate.com/voice-agent/words-given",
+    "events.iterate.com/voice-agent/device-provisioned",
     "events.iterate.com/voice-agent/call-started",
     "events.iterate.com/voice-agent/call-ended",
-    /* Consumed so the fold sees its own appends and the recap survives an eviction. */
+    /* Consumed so the fold sees its own appends and the live view survives an eviction. */
     "events.iterate.com/voice-agent/utterance-transcribed",
     "events.iterate.com/voice-agent/answer-transcribed",
     /* Ephemeral: named here because `"*"` never matches an ephemeral event. */
@@ -345,6 +390,7 @@ const VoiceAgentContract = defineProcessorContract({
     "events.iterate.com/voice-agent/speaker-frame",
   ],
 });
+
 type VoiceAgentContract = typeof VoiceAgentContract;
 
 type VoiceState = z.infer<typeof VoiceState>;
@@ -373,8 +419,9 @@ interface TurnBuffer {
  * stays null while it is in flight, which is what lets the mic path queue during the handshake)
  * and dropped whole when the dial fails, its socket closes, or the call is hung up. */
 interface Dial {
-  readonly conversationId: string;
   readonly activation: string;
+  /** The device's agent, where this call's hand-overs go. */
+  readonly agentPath: string;
   /** This dial's own identity, for keys that must not collide with an earlier dial of the same
    * call. */
   readonly dialId: string;
@@ -411,14 +458,16 @@ interface Dial {
   hangUpArmedAtFacetMs: number;
   /** An acknowledgement already playing at the decision is not the goodbye. */
   answerBeforeHangUp: Answer | null;
-  /** The recap, including turns closed since the dial began. */
-  transcript: TranscriptTurn[];
   /** Turns closed since the last hand-over: the words the next one carries to the agent, which
    *  keeps every earlier hand-over in its own conversation. */
   turnsForAgent: TranscriptTurn[];
+  /** No hand-over of this call has gone yet: the first one tells the agent a new call began. */
+  firstHandOver: boolean;
+  /** `words-given` that arrived before the session started: said once it does. */
+  wordsBeforeReady: { text: string; offset: number }[];
   /** Each hand-over, oldest first: the live model's delegation id and the offset of the
    *  `agent/context-added` that carried it. An answer speaks for the newest one its request read. */
-  delegations: { delegationId: string; offset: number }[];
+  delegations: { delegationId: string | null; offset: number }[];
   /** A hand-over the agent has not answered yet: progress is spoken only while one is. */
   awaitingAnswer: boolean;
   /** The last status passed on, so a repeat is not news. */
@@ -435,9 +484,9 @@ interface Dial {
   turns: { user: TurnBuffer | null; assistant: TurnBuffer | null };
 }
 
-const freshDial = (conversationId: string, activation: string): Dial => ({
-  conversationId,
+const freshDial = (activation: string, agentPath: string): Dial => ({
   activation,
+  agentPath,
   dialId: crypto.randomUUID(),
   socket: null,
   ready: false,
@@ -453,8 +502,9 @@ const freshDial = (conversationId: string, activation: string): Dial => ({
   hangUpReason: null,
   hangUpArmedAtFacetMs: 0,
   answerBeforeHangUp: null,
-  transcript: [],
   turnsForAgent: [],
+  firstHandOver: true,
+  wordsBeforeReady: [],
   delegations: [],
   awaitingAnswer: false,
   lastProgress: null,
@@ -471,21 +521,19 @@ type VoiceAgentDeps = {
   /** The only way this processor waits, injected so tests can use a fake clock. */
   sleep(ms: number): Promise<void>;
   dialProvider(): Promise<WebSocket>;
-  /** Hand words to the agent on this context through the agents app
+  /** Hand words to the device's agent through the agents app
    *  (`itx.agents.get(path).message(words)`), answered with the `context-added` it appended. */
-  messageAgent(words: string): Promise<{ offset: number }>;
-  /** This call's agent path, the context the relay lives on. */
-  callPath(): Promise<string>;
-  /** The project's live model, read at each dial: the facet class's `liveModel`. */
+  messageAgent(path: string, words: string): Promise<{ offset: number }>;
+  /** The project's live model, read when the session is prepared: the facet class's `liveModel`. */
   liveModel?: () => string | undefined;
-  /** The project's voice for the live model, read at each dial: the facet class's `liveVoice`. */
+  /** The project's voice for the live model, read when the session is prepared: the facet class's `liveVoice`. */
   liveVoice?: () => string | undefined;
-  /** The project's instructions for the live model, read at each dial: the facet class's `liveInstructions`. */
+  /** The project's instructions for the live model, read when the session is prepared: the facet class's `liveInstructions`. */
   liveInstructions?: () => LiveInstructions | undefined;
 };
 
-/** What a project's `liveInstructions` answers: the instructions the live model gets, from this
- *  call's agent path and the default (the delegation policy and the project). */
+/** What a project's `liveInstructions` answers: the instructions the live model gets, from the
+ *  device's agent path and the default (the delegation policy and the project). */
 export type LiveInstructions = (call: {
   path: string;
   instructions: string;
@@ -520,40 +568,55 @@ export class VoiceAgentProcessor extends StreamProcessor<
   #lastDeviceInputAtStreamMsMirror = 0;
   /** The activation whose terminal event is travelling through the log. */
   #endingActivation: string | null = null;
+  /** How far the newest activation got: what its relay-written `call-ended` reports. */
+  #startup: { activation: string; summary: StartupSummary } | null = null;
+  /** The live model's session, prepared once per incarnation as soon as the device is known, so a
+   *  dial sends it the moment the provider answers; null again after a failure. */
+  #session: Promise<Record<string, unknown>> | null = null;
+  /** Frames of an activation with no call yet, oldest first (`EARLY_FRAMES_MAX_MS`). */
+  #earlyFrames: { activation: string; frames: { pcm: string; ms: number }[]; ms: number } | null =
+    null;
 
   reduce({ state, event }: ReduceArgs<VoiceState, ConsumedEvent<VoiceAgentContract>>) {
     const committedAtStreamMs = Date.parse(event.createdAt);
     switch (event.type) {
-      case "events.iterate.com/voice-agent/call-started":
-        /* Opening a call is the device's first input, so the deadline starts here. */
-        if (state.call) return state;
+      case "events.iterate.com/voice-agent/device-provisioned":
+        return { ...state, agentPath: event.payload.agentPath };
+
+      case "events.iterate.com/voice-agent/call-started": {
+        /* A repeated press is the call it already opened, or one already over. A new activation
+         * replaces a live call, which processEvent ends. Opening a call is the device's first
+         * input, so the deadline starts here. */
+        const { activation } = event.payload;
+        if (state.call?.activation === activation || state.lastEnd?.activation === activation)
+          return state;
+        return {
+          ...state,
+          transcript: [],
+          call: { activation, lastDeviceInputAtStreamMs: committedAtStreamMs },
+          lastEnd: null,
+        };
+      }
+
+      case "events.iterate.com/voice-agent/mic-frame":
+      case "events.iterate.com/voice-agent/keepalive": {
+        /* Their bodies never reach the fold, but their commit stamps are durable, and folding the
+         * newest is what makes the idle deadline outlive an eviction. `max` so a redelivered batch
+         * cannot walk it backwards. Another call's input is not this call's. */
+        const { call } = state;
+        if (call?.activation !== event.payload.activation) return state;
+        if (committedAtStreamMs - call.lastDeviceInputAtStreamMs < IDLE_STAMP_STEP_MS) return state;
         return {
           ...state,
           call: {
-            conversationId: event.payload.conversationId,
-            activation: event.payload.activation,
-            lastDeviceInputAtStreamMs: committedAtStreamMs,
+            ...call,
+            lastDeviceInputAtStreamMs: Math.max(
+              call.lastDeviceInputAtStreamMs,
+              committedAtStreamMs,
+            ),
           },
         };
-
-      case "events.iterate.com/voice-agent/mic-frame":
-      case "events.iterate.com/voice-agent/keepalive":
-        /* Their bodies never reach the fold, but their commit stamps are durable, and folding the
-         * newest is what makes the idle deadline outlive an eviction. `max` so a redelivered batch
-         * cannot walk it backwards. */
-        return !state.call ||
-          committedAtStreamMs - state.call.lastDeviceInputAtStreamMs < IDLE_STAMP_STEP_MS
-          ? state
-          : {
-              ...state,
-              call: {
-                ...state.call,
-                lastDeviceInputAtStreamMs: Math.max(
-                  state.call.lastDeviceInputAtStreamMs,
-                  committedAtStreamMs,
-                ),
-              },
-            };
+      }
 
       case "events.iterate.com/voice-agent/call-ended":
         return state.call?.activation === event.payload.activation
@@ -564,8 +627,10 @@ export class VoiceAgentProcessor extends StreamProcessor<
             }
           : state;
 
+      /* A call's last turns may land just after its end: the live view shows its aftermath. */
       case "events.iterate.com/voice-agent/utterance-transcribed":
-        if (event.payload.text === "") return state;
+        if (event.payload.text === "" || !this.#isShownCall(state, event.payload.activation))
+          return state;
         return {
           ...state,
           transcript: foldTranscriptTurn(state.transcript, {
@@ -575,7 +640,8 @@ export class VoiceAgentProcessor extends StreamProcessor<
         };
 
       case "events.iterate.com/voice-agent/answer-transcribed":
-        if (event.payload.text === "") return state;
+        if (event.payload.text === "" || !this.#isShownCall(state, event.payload.activation))
+          return state;
         return {
           ...state,
           transcript: foldTranscriptTurn(state.transcript, {
@@ -587,6 +653,11 @@ export class VoiceAgentProcessor extends StreamProcessor<
       default:
         return state;
     }
+  }
+
+  /** The call the live view shows: the live one, or else the last one to end. */
+  #isShownCall(state: VoiceState, activation: string): boolean {
+    return (state.call?.activation || state.lastEnd?.activation) === activation;
   }
 
   /** The engine publishes this after every batch — twenty microphone batches a second during a
@@ -629,22 +700,46 @@ export class VoiceAgentProcessor extends StreamProcessor<
     this.#append = args.append;
     this.#background = args.runInBackground;
     if (state.call) this.#lastDeviceInputAtStreamMsMirror = state.call.lastDeviceInputAtStreamMs;
+    /* Provisioning wakes the relay, so the session is ready before the first press. */
+    if (state.agentPath) void this.#prepareSession(state.agentPath);
 
-    /* The press put `call-started` in this facet's first batch, so dialling here overlaps the
-     * provider handshake with the device's downlink bind and its first microphone frames. Only
-     * the live event dials: a crash inside that batch re-delivers it and re-dials, which is right;
-     * past its checkpoint the durable call without its event is the interruption recorded below. */
+    /* The press is the one event that dials, in the batch that carries it, awaiting nothing but
+     * the provider. Only the live event dials: a crash inside that batch re-delivers it and
+     * re-dials, which is right; past its checkpoint the durable call without its event is the
+     * interruption recorded below. */
     if (
       event?.type === "events.iterate.com/voice-agent/call-started" &&
       state.call?.activation === event.payload.activation &&
-      this.#dial === null
+      this.#dial?.activation !== event.payload.activation
     ) {
-      this.#openProviderConnection(state.call.conversationId, state.call.activation, state);
+      const { activation } = event.payload;
+      /* One call per device: a live one is let go first, and its end is written once the new one
+       * holds the dial, so nothing that end sets off finds the device without a call. */
+      const superseded = this.#dial;
+      if (superseded) this.#hangUp();
+      if (state.agentPath)
+        this.#openProviderConnection(activation, Date.parse(event.createdAt), state.agentPath);
+      else
+        args.blockProcessorWhile(() =>
+          this.#end(
+            activation,
+            "this device is not provisioned: itx.voice.ensureVoiceDevice({ client }) provisions it",
+          ),
+        );
+      if (superseded)
+        this.#background(() =>
+          this.#end(superseded.activation, "a new call started on this device"),
+        );
     }
 
-    /* A provider session is volatile; its durable record cannot revive it. */
+    /* A provider session is volatile; its durable record cannot revive it. A call whose end is
+     * already being written (an unprovisioned press, say) keeps that end's reason. */
     const owedCall = delivery.caughtUp ? state.call : null;
-    if (owedCall && this.#dial?.activation !== owedCall.activation) {
+    if (
+      owedCall &&
+      this.#dial?.activation !== owedCall.activation &&
+      this.#endingActivation !== owedCall.activation
+    ) {
       args.blockProcessorWhile(() =>
         this.#end(owedCall.activation, "the voice session was interrupted"),
       );
@@ -653,11 +748,12 @@ export class VoiceAgentProcessor extends StreamProcessor<
     if (event === null) return;
 
     switch (event.type) {
-      /* A dial dies with its incarnation, so a redelivered agent event with no dial is not
-       * forwarded. */
+      /* What the device's agent says reaches a call only once the call has handed it something:
+       * before that it belongs to an earlier call. A dial dies with its incarnation, so a
+       * redelivered agent event with no dial is not forwarded either. */
       case "events.iterate.com/agent/summary-updated": {
         /* A script's status: progress, for the newest hand-over. A title or a wait is not news. */
-        const dial = this.#dial;
+        const dial = this.#dialWithHandOvers();
         const { activity } = event.payload;
         if (!dial || !activity || activity === dial.lastProgress) return;
         dial.lastProgress = activity;
@@ -665,23 +761,40 @@ export class VoiceAgentProcessor extends StreamProcessor<
         return;
       }
 
-      case "events.iterate.com/itx/run-settled": {
+      case "events.iterate.com/voice-agent/script-failed": {
         /* A failed script is progress the voice must be able to say, never paper over. */
-        const dial = this.#dial;
-        const { settlement } = event.payload;
-        if (!dial || settlement.status !== "failed") return;
+        const dial = this.#dialWithHandOvers();
+        if (!dial) return;
         this.#relayProgress(
           dial,
-          `a script failed (${settlement.failureKind}): ${settlement.error.slice(0, 200)}`,
+          `a script failed${event.payload.report.replace(/^Your script failed/, "").replace(/\s+/g, " ")}`,
           event.offset,
         );
+        return;
+      }
+
+      case "events.iterate.com/voice-agent/words-typed": {
+        const dial = this.#dial;
+        if (dial?.activation !== event.payload.activation) return;
+        this.#handOver(dial, `Person (typed): ${event.payload.text}`, null);
+        return;
+      }
+
+      case "events.iterate.com/voice-agent/words-given": {
+        /* The device's own words for this call, which it names: no earlier call's, so they need
+         * no hand-over first. */
+        const dial = this.#dial;
+        if (dial?.activation !== event.payload.activation) return;
+        const words = { text: event.payload.text, offset: event.offset };
+        if (dial.ready) this.#sayGivenWords(dial, words);
+        else dial.wordsBeforeReady.push(words);
         return;
       }
 
       case "events.iterate.com/agent/web-message-sent": {
         /* An answer to one of the agent's model requests is spoken, unless it was written beside a
          * script: those words can guess at a result the script has not produced yet. */
-        const dial = this.#dial;
+        const dial = this.#dialWithHandOvers();
         const { message, llmRequestOffset, besideScript } = event.payload;
         if (!dial || besideScript) return;
         if (!llmRequestOffset) {
@@ -696,6 +809,11 @@ export class VoiceAgentProcessor extends StreamProcessor<
           });
           return;
         }
+        /* The request read every context item before its own offset, so its answer is for the
+         * newest hand-over among them; a request that read none of this call's is an earlier
+         * call's, and its words (a goodbye included) are not for this one. */
+        const delegation = dial.delegations.findLast((row) => row.offset < llmRequestOffset);
+        if (!delegation) return;
         dial.awaitingAnswer = false;
         if (message.includes(HANG_UP_TOKEN)) {
           dial.hangUpReason = "the Agent hung up";
@@ -707,12 +825,9 @@ export class VoiceAgentProcessor extends StreamProcessor<
             await this.#settleHangUp(dial);
           });
         }
-        /* The request read every context item before its own offset, so its answer is for the
-         * newest hand-over among them. */
         this.#sendToLiveModel(dial, {
           kind: "commentary",
-          delegationId:
-            dial.delegations.findLast((row) => row.offset < llmRequestOffset)?.delegationId ?? null,
+          delegationId: delegation.delegationId,
           content: message.replace(HANG_UP_TOKEN, "").trim(),
           offset: event.offset,
         });
@@ -722,7 +837,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
       case "events.iterate.com/agent/paused": {
         /* The agent takes no more turns until the person's next words resume it: say so, rather
          * than leave the voice waiting on an answer that is not coming. */
-        const dial = this.#dial;
+        const dial = this.#dialWithHandOvers();
         if (!dial) return;
         dial.awaitingAnswer = false;
         this.#sendToLiveModel(dial, {
@@ -739,15 +854,20 @@ export class VoiceAgentProcessor extends StreamProcessor<
         const micB64 = event.payload.pcm;
         /* An empty frame is a client bug, not audio: the provider rejects it. */
         if (micB64 === "") return;
-        const dial = this.#dial;
-        if (!dial || dial.activation !== event.payload.activation) return;
         const micMs = base64ByteLength(micB64) / PCM16_BYTES_PER_MS;
+        const dial = this.#dial;
+        if (dial?.activation !== event.payload.activation) {
+          this.#holdEarlyFrame(event.payload.activation, micB64, micMs);
+          return;
+        }
         if (dial.mic.push(micB64, micMs)) {
           /* A frame the pacer has credit for goes now; the tick sends the rest. */
           if (dial.ready) this.#sendDueMicAudio(dial);
           return;
         }
         const trimmedMs = dial.mic.queuedMs + micMs;
+        if (this.#startup?.activation === dial.activation)
+          this.#startup.summary.trimmedMs = trimmedMs;
         this.#hangUp();
         this.#background(() =>
           this.#end(
@@ -781,19 +901,24 @@ export class VoiceAgentProcessor extends StreamProcessor<
     }
   }
 
-  /** Open a provider connection for this call, now. */
-  #openProviderConnection(
-    conversationId: string,
-    activation: string,
-    state: VoiceArgs["state"],
-  ): void {
+  /** Open a provider connection for this call, now. `pressedAtStreamMs` is when the stream
+   *  committed its `call-started`. */
+  #openProviderConnection(activation: string, pressedAtStreamMs: number, agentPath: string): void {
     if (this.#dial !== null) return;
     /* Created before the awaited dial, so a second caller finds `#dial` taken and the mic path
      * queues for the whole handshake. */
-    const dial = freshDial(conversationId, activation);
-    dial.transcript = state.transcript;
+    const dial = freshDial(activation, agentPath);
     this.#dial = dial;
+    const early = this.#earlyFrames;
+    this.#earlyFrames = null;
+    if (early?.activation === activation)
+      for (const frame of early.frames) dial.mic.push(frame.pcm, frame.ms);
     const dialStartedAtFacetMs = this.deps.nowAtFacetMs();
+    this.#startup = {
+      activation,
+      summary: { pressToDialMs: dialStartedAtFacetMs - pressedAtStreamMs },
+    };
+    const session = this.#prepareSession(agentPath);
     this.#background(async () => {
       await this.deps.sleep(OPENING_DEADLINE_MS);
       if (this.#dial !== dial || dial.ready) return;
@@ -856,15 +981,14 @@ export class VoiceAgentProcessor extends StreamProcessor<
         this.#releaseDial(dial);
         this.#flushTurns(dial, true);
         this.#providerClosed(
-          conversationId,
           activation,
           `the provider's socket closed (${String(event.code)}${event.reason ? ` ${event.reason}` : ""})`,
         );
       });
 
-      /* `session.start` is the first message, carrying the model, the audio format, the voice,
-       * the policy and the seeded history; there is no `session.created` to wait for. */
-      await this.#startSession(dial, state);
+      /* `session.start` is the first message, carrying the model, the audio format, the voice
+       * and the policy; there is no `session.created` to wait for. */
+      await this.#startSession(dial, session);
     });
 
     /* The idle countdown arms the moment the dial is decided, so a dial that never resolves is
@@ -889,47 +1013,55 @@ export class VoiceAgentProcessor extends StreamProcessor<
     this.#background(idleTick);
   }
 
-  /** Start client delegation with the policy and the recap as history. */
-  async #startSession(dial: Dial, state: VoiceArgs["state"]): Promise<void> {
-    if (!dial.socket) return;
-    const input = state.transcript.map((turn) =>
-      turn.role === "listener"
-        ? {
-            type: "message" as const,
-            role: "user" as const,
-            content: [{ type: "input_text" as const, text: turn.text }],
-          }
-        : {
-            type: "message" as const,
-            role: "assistant" as const,
-            content: [{ type: "output_text" as const, text: turn.text }],
-          },
-    );
+  /** Start client delegation with the session prepared before the press. A session that could
+   *  not be prepared ends the call, saying why. */
+  async #startSession(dial: Dial, session: Promise<Record<string, unknown>>): Promise<void> {
+    let prepared: Record<string, unknown>;
+    try {
+      prepared = await session;
+    } catch (error) {
+      if (this.#dial !== dial) return;
+      this.#hangUp();
+      await this.#end(
+        dial.activation,
+        `the live model's session could not be prepared: ${String(error).slice(0, 200)}`,
+      );
+      return;
+    }
+    if (this.#dial !== dial || !dial.socket) return;
     dial.socket.send(
       JSON.stringify({
         type: "session.start",
         event_id: `start_${dial.dialId}`,
-        session: {
-          model: this.deps.liveModel?.() ?? LIVE.model,
-          instructions: await this.#liveInstructions(),
-          ...(input.length > 0 && { input }),
-          audio: {
-            format: { type: "audio/pcm", rate: LIVE.rate },
-            output: { voice: this.deps.liveVoice?.() ?? LIVE.voice },
-          },
-          delegation: { type: "client" },
-        },
+        session: prepared,
       }),
     );
   }
 
-  /** The default instructions, or what the project's `liveInstructions` makes of them. */
-  async #liveInstructions(): Promise<string> {
-    const instructions =
-      LIVE_DELEGATION_POLICY +
-      `\nCURRENT PROJECT: ${await this.deps.projectContext()}. Ingress refers to this project website.`;
-    const hook = this.deps.liveInstructions?.();
-    return hook ? await hook({ path: await this.deps.callPath(), instructions }) : instructions;
+  /** The session every call of this incarnation starts with, built once: the model, the voice and
+   *  the instructions, the default or what the project's `liveInstructions` makes of them. */
+  #prepareSession(agentPath: string): Promise<Record<string, unknown>> {
+    if (this.#session) return this.#session;
+    const session = (async () => {
+      const instructions =
+        LIVE_DELEGATION_POLICY +
+        `\nCURRENT PROJECT: ${await this.deps.projectContext()}. Ingress refers to this project website.`;
+      const hook = this.deps.liveInstructions?.();
+      return {
+        model: this.deps.liveModel?.() ?? LIVE.model,
+        instructions: hook ? await hook({ path: agentPath, instructions }) : instructions,
+        audio: {
+          format: { type: "audio/pcm", rate: LIVE.rate },
+          output: { voice: this.deps.liveVoice?.() ?? LIVE.voice },
+        },
+        delegation: { type: "client" },
+      };
+    })();
+    /* A failure is the next call's to retry; the dial that awaits it reports it. */
+    session.catch(() => {
+      if (this.#session === session) this.#session = null;
+    });
+    return (this.#session = session);
   }
 
   /** The provider's message switch. Every arm returns. */
@@ -940,25 +1072,27 @@ export class VoiceAgentProcessor extends StreamProcessor<
     receivedAtFacetMs: number,
     dialStartedAtFacetMs: number,
   ): void {
-    const { conversationId } = dial;
+    const { activation } = dial;
     switch (type) {
       case "session.started": {
         /* Usable. What the handshake held goes: up to 5 s at once, the rest at the pace. */
         dial.ready = true;
-        const heldMs = dial.mic.queuedMs;
+        const startup = {
+          pressToDialMs:
+            this.#startup?.activation === activation ? this.#startup.summary.pressToDialMs : 0,
+          handshakeTookMs: receivedAtFacetMs - dialStartedAtFacetMs,
+          upgradeTookMs: dial.socketReadyAtFacetMs - dialStartedAtFacetMs,
+          heldMs: dial.mic.queuedMs,
+        };
+        this.#startup = { activation, summary: startup };
         dial.mic.start(receivedAtFacetMs);
         this.#startMicPacer(dial);
+        for (const words of dial.wordsBeforeReady.splice(0)) this.#sayGivenWords(dial, words);
         this.#background(() =>
           this.#append({
             type: "events.iterate.com/voice-agent/conversation-accepted",
-            idempotencyKey: this.idempotencyKey(`accepted:${conversationId}:${dial.dialId}`),
-            payload: {
-              activation: dial.activation,
-              conversationId,
-              handshakeTookMs: receivedAtFacetMs - dialStartedAtFacetMs,
-              upgradeTookMs: dial.socketReadyAtFacetMs - dialStartedAtFacetMs,
-              heldMs,
-            },
+            idempotencyKey: this.idempotencyKey(`accepted:${activation}:${dial.dialId}`),
+            payload: { activation, ...startup },
           }),
         );
         return;
@@ -1007,8 +1141,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
         this.#flushTurns(dial, true);
         this.#releaseDial(dial);
         this.#providerClosed(
-          conversationId,
-          dial.activation,
+          activation,
           `the provider closed the session (${String(live.reason ?? "unknown")})`,
         );
         return;
@@ -1019,7 +1152,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
           this.#append({
             type: "events.iterate.com/voice-agent/provider-error-reported",
             payload: {
-              conversationId,
+              activation,
               message: JSON.stringify(live.error ?? live).slice(0, 2_000),
             },
           }),
@@ -1156,7 +1289,6 @@ export class VoiceAgentProcessor extends StreamProcessor<
               ephemeral: true,
               payload: {
                 activation: dial.activation,
-                conversationId: dial.conversationId,
                 pcm: frame.pcm,
                 ...(clearFirst && { clearSpeakerBufferBeforeFrame: true }),
                 ...(frame.lastFrameOfAnswer && { lastFrameOfAnswer: true }),
@@ -1196,7 +1328,6 @@ export class VoiceAgentProcessor extends StreamProcessor<
       role: speaker === "user" ? ("listener" as const) : ("assistant" as const),
       text,
     };
-    dial.transcript = foldTranscriptTurn(dial.transcript, turn);
     dial.turnsForAgent.push(turn);
     const key = `live-turn:${dial.dialId}:${speaker}:${String(row.startTimelineMs)}`;
     const transcriptKey = `voice-agent/transcript:${dial.dialId}:${speaker}:${String(row.startTimelineMs)}`;
@@ -1205,14 +1336,24 @@ export class VoiceAgentProcessor extends StreamProcessor<
         ? this.#append({
             type: "events.iterate.com/voice-agent/utterance-transcribed",
             idempotencyKey: this.idempotencyKey(key),
-            payload: { conversationId: dial.conversationId, text, key: transcriptKey },
+            payload: { activation: dial.activation, text, key: transcriptKey },
           })
         : this.#append({
             type: "events.iterate.com/voice-agent/answer-transcribed",
             idempotencyKey: this.idempotencyKey(key),
-            payload: { conversationId: dial.conversationId, text, key: transcriptKey },
+            payload: { activation: dial.activation, text, key: transcriptKey },
           }),
     );
+  }
+
+  /** Keep a frame that came before its call (`EARLY_FRAMES_MAX_MS`). */
+  #holdEarlyFrame(activation: string, pcm: string, ms: number): void {
+    if (this.#earlyFrames?.activation !== activation)
+      this.#earlyFrames = { activation, frames: [], ms: 0 };
+    const early = this.#earlyFrames;
+    if (early.ms + ms > EARLY_FRAMES_MAX_MS) return;
+    early.frames.push({ pcm, ms });
+    early.ms += ms;
   }
 
   /** The pacer's one loop for the dial's lifetime: what the device sent, then silence for the gaps. */
@@ -1237,13 +1378,13 @@ export class VoiceAgentProcessor extends StreamProcessor<
   }
 
   /** A provider close ends the uncertain session; it is never replayed. */
-  #providerClosed(conversationId: string, activation: string, reason: string): void {
+  #providerClosed(activation: string, reason: string): void {
     if (this.#endingActivation === activation) return;
     this.#background(async () => {
       await this.#end(activation, reason);
       await this.#append({
         type: "events.iterate.com/voice-agent/provider-disconnected",
-        payload: { conversationId, reason },
+        payload: { activation, reason },
       });
     });
   }
@@ -1261,11 +1402,12 @@ export class VoiceAgentProcessor extends StreamProcessor<
       this.#flushTurns(dial, true);
       this.#hangUp();
     }
+    const startup = this.#startup?.activation === activation ? this.#startup.summary : undefined;
     try {
       await this.#append(...facts, {
         type: "events.iterate.com/voice-agent/call-ended",
         idempotencyKey: this.idempotencyKey(`ended:${activation}`),
-        payload: { activation, reason },
+        payload: { activation, reason, startup },
       });
     } catch (error) {
       if (this.#endingActivation === activation) this.#endingActivation = null;
@@ -1278,15 +1420,26 @@ export class VoiceAgentProcessor extends StreamProcessor<
    * rows are closed first: they are usually the request itself. */
   #delegate(dial: Dial, delegationId: string): void {
     this.#flushTurns(dial, true);
-    const words = dial.turnsForAgent
+    const said = dial.turnsForAgent
       .map((turn) => `${turn.role === "listener" ? "Person" : "Voice"}: ${turn.text}`)
       .join("\n");
     dial.turnsForAgent = [];
+    this.#handOver(
+      dial,
+      said || "The voice handed the request over again; nothing new was said.",
+      delegationId,
+    );
+  }
+
+  /** Words for the agent, as one message of this call: the live model's delegation, or words typed
+   *  into the call (no delegation id). The first of a call says a new call began (voice-context.md
+   *  says what the line means). */
+  #handOver(dial: Dial, said: string, delegationId: string | null): void {
+    const words = [dial.firstHandOver && "New call.", said].filter(Boolean).join("\n");
+    dial.firstHandOver = false;
     this.#background(async () => {
       try {
-        const { offset } = await this.deps.messageAgent(
-          words || "The voice handed the request over again; nothing new was said.",
-        );
+        const { offset } = await this.deps.messageAgent(dial.agentPath, words);
         if (this.#dial !== dial) return;
         /* Kept in offset order: two hand-overs in flight at once may answer out of order. */
         dial.delegations = [...dial.delegations, { delegationId, offset }].sort(
@@ -1295,6 +1448,8 @@ export class VoiceAgentProcessor extends StreamProcessor<
         // the hand-over's acknowledgement is the last thing the person was told
         dial.awaitingAnswer = true;
         dial.lastSpokenProgressAtFacetMs = this.deps.nowAtFacetMs();
+        /* Typed words were never the live model's delegation, so there is none to acknowledge. */
+        if (!delegationId) return;
         this.#sendControl(dial, {
           type: "session.thinking.append",
           delegation_id: delegationId,
@@ -1308,6 +1463,13 @@ export class VoiceAgentProcessor extends StreamProcessor<
         );
       }
     });
+  }
+
+  /** The live dial, once this call has handed the agent something: what the agent says before
+   *  that is about an earlier call. */
+  #dialWithHandOvers(): Dial | null {
+    const dial = this.#dial;
+    return dial && dial.delegations.length > 0 ? dial : null;
   }
 
   /** Progress for the newest hand-over: said aloud when the person is waiting on an answer, nothing
@@ -1326,6 +1488,17 @@ export class VoiceAgentProcessor extends StreamProcessor<
       delegationId: dial.delegations.at(-1)?.delegationId ?? null,
       content: `Progress: ${progress}`,
       offset,
+    });
+  }
+
+  /** `words-given`: said aloud, and the latest thing the person was told. */
+  #sayGivenWords(dial: Dial, words: { text: string; offset: number }): void {
+    dial.lastSpokenProgressAtFacetMs = this.deps.nowAtFacetMs();
+    this.#sendToLiveModel(dial, {
+      kind: "commentary",
+      delegationId: dial.delegations.at(-1)?.delegationId ?? null,
+      content: words.text,
+      offset: words.offset,
     });
   }
 
@@ -1414,11 +1587,11 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
   static liveVoice: string | undefined;
 
   /** The live model's instructions, which a config repo's `voice.ts` may change: it gets the
-   *  call's agent path and the default instructions and answers the ones to use. None: the default. */
+   *  device's agent path and the default instructions and answers the ones to use. None: the default. */
   static liveInstructions: LiveInstructions | undefined;
 
-  /** `itx.whoami()`, read once per incarnation: every dial's `session.start` names the project,
-   *  and every hand-over names the agent by this context's path. */
+  /** `itx.whoami()`, read once per incarnation: the session every call starts with names the
+   *  project. */
   #whoami?: { projectId: string; path: string };
   async #identity() {
     if (this.#whoami) return this.#whoami;
@@ -1433,15 +1606,14 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
     sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     dialProvider: dialProviderSocket,
     projectContext: async () => JSON.stringify(await this.#identity()),
-    callPath: async () => (await this.#identity()).path,
     liveModel: () => VoiceAgentDurableObject.liveModel,
     liveVoice: () => VoiceAgentDurableObject.liveVoice,
     liveInstructions: () => VoiceAgentDurableObject.liveInstructions,
-    messageAgent: async (words) => {
-      const { path } = await this.#identity();
-      // This context's own `itx.agents` rule, which the press's agent creation wrote
-      // (worker.ts): loaded code reaches no collection above it, so the agent reads the words as
-      // sent from this context, `[from <path>]`.
+    messageAgent: async (path, words) => {
+      // `itx.agents` is the collection of the context that provisioned the device, which this
+      // context reaches through the parent link provisioning wrote (worker.ts
+      // `ensureVoiceDevice`); the scope's own type names no installed app. For a device the
+      // project provisioned it is the root's, so the agent reads the words as a person's.
       using itx = this.getItx() as IterateContextApiWith<"agents"> & Disposable;
       return await itx.agents.get(path).message(words);
     },
