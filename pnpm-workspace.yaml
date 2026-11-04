@@ -94,7 +94,7 @@ onlyBuiltDependencies:
 overrides:
   '@codemirror/state': 'catalog:'
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
-  iterate: https://pkg.pr.new/iterate/private/iterate@a0b9e1046a66d870cb11b2f72084cdb979efaa4d
+  iterate: https://pkg.pr.new/iterate/private/iterate@9b5fc11ebc52b552de3006e93e91552ebe6da9fb
   workerd: 1.20261103.1
   wrangler: 'catalog:'
   ws: '8.21.3'
