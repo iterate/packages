@@ -483,6 +483,8 @@ type VoiceAgentDeps = {
   messageAgent(words: string): Promise<{ offset: number }>;
   /** This call's agent path, the context the relay lives on. */
   callPath(): Promise<string>;
+  /** The project's live model, read at each dial: the facet class's `liveModel`. */
+  liveModel?: () => string | undefined;
   /** The project's voice for the live model, read at each dial: the facet class's `liveVoice`. */
   liveVoice?: () => string | undefined;
   /** The project's instructions for the live model, read at each dial: the facet class's `liveInstructions`. */
@@ -915,7 +917,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
         type: "session.start",
         event_id: `start_${dial.dialId}`,
         session: {
-          model: LIVE.model,
+          model: this.deps.liveModel?.() ?? LIVE.model,
           instructions: await this.#liveInstructions(),
           ...(input.length > 0 && { input }),
           audio: {
@@ -1418,6 +1420,10 @@ async function dialProviderSocket(): Promise<WebSocket> {
 
 /** The class the loader hosts: `facets.get("voice-agent", { source, className: "VoiceAgentDurableObject" })`. */
 export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceState> {
+  /** The live model (a GPT-Live model id), which a config repo's `voice.ts` may set, for one that
+   *  is newer than the default. None: "gpt-live-1". */
+  static liveModel: string | undefined;
+
   /** The live model's voice (a GPT-Live voice name), which a config repo's `voice.ts` may set.
    *  None: "marin". */
   static liveVoice: string | undefined;
@@ -1443,6 +1449,7 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
     dialProvider: dialProviderSocket,
     projectContext: async () => JSON.stringify(await this.#identity()),
     callPath: async () => (await this.#identity()).path,
+    liveModel: () => VoiceAgentDurableObject.liveModel,
     liveVoice: () => VoiceAgentDurableObject.liveVoice,
     liveInstructions: () => VoiceAgentDurableObject.liveInstructions,
     messageAgent: async (words) => {

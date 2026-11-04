@@ -253,19 +253,22 @@ test("a new incarnation replaying the call hands nothing over and speaks nothing
   });
 });
 
-test("a project's liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
+test("a project's liveModel, liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
   expect((await liveCall()).sessionStart()).toMatchObject({
     session: {
+      model: "gpt-live-1",
       audio: { output: { voice: "marin" } },
       instructions: expect.stringMatching(/^Backchannel policy/),
     },
   });
   const hooked = await liveCall([], new Map(), {
+    liveModel: "gpt-live-2",
     liveVoice: "vesper",
     liveInstructions: ({ path, instructions }) => `You are Jeeves, on ${path}.\n${instructions}`,
   });
   expect(hooked.sessionStart()).toMatchObject({
     session: {
+      model: "gpt-live-2",
       audio: { output: { voice: "vesper" } },
       instructions: expect.stringMatching(
         new RegExp(`^You are Jeeves, on ${PATH}\\.\\nBackchannel policy`),
@@ -291,7 +294,7 @@ type LoggedEvent = {
 async function liveCall(
   log: LoggedEvent[] = [],
   requests = new Map<string, number>(),
-  hooks: { liveVoice?: string; liveInstructions?: LiveInstructions } = {},
+  hooks: { liveModel?: string; liveVoice?: string; liveInstructions?: LiveInstructions } = {},
 ) {
   const toAgent: string[] = [];
   const sent: Record<string, unknown>[] = [];
@@ -308,6 +311,7 @@ async function liveCall(
   const processor = new VoiceAgentProcessor({
     projectContext: async () => JSON.stringify({ projectId: "prj_test", path: PATH }),
     callPath: async () => PATH,
+    liveModel: () => hooks.liveModel,
     liveVoice: () => hooks.liveVoice,
     liveInstructions: () => hooks.liveInstructions,
     nowAtFacetMs: () => clockMs,

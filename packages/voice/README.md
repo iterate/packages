@@ -82,9 +82,9 @@ A conversation's log is `readEvents` on its context, through the CLI (the board'
 `health().conversation` names its current one):
 `pnpm exec iterate itx run --project <slug> --eval 'return (await itx.cd("<conversation>").readEvents(0, 500)).events'`.
 
-## Your own voice and instructions
+## Your own model, voice and instructions
 
-A project sets the live model's voice and instructions from its `voice.ts`, on the relay's class. Each
+A project sets the live model, its voice and its instructions from its `voice.ts`, on the relay's class. Each
 is read when a call dials, so a commit changes the next call:
 
 ```ts
@@ -93,6 +93,7 @@ import { VoiceAgentDurableObject } from "@iterate-com/voice";
 
 export { default, VoiceAgentDurableObject } from "@iterate-com/voice";
 
+VoiceAgentDurableObject.liveModel = "gpt-live-1"; // the default; name a newer GPT-Live model here
 VoiceAgentDurableObject.liveVoice = "vesper"; // default "marin"
 VoiceAgentDurableObject.liveInstructions = ({ path, instructions }) =>
   `You are Jeeves, the family's chief of staff. ${instructions}`; // path: the call's agent
