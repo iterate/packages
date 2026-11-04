@@ -1,10 +1,13 @@
 // voice-agent.test.ts — the relay between the live voice model and the agent on the call's context:
 // what each delegation hands the agent, and what of the agent's answers the live model is sent.
 // The relay runs bare, its provider a fake socket this file speaks for, the agent's side a log the
-// hand-overs and answers are committed to. Audio, the provider's real protocol and the agent's own
-// loop are out of scope: test/vitest/agents/voice-agent.e2e.test.ts runs the whole call on a worker.
+// hand-overs and answers are committed to; the microphone's path to the provider is pinned only as
+// far as the relay's own queue and pacer reach (mic-pacer.test.ts holds the pacing cases). The
+// provider's real protocol and the agent's own loop are out of scope:
+// test/vitest/agents/voice-agent.e2e.test.ts runs the whole call on a worker.
 import { consumesEvent } from "iterate/stream/processor";
 import { expect, test } from "vitest";
+import { MIC_QUEUE_MAX_MS } from "./mic-pacer.ts";
 import {
   HANG_UP_GOODBYE_GRACE_MS,
   VoiceAgentProcessor,
@@ -31,7 +34,11 @@ type Step =
   /** A script the context ran failed. */
   | { scriptFails: string }
   | { agentPaused: string }
-  /** The clock moves on this far, and every wait of exactly this long ends. */
+  /** The device sends this many 50 ms microphone frames, each its own audio. */
+  | { micFrames: number }
+  /** The provider started the session. */
+  | { providerReady: true }
+  /** The clock moves on this far, 20 ms at a time, and every wait that falls due on the way ends. */
   | { elapseMs: number };
 
 test.for<{
@@ -253,6 +260,63 @@ test("a new incarnation replaying the call hands nothing over and speaks nothing
   });
 });
 
+test("audio past the 6 s queue ends the call, and a fact says how much the live model never heard", async () => {
+  const call = await liveCall([], new Map(), {}, { ready: false });
+  await call.take({ micFrames: MIC_QUEUE_MAX_MS / 50 + 1 });
+  expect({
+    endings: call.outcome().endings,
+    trimmed: call.facts("events.iterate.com/voice-agent/audio-trimmed"),
+    heard: call.heard(),
+  }).toEqual({
+    endings: ["more than 6000ms of microphone audio queued for the provider"],
+    trimmed: [{ activation: "test", ms: 6_050 }],
+    heard: [],
+  });
+});
+
+test("audio held through the handshake reaches the provider at once and in order, and accepted says how much", async () => {
+  const call = await liveCall([], new Map(), {}, { ready: false });
+  await call.take({ micFrames: 20 });
+  await call.take({ providerReady: true });
+  const atStart = call.heard();
+  await call.take({ elapseMs: 500 });
+  const afterHalfASecond = call.heard();
+  await call.take({ elapseMs: 500 });
+  expect({
+    accepted: call.facts("events.iterate.com/voice-agent/conversation-accepted"),
+    atStart,
+    afterHalfASecond,
+    afterASecond: call.heard(),
+  }).toMatchObject({
+    accepted: [{ activation: "test", heldMs: 1_000 }],
+    // credit for what was held, up to GPT-Live's 5 s burst: the first words are heard at once
+    atStart: frames(0, 20),
+    // and nothing beyond them: the wall clock has not reached their end, so no silence yet
+    afterHalfASecond: frames(0, 20),
+    afterASecond: frames(0, 20),
+  });
+});
+
+test("live frames and the silence in a gap between them reach the provider through the one pacer", async () => {
+  const call = await liveCall();
+  for (const _ of frames(0, 10)) {
+    await call.take({ micFrames: 1 });
+    await call.take({ elapseMs: 50 });
+  }
+  await call.take({ elapseMs: 250 });
+  for (const _ of frames(10, 14)) {
+    await call.take({ micFrames: 1 });
+    await call.take({ elapseMs: 50 });
+  }
+  expect(call.heard()).toEqual([
+    ...frames(0, 10),
+    // 250 ms that no frame's audio covers: two whole silence frames
+    "silence",
+    "silence",
+    ...frames(10, 14),
+  ]);
+});
+
 test("a project's liveModel, liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
   expect((await liveCall()).sessionStart()).toMatchObject({
     session: {
@@ -295,12 +359,15 @@ async function liveCall(
   log: LoggedEvent[] = [],
   requests = new Map<string, number>(),
   hooks: { liveModel?: string; liveVoice?: string; liveInstructions?: LiveInstructions } = {},
+  { ready = true } = {},
 ) {
   const toAgent: string[] = [];
   const sent: Record<string, unknown>[] = [];
   const onProviderMessage: ((message: { data: string }) => void)[] = [];
-  const sleeps: { ms: number; resolve(): void }[] = [];
+  let sleeps: { dueAtMs: number; resolve(): void }[] = [];
   let clockMs = 0;
+  /** Each microphone frame the device sent, by its audio, in the order sent. */
+  const micFrames = new Map<string, string>();
   const socket = {
     send: (message: string) => sent.push(JSON.parse(message)),
     close() {},
@@ -315,7 +382,7 @@ async function liveCall(
     liveVoice: () => hooks.liveVoice,
     liveInstructions: () => hooks.liveInstructions,
     nowAtFacetMs: () => clockMs,
-    sleep: (ms) => new Promise<void>((resolve) => sleeps.push({ ms, resolve })),
+    sleep: (ms) => new Promise<void>((resolve) => sleeps.push({ dueAtMs: clockMs + ms, resolve })),
     // The relay only listens on, sends on and closes its provider's socket.
     dialProvider: async () => socket as unknown as WebSocket,
     messageAgent: async (words) => {
@@ -376,7 +443,7 @@ async function liveCall(
       payload: { activation: "test", conversationId: "conv_test" },
     });
     await flush();
-    await provider({ type: "session.started" });
+    if (ready) await provider({ type: "session.started" });
   }
   return {
     /** What the agent was handed, what the live model was sent, and why the call ended. */
@@ -392,6 +459,14 @@ async function liveCall(
     restart: () => liveCall(log, requests, hooks),
     /** The `session.start` the relay sent the live model. */
     sessionStart: () => sent.find((message) => message.type === "session.start"),
+    /** What the live model heard, in order: the device's frames by name, and silence. */
+    heard: () =>
+      sent
+        .filter((message) => message.type === "session.input_audio.append")
+        .map(({ audio }) => micFrames.get(String(audio)) ?? "silence"),
+    /** The payloads of every event of `type` in the log. */
+    facts: (type: string) =>
+      log.filter((event) => event.type === type).map((event) => event.payload),
     async take(step: Step) {
       if ("heard" in step || "said" in step) {
         const [type, delta] =
@@ -440,9 +515,26 @@ async function liveCall(
         });
       } else if ("agentPaused" in step) {
         commit({ type: "events.iterate.com/agent/paused", payload: { reason: step.agentPaused } });
+      } else if ("micFrames" in step) {
+        for (let index = 0; index < step.micFrames; index++) {
+          // 50 ms of one level, nonzero so that it is never silence
+          const pcm = Buffer.alloc(1_600, micFrames.size + 1).toString("base64");
+          micFrames.set(pcm, `frame ${micFrames.size}`);
+          commit({
+            type: "events.iterate.com/voice-agent/mic-frame",
+            payload: { activation: "test", pcm },
+          });
+        }
+      } else if ("providerReady" in step) {
+        await provider({ type: "session.started" });
       } else {
-        clockMs += step.elapseMs;
-        for (const sleep of sleeps.filter(({ ms }) => ms === step.elapseMs)) sleep.resolve();
+        for (let leftMs = step.elapseMs; leftMs > 0; leftMs -= 20) {
+          clockMs += Math.min(20, leftMs);
+          const due = sleeps.filter(({ dueAtMs }) => dueAtMs <= clockMs);
+          sleeps = sleeps.filter((sleep) => !due.includes(sleep));
+          for (const sleep of due) sleep.resolve();
+          await flush();
+        }
       }
       await flush();
     },
@@ -450,6 +542,11 @@ async function liveCall(
 }
 
 const PATH = "/agents/voice/test";
+
+/** The names `heard` gives the device's frames `from` up to `to`. */
+function frames(from: number, to: number): string[] {
+  return Array.from({ length: to - from }, (_, index) => `frame ${from + index}`);
+}
 
 /** Let every background continuation the last step started run to its next wait. */
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));

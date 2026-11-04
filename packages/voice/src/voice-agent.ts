@@ -22,6 +22,7 @@ import {
 } from "iterate/stream/processor";
 import { RunEventCatalog } from "iterate/stream/run";
 import { z } from "zod";
+import { MIC_QUEUE_MAX_MS, MicPacer, PCM16_BYTES_PER_MS } from "./mic-pacer.ts";
 
 /** The device's call identity: the press mints it, the frames carry it. */
 const Activation = z.string().min(1).max(64);
@@ -33,9 +34,6 @@ const LIVE = {
   voice: "marin",
   rate: 16_000,
 } as const;
-
-/** 16 kHz mono PCM16: two bytes per sample, sixteen samples per millisecond. */
-const PCM16_BYTES_PER_MS = 32;
 
 /** The most audio one speaker frame may carry: one 100 ms GPT-Live delta, which fits the
  * device's 4,800-byte decoded chunk and 6,912-byte base64 buffer. */
@@ -53,18 +51,16 @@ const TURN_GAP_MS = 1_200;
 /** No input from the device for this long and the call is over. */
 const IDLE_TIMEOUT_MS = 60_000;
 
-/** GPT-Live's session timeline runs on INPUT audio, silence included; a device that goes quiet
- * starves it and an answer dies mid-sentence. Whenever no device audio covers the clock, one
- * frame of digital silence this long goes to the provider instead. */
-const SILENCE_FILL_MS = 100;
-const SILENCE_FILL_FRAME_B64 = bytesToBase64(new Uint8Array(SILENCE_FILL_MS * PCM16_BYTES_PER_MS));
+/** The microphone pacer's tick (mic-pacer.ts): a frame its credit cannot cover yet waits at most
+ * this long beyond it. */
+const MIC_PACER_TICK_MS = 20;
 
 /** The idle stamp in the fold advances in steps of this, not per frame: the deadline is a
  * minute, so most microphone batches leave the reduced state untouched. */
 const IDLE_STAMP_STEP_MS = 5_000;
 
 /** Socket creation and `session.started` must both finish within this bound. */
-const OPENING_DEADLINE_MS = 15_000;
+const OPENING_DEADLINE_MS = 5_000;
 
 /** An agent answer ending in this token (voice-context.md asks for it after a goodbye) arms a
  * hang-up before GPT-Live speaks the goodbye: the call ends at the first answer ending after that,
@@ -75,11 +71,6 @@ export const HANG_UP_GOODBYE_GRACE_MS = 8_000;
 /** The floor between unprompted spoken progress notes, counted from the hand-over itself: work
  * that answers sooner is simply answered, and a long job is narrated, not ticked through. */
 const SPOKEN_PROGRESS_MIN_GAP_MS = 10_000;
-
-/** Microphone audio held while the provider completes its handshake: 21 s covers the clients'
- * 20 s opening capture. Overflow ends the call with a reason, because keeping a truncated request
- * would tell the model a different one. */
-const MAX_HELD_MIC_BYTES = 21_000 * PCM16_BYTES_PER_MS;
 
 /** What the live model is told about the arrangement, structured the way the provider's prompting
  * guide asks (role, backchannel policy, interruption policy, a labelled delegation policy). It is
@@ -268,9 +259,16 @@ const VoiceAgentContract = defineProcessorContract({
         handshakeTookMs: z.number(),
         /** Facet clock: dial to the provider's 101, the egress and upgrade share of the handshake. */
         upgradeTookMs: z.number(),
-        /** Capture held during the handshake and released in one go. */
-        heldMicFrames: z.number(),
+        /** Microphone audio queued during the handshake, in ms: up to 5 s goes at once, the rest
+         *  at the pacer's pace. */
+        heldMs: z.number(),
       }),
+    },
+    "events.iterate.com/voice-agent/audio-trimmed": {
+      description:
+        "More microphone audio arrived than the relay queues for the provider; the call ends " +
+        "and this much audio never reached the live model.",
+      payloadSchema: z.looseObject({ activation: Activation, ms: z.number() }),
     },
     "events.iterate.com/voice-agent/call-ended": {
       description: "The call is over; the device appends it too (the hang-up button).",
@@ -338,6 +336,7 @@ const VoiceAgentContract = defineProcessorContract({
   ],
   emits: [
     "events.iterate.com/voice-agent/conversation-accepted",
+    "events.iterate.com/voice-agent/audio-trimmed",
     "events.iterate.com/voice-agent/call-ended",
     "events.iterate.com/voice-agent/provider-error-reported",
     "events.iterate.com/voice-agent/provider-disconnected",
@@ -385,9 +384,9 @@ interface Dial {
   ready: boolean;
   /** Facet clock when the provider's 101 came back. */
   socketReadyAtFacetMs: number;
-  /** Capture held while the handshake completes, oldest first, and its decoded byte count. */
-  micQueue: string[];
-  micQueueBytes: number;
+  /** Everything the provider hears: the device's frames from the press on, held until the
+   * session starts, and the silence between them. */
+  mic: MicPacer;
   /** Frames awaiting hand-over to the stream, oldest first: the delta's own base64, or an empty
    * frame carrying the end marker. Ordinarily one frame for the duration of one append. */
   speakerOutbox: { pcm: string; lastFrameOfAnswer?: true }[];
@@ -428,10 +427,6 @@ interface Dial {
   lastSpokenProgressAtFacetMs: number;
   /** The answer in flight. */
   answer: Answer;
-  /** How far, on the facet clock, the device's forwarded audio reaches: each forwarded chunk
-   * extends it by its own duration, so the silence fill covers only the gaps and never chops a
-   * burst of speech. */
-  micAudioCoveredUntilFacetMs: number;
   /** The furthest point on the provider's session timeline seen so far: transcript `end_ms` and
    * the running total of output audio. Output audio arrives every 100 ms whether or not anything
    * is said, so transcript rows close against it without any timer. */
@@ -447,8 +442,7 @@ const freshDial = (conversationId: string, activation: string): Dial => ({
   socket: null,
   ready: false,
   socketReadyAtFacetMs: 0,
-  micQueue: [],
-  micQueueBytes: 0,
+  mic: new MicPacer(),
   speakerOutbox: [],
   speakerOutboxBytes: 0,
   speakerOutboxOverflowed: false,
@@ -466,7 +460,6 @@ const freshDial = (conversationId: string, activation: string): Dial => ({
   lastProgress: null,
   lastSpokenProgressAtFacetMs: 0,
   answer: freshAnswer(),
-  micAudioCoveredUntilFacetMs: 0,
   timelineMs: 0,
   turns: { user: null, assistant: null },
 });
@@ -748,25 +741,25 @@ export class VoiceAgentProcessor extends StreamProcessor<
         if (micB64 === "") return;
         const dial = this.#dial;
         if (!dial || dial.activation !== event.payload.activation) return;
-        const micBytes = base64ByteLength(micB64);
-        if (dial.ready && dial.socket) {
-          /* Capture duration is the only credit: anchoring frames to their arrival time would
-           * count a slow transport gap as audio and keep the provider clock behind on every frame;
-           * the silence fill covers the gaps instead. */
-          dial.micAudioCoveredUntilFacetMs += micBytes / PCM16_BYTES_PER_MS;
-          this.#sendMicAudio(dial.socket, micB64);
+        const micMs = base64ByteLength(micB64) / PCM16_BYTES_PER_MS;
+        if (dial.mic.push(micB64, micMs)) {
+          /* A frame the pacer has credit for goes now; the tick sends the rest. */
+          if (dial.ready) this.#sendDueMicAudio(dial);
           return;
         }
-        if (dial.micQueueBytes + micBytes <= MAX_HELD_MIC_BYTES) {
-          dial.micQueue.push(micB64);
-          dial.micQueueBytes += micBytes;
-          return;
-        }
+        const trimmedMs = dial.mic.queuedMs + micMs;
         this.#hangUp();
         this.#background(() =>
           this.#end(
             dial.activation,
-            `the provider did not become ready before ${MAX_HELD_MIC_BYTES / PCM16_BYTES_PER_MS}ms of microphone audio accumulated`,
+            `more than ${MIC_QUEUE_MAX_MS}ms of microphone audio queued for the provider`,
+            [
+              {
+                type: "events.iterate.com/voice-agent/audio-trimmed",
+                idempotencyKey: this.idempotencyKey(`trimmed:${dial.activation}`),
+                payload: { activation: dial.activation, ms: trimmedMs },
+              },
+            ],
           ),
         );
         return;
@@ -950,14 +943,11 @@ export class VoiceAgentProcessor extends StreamProcessor<
     const { conversationId } = dial;
     switch (type) {
       case "session.started": {
-        /* Usable. Everything the handshake made us hold goes now. */
+        /* Usable. What the handshake held goes: up to 5 s at once, the rest at the pace. */
         dial.ready = true;
-        const heldMicFrames = dial.micQueue.length;
-        for (const held of dial.micQueue) this.#sendMicAudio(dial.socket!, held);
-        dial.micQueue = [];
-        dial.micQueueBytes = 0;
-        dial.micAudioCoveredUntilFacetMs = receivedAtFacetMs;
-        this.#startSilenceFill(dial);
+        const heldMs = dial.mic.queuedMs;
+        dial.mic.start(receivedAtFacetMs);
+        this.#startMicPacer(dial);
         this.#background(() =>
           this.#append({
             type: "events.iterate.com/voice-agent/conversation-accepted",
@@ -967,7 +957,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
               conversationId,
               handshakeTookMs: receivedAtFacetMs - dialStartedAtFacetMs,
               upgradeTookMs: dial.socketReadyAtFacetMs - dialStartedAtFacetMs,
-              heldMicFrames,
+              heldMs,
             },
           }),
         );
@@ -1225,30 +1215,20 @@ export class VoiceAgentProcessor extends StreamProcessor<
     );
   }
 
-  #startSilenceFill(dial: Dial): void {
+  /** The pacer's one loop for the dial's lifetime: what the device sent, then silence for the gaps. */
+  #startMicPacer(dial: Dial): void {
     this.#background(async () => {
-      while (this.#dial === dial && dial.socket && dial.ready) {
-        await this.deps.sleep(SILENCE_FILL_MS);
-        if (this.#dial !== dial || !dial.socket || !dial.ready) return;
-        /* Paced to the wall clock, never to the loop: a sleep that wakes late still owes the
-         * provider every millisecond since the device was last heard. Device audio moves the
-         * stamp itself, so the fill covers only the gaps. */
-        const nowAtFacetMs = this.deps.nowAtFacetMs();
-        let owedMs = nowAtFacetMs - dial.micAudioCoveredUntilFacetMs;
-        /* A second of debt is scheduling jitter; more leaves the provider's input timeline
-         * untrustworthy, so the call ends with a reason rather than bursting synthetic input
-         * ahead of a person who has started speaking again. */
-        if (owedMs > 1_000) {
-          await this.#end(dial.activation, `the provider input clock fell ${owedMs}ms behind`);
-          return;
-        }
-        while (owedMs >= SILENCE_FILL_MS) {
-          dial.micAudioCoveredUntilFacetMs += SILENCE_FILL_MS;
-          owedMs -= SILENCE_FILL_MS;
-          this.#sendMicAudio(dial.socket, SILENCE_FILL_FRAME_B64);
-        }
+      while (this.#dial === dial) {
+        this.#sendDueMicAudio(dial);
+        await this.deps.sleep(MIC_PACER_TICK_MS);
       }
     });
+  }
+
+  #sendDueMicAudio(dial: Dial): void {
+    const { socket } = dial;
+    if (!socket) return;
+    for (const pcm of dial.mic.take(this.deps.nowAtFacetMs())) this.#sendMicAudio(socket, pcm);
   }
 
   #sendMicAudio(socket: WebSocket, b64: string): void {
@@ -1268,7 +1248,12 @@ export class VoiceAgentProcessor extends StreamProcessor<
     });
   }
 
-  async #end(activation: string, reason: string): Promise<void> {
+  /** End the call once, with `reason`; `facts` that explain the end go in the same append. */
+  async #end(
+    activation: string,
+    reason: string,
+    facts: Parameters<VoiceArgs["append"]> = [],
+  ): Promise<void> {
     if (this.#endingActivation === activation) return;
     this.#endingActivation = activation;
     const dial = this.#dial;
@@ -1277,7 +1262,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
       this.#hangUp();
     }
     try {
-      await this.#append({
+      await this.#append(...facts, {
         type: "events.iterate.com/voice-agent/call-ended",
         idempotencyKey: this.idempotencyKey(`ended:${activation}`),
         payload: { activation, reason },
