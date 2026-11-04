@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "diff": "^8.0.4",
-    "yjs": "^13.6.31"
+    "yjs": "catalog:"
   },
   "peerDependencies": {
     "iterate": "*",

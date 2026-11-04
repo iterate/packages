@@ -30,7 +30,7 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@iterate-com/capnweb": "^0.12.2"
+    "@iterate-com/capnweb": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

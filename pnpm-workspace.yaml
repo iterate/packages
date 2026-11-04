@@ -5,15 +5,23 @@ packages:
 
 catalog:
   '@base-ui/react': ^1.8.0
-  '@cloudflare/vite-plugin': 1.62.4
-  '@cloudflare/workers-types': ^5.20261001.1
+  '@cloudflare/vite-plugin': 1.67.0
+  '@cloudflare/workers-types': ^5.20261103.1
+  '@codemirror/autocomplete': ^6.20.3
+  '@codemirror/lang-css': ^6.3.1
+  '@codemirror/lang-html': ^6.4.12
+  '@codemirror/lang-javascript': ^6.2.5
   '@codemirror/lang-json': ^6.0.2
+  '@codemirror/lang-markdown': ^6.5.2
+  '@codemirror/lang-sql': ^6.10.0
   '@codemirror/lang-yaml': ^6.1.3
   '@codemirror/language': ^6.12.4
   '@codemirror/search': ^6.7.2
   '@codemirror/state': ^6.7.6
   '@codemirror/view': ^6.43.13
   '@fsegurai/codemirror-theme-bundle': ^6.4.4
+  '@iterate-com/capnweb': 0.13.0
+  '@pierre/trees': 1.0.0-beta.6
   '@tailwindcss/cli': ^4.3.3
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-router': 1.170.39
@@ -22,7 +30,7 @@ catalog:
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
   '@vitejs/plugin-react': ^6.1.1
-  capnweb: npm:@iterate-com/capnweb@0.12.3
+  capnweb: npm:@iterate-com/capnweb@0.13.0
   class-variance-authority: ^0.7.1
   cn: ^0.4.0
   codemirror: ^6.0.2
@@ -43,9 +51,14 @@ catalog:
   typescript: ^7.0.2
   vite: ^8.3.0
   vitest: ^4.1.11
-  wrangler: 4.146.0
+  wrangler: 4.157.0
   yaml: ^2.9.1
+  yjs: ^13.6.31
   zod: 4.6.5
+
+catalogs:
+  vite-plugin-2:
+    '@cloudflare/vite-plugin': 2.0.0-beta.v.11
 
 cleanupUnusedCatalogs: true
 
@@ -81,11 +94,10 @@ onlyBuiltDependencies:
 overrides:
   '@codemirror/state': 'catalog:'
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
-  iterate: https://pkg.pr.new/iterate/private/iterate@c195c4951835d9ac646c38959f7a1aaff6a04c1b
-  workerd: 1.20261001.1
+  iterate: https://pkg.pr.new/iterate/private/iterate@a0b9e1046a66d870cb11b2f72084cdb979efaa4d
+  workerd: 1.20261103.1
   wrangler: 'catalog:'
   ws: '8.21.3'
 
 patchedDependencies:
-  '@iterate-com/capnweb@0.12.3': patches/@iterate-com__capnweb@0.12.3.patch
   zod@4.6.5: patches/zod@4.6.5.patch
