@@ -51,7 +51,7 @@ catalog:
   typescript: ^7.0.2
   vite: ^8.3.0
   vitest: ^4.1.11
-  wrangler: 4.157.0
+  wrangler: 4.158.0
   yaml: ^2.9.1
   yjs: ^13.6.31
   zod: 4.6.5
@@ -95,7 +95,7 @@ overrides:
   '@codemirror/state': 'catalog:'
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
   iterate: https://pkg.pr.new/iterate/private/iterate@9b5fc11ebc52b552de3006e93e91552ebe6da9fb
-  workerd: 1.20261103.1
+  workerd: 1.20261104.1
   wrangler: 'catalog:'
   ws: '8.21.3'
 
