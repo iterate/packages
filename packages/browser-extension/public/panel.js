@@ -327,6 +327,22 @@ async function connect(session, project) {
       if (mine === generation) void connect(session, project);
     }, 2_000);
   });
+  // THE HEARTBEAT, iterate's own (core/lib/src/client/heartbeat.ts says why): `whoami()` every
+  // 30 s, and a socket that leaves one unanswered for 15 s is replaced.
+  const beat = setInterval(async () => {
+    if (mine !== generation) return clearInterval(beat);
+    const answered = await Promise.race([
+      liveApi.whoami().then(
+        () => true,
+        () => true,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), 15_000)),
+    ]);
+    if (answered || mine !== generation) return;
+    clearInterval(beat);
+    view.innerHTML = `<p class="muted">The connection stopped answering; connecting again…</p>`;
+    void connect(session, project);
+  }, 30_000);
 }
 
 try {
