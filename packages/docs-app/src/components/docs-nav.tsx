@@ -1,8 +1,11 @@
 // The sidebar's docs: which repo, "New doc", then every file in the repo as a tree (doc-tree.ts),
-// the open file selected and its folders open.
+// the open file selected and its folders open. A doc made from the tree shows "Creating…" in place
+// of "New doc" until its page has loaded, and why it couldn't be made below the tree.
 import { useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useRouteContext, useRouter } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
+import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import { NativeSelect, NativeSelectOption } from "@iterate-com/ui/components/ui/native-select";
 import {
   SidebarGroup,
@@ -36,6 +39,24 @@ export function DocsNav({
   const navigate = useNavigate();
   const router = useRouter();
   const { api, project, info } = useRouteContext({ from: "/_auth/projects/$slug" });
+  const create = useMutation({
+    mutationFn: async (path: string) => {
+      using itx = await api.projects.get(project.id);
+      await createDoc({
+        project: itx,
+        repo: repoPath(repo),
+        path,
+        heading: path
+          .split("/")
+          .at(-1)!
+          .replace(/\.[^.]+$/, ""),
+        author: authorOf(info.principal),
+      });
+      list.reload();
+      // awaited, so "Creating…" stays until the doc's page has loaded
+      await navigate({ to: "/projects/$slug/$repo/$", params: { slug, repo, _splat: path } });
+    },
+  });
   const tree = useMemo(
     () =>
       new DocTree({
@@ -45,23 +66,9 @@ export function DocsNav({
         onNavigated: (listener) => router.subscribe("onResolved", listener),
         open: (path) =>
           void navigate({ to: "/projects/$slug/$repo/$", params: { slug, repo, _splat: path } }),
-        create: async (path) => {
-          using itx = await api.projects.get(project.id);
-          await createDoc({
-            project: itx,
-            repo: repoPath(repo),
-            path,
-            heading: path
-              .split("/")
-              .at(-1)!
-              .replace(/\.[^.]+$/, ""),
-            author: authorOf(info.principal),
-          });
-          list.reload();
-          await navigate({ to: "/projects/$slug/$repo/$", params: { slug, repo, _splat: path } });
-        },
+        create: create.mutateAsync,
       }),
-    [list, router, navigate, slug, repo, api, project.id, info.principal],
+    [list, router, navigate, slug, repo, create.mutateAsync],
   );
   return (
     <SidebarGroup className="min-h-0 flex-1">
@@ -89,8 +96,8 @@ export function DocsNav({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton render={<Link to="/projects/$slug/$repo" params={{ slug, repo }} />}>
-              <Plus />
-              <span>New doc</span>
+              {create.isPending ? <Spinner /> : <Plus />}
+              <span>{create.isPending ? "Creating…" : "New doc"}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -111,6 +118,11 @@ export function DocsNav({
             {docs.kind === "failed" ? `Couldn't list the files: ${docs.message}` : "Loading files…"}
           </p>
         )}
+        {create.error ? (
+          <p role="alert" data-type="error" className="px-2 py-1 text-xs text-destructive">
+            Couldn't make {create.variables}: {create.error.message}
+          </p>
+        ) : null}
       </SidebarGroupContent>
     </SidebarGroup>
   );

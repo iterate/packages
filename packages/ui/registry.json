@@ -256,6 +256,9 @@
         "cn",
         "codemirror"
       ],
+      "registryDependencies": [
+        "spinner"
+      ],
       "files": [
         {
           "path": "src/components/code-editor.tsx",

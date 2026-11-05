@@ -6,7 +6,8 @@
 // Right-clicking a row, or the space below the rows, offers "New doc": a row named `untitled.md` in
 // that folder (the repo's root below the rows), named in place with the tree's own rename input
 // A name with no extension gets `.md`. Enter makes the file, as the
-// New doc box does, and opens it; Escape drops the row.
+// New doc box does, and opens it; Escape drops the row. The sidebar shows the making and its
+// failure (docs-nav.tsx); a failure here only drops the row.
 import { FileTree } from "@pierre/trees";
 import type { DocList } from "../lib/doc-list.ts";
 
@@ -144,12 +145,9 @@ export class DocTree {
     else queueMicrotask(() => this.#tree?.remove(to));
     try {
       await this.#create(path);
-    } catch (error) {
+    } catch {
       this.#tree?.remove(path === to ? to : path);
       this.#paths.delete(to);
-      window.alert(
-        `Couldn't make ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
   }
 
