@@ -3,7 +3,7 @@
 // else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
 // as an `ITERATE_APP__*` var merged on top.
 //
-//   { urls: { os, dash, agents, notes, docs, admin, voice }, denyZones, posthogProjectKey, pkgPrNewRef }
+//   { urls: { os, dash, agents, notes, docs, admin, voice, kit }, denyZones, posthogProjectKey, pkgPrNewRef }
 //
 // scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
@@ -39,6 +39,9 @@ export const StartAppConfig = z.object({
       docs: optionalOrigin,
       admin: optionalOrigin,
       voice: optionalOrigin,
+      /** Kit, the voice boards' installer, deployed from iterate/kit (envs.ts `kitWorkers`), not
+       *  by this repository's app scripts. Prd's and main on dev's; a per-PR preview has none. */
+      kit: optionalOrigin,
     })
     // the prefault must satisfy the input type; `os: ""` then fails naming urls.os
     .prefault({ os: "" }),

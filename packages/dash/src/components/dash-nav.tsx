@@ -124,24 +124,26 @@ export function ProjectNav({
               </SidebarMenuButton>
             </SidebarMenuItem>
           ) : null}
-          {apps.map((app) => (
-            <SidebarMenuItem key={app.url}>
-              <SidebarMenuButton
-                tooltip={`${app.name} for ${project.slug}`}
-                render={
-                  <a
-                    href={appHrefOf(app.url, platformOrigin, `/projects/${project.slug}`)}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`${app.name} for ${project.slug}`}
-                  />
-                }
-              >
-                <ExternalLink />
-                <span>{app.name}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
+          {apps
+            .filter((app) => app.opensProject)
+            .map((app) => (
+              <SidebarMenuItem key={app.url}>
+                <SidebarMenuButton
+                  tooltip={`${app.name} for ${project.slug}`}
+                  render={
+                    <a
+                      href={appHrefOf(app.url, platformOrigin, `/projects/${project.slug}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`${app.name} for ${project.slug}`}
+                    />
+                  }
+                >
+                  <ExternalLink />
+                  <span>{app.name}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
