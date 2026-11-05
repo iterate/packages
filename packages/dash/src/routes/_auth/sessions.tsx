@@ -717,6 +717,7 @@ function ConnectAccounts({
             provider={provider}
             variant="outline"
             size="sm"
+            platformOrigin={info.platformOrigin}
             connect={async (input) =>
               z
                 .object({ authorizationUrl: z.string().url() })

@@ -25,7 +25,11 @@ import {
 } from "@iterate-com/ui/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@iterate-com/ui/components/ui/button";
 import { Card, CardContent } from "@iterate-com/ui/components/ui/card";
-import { ConnectButton } from "@iterate-com/ui/components/connect-button";
+import {
+  ConnectButton,
+  ForeignStartLinkError,
+  startLinkOn,
+} from "@iterate-com/ui/components/connect-button";
 import {
   Field,
   FieldDescription,
@@ -569,7 +573,7 @@ function ConnectSheet({
             }),
           );
         if (authorizationUrl) {
-          window.location.assign(authorizationUrl);
+          window.location.assign(startLinkOn(authorizationUrl, info.platformOrigin));
           return "leaving";
         }
         await closeSheet();
@@ -577,6 +581,7 @@ function ConnectSheet({
         // a refusal's own words are meant for the person, and trying again won't change them;
         // anything else says "try again", its raw reason in the console
         console.error("Connecting your account failed", caught);
+        if (caught instanceof ForeignStartLinkError) throw caught;
         const refused = ["FORBIDDEN", "INVALID_INPUT"].includes(errorCode(caught) ?? "");
         throw new Error(
           refused && caught instanceof Error ? caught.message : "Couldn't connect it. Try again.",
@@ -620,7 +625,7 @@ function ConnectSheet({
                     next: urls.urlOf({}),
                   }),
                 );
-                window.location.assign(authorizationUrl);
+                window.location.assign(startLinkOn(authorizationUrl, info.platformOrigin));
                 return "leaving";
               })
             }
@@ -631,6 +636,7 @@ function ConnectSheet({
             provider={provider}
             variant={offersYourOwn ? "outline" : "default"}
             scopes={askedScopes}
+            platformOrigin={info.platformOrigin}
             disabled={Boolean(verbs.busy)}
             connect={async (input) =>
               ConnectAnswer.parse(
