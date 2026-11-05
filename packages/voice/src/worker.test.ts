@@ -90,7 +90,13 @@ test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_e
           {
             type: "events.iterate.com/agent/configured",
             idempotencyKey: expect.stringMatching(/^voice-device\/configured:[0-9a-f]{16}$/),
-            payload: { config: { llmRequestDebounceMs: 0, idleCompactionAfterMs: 900_000 } },
+            payload: {
+              config: {
+                llmRequestDebounceMs: 0,
+                idleCompactionAfterMs: 900_000,
+                idleCompactionMinNewTokens: 2_000,
+              },
+            },
           },
           {
             type: "events.iterate.com/itx/subscription-configured",

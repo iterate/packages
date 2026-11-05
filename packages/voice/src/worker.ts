@@ -29,8 +29,15 @@ import VOICE_CONTEXT from "./voice-context.md";
 const VoiceDeviceName = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
 /** The device agent's `agent/configured` patch: no debounce, and an idle summary 15 minutes after
- *  its last request, while the provider still holds its history in cache. */
-const DEVICE_AGENT_CONFIG = { llmRequestDebounceMs: 0, idleCompactionAfterMs: 15 * 60_000 };
+ *  its last request, while the provider still holds its history in cache, once 2,000 tokens are
+ *  new since the last summary. A call adds a few hundred tokens, so the platform's default (30,000)
+ *  never summarised a device and each press sent its whole history. The patch is keyed by its
+ *  digest, so every device takes a changed patch at its next connect. */
+const DEVICE_AGENT_CONFIG = {
+  llmRequestDebounceMs: 0,
+  idleCompactionAfterMs: 15 * 60_000,
+  idleCompactionMinNewTokens: 2_000,
+};
 
 /** The first 16 hex digits of the words' SHA-256: what keys an instruction to its words. */
 async function shortDigest(text: string): Promise<string> {

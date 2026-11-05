@@ -62,9 +62,10 @@ that asked, so a device holds no more than it does.
   Provisioning adds [voice-context.md](src/voice-context.md), the instructions for spoken answers,
   as a developer message that starts no turn; [screen-context.md](src/screen-context.md) the same
   way for a device with a screen; and
-  `agent/configured { config: { llmRequestDebounceMs: 0, idleCompactionAfterMs: 900_000 } }`, so a
+  `agent/configured { config: { llmRequestDebounceMs: 0, idleCompactionAfterMs: 900_000, idleCompactionMinNewTokens: 2_000 } }`, so a
   hand-over is answered at once and the history between calls gets its idle summary 15 minutes
-  after a request (the agents app's idle compaction is off until an agent sets it). Each instruction
+  after a request, once 2,000 tokens are new since the last one (the agents app's idle compaction
+  is off until an agent sets it). Each instruction
   and the patch are keyed by their content, so a build with new ones adds them once. Two rows on the agent's context copy what the relay needs to the relay's:
   `agent/summary-updated`, `agent/web-message-sent`, `agent/paused`, and the agent's own report of
   each failed script (the `context-added` that begins "Your script failed") as
