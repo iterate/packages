@@ -1,9 +1,9 @@
 // start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
-// docs, admin and voice, TanStack Start apps that are each an OAuth client of core/os and nothing
-// else — but notes and docs, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
-// as an `ITERATE_APP__*` var merged on top.
+// admin and voice, TanStack Start apps that are each an OAuth client of core/os and nothing
+// else — but notes, which a project's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
+// as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps a copy of this file.
 //
-//   { urls: { os, dash, agents, notes, docs, admin, voice, kit }, denyZones, posthogProjectKey, pkgPrNewRef }
+//   { urls: { os, dash, agents, notes, admin, voice, kit }, denyZones, posthogProjectKey, pkgPrNewRef }
 //
 // scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
@@ -35,8 +35,6 @@ export const StartAppConfig = z.object({
        *  is here because `FIRST_PARTY_APPS` is typed against `urls`, which gives Notes' origin its
        *  place in `ownZones` and a per-PR preview its Notes Worker. */
       notes: optionalOrigin,
-      /** read by no app, like `notes`: Docs is served under each project's hosts too. */
-      docs: optionalOrigin,
       admin: optionalOrigin,
       voice: optionalOrigin,
       /** Kit, the voice boards' installer, deployed from iterate/kit (envs.ts `kitWorkers`), not
@@ -56,8 +54,8 @@ export const StartAppConfig = z.object({
   /** WHICH BUILD OF THIS REPOSITORY'S PACKAGES goes with this deployment, as pkg.pr.new names it
    *  (iterate/package-builds): `main`, or the commit a per-commit deployment's packages are
    *  published at (scripts/os/published-package-commit.ts). What an app installs in a project,
-   *  pinned as it writes (Docs' "Install Docs"). A config written without it (a test's) goes with
-   *  main's. */
+   *  pinned as it writes. No app in this repository reads it; iterate/docs' Docs app keeps the
+   *  same field for its "Install Docs". A config written without it (a test's) goes with main's. */
   pkgPrNewRef: z.string().trim().default("main"),
 });
 
