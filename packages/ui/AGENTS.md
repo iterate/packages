@@ -548,6 +548,10 @@ const log = useIterateContext(agent.stub, AgentChat.contextOptions);
   (`agent-ui-reducer.ts`): the rows from any offset on equal the rows of a fold from the first event,
   but for the turn the offset cuts. An LLM trace reads every older page, since its prompt is every
   context item before the request.
+- **What the agent reads is not what anyone said to it.** Inputs with `llmRequestPolicy`
+  `dont-trigger-request` fold into one quiet row a run ("3 messages came in"), which opens to them. They
+  close no activity and join no queue: behind an open activity they wait, and come out where the log
+  has them. Inputs that start a turn stay bubbles.
 - **A row of the page's own** goes under a feed item: `itemFooter={(item) => …}`. `renderers` and
   `inspectors` name the page's own event types in the Events tab, over the agent's.
 - **For the project's own people**: it shows the raw log, scripts and traces, and its composer

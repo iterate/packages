@@ -4,7 +4,8 @@ import { appendText, sliceText, type StreamText } from "./chunked-text.ts";
 import type { StreamEvent } from "./stream-event.ts";
 
 // The agent UI is a clean chat: user message → activity ("Ran code 2× · 3
-// requests · 7.4 s") → assistant message, with pause and resume dividers.
+// requests · 7.4 s") → assistant message, with pause and resume dividers, and
+// what reached the agent without starting a turn folded out of the way.
 // Reduced from raw events: settled items, plus the in-flight activity and its
 // streamed text. Only a durable fact closes a step: `agent/llm-request-settled`
 // a model call, the context's `itx/run-settled` a script (the platform settles
@@ -308,7 +309,30 @@ export type AgentUiStreamPauseItem = {
   timestampMs: number;
 };
 
-export type AgentUiItem = AgentUiMessageItem | AgentUiActivity | AgentUiStreamPauseItem;
+/** One input that started no turn. */
+export type AgentUiBackgroundMessage = {
+  offset: number;
+  text: string;
+  timestampMs: number;
+  files?: AgentUiFileAttachment[];
+};
+
+/** Inputs that started no turn (`dont-trigger-request`): what the agent reads, which no one said to
+ *  it. The reducer emits one per event; `foldAgentLog` joins a run of them into one row, whose id
+ *  stays its first input's as the run grows. */
+export type AgentUiBackgroundItem = {
+  kind: "background";
+  id: string;
+  /** Offset of the first input. */
+  offset: number;
+  messages: AgentUiBackgroundMessage[];
+};
+
+export type AgentUiItem =
+  | AgentUiMessageItem
+  | AgentUiActivity
+  | AgentUiStreamPauseItem
+  | AgentUiBackgroundItem;
 
 export type AgentUiState = {
   /** The running activity (streaming thinking/code), or null when no work is active. */
@@ -317,6 +341,9 @@ export type AgentUiState = {
   deferredAssistantMessages: AgentUiMessageItem[];
   /** User messages that landed while a step ran and that no request has taken up yet. */
   queuedUserMessages: AgentUiMessageItem[];
+  /** Inputs that started no turn, held behind the open activity to keep their place in the log.
+   *  Apart from the queue: no request is owed to them. */
+  heldBackground: AgentUiBackgroundItem[];
   /** Latest agent/summary-updated `activity` text — stamped onto code steps. */
   summaryActivity: string | null;
   /** When that text was folded. Compared against the live activity's start
@@ -336,6 +363,7 @@ export function initialAgentUiState(): AgentUiState {
     live: null,
     deferredAssistantMessages: [],
     queuedUserMessages: [],
+    heldBackground: [],
     summaryActivity: null,
     summaryActivityUpdatedAtMs: null,
     paused: false,
@@ -416,13 +444,23 @@ function reduceAgentUiEvent(
 
       const files = readFileAttachments(event);
       if (role === "user") {
-        return emitUserMessageItem(state, items, {
-          kind: "user",
-          id: `user-${event.offset}`,
+        const message = {
           offset: event.offset,
           text,
           ...(files.length === 0 ? {} : { files }),
           timestampMs,
+        };
+        if (readRecord(event, "llmRequestPolicy")?.behaviour === "dont-trigger-request")
+          return emitBackgroundItem(state, items, {
+            kind: "background",
+            id: `background-${event.offset}`,
+            offset: event.offset,
+            messages: [message],
+          });
+        return emitUserMessageItem(state, items, {
+          kind: "user",
+          id: `user-${event.offset}`,
+          ...message,
         });
       }
       if (actorType === "agent") {
@@ -769,11 +807,26 @@ function settleLive(state: AgentUiState, items: AgentUiItem[]): AgentUiState {
  */
 function flushDeferredMessages(state: AgentUiState, items: AgentUiItem[]): AgentUiState {
   items.push(
-    ...[...state.deferredAssistantMessages, ...state.queuedUserMessages].sort(
-      (a, b) => a.offset - b.offset,
-    ),
+    ...[
+      ...state.deferredAssistantMessages,
+      ...state.queuedUserMessages,
+      ...state.heldBackground,
+    ].sort((a, b) => a.offset - b.offset),
   );
-  return { ...state, deferredAssistantMessages: [], queuedUserMessages: [] };
+  return { ...state, deferredAssistantMessages: [], queuedUserMessages: [], heldBackground: [] };
+}
+
+/** An input that starts no turn says nothing of the turn under way, so it closes no activity and
+ *  joins no queue: an activity with no step running may be a turn's gap between two steps. Behind
+ *  one it waits, and comes out where the log has it. */
+function emitBackgroundItem(
+  state: AgentUiState,
+  items: AgentUiItem[],
+  item: AgentUiBackgroundItem,
+): AgentUiState {
+  if (state.live) return { ...state, heldBackground: [...state.heldBackground, item] };
+  items.push(item);
+  return state;
 }
 
 // A user message while steps are still running must not archive those steps

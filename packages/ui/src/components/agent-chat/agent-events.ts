@@ -72,22 +72,55 @@ export function foldAgentLog(
     state = reduced.endState;
     items.push(...reduced.items);
   }
+  const rows = inRuns(items);
   return {
     log,
     events: fresh.length > 0 ? start.events.concat(fresh) : start.events,
     state,
     items:
-      items.length > 0
-        ? start.items.concat(grewAtEnd ? items : keepingHeldMessages(items, held?.items))
+      rows.length > 0
+        ? grewAtEnd
+          ? goingOn(start.items, rows)
+          : keepingHeldMessages(rows, held?.items)
         : start.items,
   };
 }
 
+/** `items` with each run of inputs that started no turn joined into its first one's row. */
+function inRuns(items: readonly AgentUiItem[]) {
+  const rows: AgentUiItem[] = [];
+  for (const item of items) {
+    const last = rows.at(-1);
+    if (item.kind === "background" && last?.kind === "background")
+      last.messages.push(...item.messages);
+    else rows.push(item.kind === "background" ? { ...item, messages: [...item.messages] } : item);
+  }
+  return rows;
+}
+
+/** `rows` after `held`, where a run that ends `held` goes on: its row keeps its id as it grows. */
+function goingOn(held: readonly AgentUiItem[], rows: readonly AgentUiItem[]) {
+  const last = held.at(-1);
+  const [first, ...rest] = rows;
+  if (last?.kind !== "background" || first?.kind !== "background") return held.concat(rows);
+  const grown = { ...last, messages: [...last.messages, ...first.messages] };
+  return [...held.slice(0, -1), grown, ...rest];
+}
+
 /** `items`, with each message that `held` has as the object `held` has. A message is one event, so
- *  the same id is the same words; an activity can gain steps from an older page, so it is new. */
+ *  the same id is the same words; an activity can gain steps from an older page, so it is new, and a
+ *  run of inputs is the same only at the same length. */
 function keepingHeldMessages(items: AgentUiItem[], held: readonly AgentUiItem[] = []) {
   const heldById = new Map(held.map((item) => [item.id, item]));
-  return items.map((item) => (item.kind === "activity" ? item : heldById.get(item.id) || item));
+  return items.map((item) => {
+    const kept = heldById.get(item.id);
+    if (!kept || item.kind === "activity") return item;
+    const grown =
+      item.kind === "background" &&
+      kept.kind === "background" &&
+      item.messages.length !== kept.messages.length;
+    return grown ? item : kept;
+  });
 }
 
 /** The feed a fold shows, given what the agent facet says of the turn. When no request can be open,
@@ -101,7 +134,7 @@ export function agentFeedOf(
   const state = requestMayBeOpen ? fold.state : withoutRunningRequests(fold.state);
   if (!idle) return { state, items: fold.items };
   const settled = settleAgentUiAtIdleBoundary(state);
-  const items = settled.items.length > 0 ? fold.items.concat(settled.items) : fold.items;
+  const items = settled.items.length > 0 ? goingOn(fold.items, inRuns(settled.items)) : fold.items;
   return { state: settled.endState, items };
 }
 

@@ -190,6 +190,120 @@ test("the log folded piece by piece equals it folded whole, and a settled messag
   expect(second(paged)).toBe(second(grown));
 });
 
+test("inputs that start no turn are one row under the first one's id; words that start a turn end the run", () => {
+  const { items } = reduceAgentFeed(
+    [read(1), read(2), read(3), person(4, "what came in?"), read(5)],
+    true,
+  );
+  expect(items).toMatchObject([
+    {
+      kind: "background",
+      id: "background-1",
+      messages: [{ offset: 1 }, { offset: 2 }, { offset: 3 }],
+    },
+    { kind: "user", id: "user-4", text: "what came in?" },
+    { kind: "background", id: "background-5", messages: [{ offset: 5, text: "input 5" }] },
+  ]);
+});
+
+test("an input that starts no turn waits behind a request and queues nothing: it comes out where the log has it", () => {
+  const log = [person(1, "asked"), intent(2, 1), read(3), read(4)];
+  const working = reduceAgentFeed(log, false);
+  expect(working.state).toMatchObject({
+    queuedUserMessages: [],
+    live: { steps: [{ kind: "llm", status: "running" }] },
+  });
+  expect(working.items).toMatchObject([{ id: "user-1" }]);
+
+  const answered = reduceAgentFeed(
+    [
+      ...log,
+      at(5, "events.iterate.com/agent/llm-request-settled", {
+        requestOffset: 2,
+        result: { status: "succeeded", text: "ok" },
+      }),
+      at(6, "events.iterate.com/agent/web-message-sent", { message: "ok", llmRequestOffset: 2 }),
+    ],
+    false,
+  );
+  expect(answered.state.live).toBeNull();
+  expect(answered.items.map((item) => item.id)).toEqual([
+    "user-1",
+    "activity-2",
+    "background-3",
+    "assistant-6",
+  ]);
+});
+
+test("an input between a turn's two requests leaves the turn whole, and shows once the agent is idle", () => {
+  const log = [
+    person(1, "asked"),
+    intent(2, 1),
+    at(3, "events.iterate.com/agent/llm-request-settled", {
+      requestOffset: 2,
+      result: { status: "succeeded", text: "ok" },
+    }),
+    read(4),
+    intent(5, 3),
+    at(6, "events.iterate.com/agent/llm-request-settled", {
+      requestOffset: 5,
+      result: { status: "succeeded", text: "ok" },
+    }),
+  ];
+  const { items } = reduceAgentFeed(log, true);
+  expect(items).toMatchObject([
+    { id: "user-1" },
+    { kind: "activity", id: "activity-2", steps: [{ kind: "llm" }, { kind: "llm" }] },
+    { id: "background-4" },
+  ]);
+});
+
+test("a run keeps its row's id as it grows, and every other row its identity", () => {
+  const log: unknown[] = [person(1, "asked"), read(2)];
+  const first = foldAgentLog(undefined, log);
+  const grown = foldAgentLog(first, [...log, read(3)]);
+  expect(grown.items[0]).toBe(first.items[0]);
+  expect(grown.items[1]).toMatchObject({
+    id: "background-2",
+    messages: [{ offset: 2 }, { offset: 3 }],
+  });
+});
+
+test("a fold from a later offset gives the same rows, but for the one run its first page cut", () => {
+  const whole = [
+    read(1),
+    read(2),
+    read(3),
+    person(4, "first"),
+    read(5),
+    person(6, "second"),
+    read(7),
+    read(8),
+  ];
+  const rows = (log: typeof whole) => reduceAgentFeed(log, true).items;
+  expect(rows(whole.slice(3))).toEqual(rows(whole).slice(1));
+  const cut = rows(whole.slice(1));
+  expect(cut[0]).toMatchObject({ id: "background-2", messages: [{ offset: 2 }, { offset: 3 }] });
+  expect(cut.slice(1)).toEqual(rows(whole).slice(1));
+
+  // the older page refolds it: the run is whole under its first id, and the rest keep their identity
+  const newest = foldAgentLog(undefined, whole.slice(1));
+  const refolded = foldAgentLog(newest, whole);
+  expect(refolded.items[0]).toMatchObject({ id: "background-1", messages: [{}, {}, {}] });
+  expect(refolded.items.slice(1)).toEqual(newest.items.slice(1));
+  expect(refolded.items[1]).toBe(newest.items[1]);
+  expect(refolded.items[2]).toBe(newest.items[2]);
+});
+
+test("a refold keeps a run that is the same, and takes one that grew", () => {
+  const log = [person(2, "asked"), read(3)];
+  const newest = foldAgentLog(undefined, log);
+  const older = foldAgentLog(newest, [person(1, "before"), ...log]);
+  expect(older.items[2]).toBe(newest.items[1]);
+  const both = foldAgentLog(newest, [person(1, "before"), ...log, read(4)]);
+  expect(both.items[2]).toMatchObject({ id: "background-3", messages: [{}, {}] });
+});
+
 test("the newest intent with no open request in the agent's live state is not running; the log alone cannot tell", () => {
   // a pause dropped the trigger that moved past this intent, so no later intent closes it
   const events = [
@@ -215,6 +329,15 @@ const person = (offset: number, content: string) =>
     role: "user",
     content,
     actor: { type: "user" },
+  });
+
+/** An input at `offset` that starts no turn. */
+const read = (offset: number) =>
+  at(offset, "events.iterate.com/agent/context-added", {
+    role: "user",
+    content: `input ${String(offset)}`,
+    actor: { type: "user" },
+    llmRequestPolicy: { behaviour: "dont-trigger-request" },
   });
 
 /** The agent's intent to request the model for the trigger at `triggerOffset`. */

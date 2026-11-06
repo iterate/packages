@@ -1,13 +1,15 @@
-// The feed rows: a person's message, the assistant's prose, and the quiet "Ran code 2× · 3
-// requests · 7.4 s" activity row that opens into rounds — the LLM step that wrote a script and the
-// code step that ran it, each a `Script | Result | Meta` tab group. Items come from the shared
-// reducer (agent-ui-reducer.ts); this file owns only their look.
+// The feed rows: a person's message, the assistant's prose, the quiet "3 messages came in" row over
+// what reached the agent without starting a turn, and the quiet "Ran code 2× · 3 requests · 7.4 s"
+// activity row that opens into rounds — the LLM step that wrote a script and the code step that ran
+// it, each a `Script | Result | Meta` tab group. Items come from the shared reducer
+// (agent-ui-reducer.ts); this file owns only their look.
 import { memo, useCallback, useEffect, useState } from "react";
 import {
   BanIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   CodeIcon,
+  InboxIcon,
   PaperclipIcon,
   PauseIcon,
   PlayIcon,
@@ -22,6 +24,7 @@ import {
   summarizeAgentUiActivity,
   type AgentUiActivity,
   type AgentUiActivityRound,
+  type AgentUiBackgroundItem,
   type AgentUiCodeStep,
   type AgentUiFileAttachment,
   type AgentUiItem,
@@ -123,6 +126,10 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
           inspect={inspect}
         />
       );
+    case "background":
+      return (
+        <BackgroundRow item={item} expanded={expanded} onToggle={onToggle} signedUrl={signedUrl} />
+      );
     case "stream-paused":
     case "stream-resumed": {
       const Icon = item.kind === "stream-paused" ? PauseIcon : PlayIcon;
@@ -141,6 +148,69 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
     }
   }
 });
+
+// ── what reached the agent without starting a turn: the quiet "3 messages came in" row ──
+
+/** How many of a run the row shows: a quiet day can bring thousands, and the Events tab has them. */
+const BACKGROUND_SHOWN = 100;
+
+function BackgroundRow({
+  item,
+  expanded,
+  onToggle,
+  signedUrl,
+}: {
+  item: AgentUiBackgroundItem;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+  signedUrl: SignedUrl;
+}) {
+  const count = item.messages.length;
+  return (
+    <div className="flex flex-col py-0.5" data-kind="background">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={expanded}
+        title="Read by the agent, without starting a turn"
+        onClick={() => onToggle(item.id)}
+        className="-ml-2.5 max-w-full self-start font-normal text-muted-foreground"
+      >
+        <InboxIcon data-icon="inline-start" className="text-muted-foreground/60" />
+        <span className="min-w-0 truncate">
+          {count === 1 ? "1 message came in" : `${String(count)} messages came in`}
+        </span>
+        <ChevronRightIcon
+          data-icon="inline-end"
+          className={cn("text-muted-foreground/50 transition-transform", expanded && "rotate-90")}
+        />
+      </Button>
+      {expanded ? (
+        <div className="mb-1.5 ml-1 mt-0.5 flex min-w-0 flex-col gap-1.5 border-l-2 border-muted py-1 pl-4 text-xs leading-5 text-muted-foreground">
+          {count > BACKGROUND_SHOWN ? (
+            <p>The newest {BACKGROUND_SHOWN}. The Events tab has them all.</p>
+          ) : null}
+          {item.messages.slice(-BACKGROUND_SHOWN).map((message) => (
+            <div
+              key={message.offset}
+              className="min-w-0"
+              title={formatDateTime(message.timestampMs)}
+            >
+              {message.text === "" ? null : (
+                <p className="whitespace-pre-wrap wrap-break-word">{message.text}</p>
+              )}
+              <MessageAttachments
+                files={message.files}
+                hasText={message.text !== ""}
+                signedUrl={signedUrl}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // ── the settled activity: the quiet "Ran code 2× · 3 requests · 7.4 s" row ──
 
