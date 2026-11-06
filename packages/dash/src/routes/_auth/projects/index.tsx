@@ -267,7 +267,11 @@ function NewProjectForm({
             required
           />
           {host ? (
-            <FieldDescription>Your project will be hosted at {new URL(host).host}</FieldDescription>
+            <FieldDescription>
+              {/* the host, and under paths ingress the project's path on it */}
+              Your project will be hosted at {new URL(host).host}
+              {new URL(host).pathname.replace(/\/$/, "")}
+            </FieldDescription>
           ) : null}
         </Field>
         <Field>

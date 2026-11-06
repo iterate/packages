@@ -1,0 +1,75 @@
+{
+  "name": "@iterate-com/cloud",
+  "version": "0.1.0",
+  "description": "Iterate Cloud as a package a project installs: people, Cloudflare connections and deployments of iterate's platform into a person's own Cloudflare account, as contexts with processors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iterate/packages",
+    "directory": "packages/cloud"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts",
+    "./api": "./src/api.ts",
+    "./records": "./src/records.ts",
+    "./config": "./src/config.ts",
+    "./views": "./src/views.ts",
+    "./wizard": "./src/wizard.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "import": "./dist/index.mjs"
+      },
+      "./worker": {
+        "types": "./dist/worker.d.mts",
+        "import": "./dist/worker.mjs"
+      },
+      "./api": {
+        "types": "./dist/api.d.mts",
+        "import": "./dist/api.mjs"
+      },
+      "./config": {
+        "types": "./dist/config.d.mts",
+        "import": "./dist/config.mjs"
+      },
+      "./records": {
+        "types": "./dist/records.d.mts",
+        "import": "./dist/records.mjs"
+      },
+      "./views": {
+        "types": "./dist/views.d.mts",
+        "import": "./dist/views.mjs"
+      },
+      "./wizard": {
+        "types": "./dist/wizard.d.mts",
+        "import": "./dist/wizard.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "peerDependencies": {
+    "iterate": "*",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "iterate": "workspace:*",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

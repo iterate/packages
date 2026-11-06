@@ -1,0 +1,10 @@
+{
+  // Worker code, typed against the Cloudflare types: the processors run as loaded Durable Objects
+  // and worker.ts in a project's config worker. records.ts, views.ts and wizard.ts also run in the
+  // Cloud app's browser.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src", "tsdown.config.ts"]
+}
