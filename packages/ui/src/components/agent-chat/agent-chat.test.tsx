@@ -68,6 +68,22 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
     },
     status: "About to run a script",
   },
+  {
+    name: "the agent facet holds a settled run whose note has not landed",
+    processors: { rows: [], loaded: true },
+    liveState: {
+      agent: {
+        status: "live",
+        value: {
+          paused: null,
+          openRequest: null,
+          pendingLlmRequestTrigger: null,
+          unnotedRun: 29,
+        },
+      },
+    },
+    status: "Reading the script's result",
+  },
 ])("the strip when $name: $status", async ({ processors, liveState, status }) => {
   using chat = await mount({ processors, liveState });
   expect(chat.status()).toBe(status);
