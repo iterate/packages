@@ -140,7 +140,6 @@ export function resourcesOf(name: string) {
     { kind: "KV namespace", name: `${name}-itx-kv` },
     { kind: "R2 bucket", name: `${name}-files` },
     { kind: "Artifacts namespace", name: `${name}-repos` },
-    { kind: "Container image", name: "iterate-dev-image" },
     { kind: "Alchemy stack", name: stack },
   ];
 }

@@ -267,7 +267,7 @@ function DetailsCard({ state }: { state: DeploymentView }) {
             {record.stack} in {record.store}
           </dd>
           <dt className="text-muted-foreground">Sandbox image</dt>
-          <dd className="font-mono break-all">{state.image || "none yet"}</dd>
+          <dd className="font-mono break-all">{state.image || "none"}</dd>
         </dl>
         {state.config ? <ConfigRow config={state.config} /> : null}
       </CardContent>

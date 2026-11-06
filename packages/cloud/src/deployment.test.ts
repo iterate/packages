@@ -45,6 +45,8 @@ test("a creation prepares the sandbox, requests the first deploy itself, and its
   const state = await deployment.state();
   expect(state).toMatchObject({
     url: "https://my-iterate.example.workers.dev",
+    // the deploy pinned no image
+    image: null,
     preparation: { status: "succeeded", attempt: 1 },
   });
   expect(state.run).toMatchObject({ kind: "deploy", lines: 11 });

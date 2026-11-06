@@ -210,12 +210,8 @@ export async function runAttempt(
       configFileOf(config, OS),
     );
     let step: ImageStep | undefined;
-    if (kind !== "destroy") {
-      if (!image)
-        return {
-          status: "failed",
-          error: "The toolchain names no image source: prepare it again.",
-        };
+    // a toolchain with no image source: the run copies no image (NO_IMAGE_STEP)
+    if (kind !== "destroy" && image) {
       const found = await imageStepFor(root, record, image, placeholderOf(record.connection));
       if ("error" in found) return { status: "failed", error: `image: ${found.error}` };
       step = found;
@@ -376,7 +372,7 @@ ${
 # The Artifacts namespace, which no deploy makes (core/os/SELF-HOSTING.md): every project's code lives in it.
 answer=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${record.accountId}/artifacts/namespaces" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" -H "content-type: application/json" --data '{"namespace":"${record.name}-repos"}')
 case "$answer" in *'"success":true'*) echo "created ${record.name}-repos";; *'"code":10201'*) echo "${record.name}-repos exists";; *) echo "refused: $answer"; echo "__EXIT__:1"; exit 1;; esac
-${image && step ? imageStepOf(record, image, step, `${RUNS}/${requestOffset}-image`) : ""}echo "== step build"
+${image && step ? imageStepOf(record, image, step, `${RUNS}/${requestOffset}-image`) : NO_IMAGE_STEP}echo "== step build"
 pnpm build || { echo "__EXIT__:1"; exit 1; }
 `
 }echo "== step alchemy"
@@ -385,6 +381,14 @@ code=$?
 ${kind === "deploy" ? CHECK_STEP(record) : ""}${kind === "destroy" ? REPOS_STEP(record) : ""}echo "__EXIT__:$code"
 `;
 }
+
+/** The image step of a toolchain with no image source. Nothing is copied and `ITERATE_IMAGE_PINS`
+ *  stays `{}`, so core's deploy pins no image and the deployment's sandboxes start Cloudflare's
+ *  managed image (core/os/scripts/images.ts `imagesOfDeployment`). The step still prints, so the
+ *  page says what the deployment runs. */
+const NO_IMAGE_STEP = `echo "== step image"
+echo "skipped: sandboxes start Cloudflare's managed image"
+`;
 
 /** After a deploy that succeeded: the new Worker answers at its workers.dev address, where a first
  *  deploy's address can answer Cloudflare's own not-found for a while. It asks the platform's

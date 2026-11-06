@@ -211,7 +211,7 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
         const next = { ...state, run: settled };
         if (status !== "succeeded" || run.kind === "plan") return next;
         return run.kind === "deploy"
-          ? { ...next, url: url || state.url, image: image || state.image }
+          ? { ...next, url: url || state.url, image: image || null }
           : { ...next, url: null, image: null };
       }
     }

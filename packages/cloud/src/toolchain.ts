@@ -50,7 +50,7 @@ export class ToolchainProcessor extends StreamProcessor<ToolchainState, Event> {
           request: {
             requestOffset: event.offset,
             status: "running",
-            image: event.payload.image,
+            image: event.payload.image || null,
             error: null,
           },
         };

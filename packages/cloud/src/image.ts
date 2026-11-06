@@ -6,6 +6,12 @@
 // to Alchemy as `ITERATE_IMAGE_PINS`. A deploy that finds the
 // digest in the account copies nothing.
 //
+// OPTIONAL, AND THE COPY IS BROKEN: a toolchain asked for with no image has no source, and its runs
+// skip all of this (runs.ts `NO_IMAGE_STEP`). The copy itself fails for an account that lacks the
+// image: crane uploads each layer through the project's egress, which gives a request 50 seconds,
+// and a large layer takes longer (`504 Gateway Timeout: itx.fetch: the pinned host
+// https://registry.cloudflare.com sent no answer within 50 s`).
+//
 // Two registry credentials, both egress placeholders, so neither enters the sandbox. The registry
 // takes only credentials its account's API mints (user `v1`, a JWT), as Basic auth, and egress
 // fills a placeholder inside `Basic base64(user:getSecret(…))`. The destination's is minted before

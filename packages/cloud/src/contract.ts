@@ -169,8 +169,8 @@ export const ToolchainContract = defineProcessorContract({
   events: {
     "cloud/toolchain-requested": {
       description:
-        "An operator asked for the toolchain to be prepared again, with where the sandbox image comes from (image.ts).",
-      payloadSchema: z.object({ image: ImageSource }),
+        "An operator asked for the toolchain to be prepared again, with where the sandbox image comes from (image.ts), or with no image: its runs then copy none.",
+      payloadSchema: z.object({ image: ImageSource.nullish() }),
     },
     "cloud/toolchain-settled": {
       description:

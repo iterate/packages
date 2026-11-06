@@ -44,13 +44,19 @@ export { CloudDeploymentFacet, CloudPersonFacet, CloudToolchainFacet } from "@it
   `iterate-dev-image`, which that account's API mints
   (`POST /accounts/<account>/containers/registries/registry.cloudflare.com/credentials`,
   `{"permissions":["pull"],"expiration_minutes":…}`). It expires; a run that must copy the image
-  then fails and names it.
-- **The toolchain**, prepared once and again for each new core, with one event that names the
-  sandbox image by its digest:
-  `itx.cd("/toolchain").append({ type: "cloud/toolchain-requested", payload: { image: { account, secret, digest } } })`.
-  The digest is `iterate-dev-image`'s under the source account in iterate's
-  `scripts/os/images.lock.json`, at the commit core's main was copied from (its `GitOrigin-RevId`).
-  The project needs no GitHub connection: the image step reads no repository.
+  then fails and names it. A Cloud whose toolchain names no image needs none.
+- **The toolchain**, prepared once and again for each new core, with one event:
+  `itx.cd("/toolchain").append({ type: "cloud/toolchain-requested", payload: {} })`.
+  Its deployments get no sandbox image: a run's image step says it is skipped, and their sandboxes
+  start Cloudflare's managed image.
+- **The sandbox image, optional**: the same event with
+  `payload: { image: { account, secret, digest } }` makes each plan and deploy put
+  `iterate-dev-image` into the customer's account first ([src/image.ts](src/image.ts)). The digest
+  is `iterate-dev-image`'s under the source account in iterate's `scripts/os/images.lock.json`, at
+  the commit core's main was copied from (its `GitOrigin-RevId`). The project needs no GitHub
+  connection: the image step reads no repository. **The copy does not work yet for an account that
+  lacks the image**: crane uploads each layer through the project's egress, which gives a request
+  50 seconds, and the image's large layers take longer (`504 … sent no answer within 50 s`).
 - Nothing by hand for the sandboxes: each preparation writes two rules on its own context,
   `itx.fetch` and `itx.sandboxes` to the root's ([src/runs.ts](src/runs.ts) `withProjectRoots`). A
   sandbox's requests are answered by its context's `itx.fetch`, and its start from the toolchain

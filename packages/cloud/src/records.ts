@@ -181,7 +181,8 @@ export const DeploymentState = z.object({
   history: z.array(Run).default([]),
   /** The Worker's URL after the last deploy that succeeded; null after a destroy that did. */
   url: z.string().nullable().default(null),
-  /** The sandbox image the last deploy that succeeded pinned; null after a destroy that did. */
+  /** The sandbox image the last deploy that succeeded pinned: null when it pinned none (the
+   *  toolchain has no image source), and after a destroy that succeeded. */
   image: z.string().nullable().default(null),
 });
 export type DeploymentState = z.infer<typeof DeploymentState>;
@@ -191,7 +192,9 @@ export type DeploymentState = z.infer<typeof DeploymentState>;
 /** Where the sandbox image comes from (image.ts): the account whose registry holds iterate's
  *  `iterate-dev-image`, a pull credential of that registry (a project secret, `{ username,
  *  password }`), and the digest of the image the toolchain's core runs, which whoever asks for the
- *  toolchain names (its commit's pin in iterate's images.lock.json). */
+ *  toolchain names (its commit's pin in iterate's images.lock.json). A toolchain asked for with
+ *  none has no source (`null`): its runs copy no image, and a deployment's sandboxes start
+ *  Cloudflare's managed image. */
 export const ImageSource = z.object({
   account: AccountId,
   secret: z.string().regex(/^\/secrets\/[a-zA-Z0-9._-]+$/),
@@ -205,15 +208,20 @@ export const ToolchainState = z.object({
     .object({
       requestOffset: Offset,
       status: z.enum(["running", "succeeded", "failed"]),
-      image: ImageSource,
+      image: ImageSource.nullable(),
       error: z.string().nullable(),
     })
     .nullable()
     .default(null),
   /** What every deployment's sandbox starts from: the snapshot of the last preparation that
-   *  succeeded, the core commit it holds, and the image source its runs use. */
+   *  succeeded, the core commit it holds, and the image source its runs use, if it has one. */
   ready: z
-    .object({ snapshot: z.string(), core: z.string(), image: ImageSource, at: z.string() })
+    .object({
+      snapshot: z.string(),
+      core: z.string(),
+      image: ImageSource.nullable(),
+      at: z.string(),
+    })
     .nullable()
     .default(null),
 });

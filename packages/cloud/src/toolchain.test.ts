@@ -55,3 +55,22 @@ test("a request prepares the toolchain once; one while it runs is refused; the n
   finish();
   await vi.waitFor(async () => expect((await state()).ready?.snapshot).toBe(`s-${prepared[1]}`));
 });
+
+test("a request that names no image leaves the toolchain with no image source", async () => {
+  const log = memoryStream("/toolchain");
+  const engine = new ProcessorEngine(
+    new ToolchainProcessor({
+      prepare: async () => ({ status: "succeeded", snapshot: "s-1", core: "abc1234" }),
+    }),
+    { stream: log.stream, storage: memoryStorage() },
+  );
+  log.engines.push(engine);
+
+  log.stream.append({ type: "cloud/toolchain-requested", payload: {} });
+  await vi.waitFor(async () =>
+    expect(((await engine.snapshot()).state as ToolchainState).ready).toMatchObject({
+      snapshot: "s-1",
+      image: null,
+    }),
+  );
+});

@@ -79,6 +79,21 @@ test("a deploy, and only a deploy, ends by asking the new Worker's address until
   expect(deploy).not.toMatch(/GitOrigin-RevId|api\.github\.com/);
 });
 
+test("with no image source a run copies no image: its step says so, and core's deploy pins none", () => {
+  for (const kind of ["plan", "deploy"] as const) {
+    const script = runScriptOf(record, kind, 42, null, undefined);
+    execFileSync("bash", ["-n"], { input: script });
+    expect(script).toContain(
+      `echo "== step image"\necho "skipped: sandboxes start Cloudflare's managed image"\n`,
+    );
+    expect(script).not.toMatch(/crane|registry\.cloudflare\.com|image-preparations/);
+    expect(script).toContain("export ITERATE_IMAGE_PINS='{}'");
+    // where the copy would stand: after the namespace, before the build
+    expect(script.indexOf("== step image")).toBeGreaterThan(script.indexOf("== step namespace"));
+    expect(script.indexOf("== step build")).toBeGreaterThan(script.indexOf("== step image"));
+  }
+});
+
 test("each script is valid bash, and a destroy, and only a destroy, ends by deleting the namespace the install made", () => {
   for (const kind of ["plan", "deploy", "destroy"] as const)
     execFileSync("bash", ["-n"], {
