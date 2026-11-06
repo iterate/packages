@@ -2,13 +2,14 @@
 // iterate/react's own hook: the handle's `subscribe` and `liveSnapshot` are what it reads. A handle
 // is made once per session (`useMemo`): after a reconnect (lib/cloud.ts) the hook gets a new one,
 // subscribes again and seeds again. Meanwhile the hook has no value, so these keep the last one,
-// and the page stays as it was and says it is reconnecting (components/connection.tsx).
+// and the page stays as it was and says it is reconnecting (components/connection.tsx). A
+// subscription that hears nothing, not even the facet's minute probe, redials too (`heardOf`).
 import { createContext, useContext, useMemo, useState } from "react";
 import { useLiveState, type LiveStateResult } from "iterate/react";
 import type { MaskedConfig } from "@iterate-com/cloud/config";
 import type { DeploymentState } from "@iterate-com/cloud/records";
 import type { PersonView } from "@iterate-com/cloud/wizard";
-import { useCloudApi } from "./cloud.ts";
+import { heardOf, useCloudApi } from "./cloud.ts";
 
 /** A deployment's state as the browser has it: the config's secrets masked (deployment.ts). */
 export type DeploymentView = Omit<DeploymentState, "config"> & { config: MaskedConfig | null };
@@ -24,7 +25,8 @@ export function usePerson() {
 export function useDeployment(id: string) {
   const api = useCloudApi();
   const handle = useMemo(() => api.deployments.get(id), [api, id]);
-  const live = useLiveState<DeploymentView>(handle, {
+  const heard = useMemo(() => heardOf(handle), [handle]);
+  const live = useLiveState<DeploymentView>(heard, {
     key: "cloud-deployment",
     // safe: the seed is the processor's projection, which masks the config (deployment.ts), and the API types the
     // facet's state unknown across its boundary (api.ts `LiveContext.liveSnapshot`)

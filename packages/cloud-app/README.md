@@ -7,7 +7,8 @@ every page through to it, keeping the visitor's cookies to itself, and serves th
 which the pages dial ([src/lib/cloud.ts](src/lib/cloud.ts)). Every page draws a processor's live
 state ([src/lib/live.ts](src/lib/live.ts)); the wizard is `@iterate-com/cloud/wizard`.
 
-Deploy: `pnpm --dir packages/cloud-app run deploy --env prd` (`cloudAppEnvs` in the root
+Deploy: CI deploys it with each release of the Cloud ([@iterate-com/cloud](../cloud/README.md), "A
+release"); by hand, `pnpm --dir packages/cloud-app run deploy --env prd` (`cloudAppEnvs` in the root
 `envs.ts`). It has no secrets, so it deploys from `_shared`'s `prd` Doppler config.
 
 ## Design work on the deployment page

@@ -15,7 +15,9 @@
 // A watch keeps its context resident while it lasts, as any live view does (the Dash's too). It
 // ends when the config worker asks (the browser disposed it, or its socket closed: api.ts), at the
 // first delta it cannot forward, or within a minute of the browser going away unannounced (a probe
-// every minute). A facet reset ends it too: the page then sees its socket's state and reconnects.
+// every minute). A facet reset (a publish of the Cloud) ends it too, unannounced, while the page's
+// socket to the config worker stays open: the page then hears no probe, and redials within 150 s
+// (packages/cloud-app lib/cloud.ts `heardOf`), which subscribes it again.
 import type { IterateContextApi } from "iterate/api";
 import { StreamProcessorDurableObject } from "iterate/sdk";
 import type { DeploymentState, PersonState, ToolchainState } from "./records.ts";

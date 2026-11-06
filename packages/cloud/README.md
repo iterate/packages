@@ -73,6 +73,25 @@ project is served under paths ingress (`<platform>/projects/cloud`): the config 
 path from `x-iterate-base-path` and every address it names carries it, and the pages follow
 `@iterate-com/ui/apps/base-path`.
 
+## A release
+
+A release is the pages Worker deployed to prd, then prd's `cloud` project's config repo pinned to
+pkg.pr.new's build of the same commit (its `package.json`), the publish's outcome event
+(`project/worker-updated`, or `project/worker-update-failed` with its error), and the origin
+answering signed out. CI does it on every push to main that changes the Cloud
+(`.depot/workflows/deploy-cloud.yml`, `scripts/cloud/release.ts`):
+
+- It pins only when `packages/cloud` changed since the build prd pins: a publish resets the Cloud's
+  facets, so a push that changes only the pages leaves the pin.
+- An install in flight survives a pin: the deployment's next attempt adopts its running script, from
+  the line it reported last. A page open across a publish redraws the live state within 150 s: it redials
+  when it hears nothing, not even the facet's minute probe.
+- By hand: `node scripts/cloud/release.ts [--commit <sha>] [--dry-run]`, under Doppler os/prd, or
+  with `CLOUD_RELEASE_BEARER` set to a member's own prd session.
+
+Not in a release: the playground (below), pinned by hand, and the toolchain's core: new installs keep
+the core of the last `cloud/toolchain-requested`, which an operator appends.
+
 ## The playground
 
 `cloud-dev` (`osEnvs["cloud-dev"]` in iterate/private's `envs.ts`) is a standing core/os on the dev

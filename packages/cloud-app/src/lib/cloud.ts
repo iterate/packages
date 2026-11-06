@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { newHttpBatchRpcSession, newWebSocketRpcSession, type RpcStub } from "capnweb";
 import type { CloudApi } from "@iterate-com/cloud/api";
+import type { LiveStateItx } from "iterate/client";
 import { documentBasePath } from "@iterate-com/ui/apps/base-path";
 
 let session: RpcStub<CloudApi> | null = null;
@@ -49,6 +50,49 @@ export function cloudApi(): RpcStub<CloudApi> {
   });
   session = opened;
   return opened;
+}
+
+/** Drop the tab's socket and dial again: every handle, and so every live state, is made afresh. */
+function redial() {
+  const old = session;
+  session = null;
+  old?.[Symbol.dispose]();
+  for (const listener of listeners) listener();
+}
+
+/** How long a live subscription may hear nothing before the tab dials again. The facet sends an
+ *  empty batch every minute (@iterate-com/cloud durable-object.ts), so silence this long means its
+ *  watch is gone: a publish of the Cloud resets the facet while this socket stays open. */
+const SILENCE_MS = 150_000;
+
+/** `handle`'s `subscribe`, watched: any delivery, the facet's probe included, proves the watch is
+ *  alive; a subscription silent for `SILENCE_MS` redials the tab. */
+export function heardOf(handle: LiveStateItx): LiveStateItx {
+  return {
+    subscribe: async (input) => {
+      let heard = Date.now();
+      const subscription = await handle.subscribe({
+        ...input,
+        target: (events, range) => {
+          heard = Date.now();
+          input.target(events, range);
+        },
+      });
+      // once subscribed: a subscribe that threw has nothing to watch
+      heard = Date.now();
+      const silence = setInterval(() => {
+        if (Date.now() - heard < SILENCE_MS) return;
+        clearInterval(silence);
+        redial();
+      }, 10_000);
+      return {
+        [Symbol.dispose]: () => {
+          clearInterval(silence);
+          subscription[Symbol.dispose]();
+        },
+      };
+    },
+  };
 }
 
 /** The current session, for a component: a new one after each reconnect. */
