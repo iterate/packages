@@ -162,6 +162,7 @@
         "command",
         "dialog",
         "dropdown-menu",
+        "input",
         "iterate/packages/iterate-logo",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
@@ -191,6 +192,10 @@
         },
         {
           "path": "src/components/app-shell-platform.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/change-deployment.tsx",
           "type": "registry:component"
         }
       ]

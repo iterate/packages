@@ -27,6 +27,7 @@ import {
   EyeIcon,
   LogOutIcon,
   SearchIcon,
+  ServerIcon,
   TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
@@ -43,7 +44,8 @@ import {
   type AppPaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import { readConnectedPlatform, type ConnectedPlatform } from "./app-shell-platform.ts";
+import { useConnectedPlatform, type ConnectedPlatform } from "./app-shell-platform.ts";
+import { ChangeDeploymentDialog } from "./change-deployment.tsx";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -99,6 +101,7 @@ export function AppShell({
   header,
   account,
   accountActions,
+  deploymentHome,
   locationKey,
   children,
 }: {
@@ -135,6 +138,10 @@ export function AppShell({
   account?: Principal;
   /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s */
   accountActions?: ReactNode;
+  /** with it, the account menu offers "Change deployment…", which lands here on the deployment a
+   *  person picks: a page every deployment has. An app proxied on the issuer's own host leaves it
+   *  out, because that gate has no `/.auth/connect`. */
+  deploymentHome?: string;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
   children: ReactNode;
@@ -192,6 +199,7 @@ export function AppShell({
               email={account.email || account.actor}
               actions={accountActions}
               platform={platform}
+              deploymentHome={deploymentHome}
             />
           ) : (
             <SidebarMenu>
@@ -512,30 +520,6 @@ function CollapseButton() {
   );
 }
 
-/** The page's one read of the gate, and its answer once it has one. */
-let platformRead: Promise<void> | undefined;
-let platformAnswer: ConnectedPlatform | null = null;
-
-/** Connecting to another platform is a full page load (`/.auth/connect`), so the shell reads
- *  once, including while the account loads. A remounted shell can use the cached answer. */
-function useConnectedPlatform() {
-  const [platform, setPlatform] = useState(platformAnswer);
-  useEffect(() => {
-    let mounted = true;
-    platformRead ||= readConnectedPlatform(AbortSignal.timeout(10_000)).then(
-      (answer) => {
-        platformAnswer = answer;
-      },
-      () => {},
-    );
-    void platformRead.then(() => mounted && setPlatform(platformAnswer));
-    return () => {
-      mounted = false;
-    };
-  }, []);
-  return platform;
-}
-
 /** SIGN IN AGAIN, through the issuer: the app's own logout (ends this sign-in's grant), then its
  *  login with the same permissions (app-server.ts), which finds the person still signed in at the
  *  issuer and shows its consent — where a platform admin may "Sign in as someone else…" — and lands
@@ -606,21 +590,24 @@ function DeploymentNote({ platform }: { platform: ConnectedPlatform }) {
   );
 }
 
-/** The signed-in person and the deployment the app is connected to; Switch account…
- *  (`SIGN_IN_AGAIN`); and sign out: a POST to the app's own logout, which ends this browser's grant
- *  at the issuer. */
+/** The signed-in person and the deployment the app is connected to; Change deployment…, in an app
+ *  that offers it; Switch account… (`SIGN_IN_AGAIN`); and sign out: a POST to the app's own logout,
+ *  which ends this browser's grant at the issuer. */
 function AccountMenu({
   email,
   actions,
   platform,
+  deploymentHome,
 }: {
   email: string;
   actions?: ReactNode;
   platform: ConnectedPlatform | null;
+  deploymentHome?: string;
 }) {
   const { isMobile } = useSidebar();
   const logout = useRef<HTMLFormElement>(null);
   const switchAccount = useRef<HTMLFormElement>(null);
+  const [changingDeployment, setChangingDeployment] = useState(false);
   const initials = email.slice(0, 2).toUpperCase();
   return (
     <SidebarMenu>
@@ -654,6 +641,12 @@ function AccountMenu({
             <DropdownMenuGroup>
               <DropdownMenuLabel className="truncate font-normal">{email}</DropdownMenuLabel>
               {platform ? <DeploymentNote platform={platform} /> : null}
+              {deploymentHome ? (
+                <DropdownMenuItem onClick={() => setChangingDeployment(true)}>
+                  <ServerIcon />
+                  <span>Change deployment…</span>
+                </DropdownMenuItem>
+              ) : null}
               {actions}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -678,6 +671,13 @@ function AccountMenu({
       {/* the POSTs, outside the menu items so nothing but an item's click submits one */}
       <form ref={switchAccount} method="post" action={SIGN_IN_AGAIN} hidden />
       <form ref={logout} method="post" action="/.auth/logout" hidden />
+      {deploymentHome ? (
+        <ChangeDeploymentDialog
+          open={changingDeployment}
+          onOpenChange={setChangingDeployment}
+          next={deploymentHome}
+        />
+      ) : null}
     </SidebarMenu>
   );
 }

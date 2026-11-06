@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ChangeDeploymentLink } from "@iterate-com/ui/components/change-deployment";
 import { FirstProjectRedirect } from "@iterate-com/ui/components/first-project-redirect";
 
 export const Route = createFileRoute("/_auth/projects/")({
@@ -8,5 +9,9 @@ export const Route = createFileRoute("/_auth/projects/")({
 
 function ProjectsIndex() {
   const first = Route.useLoaderData();
-  return <FirstProjectRedirect project={first} />;
+  return (
+    <FirstProjectRedirect project={first}>
+      <ChangeDeploymentLink next="/projects" />
+    </FirstProjectRedirect>
+  );
 }

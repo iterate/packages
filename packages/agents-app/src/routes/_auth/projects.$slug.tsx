@@ -82,6 +82,7 @@ function AgentsPage() {
   return (
     <AppShell
       app="Agents"
+      deploymentHome="/projects"
       projects={data.projects}
       activeProjectId={project}
       projectHref={(item) => `/projects/${item.slug}`}
