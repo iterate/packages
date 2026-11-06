@@ -277,6 +277,17 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
             ],
           },
         },
+        /* The live model delegates within seconds of a press, so each press asks the agent to get
+         * ready. A row, not the relay's own code: nothing it does can delay the dial. */
+        {
+          type: "events.iterate.com/itx/subscription-configured",
+          idempotencyKey: `voice-device/warm-up:${agentPath}`,
+          payload: {
+            name: "voice-agent-warm-up",
+            consumes: ["events.iterate.com/voice-agent/call-started"],
+            target: { path: agentPath, type: "events.iterate.com/agent/warm-up-requested" },
+          },
+        },
         {
           type: "events.iterate.com/voice-agent/device-provisioned",
           idempotencyKey: `voice-device/provisioned:${agentPath}`,

@@ -158,6 +158,16 @@ test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_e
               ],
             },
           },
+          // each press readies the agent, beside the dial
+          {
+            type: "events.iterate.com/itx/subscription-configured",
+            idempotencyKey: `voice-device/warm-up:${agentPath}`,
+            payload: {
+              name: "voice-agent-warm-up",
+              consumes: ["events.iterate.com/voice-agent/call-started"],
+              target: { path: agentPath, type: "events.iterate.com/agent/warm-up-requested" },
+            },
+          },
           {
             type: "events.iterate.com/voice-agent/device-provisioned",
             idempotencyKey: `voice-device/provisioned:${agentPath}`,

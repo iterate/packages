@@ -72,7 +72,8 @@ that asked, so a device holds no more than it does.
   `voice-agent/script-failed`; the platform never copies an `itx/*` event.
 - **The relay**, `/voice/<client>`, gets a parent link to the caller, the `voice-agent`
   subscription row, and `voice-agent/device-provisioned { agentPath }`, which wakes the relay so it
-  prepares the live model's session before the first press.
+  prepares the live model's session before the first press. A second row copies each press to the
+  agent's context as `agent/warm-up-requested`.
 
 The backend is the project's normal agent: its system prompt, capability tree and `run` tool. Keep
 tool examples in the agents app's prompt; do not maintain a separate voice API description. Each
@@ -107,7 +108,13 @@ once, the rest at 1.2× real time. A frame can reach the relay a moment before i
 request. Words the device gives the voice to say, such as a phone bridge's opening line, reach it as
 `voice-agent/words-given` (the client's `speak`): the live model says them at once, or once the
 session starts. Unlike the agent's words, they need no hand-over of the call first, because they
-name the call. Facts the relay writes:
+name the call.
+
+The live model hands over within seconds of the press, so the press also readies the agent, on the
+row above and never in the dial's way: its context wakes, it reads its instructions, opens its socket
+if it has one (a project's own `llm.apiKeys`) and has the provider cache its prompt with one ping
+(`iterate/agents`, Warming up), which its log shows as `agent/cache-kept-warm`. A first hand-over
+that comes while the ping runs is answered at once, beside it. Facts the relay writes:
 
 | Event                   | Payload                                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
