@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { documentBasePath } from "@iterate-com/ui/apps/base-path";
 import { z } from "zod";
 import { LogInWithIterate } from "@iterate-com/ui/components/log-in-with-iterate";
-import { signedInPerson } from "../lib/cloud.ts";
+import { signedIn } from "../lib/iterate.ts";
 
 /** A visitor the platform does not know sees the sign-in and nothing else; a signed-in one goes to
  *  their deployments, or to `next`. */
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({
   ssr: false,
   // `next` is the browser's path, base path included; the router's own paths are without it
   beforeLoad: async ({ search }) => {
-    if (await signedInPerson())
+    if (await signedIn())
       throw redirect({
         href: withoutBase(sameOrigin(search.next)) || "/deployments",
         replace: true,

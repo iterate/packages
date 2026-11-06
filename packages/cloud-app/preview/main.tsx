@@ -5,9 +5,9 @@
 import "../src/styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import type { DeploymentView } from "@iterate-com/cloud/views";
 import { Badge } from "@iterate-com/ui/components/ui/badge";
 import { DeploymentBody, type DeploymentActions } from "../src/components/deployment-body.tsx";
-import type { DeploymentView } from "../src/lib/live.ts";
 import recorded from "./moments.json";
 
 const moments = recorded as unknown as { name: string; state: DeploymentView }[];

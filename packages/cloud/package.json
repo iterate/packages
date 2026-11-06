@@ -12,7 +12,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./worker": "./src/worker.ts",
-    "./api": "./src/api.ts",
     "./records": "./src/records.ts",
     "./config": "./src/config.ts",
     "./views": "./src/views.ts",
@@ -31,10 +30,6 @@
       "./worker": {
         "types": "./dist/worker.d.mts",
         "import": "./dist/worker.mjs"
-      },
-      "./api": {
-        "types": "./dist/api.d.mts",
-        "import": "./dist/api.mjs"
       },
       "./config": {
         "types": "./dist/config.d.mts",

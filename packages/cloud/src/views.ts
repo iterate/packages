@@ -1,14 +1,23 @@
 // cloud/views.ts — HOW THE CLOUD APP READS A DEPLOYMENT'S STATE: the steps a creation goes through,
 // each with its real status, from the processor's state (deployment.ts) and nothing else. The page
-// never folds events. Browser-safe: records.ts only.
+// never folds events. Browser-safe: records.ts and config.ts only.
+import { z } from "zod";
+import { MaskedConfig } from "./config.ts";
 import {
+  DeploymentState,
   stateOf,
-  type DeploymentState,
   type Resource,
   type Run,
   type RunStep,
   type StepStatus,
 } from "./records.ts";
+
+/** A deployment's state as its page reads it, its live state: the config's secrets masked
+ *  (deployment.ts). */
+export const DeploymentView = DeploymentState.extend({
+  config: MaskedConfig.nullable().default(null),
+});
+export type DeploymentView = z.infer<typeof DeploymentView>;
 
 /** A step as the page draws it: its label and status, where it stopped and why, the newest of its
  *  text lines (`lines` in all), and on Alchemy's step the stack's resources. */

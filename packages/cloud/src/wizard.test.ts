@@ -11,6 +11,8 @@ test("the first deployment: connect, come back, choose the account, name it, rev
   // the round trip to Cloudflare is a new page: the URL names the connection, the draft is the tab's
   const back = start("?connection=aaaabbbbcccc", deps.storage);
   back.wizard.update(person([connected("aaaabbbbcccc", [personal, work])]));
+  await back.wizard.settleReturn();
+  expect(back.deps.settle).toHaveBeenCalledWith("aaaabbbbcccc");
   expect(back.wizard.view()).toMatchObject({
     step: "account",
     choices: [{ account: personal }, { account: work }],
@@ -73,6 +75,7 @@ test("a closed tab comes back to the step it left", () => {
 test("a connect that came back unfinished says so, and a lost answer to Install keeps its request id", async () => {
   const { wizard } = start("?connection=aaaabbbbcccc");
   wizard.update(person([{ ...connected("aaaabbbbcccc", []), status: "pending", accounts: [] }]));
+  await wizard.settleReturn();
   expect(wizard.view()).toMatchObject({ step: "connect", last: { status: "pending" } });
 
   const storage = memory({
@@ -93,10 +96,34 @@ test("a connect that came back unfinished says so, and a lost answer to Install 
   ]);
 });
 
+test("back from Cloudflare, the live state lands before the connect is settled: the wizard waits, then moves on with the settled account, not the one it had", async () => {
+  // the draft still names an older connection's account
+  const storage = memory({ connection: "ddddccccbbbb", accountId: work.id });
+  const { wizard, deps } = start("?connection=aaaabbbbcccc", storage);
+  let settled = () => {};
+  deps.settle.mockImplementationOnce(() => new Promise<void>((resolve) => (settled = resolve)));
+  const pending = { ...connected("aaaabbbbcccc", []), status: "pending" as const, accounts: [] };
+  const older = connected("ddddccccbbbb", [work]);
+  const settling = wizard.settleReturn();
+  wizard.update(person([older, pending]));
+  expect(wizard.view()).toMatchObject({ step: "loading" });
+  // the settlement answers before its live state lands: the connect still reads pending
+  settled();
+  await settling;
+  expect(wizard.view()).toMatchObject({ step: "name", choice: { account: work } });
+  // then the settled connection arrives, and the wizard takes its account
+  wizard.update(person([older, connected("aaaabbbbcccc", [personal])]));
+  expect(wizard.view()).toMatchObject({
+    step: "name",
+    choice: { connection: "aaaabbbbcccc", account: personal },
+  });
+});
+
 function start(search: string, storage = memory({})) {
   let requests = 0;
   const deps = {
     connect: vi.fn(async () => ({ url: "https://os.example/.secrets/oauth/start/abc" })),
+    settle: vi.fn<WizardDeps["settle"]>(async () => undefined),
     create: vi.fn<WizardDeps["create"]>(async () => ({ id: "dep_aaaabbbbccccdddd" })),
     checkName: vi.fn<WizardDeps["checkName"]>(async () => ({ status: "free", message: "free" })),
     navigate: vi.fn(),
@@ -118,6 +145,7 @@ const person = (
 ): PersonView => ({
   sub: "user_aaaabbbbccccddddaaaabbbbccccdddd",
   email: "ada@example.test",
+  cloudflareClient: null,
   connections,
   deployments,
 });

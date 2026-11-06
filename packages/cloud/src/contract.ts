@@ -1,6 +1,6 @@
 // cloud/contract.ts — THE CLOUD'S THREE KINDS OF CONTEXT, as processor contracts (records.ts has the
 // shapes). Every fact the Cloud knows is an event on one of them, and each one's processor reduces
-// its state, which the Cloud app shows live (api.ts):
+// its state, which the Cloud app shows live (durable-object.ts):
 //
 //   /people/<sub>       — a person: who they are, their Cloudflare connections, their deployments
 //   /deployments/<id>   — a deployment: its record, the creation saga, every run as a saga
@@ -16,6 +16,7 @@ import { DeploymentConfig } from "./config.ts";
 import {
   ConnectionId,
   CloudflareAccount,
+  CloudflareClient,
   DeploymentRecord,
   DeploymentState,
   ImageSource,
@@ -46,6 +47,11 @@ export const PersonContract = defineProcessorContract({
         impersonatedBy: z.object({ actor: z.string(), email: z.string() }).optional(),
       }),
     },
+    "cloud/cloudflare-client-configured": {
+      description:
+        "The Cloudflare OAuth client the person's connects go through, as the installing project's config names it (worker.ts): once, and once more each time the config names another.",
+      payloadSchema: CloudflareClient,
+    },
     "cloud/connection-requested": {
       description:
         "The person left for Cloudflare's consent: the platform's OAuth attempt for the connection's secret, by its nonce. Its offset is the connection's request.",
@@ -66,12 +72,13 @@ export const PersonContract = defineProcessorContract({
     },
     "cloud/deployment-added": {
       description:
-        "The person requested a deployment. Appended before the deployment's own `cloud/deployment-requested`, with the whole record, so a creation that stopped between the two is listed and can be requested again from here (api.ts).",
+        "The person requested a deployment. Appended before the deployment's own `cloud/deployment-requested`, with the whole record, so a creation that stopped between the two is listed and can be requested again from here (durable-object.ts `finishCreation`).",
       payloadSchema: DeploymentRecord,
     },
   },
   consumes: [
     "cloud/person-signed-in",
+    "cloud/cloudflare-client-configured",
     "cloud/connection-requested",
     "cloud/connection-settled",
     "cloud/deployment-added",

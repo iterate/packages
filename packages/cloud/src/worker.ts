@@ -10,36 +10,24 @@
 //     }
 //   }
 //
-// The origin serves three things, and the platform answers `/api` and `/.auth/*` itself, sign-in
-// and sign-out among them:
+// The origin serves the Cloud app's pages, fetched through to its Worker (packages/cloud-app), which
+// holds no session, no secret and no state. The platform answers `/api` and `/.auth/*` itself,
+// sign-in and sign-out among them.
 //
-//   /rpc                   the person's capnweb API (api.ts)
-//   /connected             where the platform's OAuth callback sends a Cloudflare connect back
-//   anything else          the Cloud app's pages, fetched through to its Worker (packages/cloud-app),
-//                          which holds no session, no secret and no state
-//
-// THE CLOUD HAS NO SIGN-IN OF ITS OWN: `/rpc` and `/connected` ask for a person with
-// `auth.requirePerson`, and `auth.person` says who the caller is (iterate/sdk, core/lib/src/sdk/auth.ts).
-// A visitor is no member of the project and gets no platform grant on it: every answer is limited
-// to that person's things.
+// THE CLOUD HAS NO API AND NO SIGN-IN OF ITS OWN. Who is signed in is who the platform's stamp says
+// (`auth.person`, iterate/sdk core/lib/src/sdk/auth.ts). A visitor is no member of the project: the
+// project lends them their own facets (durable-object.ts), which their page reaches through the
+// platform's `/api`. A signed-in document load sets the person up for that (`setUpPerson`).
 import type { IterateContextApi } from "iterate/api";
-import { newWorkersRpcResponse, type IterateConfigEntrypoint } from "iterate/sdk";
-import {
-  CloudApi,
-  accountsOf,
-  facetSpecOf,
-  personPathOf,
-  type CloudflareClient,
-  type Person,
-} from "./api.ts";
-import { PersonContract, ToolchainContract } from "./contract.ts";
-import type { PersonState } from "./records.ts";
-import { connectionSecretOf } from "./runs.ts";
+import type { IterateConfigEntrypoint } from "iterate/sdk";
+import type { CloudflareClient } from "./records.ts";
+import { PERSON_PROCESSOR, TOOLCHAIN_PATH, TOOLCHAIN_PROCESSOR } from "./specs.ts";
 
 /** What the installing project's config says about its Cloud. */
 export type CloudOptions = {
   /** The Cloud app's Worker (envs.ts `cloudAppEnvs`), which serves the pages. */
   frontend: string;
+  /** The Cloud's own Cloudflare OAuth client, through which people connect their accounts. */
   cloudflare: CloudflareClient;
 };
 
@@ -57,11 +45,10 @@ const PAGE_REQUEST_HEADERS = [
   "user-agent",
 ];
 
-/** The config worker the Cloud runs in: its itx, its `waitUntil`, and the platform's guards. */
+/** The config worker the Cloud runs in: its itx, and who the platform says is calling. */
 type Host = {
   getItx(): IterateContextApi & Disposable;
-  ctx: { waitUntil(work: Promise<unknown>): void };
-  auth: Pick<IterateConfigEntrypoint["auth"], "requirePerson" | "person">;
+  auth: Pick<IterateConfigEntrypoint["auth"], "person">;
 };
 
 export async function serveCloud(
@@ -89,29 +76,10 @@ export async function serveCloud(
   }
   const url = new URL(request.url);
 
-  if (url.pathname === "/rpc" || (url.pathname === "/connected" && request.method === "GET")) {
-    const denied = host.auth.requirePerson(request);
-    if (denied) return denied;
-    const person = await personOf(host, request);
-    if (url.pathname === "/connected") {
-      const connection = url.searchParams.get("connection") ?? "";
-      await withItx(host, (itx) => finishConnect(itx, person, connection));
-      return redirect(url, `${basePath}/new?${new URLSearchParams({ connection })}`);
-    }
-    return newWorkersRpcResponse(
-      request,
-      new CloudApi({
-        person,
-        getItx: () => host.getItx(),
-        waitUntil: (work) => host.ctx.waitUntil(work),
-        cloudflare: options.cloudflare,
-        basePath,
-      }),
-    );
-  }
-
   if (request.method !== "GET" && request.method !== "HEAD")
     return new Response("Not found\n", { status: 404 });
+  const person = host.auth.person(request);
+  if (person && isDocumentLoad(request)) await setUpPerson(host, person, options.cloudflare);
   // the pages: nothing of the visitor's goes with them. Only the headers a page or an asset is
   // chosen by are forwarded, so no cookie, no bearer and none of the edge's stamps of who the
   // caller is (`x-itx-person`, `x-itx-principal`) reach the pages Worker
@@ -138,96 +106,68 @@ export async function serveCloud(
  *  starts from. Idempotent. An operator then prepares it with one event (toolchain.ts). */
 export async function installCloud(itx: IterateContextApi) {
   await itx
-    .cd("/toolchain")
-    .processors.enable(
-      "cloud-toolchain",
-      facetSpecOf("CloudToolchainFacet", ToolchainContract.consumes),
-    );
+    .cd(TOOLCHAIN_PATH)
+    .processors.enable(TOOLCHAIN_PROCESSOR.name, TOOLCHAIN_PROCESSOR.spec);
 }
 
-/** The person the platform's stamp names, as the Cloud knows them (`sub` is the stamp's `userId`,
- *  the platform's user id, as the OS's userinfo named it before), after their context exists.
+/** A page, not one of its assets: what a browser loads into a tab. */
+const isDocumentLoad = (request: Request) =>
+  request.method === "GET" &&
+  (request.headers.get("sec-fetch-dest") === "document" ||
+    (request.headers.get("accept") || "").includes("text/html"));
+
+/** THE PERSON'S CONTEXT, `/people/<sub>`, made ready before their page loads, in this order:
  *
- *  THE PERSON'S CONTEXT is made the first time the Cloud serves them: its processor enabled, and
- *  `cloud/person-signed-in` on it, keyed by everything it says (the person's id and email, and the
- *  admin's, when one is signed in as them), so later calls add nothing. The platform refuses an
- *  append whose key it holds with another payload (core/os/src/stream/stream.ts, IDEMPOTENCY_CONFLICT),
- *  so a key of the id alone would refuse a person whose email changed; this way the change is one
- *  more record, and the reduce takes the newer email. Both calls are idempotent, so this isolate
- *  remembers whom it has done it for and skips them next time; a new isolate repeats them once,
- *  harmlessly. */
-async function personOf(host: Host, request: Request): Promise<Person> {
-  const stamped = host.auth.person(request)!;
+ *   1. the person's processor, `cloud-person`;
+ *   2. a rule that sends the context's `itx.fetch` to the root's, the project's egress, which
+ *      fills a connection's token in the facet's requests to Cloudflare (cloudflare.ts);
+ *   3. `cloud/cloudflare-client-configured`, the client the person's connects go through, keyed by
+ *      what it says, so a config that names another client records it once more;
+ *   4. `cloud/person-signed-in`, keyed by everything it says (the person's id and email, and the
+ *      admin's, when one is signed in as them). The platform refuses an append whose key it holds
+ *      with another payload (core/os/src/stream/stream.ts, IDEMPOTENCY_CONFLICT), so a key of the
+ *      id alone would refuse a person whose email changed; this way the change is one more record,
+ *      and the reduce takes the newer email;
+ *   5. the facet lent to the person, which is what lets their page reach it through `/api`.
+ *
+ *  Each step is idempotent, so this isolate remembers whom it has set up and skips them next time;
+ *  a new isolate repeats the steps once, harmlessly. */
+async function setUpPerson(
+  host: Host,
+  stamped: NonNullable<ReturnType<Host["auth"]["person"]>>,
+  cloudflare: CloudflareClient,
+) {
   const person = { sub: stamped.userId, email: stamped.email };
   const admin = stamped.impersonatedBy;
   const key = [person.sub, person.email, admin?.actor || "", admin?.email || ""].join(":");
-  if (recorded.has(key)) return person;
-  await withItx(host, async (itx) => {
-    const context = itx.cd(personPathOf(person.sub));
-    await context.processors.enable(
-      "cloud-person",
-      facetSpecOf("CloudPersonFacet", PersonContract.consumes),
-    );
-    await context.append({
-      type: "cloud/person-signed-in",
-      idempotencyKey: `person-signed-in:${key}`,
-      // oxlint-disable-next-line iterate/simple-truthiness-check -- an `impersonatedBy: undefined` key differs from none in the platform's idempotent retry (core/lib/src/lib.ts `jsonEqual` counts keys; the stored event has none), which would refuse every append after the first as IDEMPOTENCY_CONFLICT: only an impersonation carries the key
-      payload: { ...person, ...(admin && { impersonatedBy: admin }) },
-    });
-  });
-  recorded.add(key);
-  return person;
-}
-
-/** The people (with the admin signed in as them, if any) whose context this isolate has made. */
-const recorded = new Set<string>();
-
-/** The platform's callback stored a connect's tokens (or did not) and sent the browser here: what
- *  became of the attempt, settled on the person's context. A connection that is not this person's,
- *  or not pending, is left as it is: the page shows its state. */
-async function finishConnect(itx: IterateContextApi, person: Person, connection: string) {
-  const context = itx.cd(personPathOf(person.sub));
-  const { state } = await context.facets
-    .get<{ snapshot(): Promise<{ state: PersonState }> }>("cloud-person")
-    .snapshot();
-  const pending = state.connections.find(
-    (known) => known.id === connection && known.status === "pending",
-  );
-  if (!pending) return;
-  const result = await itx.secrets.oauthResult(connectionSecretOf(connection), {
-    nonce: pending.nonce,
-  });
-  // still in flight: the browser came back before the platform finished, and the page says so
-  if (result.status === "pending") return;
-  const settled = { requestOffset: pending.requestOffset, connection };
-  await context.append({
-    type: "cloud/connection-settled",
-    idempotencyKey: `connection-settled:${connection}`,
-    payload:
-      result.status === "complete"
-        ? {
-            ...settled,
-            status: "connected",
-            cloudflareUser: result.account?.name || result.account?.id || "",
-            accounts: await accountsOf(connection),
-            scopes: result.scopes,
-          }
-        : {
-            ...settled,
-            status: "failed",
-            error:
-              "This connect ended before Cloudflare's tokens were stored, or a newer one replaced it. Connect again.",
-          },
-  });
-}
-
-async function withItx<T>(host: Host, call: (itx: IterateContextApi) => Promise<T>): Promise<T> {
+  const client = `${cloudflare.clientId}:${cloudflare.secret}`;
+  if (setUp.has(`${key}|${client}`)) return;
   using itx = host.getItx();
-  return await call(itx);
+  const context = itx.cd(`/people/${person.sub}`);
+  await context.processors.enable(PERSON_PROCESSOR.name, PERSON_PROCESSOR.spec);
+  await context.append({
+    type: "events.iterate.com/itx/rewrite-rule-configured",
+    idempotencyKey: "cloud/person-egress",
+    payload: {
+      match: "itx.fetch",
+      target: "itx.cd('/').fetch",
+      description: "the project's egress, for the person's requests to Cloudflare",
+    },
+  });
+  await context.append({
+    type: "cloud/cloudflare-client-configured",
+    idempotencyKey: `cloudflare-client-configured:${client}`,
+    payload: { clientId: cloudflare.clientId, secret: cloudflare.secret },
+  });
+  await context.append({
+    type: "cloud/person-signed-in",
+    idempotencyKey: `person-signed-in:${key}`,
+    // oxlint-disable-next-line iterate/simple-truthiness-check -- an `impersonatedBy: undefined` key differs from none in the platform's idempotent retry (core/lib/src/lib.ts `jsonEqual` counts keys; the stored event has none), which would refuse every append after the first as IDEMPOTENCY_CONFLICT: only an impersonation carries the key
+    payload: { ...person, ...(admin && { impersonatedBy: admin }) },
+  });
+  await context.facets.lend(PERSON_PROCESSOR.name, { to: person.sub });
+  setUp.add(`${key}|${client}`);
 }
 
-const redirect = (url: URL, to: string) =>
-  new Response(null, {
-    status: 303,
-    headers: { location: new URL(to, url).href, "cache-control": "no-store" },
-  });
+/** The people (with the admin signed in as them, if any, and the client) this isolate has set up. */
+const setUp = new Set<string>();

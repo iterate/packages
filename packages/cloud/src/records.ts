@@ -3,7 +3,7 @@
 // The processors (contract.ts) reduce these from the contexts' logs; the Cloud app reads them back
 // through the config worker's endpoints (views.ts). Browser-safe: zod only.
 //
-// A connection's tokens are a project secret pinned to Cloudflare's API that no code reads (api.ts).
+// A connection's tokens are a project secret pinned to Cloudflare's API that no code reads (cloudflare.ts).
 // A deployment's own secrets are in its config (config.ts), on its log and in its state, masked in
 // the live state the browser reads.
 import { z } from "zod";
@@ -83,14 +83,27 @@ export const stateOf = (name: string) => ({
   stack: `iterate-${name}`,
 });
 
+/** A Cloudflare OAuth client: its id, public, and the project secret that holds its secret,
+ *  `{ clientSecret }`, which only the platform reads, at the code exchange and each refresh. */
+export const CloudflareClient = z.object({ clientId: z.string().min(1), secret: z.string() });
+export type CloudflareClient = z.infer<typeof CloudflareClient>;
+
 export const PersonState = z.object({
   sub: z.string().nullable().default(null),
   email: z.string().nullable().default(null),
+  /** The client the person's next connect goes through: the installing project's (worker.ts). */
+  cloudflareClient: CloudflareClient.nullable().default(null),
   connections: z.array(Connection).default([]),
   /** Every deployment the person requested, as they requested it. */
   deployments: z.array(DeploymentRecord).default([]),
 });
 export type PersonState = z.infer<typeof PersonState>;
+
+/** The person's state as their page reads it, their live state: no connection's nonce (person.ts). */
+export const PersonView = PersonState.extend({
+  connections: z.array(Connection.omit({ nonce: true })).default([]),
+});
+export type PersonView = z.infer<typeof PersonView>;
 
 export const RunKind = z.enum(["plan", "deploy", "destroy"]);
 export type RunKind = z.infer<typeof RunKind>;

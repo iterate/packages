@@ -3,9 +3,11 @@
 Iterate Cloud's pages: the way in to the platform's sign-in, the wizard that makes a deployment, the list of a person's
 deployments and each one's page. A TanStack Start Worker with no session, no secret and no state:
 the `cloud` project's config worker ([@iterate-com/cloud](../cloud/README.md) `serveCloud`) fetches
-every page through to it, keeping the visitor's cookies to itself, and serves the data at `/rpc`,
-which the pages dial ([src/lib/cloud.ts](src/lib/cloud.ts)). Every page draws a processor's live
-state ([src/lib/live.ts](src/lib/live.ts)); the wizard is `@iterate-com/cloud/wizard`.
+every page through to it, keeping the visitor's cookies to itself. The Cloud has no API of its own:
+the pages are a client of the platform's `/api` with the identity scope (`iterate/app`), and reach
+the facets the project lends the person, as the Dash reaches a member's
+([src/lib/iterate.ts](src/lib/iterate.ts)). Every page draws a facet's live state
+(`useFacetLiveState`); the wizard is `@iterate-com/cloud/wizard`.
 
 Deploy: CI deploys it with each release of the Cloud ([@iterate-com/cloud](../cloud/README.md), "A
 release"); by hand, `pnpm --dir packages/cloud-app run deploy --env prd` (`cloudAppEnvs` in the root

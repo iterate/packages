@@ -3,24 +3,20 @@ import { documentBasePath } from "@iterate-com/ui/apps/base-path";
 import { IterateLogo } from "@iterate-com/ui/components/iterate-logo";
 import { Button } from "@iterate-com/ui/components/ui/button";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { cloudApi, signedInPerson } from "../lib/cloud.ts";
+import { iterateClient, MeContext, signedIn } from "../lib/iterate.ts";
 import { PersonProvider } from "../components/person-provider.tsx";
 
-/** Everything a signed-in person sees: who the platform says they are, the tab's API, one header. */
+/** Everything a signed-in person sees: who the platform says they are, the tab's session, one
+ *  header. A visitor nobody signed in goes to the Cloud's first page, which offers the sign-in. */
 export const Route = createFileRoute("/_app")({
   ssr: false,
   beforeLoad: async ({ context, location }) => {
-    // the socket's handshake starts beside the session check, not after it
-    cloudApi();
-    const me = await signedInPerson();
     // `next` is the browser's path, base path included (routes/index.tsx)
-    if (!me)
-      throw redirect({
-        to: "/",
-        search: { next: `${context.basePath}${location.href}` },
-        replace: true,
-      });
-    return { me };
+    const next = `${context.basePath}${location.href}`;
+    if (!(await signedIn())) throw redirect({ to: "/", search: { next }, replace: true });
+    const { api } = await iterateClient.authenticate(next);
+    const { actor, email } = await api.whoami();
+    return { me: { api, sub: actor, email: email || null } };
   },
   // the header's frame while the session is asked about
   pendingComponent: () => (
@@ -35,14 +31,16 @@ function Shell() {
   const { me } = Route.useRouteContext();
   return (
     <Frame email={me.email}>
-      <PersonProvider>
-        <Outlet />
-      </PersonProvider>
+      <MeContext value={me}>
+        <PersonProvider>
+          <Outlet />
+        </PersonProvider>
+      </MeContext>
     </Frame>
   );
 }
 
-function Frame({ email, children }: { email?: string; children: React.ReactNode }) {
+function Frame({ email, children }: { email?: string | null; children: React.ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col">
       <header className="flex items-center gap-3 border-b px-5 py-3">

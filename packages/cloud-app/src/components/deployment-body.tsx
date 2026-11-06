@@ -5,7 +5,12 @@ import { useState, type ReactNode } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { isMasked } from "@iterate-com/cloud/config";
 import type { RunKind, RunStep } from "@iterate-com/cloud/records";
-import { installStatusOf, installStepsOf, runStepsOf } from "@iterate-com/cloud/views";
+import {
+  installStatusOf,
+  installStepsOf,
+  runStepsOf,
+  type DeploymentView,
+} from "@iterate-com/cloud/views";
 import { ErrorMessage } from "@iterate-com/ui/components/standalone-page";
 import { Badge } from "@iterate-com/ui/components/ui/badge";
 import { Button, buttonVariants } from "@iterate-com/ui/components/ui/button";
@@ -17,11 +22,10 @@ import {
   CardTitle,
 } from "@iterate-com/ui/components/ui/card";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import type { DeploymentView } from "../lib/live.ts";
 import { Steps } from "./steps.tsx";
 
-/** What the page asks of the deployment: the Cloud's API (packages/cloud/src/api.ts `Deployment`),
- *  or a stand-in where there is no backend (preview/). */
+/** What the page asks of the deployment: the facets lent to the person
+ *  (routes/_app/deployments.$id.tsx), or a stand-in where there is no backend (preview/). */
 export type DeploymentActions = {
   requestCreation(): Promise<unknown>;
   prepareAgain(): Promise<unknown>;

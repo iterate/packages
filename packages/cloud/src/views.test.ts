@@ -1,6 +1,13 @@
 import { expect, test } from "vitest";
-import type { Run } from "./records.ts";
+import { DeploymentState, type Run } from "./records.ts";
 import { installStatusOf, installStepsOf } from "./views.ts";
+
+test("a deployment its creation reached but never requested is not started, which its page offers to start again", () => {
+  // creation.ts makes the deployment reachable before it lists it: its state is the empty one
+  const reached = DeploymentState.parse({});
+  expect(installStatusOf(reached)).toBe("not-started");
+  expect(installStepsOf(reached).map((step) => step.status)).not.toContain("running");
+});
 
 test("an install whose first deploy failed and whose retry succeeded is installed", () => {
   const retried = creation(deploy(9, "succeeded"), [deploy(5, "failed", "Alchemy exited with 1")]);

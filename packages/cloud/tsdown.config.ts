@@ -6,7 +6,6 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     worker: "src/worker.ts",
-    api: "src/api.ts",
     records: "src/records.ts",
     config: "src/config.ts",
     views: "src/views.ts",

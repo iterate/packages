@@ -9,14 +9,12 @@
 // (`Draft`) and the connect's return names its connection in the URL (`/new?connection=<id>`), so a
 // closed tab, a reload or the round trip to Cloudflare lands on the step it left. A creation keeps
 // its request id in the draft, so pressing Install again after a lost answer is the same deployment
-// (api.ts `create`). Once created, the draft is cleared and the browser goes to the deployment's page:
+// (durable-object.ts `createDeployment`). Once created, the draft is cleared and the browser goes to the deployment's page:
 // the address bar finds an install again. Browser-safe: no import but records.ts.
-import { DeploymentName, type CloudflareAccount, type PersonState } from "./records.ts";
+import { DeploymentName, type CloudflareAccount, type PersonView } from "./records.ts";
 
 /** What the wizard reads of the person: their live state, as the browser sees it (no nonces). */
-export type PersonView = Omit<PersonState, "connections"> & {
-  connections: Omit<PersonState["connections"][number], "nonce">[];
-};
+export type { PersonView };
 
 /** One account the person may deploy into, through one connection. */
 export type Choice = {
@@ -49,7 +47,10 @@ export type WizardDeps = {
     accountId: string;
     name: string;
   }): Promise<{ id: string }>;
-  /** Whether the name is free in the account (api.ts `checkName`): `create` checks it again. */
+  /** Settle the connect that just came back (`search` names it): what became of it, on the
+   *  person's context, whose live state then says it. */
+  settle(connection: string): Promise<unknown>;
+  /** Whether the name is free in the account (durable-object.ts `checkName`): `create` checks it again. */
   checkName(input: { connection: string; accountId: string; name: string }): Promise<{
     status: "free" | "taken" | "unknown";
     message: string;
@@ -70,9 +71,14 @@ export class Wizard {
   #person: PersonView | null = null;
   readonly #listeners = new Set<() => void>();
   readonly #deps: WizardDeps;
+  /** The connect the page came back from, by its id, until `settleReturn` has settled it: the
+   *  wizard draws no step from a state that may still call it pending. */
+  #unsettled: string | null;
+  #settleError: string | null = null;
 
   constructor(deps: WizardDeps) {
     this.#deps = deps;
+    this.#unsettled = this.#returned();
   }
 
   view() {
@@ -84,11 +90,29 @@ export class Wizard {
     return () => void this.#listeners.delete(listener);
   }
 
-  /** The person's live state, first and on every change: the wizard moves on when it allows. */
+  /** The person's live state, first and on every change: the wizard moves on when it allows, and
+   *  when the connect it came back from changes (its settlement lands after `settleReturn` has
+   *  answered). */
   update(person: PersonView) {
-    const first = !this.#person;
+    const before = this.#returnedIn(this.#person);
     this.#person = person;
-    if (first || this.#view.step === "loading" || this.#view.step === "connect") this.#resume();
+    const moved = before !== this.#returnedIn(person);
+    if (!before || moved || this.#view.step === "loading" || this.#view.step === "connect")
+      this.#resume();
+  }
+
+  /** Settle the connect the page came back from, before the wizard draws a step from it. Once:
+   *  a page with no connect in its query has nothing to settle. */
+  async settleReturn() {
+    const connection = this.#unsettled;
+    if (!connection) return;
+    try {
+      await this.#deps.settle(connection);
+    } catch (error) {
+      this.#settleError = messageOf(error);
+    }
+    this.#unsettled = null;
+    this.#resume();
   }
 
   async connect() {
@@ -182,9 +206,9 @@ export class Wizard {
 
   #resume() {
     const person = this.#person;
-    if (!person) return this.#set({ step: "loading" });
+    if (!person || this.#unsettled) return this.#set({ step: "loading" });
     const draft = this.#draft();
-    const returned = new URLSearchParams(this.#deps.search).get("connection");
+    const returned = this.#returned();
     const back = returned ? person.connections.find((known) => known.id === returned) : undefined;
     if (back?.status === "connected" && draft.connection !== back.id)
       this.#save({ connection: back.id, accountId: undefined });
@@ -192,11 +216,24 @@ export class Wizard {
     if (choices.length === 0) {
       const last =
         back && back.status !== "connected" ? { status: back.status, error: back.error } : null;
-      return this.#set({ step: "connect", last, busy: false, error: null });
+      return this.#set({ step: "connect", last, busy: false, error: this.#settleError });
     }
     const chosen = choices.find((choice) => choice.account.id === this.#draft().accountId);
     if (chosen || choices.length === 1) return this.choose(chosen || choices[0]!);
     this.#set({ step: "account", choices });
+  }
+
+  /** The connect the page came back from, as its query names it. */
+  #returned() {
+    return new URLSearchParams(this.#deps.search).get("connection");
+  }
+
+  /** How the connect the page came back from stands in `person`: its status, or "" for none (no
+   *  person yet, or no such connect). */
+  #returnedIn(person: PersonView | null) {
+    const returned = this.#returned();
+    if (!person) return "";
+    return person.connections.find((known) => known.id === returned)?.status || "none";
   }
 
   #nameError(choice: Choice, name: string) {

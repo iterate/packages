@@ -1,7 +1,7 @@
 // cloud/deployment.ts — A DEPLOYMENT'S CONTEXT, `/deployments/<id>` (contract.ts): two sagas on one
 // log, driven by this processor from its state, never from a request.
 //
-//   CREATION. `cloud/deployment-requested` (the person's request, api.ts) → the processor prepares
+//   CREATION. `cloud/deployment-requested` (the person's request, durable-object.ts) → the processor prepares
 //   the deployment's own sandbox from the toolchain's snapshot (`preparation-started`, then
 //   `preparation-settled`) → it requests the first deploy itself (`run-requested`). A preparation
 //   that failed opens again on `cloud/preparation-requested` (the page's Try again).

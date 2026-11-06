@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@iterate-com/ui/components/ui/table";
 import { Connection } from "../../components/connection.tsx";
-import { useDeployment, usePerson } from "../../lib/live.ts";
+import { useDeploymentLive, useMe, usePerson } from "../../lib/iterate.ts";
 
 /** The person's deployments, live from their own context, each row live from its own. With none
  *  yet, the wizard; the spinner until the person's state says which. */
@@ -66,7 +66,7 @@ function Deployments() {
 }
 
 function Row({ record }: { record: DeploymentRecord }) {
-  const deployment = useDeployment(record.id);
+  const deployment = useDeploymentLive(useMe(), record.id);
   const state = deployment.value;
   const status = state ? installStatusOf(state) : null;
   return (

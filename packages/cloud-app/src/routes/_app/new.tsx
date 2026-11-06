@@ -23,8 +23,8 @@ import {
 } from "@iterate-com/ui/components/ui/field";
 import { Input } from "@iterate-com/ui/components/ui/input";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
-import { cloudApi } from "../../lib/cloud.ts";
-import { usePerson } from "../../lib/live.ts";
+import { documentBasePath } from "@iterate-com/ui/apps/base-path";
+import { callPerson, useMe, usePerson } from "../../lib/iterate.ts";
 
 export const Route = createFileRoute("/_app/new")({
   validateSearch: z.object({ connection: z.string().optional().catch(undefined) }),
@@ -34,13 +34,15 @@ export const Route = createFileRoute("/_app/new")({
 
 function NewDeployment() {
   const navigate = useNavigate();
-  // each call goes through the tab's current session (lib/cloud.ts), so the wizard outlives a reconnect
+  const me = useMe();
+  // each call goes through the tab's current socket (lib/iterate.ts), so the wizard outlives a reconnect
   const wizard = useMemo(
     () =>
       new Wizard({
-        connect: () => cloudApi().connectCloudflare(),
-        checkName: (input) => cloudApi().deployments.checkName(input),
-        create: (input) => cloudApi().deployments.create(input),
+        connect: () => callPerson(me, (person) => person.connectCloudflare({ next: returnPage() })),
+        settle: (connection) => callPerson(me, (person) => person.settleConnection(connection)),
+        checkName: (input) => callPerson(me, (person) => person.checkName(input)),
+        create: (input) => callPerson(me, (person) => person.createDeployment(input)),
         // the deployment's page in this app; Cloudflare's consent through the platform elsewhere
         navigate: (url) =>
           url.startsWith("/") ? void navigate({ href: url }) : location.assign(url),
@@ -48,7 +50,7 @@ function NewDeployment() {
         search: location.search,
         newRequestId: () => crypto.randomUUID().replaceAll("-", ""),
       }),
-    [navigate],
+    [me, navigate],
   );
   const view = useSyncExternalStore(
     (listener) => wizard.subscribe(listener),
@@ -59,6 +61,8 @@ function NewDeployment() {
   useEffect(() => {
     if (person.value) wizard.update(person.value);
   }, [person.value, wizard]);
+  // back from Cloudflare's consent: the wizard settles the connect before it draws a step from it
+  useEffect(() => void wizard.settleReturn(), [wizard]);
   return (
     <>
       <h1 className="text-xl font-semibold">New deployment</h1>
@@ -66,6 +70,14 @@ function NewDeployment() {
       <Step view={view} wizard={wizard} />
     </>
   );
+}
+
+/** Where the platform's OAuth callback sends a connect back: this page, a page of the Cloud's
+ *  project, to which the person's facet adds `connection=<id>`. Under paths ingress a project's
+ *  apex has no sub-paths: the platform composes `/projects/<project>/<routingSlug><path>`, and the
+ *  config worker folds the slug back into the path (@iterate-com/cloud worker.ts). */
+function returnPage() {
+  return documentBasePath() ? { routingSlug: "new", path: "/" } : { path: "/new" };
 }
 
 function Step({ view, wizard }: { view: WizardView; wizard: Wizard }) {

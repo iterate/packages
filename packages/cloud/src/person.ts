@@ -1,7 +1,7 @@
 // cloud/person.ts — A PERSON'S CONTEXT, `/people/<sub>` (contract.ts): reduce only. The config
-// worker appends every fact (worker.ts, api.ts): who the person is, the first time the Cloud serves
-// them, a connect asked for and how it ended, a deployment added. The live state, which the person's browser reads, drops each connection's
-// nonce: it names the platform's OAuth attempt, which only the config worker asks about.
+// worker records who the person is, the first time the Cloud serves them (worker.ts); their facet
+// appends the rest (durable-object.ts): a connect asked for and how it ended, a deployment added. The live state, which the person's browser reads, drops each connection's
+// nonce: it names the platform's OAuth attempt, which only the facet asks about.
 import { StreamProcessor, type ConsumedEvent, type ReduceArgs } from "iterate/stream/processor";
 import { PersonContract } from "./contract.ts";
 import type { PersonState } from "./records.ts";
@@ -15,9 +15,11 @@ export class PersonProcessor extends StreamProcessor<PersonState, Event> {
     switch (event.type) {
       case "cloud/person-signed-in":
         return { ...state, sub: event.payload.sub, email: event.payload.email };
+      case "cloud/cloudflare-client-configured":
+        return { ...state, cloudflareClient: event.payload };
       case "cloud/connection-requested": {
         const { connection, nonce } = event.payload;
-        // a connection is asked for once; its id is fresh each time (api.ts)
+        // a connection is asked for once; its id is fresh each time (durable-object.ts)
         if (state.connections.some((known) => known.id === connection)) return undefined;
         return {
           ...state,
@@ -66,7 +68,7 @@ export class PersonProcessor extends StreamProcessor<PersonState, Event> {
       case "cloud/deployment-added": {
         const added = event.payload;
         // two creations of one name that overlap both pass create's check, which reads before
-        // either lands: the log's order decides, and the first stands (api.ts `create`)
+        // either lands: the log's order decides, and the first stands (durable-object.ts `createDeployment`)
         const taken = state.deployments.some(
           (known) =>
             known.id === added.id ||

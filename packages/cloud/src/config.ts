@@ -1,7 +1,7 @@
 // cloud/config.ts — A DEPLOYMENT'S ITERATE CONFIG, one of the three inputs of every run (with its
 // Cloudflare account and the grant's placeholder): the fields of core/os's iterate config
-// (core/os/src/iterate-config.ts) that the Cloud sets, its three secrets among them. The API mints it
-// once, when the person asks for the deployment, and it rides `cloud/deployment-requested` onto the
+// (core/os/src/iterate-config.ts) that the Cloud sets, its three secrets among them. The person's
+// facet mints it once, when the person asks for the deployment, and it rides `cloud/deployment-requested` onto the
 // deployment's log (contract.ts says what that costs). The deployment's state keeps it; its live
 // state, which reaches the browser, has the secrets masked (`maskedConfigOf`).
 //
@@ -65,9 +65,19 @@ export default {
 
 /** Where a secret was: the page says it is stored by the Cloud and not shown. */
 export const MASKED = { masked: true } as const;
+const Masked = z.object({ masked: z.literal(true) }).strict();
 
 /** The config as the browser sees it: every secret replaced by `MASKED`. */
-export function maskedConfigOf(config: DeploymentConfig) {
+export const MaskedConfig = DeploymentConfig.extend({
+  login: DeploymentConfig.shape.login.extend({
+    methods: z.object({ password: z.object({ password: Masked }) }),
+  }),
+  adminBearer: Masked,
+  secretsEncryption: z.object({ key: Masked }),
+});
+export type MaskedConfig = z.infer<typeof MaskedConfig>;
+
+export function maskedConfigOf(config: DeploymentConfig): MaskedConfig {
   return {
     ...config,
     login: { ...config.login, methods: { password: { password: MASKED } } },
@@ -75,14 +85,9 @@ export function maskedConfigOf(config: DeploymentConfig) {
     secretsEncryption: { key: MASKED },
   };
 }
-export type MaskedConfig = ReturnType<typeof maskedConfigOf>;
 
 /** Whether `value` is where a secret was (`MASKED`). */
-export const isMasked = (value: unknown): value is typeof MASKED =>
-  z
-    .object({ masked: z.literal(true) })
-    .strict()
-    .safeParse(value).success;
+export const isMasked = (value: unknown): value is typeof MASKED => Masked.safeParse(value).success;
 
 const random = (bytes: number) => crypto.getRandomValues(new Uint8Array(bytes));
 const hex = (bytes: number) =>

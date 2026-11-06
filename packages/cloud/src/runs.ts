@@ -39,7 +39,7 @@ import {
  *  only the root's table has one. Any context of the project gets either by path. */
 const TOOLCHAIN = "/toolchain/sandbox";
 const sandboxPathOf = (deployment: string) => `/deployments/${deployment}/sandbox`;
-/** A connection's tokens: the secret the platform's OAuth fills (api.ts) and refreshes. */
+/** A connection's tokens: the secret the platform's OAuth fills (cloudflare.ts) and refreshes. */
 export const connectionSecretOf = (connection: string) => `/secrets/cloud-cloudflare-${connection}`;
 /** A connection's token as a request carries it: the placeholder egress fills. */
 export const placeholderOf = (connection: string) =>

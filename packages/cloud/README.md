@@ -22,17 +22,40 @@ json`, whose JSON records the run reads), with the Cloudflare grant as an egress
 code reads. A deployment's three inputs are its config ([src/config.ts](src/config.ts)), its account,
 and the grant.
 
-The project's config worker serves the Cloud ([src/worker.ts](src/worker.ts)): a capnweb API at
-`/rpc` for the signed-in person ([src/api.ts](src/api.ts)), the return of a Cloudflare connect, and
-the pages, fetched through to the Cloud app. The Cloud has no sign-in of its own: who is signed in
-is who the platform's stamp says (iterate/sdk `auth.person`), and `/rpc` and `/connected` ask for a
-person with `auth.requirePerson`, which the platform turns into its sign-in for a page load, asking
-only who the person is. The pages' button links to `/.auth/login?scope=identity`, and their sign-out
-posts to `/.auth/logout`: under subdomains these are the project host's own (a consent with the
-identity card, once per person), under paths the platform's, whose origin the page shares (a person
-signed in to the platform is signed in to the Cloud, with no consent). A person's context is made
-the first time the Cloud serves them. The page's wizard is a state machine here ([src/wizard.ts](src/wizard.ts)),
-and what it shows of a deployment is [src/views.ts](src/views.ts).
+THE CLOUD HAS NO API OF ITS OWN. The project lends each person their own facets (core/os
+README.md, "A project lends a facet to a person"), and the person's page reaches them through the
+platform's `/api`, as the Dash reaches a member's ([src/durable-object.ts](src/durable-object.ts)):
+`cloud-person` on `/people/<sub>`, and `cloud-deployment` on each of their deployments. A lend gives
+the facet's live state and the methods its class lists in `lentMethods`:
+
+- **`cloud-person`**: `connectCloudflare({ next })` (the platform's OAuth start link, back to the
+  page `next` names), `settleConnection(connection)` (what became of it, read with `oauthResult`),
+  `checkName`, `createDeployment` (the deployment's processor and its lend, then the person's
+  listing, then the deployment's request, so the page reaches it wherever the creation stops:
+  [src/creation.ts](src/creation.ts)) and `finishCreation(id)` (a creation that stopped before
+  its request, which the deployment's page offers as Start again).
+- **`cloud-deployment`**: `prepareAgain`, `requestRun(kind)`, `readOutput(requestOffset, step)` and
+  `signInPassword`.
+
+`snapshot`, which holds the connections' nonces and the deployment's password, is never lent; nor is
+anything of `/toolchain`. A lent method's own calls run as the facet's: the project's secrets through
+`itx.cd("/").secrets`, Cloudflare's API through a rule on the person's context that sends its
+`itx.fetch` to the root's, the project's egress ([src/cloudflare.ts](src/cloudflare.ts)).
+
+The project's config worker serves the pages, fetched through to the Cloud app
+([src/worker.ts](src/worker.ts)). The Cloud has no sign-in of its own either: who is signed in is
+who the platform's stamp says (iterate/sdk `auth.person`). A signed-in document load sets the person
+up, once per isolate and each step idempotent: their processor, the egress rule, the Cloudflare
+client the config names (`cloud/cloudflare-client-configured`), a `cloud/person-signed-in` record,
+and the lend of their facet. The person's facet lends every
+deployment it lists the first time it serves them, so a deployment made before the Cloud lent
+anything opens like a new one. The pages' button links to `/.auth/login?scope=identity`, and their
+sign-out posts to `/.auth/logout`: under subdomains these are the project host's own (a consent with
+the identity card, once per person), and the page's `/api` session is that host's identity grant;
+under paths they are the platform's, whose origin the page shares (a person signed in to the
+platform is signed in to the Cloud, with no consent), and the session is the issuer's. The page's
+wizard is a state machine here ([src/wizard.ts](src/wizard.ts)), and what it shows of a deployment
+is [src/views.ts](src/views.ts).
 
 ```ts
 // the installing project's config: cloud.ts re-exports the facets, worker.ts serves the Cloud
