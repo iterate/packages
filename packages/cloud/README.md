@@ -1,13 +1,13 @@
 # @iterate-com/cloud
 
-Iterate Cloud as a package a project installs: a person signs in through the OS, connects a
+Iterate Cloud as a package a project installs: a person signed in to the platform connects a
 Cloudflare account, and gets a deployment of iterate's platform (`core/os`) in that account, which
 the Cloud deploys and updates. The project that installs it is the Cloud's origin and its backend;
 its pages are [packages/cloud-app](../cloud-app/README.md), a Worker with no state.
 
 Everything the Cloud knows is a context with a processor ([src/contract.ts](src/contract.ts)):
 
-- **`/people/<sub>`** ([src/person.ts](src/person.ts)): a person's sign-ins, their Cloudflare
+- **`/people/<sub>`** ([src/person.ts](src/person.ts)): who the person is, their Cloudflare
   connections and their deployments.
 - **`/deployments/<id>`** ([src/deployment.ts](src/deployment.ts)): the record and the config, the
   creation (the deployment's own sandbox, then its first deploy), and each run as a saga: its named
@@ -22,10 +22,16 @@ json`, whose JSON records the run reads), with the Cloudflare grant as an egress
 code reads. A deployment's three inputs are its config ([src/config.ts](src/config.ts)), its account,
 and the grant.
 
-The project's config worker serves the Cloud ([src/worker.ts](src/worker.ts)): its own sign-in
-through the OS ([src/sign-in.ts](src/sign-in.ts)), a capnweb API at `/rpc` for the signed-in
-person ([src/api.ts](src/api.ts)), the return of a Cloudflare connect, and the pages, fetched
-through to the Cloud app. The page's wizard is a state machine here ([src/wizard.ts](src/wizard.ts)),
+The project's config worker serves the Cloud ([src/worker.ts](src/worker.ts)): a capnweb API at
+`/rpc` for the signed-in person ([src/api.ts](src/api.ts)), the return of a Cloudflare connect, and
+the pages, fetched through to the Cloud app. The Cloud has no sign-in of its own: who is signed in
+is who the platform's stamp says (iterate/sdk `auth.person`), and `/rpc` and `/connected` ask for a
+person with `auth.requirePerson`, which the platform turns into its sign-in for a page load, asking
+only who the person is. The pages' button links to `/.auth/login?scope=identity`, and their sign-out
+posts to `/.auth/logout`: under subdomains these are the project host's own (a consent with the
+identity card, once per person), under paths the platform's, whose origin the page shares (a person
+signed in to the platform is signed in to the Cloud, with no consent). A person's context is made
+the first time the Cloud serves them. The page's wizard is a state machine here ([src/wizard.ts](src/wizard.ts)),
 and what it shows of a deployment is [src/views.ts](src/views.ts).
 
 ```ts

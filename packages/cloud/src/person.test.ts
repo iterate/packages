@@ -65,3 +65,12 @@ test("of two creations of one name in one account, the first the log lists stand
     "dep_aaaaddddbbbbcccc",
   ]);
 });
+
+test("a person whose email changed at the platform is recorded again, and the newer email stands", () => {
+  const sub = "user_aaaabbbbccccddddaaaabbbbccccdddd";
+  const state = reduceProcessor(new PersonProcessor(), [
+    { type: "cloud/person-signed-in", payload: { sub, email: "ada@example.test" } },
+    { type: "cloud/person-signed-in", payload: { sub, email: "ada.lovelace@example.test" } },
+  ]);
+  expect(state).toMatchObject({ sub, email: "ada.lovelace@example.test" });
+});

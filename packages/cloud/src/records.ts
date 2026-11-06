@@ -11,9 +11,9 @@ import { DeploymentConfig } from "./config.ts";
 
 const Offset = z.number().int().positive();
 
-/** The OS user id a sign-in names: the person, as the OS's userinfo answers it, and as the
- *  platform takes it for an OAuth attempt's `completedByUserId` (core/os control-plane/catalog.ts
- *  `newId`). */
+/** The platform's user id of a person: the stamp's `userId` (iterate/sdk `auth.person`), the
+ *  `sub` the OS's userinfo answers, and what the platform takes for an OAuth attempt's
+ *  `completedByUserId` (core/os control-plane/catalog.ts `newId`). */
 export const PersonId = z.string().regex(/^user_[0-9a-f]{32}$/);
 /** A connection to Cloudflare, one consent: twelve hex digits. Its secret is `secretOf(id)`. */
 export const ConnectionId = z.string().regex(/^[0-9a-f]{12}$/);

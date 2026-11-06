@@ -2,16 +2,12 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { documentBasePath } from "@iterate-com/ui/apps/base-path";
 import { z } from "zod";
 import { LogInWithIterate } from "@iterate-com/ui/components/log-in-with-iterate";
-import { ErrorMessage } from "@iterate-com/ui/components/standalone-page";
 import { signedInPerson } from "../lib/cloud.ts";
 
-/** A visitor with no Cloud session sees the sign-in and nothing else; a signed-in one goes to their
- *  deployments, or to `next`. */
+/** A visitor the platform does not know sees the sign-in and nothing else; a signed-in one goes to
+ *  their deployments, or to `next`. */
 export const Route = createFileRoute("/")({
-  validateSearch: z.object({
-    next: z.string().optional().catch(undefined),
-    error: z.string().optional().catch(undefined),
-  }),
+  validateSearch: z.object({ next: z.string().optional().catch(undefined) }),
   ssr: false,
   // `next` is the browser's path, base path included; the router's own paths are without it
   beforeLoad: async ({ search }) => {
@@ -26,9 +22,8 @@ export const Route = createFileRoute("/")({
 });
 
 function SignIn() {
-  const { next, error } = Route.useSearch();
+  const { next } = Route.useSearch();
   const base = documentBasePath();
-  const href = `${base}/sign-in?${new URLSearchParams({ next: sameOrigin(next) || `${base}/deployments` })}`;
   return (
     <main className="flex min-h-svh items-center justify-center p-6">
       <div className="flex max-w-sm flex-col gap-5">
@@ -38,24 +33,13 @@ function SignIn() {
             Run iterate in your own Cloudflare account.
           </p>
         </div>
-        {error ? (
-          <ErrorMessage>{SIGN_IN_ERRORS[error] || SIGN_IN_ERRORS.unconfirmed}</ErrorMessage>
-        ) : null}
-        {/* the one recognisable button, posting to the Cloud's own sign-in (sign-in.ts) */}
-        <LogInWithIterate formAction={href} />
+        {/* the platform's sign-in, asking only who the person is; `/.auth/*` is this origin's own
+            under subdomains and the platform's (this origin too) under paths */}
+        <LogInWithIterate scopes={["identity"]} next={sameOrigin(next) || `${base}/deployments`} />
       </div>
     </main>
   );
 }
-
-/** What the Cloud's sign-in says went wrong (@iterate-com/cloud sign-in.ts), in our words: the
- *  URL carries a code, never a sentence. */
-const SIGN_IN_ERRORS: Record<string, string> = {
-  expired: "This sign-in expired or began in another browser. Start it again.",
-  issuer: "The answer did not come from os.iterate.com. Start the sign-in again.",
-  cancelled: "The sign-in at os.iterate.com was cancelled.",
-  unconfirmed: "We could not confirm who you are at os.iterate.com. Try again.",
-};
 
 /** A browser path as the router names it: without the base path. */
 function withoutBase(path: string | undefined) {

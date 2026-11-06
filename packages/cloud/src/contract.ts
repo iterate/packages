@@ -38,8 +38,13 @@ export const PersonContract = defineProcessorContract({
   stateSchema: PersonState,
   events: {
     "cloud/person-signed-in": {
-      description: "The person signed in to the Cloud through the OS (sign-in.ts).",
-      payloadSchema: z.object({ sub: PersonId, email: z.email() }),
+      description:
+        "The Cloud served the person for the first time, as the platform's stamp names them (worker.ts): once per person, and once more for each platform admin signed in as them, whom `impersonatedBy` names.",
+      payloadSchema: z.object({
+        sub: PersonId,
+        email: z.email(),
+        impersonatedBy: z.object({ actor: z.string(), email: z.string() }).optional(),
+      }),
     },
     "cloud/connection-requested": {
       description:

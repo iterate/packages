@@ -1,6 +1,6 @@
 // cloud/api.ts — THE CLOUD'S ONE DATA PATH: a capnweb API at `/rpc` on the Cloud's origin, served by
-// the project's config worker (worker.ts) to a person with a Cloud session (sign-in.ts) and no
-// platform session, the shape of core/os/examples/mini-app.ts. The root is built for that person at
+// the project's config worker (worker.ts) to a person the platform says is signed in (`auth.person`)
+// and who is no member of the project, the shape of core/os/examples/mini-app.ts. The root is built for that person at
 // the handshake and holds only their things: every handle it returns names a context they own, and
 // a page can do nothing the person could not. Its nouns mirror the platform's `/api` (a root for the
 // person, `deployments.get(id)` answering a handle), so it can later fold into it.
@@ -34,7 +34,9 @@ import {
 } from "./records.ts";
 import { mintConfig } from "./config.ts";
 import { connectionSecretOf, placeholderOf } from "./runs.ts";
-import type { Person } from "./sign-in.ts";
+/** The person the Cloud serves, as the platform's stamp names them (worker.ts): `sub` is their
+ *  platform user id. */
+export type Person = { sub: string; email: string };
 
 /** What a Cloud API serves from: the person the session names, the config worker's scope, its
  *  `waitUntil`, and the Cloud's Cloudflare OAuth client. */

@@ -197,9 +197,10 @@ function fetchPage(project: ReturnType<typeof fakeProject>, incoming: Request) {
   return projectBackup().fetch!(incoming, {
     // the fake has no scope to release; the worker's getItx answers the real one
     getItx: () => Object.assign(project.itx, { [Symbol.dispose]: () => {} }) as never,
+    // the backup's pages ask for a member alone (`require`), never for a person
     auth: {
       require: (request: Request) =>
         request.headers.get("x-itx-principal") ? null : new Response("Sign in\n", { status: 401 }),
-    },
+    } as never,
   });
 }

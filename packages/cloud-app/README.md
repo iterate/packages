@@ -1,6 +1,6 @@
 # Iterate Cloud
 
-Iterate Cloud's pages: sign-in, the wizard that makes a deployment, the list of a person's
+Iterate Cloud's pages: the way in to the platform's sign-in, the wizard that makes a deployment, the list of a person's
 deployments and each one's page. A TanStack Start Worker with no session, no secret and no state:
 the `cloud` project's config worker ([@iterate-com/cloud](../cloud/README.md) `serveCloud`) fetches
 every page through to it, keeping the visitor's cookies to itself, and serves the data at `/rpc`,

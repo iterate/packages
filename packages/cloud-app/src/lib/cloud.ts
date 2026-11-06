@@ -2,9 +2,9 @@
 // origin, dialled again when it breaks (a laptop sleeps, the network drops, the edge restarts),
 // after a wait that doubles from 1 s to 8 s. Components read the current session through
 // `useCloudApi`, so their handles, and the live state they follow, move to the new socket by
-// themselves (docs/frontend-development.md, "One socket, invisible reconnect"). The Cloud's session
-// cookie rides the handshake; the config worker refuses one without it (401) or from another origin
-// (403).
+// themselves (docs/frontend-development.md, "One socket, invisible reconnect"). The platform's
+// session cookie rides the handshake and the edge stamps who it names; the config worker refuses a
+// handshake with nobody signed in (401) or from another origin (403).
 import { useSyncExternalStore } from "react";
 import { newHttpBatchRpcSession, newWebSocketRpcSession, type RpcStub } from "capnweb";
 import type { CloudApi } from "@iterate-com/cloud/api";
@@ -28,8 +28,8 @@ export function cloudApi(): RpcStub<CloudApi> {
   opened.onRpcBroken(() => {
     if (session !== opened) return;
     setTimeout(() => {
-      // HTTP says whether the session still stands (as iterate/app's client does): one that ended
-      // goes to the sign-in, never a socket refused every 8 s behind "Reconnecting…"
+      // HTTP says whether the person is still signed in (as iterate/app's client does): one who is
+      // not goes to the sign-in, never a socket refused every 8 s behind "Reconnecting…"
       void signedInPerson().then(
         (person) => {
           if (!person)
@@ -63,8 +63,8 @@ export function useCloudApi() {
   );
 }
 
-/** Who the Cloud's session names, or null when there is none: one HTTP batch, which answers 401
- *  without a session (capnweb's batch client throws `RPC request failed: 401`). */
+/** Who the platform says is signed in, or null when nobody is: one HTTP batch, which the Cloud
+ *  answers 401 for a visitor signed out (capnweb's batch client throws `RPC request failed: 401`). */
 export async function signedInPerson() {
   try {
     // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call whose answer may be a 401, which a WebSocket handshake cannot say

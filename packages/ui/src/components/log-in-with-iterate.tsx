@@ -23,7 +23,8 @@ export function LogInWithIterate({
   next?: string;
   /** Start a new authorization with a same-origin POST, e.g. when provisioning another device. */
   formAction?: string;
-  /** the OAuth scopes to ask for; `iterate` is always among them */
+  /** the OAuth scopes to ask for; `iterate` is among them unless the app asks for `identity`
+   *  alone, who the person is and no project (iterate/oauth-scopes) */
   scopes?: string[];
 }) {
   const href = `/.auth/login?${new URLSearchParams({ next, scope: scopes.join(" ") })}`;

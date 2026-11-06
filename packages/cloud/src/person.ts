@@ -1,6 +1,6 @@
 // cloud/person.ts — A PERSON'S CONTEXT, `/people/<sub>` (contract.ts): reduce only. The config
-// worker appends every fact (api.ts, sign-in.ts): a sign-in, a connect asked for and how it ended, a
-// deployment added. The live state, which the person's browser reads, drops each connection's
+// worker appends every fact (worker.ts, api.ts): who the person is, the first time the Cloud serves
+// them, a connect asked for and how it ended, a deployment added. The live state, which the person's browser reads, drops each connection's
 // nonce: it names the platform's OAuth attempt, which only the config worker asks about.
 import { StreamProcessor, type ConsumedEvent, type ReduceArgs } from "iterate/stream/processor";
 import { PersonContract } from "./contract.ts";

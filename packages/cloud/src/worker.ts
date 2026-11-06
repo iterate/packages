@@ -10,29 +10,34 @@
 //     }
 //   }
 //
-// The origin serves four things, and the platform answers `/api` and `/.auth/*` itself:
+// The origin serves three things, and the platform answers `/api` and `/.auth/*` itself, sign-in
+// and sign-out among them:
 //
-//   /sign-in…, /sign-out   the Cloud's own sign-in through the OS (sign-in.ts)
-//   /rpc                   the person's capnweb API (api.ts), for a Cloud session from this origin
+//   /rpc                   the person's capnweb API (api.ts)
 //   /connected             where the platform's OAuth callback sends a Cloudflare connect back
 //   anything else          the Cloud app's pages, fetched through to its Worker (packages/cloud-app),
 //                          which holds no session, no secret and no state
 //
-// A visitor is no member of the project and gets no platform grant on it: the Cloud's session is
-// the Cloud's own, and every answer is limited to that person's things.
+// THE CLOUD HAS NO SIGN-IN OF ITS OWN: `/rpc` and `/connected` ask for a person with
+// `auth.requirePerson`, and `auth.person` says who the caller is (iterate/sdk, core/lib/src/sdk/auth.ts).
+// A visitor is no member of the project and gets no platform grant on it: every answer is limited
+// to that person's things.
 import type { IterateContextApi } from "iterate/api";
-import { isSameOriginBrowserRequest } from "iterate/lib";
-import { newWorkersRpcResponse } from "iterate/sdk";
-import { CloudApi, accountsOf, facetSpecOf, personPathOf, type CloudflareClient } from "./api.ts";
+import { newWorkersRpcResponse, type IterateConfigEntrypoint } from "iterate/sdk";
+import {
+  CloudApi,
+  accountsOf,
+  facetSpecOf,
+  personPathOf,
+  type CloudflareClient,
+  type Person,
+} from "./api.ts";
 import { PersonContract, ToolchainContract } from "./contract.ts";
 import type { PersonState } from "./records.ts";
 import { connectionSecretOf } from "./runs.ts";
-import { personOf, serveSignIn, type Person } from "./sign-in.ts";
 
 /** What the installing project's config says about its Cloud. */
 export type CloudOptions = {
-  /** The OS the Cloud signs people in through, and whose OAuth stores the Cloudflare grants. */
-  issuer: string;
   /** The Cloud app's Worker (envs.ts `cloudAppEnvs`), which serves the pages. */
   frontend: string;
   cloudflare: CloudflareClient;
@@ -40,9 +45,23 @@ export type CloudOptions = {
 
 const BASE_PATH_HEADER = "x-iterate-base-path";
 
+/** What the Cloud forwards of a visitor's request to the pages Worker: what picks the page's or the
+ *  asset's representation, and what makes a conditional or a ranged read. */
+const PAGE_REQUEST_HEADERS = [
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "if-modified-since",
+  "if-none-match",
+  "range",
+  "user-agent",
+];
+
+/** The config worker the Cloud runs in: its itx, its `waitUntil`, and the platform's guards. */
 type Host = {
   getItx(): IterateContextApi & Disposable;
   ctx: { waitUntil(work: Promise<unknown>): void };
+  auth: Pick<IterateConfigEntrypoint["auth"], "requirePerson" | "person">;
 };
 
 export async function serveCloud(
@@ -69,36 +88,16 @@ export async function serveCloud(
     request = new Request(moved, request);
   }
   const url = new URL(request.url);
-  const kv = {
-    get: (key: string) => withItx(host, (itx) => itx.kv.get(key)),
-    put: (key: string, value: string) => withItx(host, (itx) => itx.kv.put(key, value)),
-    delete: (key: string) => withItx(host, (itx) => itx.kv.delete(key)),
-  };
-  // A write or a socket from another origin is refused: every *.iterate.app host is one site, so a
-  // SameSite=Lax session cookie rides a request a sibling project's page makes (core/lib/src/sdk/auth.ts).
-  const isUpgrade = request.headers.get("upgrade")?.toLowerCase() === "websocket";
-  if (
-    (isUpgrade || !["GET", "HEAD"].includes(request.method)) &&
-    !isSameOriginBrowserRequest(request)
-  )
-    return new Response("Cross-origin request refused\n", { status: 403 });
 
-  const signIn = await serveSignIn(request, {
-    kv,
-    issuer: options.issuer,
-    basePath,
-    signedIn: (person) => withItx(host, (itx) => recordSignIn(itx, person)),
-  });
-  if (signIn) return signIn;
-
-  if (url.pathname === "/rpc") {
-    const person = await personOf(request, kv);
-    // a plain 401, never `Bearer realm="iterate"`, which the platform's edge would turn into its own sign-in
-    if (!person)
-      return new Response("Sign in to Iterate Cloud\n", {
-        status: 401,
-        headers: { "cache-control": "no-store" },
-      });
+  if (url.pathname === "/rpc" || (url.pathname === "/connected" && request.method === "GET")) {
+    const denied = host.auth.requirePerson(request);
+    if (denied) return denied;
+    const person = await personOf(host, request);
+    if (url.pathname === "/connected") {
+      const connection = url.searchParams.get("connection") ?? "";
+      await withItx(host, (itx) => finishConnect(itx, person, connection));
+      return redirect(url, `${basePath}/new?${new URLSearchParams({ connection })}`);
+    }
     return newWorkersRpcResponse(
       request,
       new CloudApi({
@@ -111,24 +110,17 @@ export async function serveCloud(
     );
   }
 
-  if (url.pathname === "/connected" && request.method === "GET") {
-    const person = await personOf(request, kv);
-    if (!person)
-      return redirect(
-        url,
-        `${basePath}/?${new URLSearchParams({ next: `${basePath}${url.pathname}${url.search}` })}`,
-      );
-    const connection = url.searchParams.get("connection") ?? "";
-    await withItx(host, (itx) => finishConnect(itx, person, connection));
-    return redirect(url, `${basePath}/new?${new URLSearchParams({ connection })}`);
-  }
-
   if (request.method !== "GET" && request.method !== "HEAD")
     return new Response("Not found\n", { status: 404 });
-  // the pages: nothing of the visitor's goes with them, not a cookie
+  // the pages: nothing of the visitor's goes with them. Only the headers a page or an asset is
+  // chosen by are forwarded, so no cookie, no bearer and none of the edge's stamps of who the
+  // caller is (`x-itx-person`, `x-itx-principal`) reach the pages Worker
   const page = new URL(`${url.pathname}${url.search}`, options.frontend);
-  const headers = new Headers(request.headers);
-  headers.delete("cookie");
+  const headers = new Headers();
+  for (const name of PAGE_REQUEST_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
   // the pages render their links under it (@iterate-com/ui/apps/base-path)
   headers.set(BASE_PATH_HEADER, basePath);
   const answer = await fetch(
@@ -153,15 +145,42 @@ export async function installCloud(itx: IterateContextApi) {
     );
 }
 
-/** The person's context, with its processor, and the sign-in on it. */
-async function recordSignIn(itx: IterateContextApi, person: Person) {
-  const context = itx.cd(personPathOf(person.sub));
-  await context.processors.enable(
-    "cloud-person",
-    facetSpecOf("CloudPersonFacet", PersonContract.consumes),
-  );
-  await context.append({ type: "cloud/person-signed-in", payload: person });
+/** The person the platform's stamp names, as the Cloud knows them (`sub` is the stamp's `userId`,
+ *  the platform's user id, as the OS's userinfo named it before), after their context exists.
+ *
+ *  THE PERSON'S CONTEXT is made the first time the Cloud serves them: its processor enabled, and
+ *  `cloud/person-signed-in` on it, keyed by everything it says (the person's id and email, and the
+ *  admin's, when one is signed in as them), so later calls add nothing. The platform refuses an
+ *  append whose key it holds with another payload (core/os/src/stream/stream.ts, IDEMPOTENCY_CONFLICT),
+ *  so a key of the id alone would refuse a person whose email changed; this way the change is one
+ *  more record, and the reduce takes the newer email. Both calls are idempotent, so this isolate
+ *  remembers whom it has done it for and skips them next time; a new isolate repeats them once,
+ *  harmlessly. */
+async function personOf(host: Host, request: Request): Promise<Person> {
+  const stamped = host.auth.person(request)!;
+  const person = { sub: stamped.userId, email: stamped.email };
+  const admin = stamped.impersonatedBy;
+  const key = [person.sub, person.email, admin?.actor || "", admin?.email || ""].join(":");
+  if (recorded.has(key)) return person;
+  await withItx(host, async (itx) => {
+    const context = itx.cd(personPathOf(person.sub));
+    await context.processors.enable(
+      "cloud-person",
+      facetSpecOf("CloudPersonFacet", PersonContract.consumes),
+    );
+    await context.append({
+      type: "cloud/person-signed-in",
+      idempotencyKey: `person-signed-in:${key}`,
+      // oxlint-disable-next-line iterate/simple-truthiness-check -- an `impersonatedBy: undefined` key differs from none in the platform's idempotent retry (core/lib/src/lib.ts `jsonEqual` counts keys; the stored event has none), which would refuse every append after the first as IDEMPOTENCY_CONFLICT: only an impersonation carries the key
+      payload: { ...person, ...(admin && { impersonatedBy: admin }) },
+    });
+  });
+  recorded.add(key);
+  return person;
 }
+
+/** The people (with the admin signed in as them, if any) whose context this isolate has made. */
+const recorded = new Set<string>();
 
 /** The platform's callback stored a connect's tokens (or did not) and sent the browser here: what
  *  became of the attempt, settled on the person's context. A connection that is not this person's,

@@ -6,7 +6,7 @@ import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import { cloudApi, signedInPerson } from "../lib/cloud.ts";
 import { PersonProvider } from "../components/person-provider.tsx";
 
-/** Everything a signed-in person sees: their Cloud session's person, the tab's API, one header. */
+/** Everything a signed-in person sees: who the platform says they are, the tab's API, one header. */
 export const Route = createFileRoute("/_app")({
   ssr: false,
   beforeLoad: async ({ context, location }) => {
@@ -53,7 +53,11 @@ function Frame({ email, children }: { email?: string; children: React.ReactNode 
         {email ? (
           <>
             <span className="ml-auto text-sm text-muted-foreground">{email}</span>
-            <form method="post" action={`${documentBasePath()}/sign-out`}>
+            {/* the platform's sign-out, back to the Cloud's first page */}
+            <form
+              method="post"
+              action={`/.auth/logout?${new URLSearchParams({ next: `${documentBasePath()}/` })}`}
+            >
               <Button type="submit" variant="ghost" size="sm">
                 Sign out
               </Button>
