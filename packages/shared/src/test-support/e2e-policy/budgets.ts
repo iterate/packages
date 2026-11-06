@@ -84,6 +84,7 @@ export const SLOW_ROW_PATHS = [
   "test/vitest/agents/install.e2e.test.ts",
   "test/vitest/agents/voice-install.e2e.test.ts",
   "test/vitest/os/context-residency.e2e.test.ts",
+  "test/vitest/os/data-center-switch.e2e.test.ts",
   "test/vitest/os/facet-abort-storage-reset.e2e.test.ts",
 ];
 
