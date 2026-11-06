@@ -28,7 +28,7 @@ const reduce = (state: DeploymentState, event: Logged) =>
 // a config of fresh secrets in place of the one left out: the live state masks every one
 const requested = log.find((event) => event.type === "cloud/deployment-requested")!;
 const record: DeploymentRecord = requested.payload.record;
-requested.payload.config = mintConfig(record);
+requested.payload.config = mintConfig(record, "https://os.iterate.com");
 
 const states: { event: Logged; state: DeploymentState }[] = [];
 let state = DeploymentState.parse({});
@@ -42,14 +42,32 @@ const running = (at: DeploymentState, step: string) =>
 const inProgress = (at: DeploymentState) =>
   at.run?.resources.filter((resource) => /ing\b/.test(resource.status || "")).length || 0;
 
-const sandbox = states.find((at) => at.state.preparation?.status === "running")!.state;
-const build = states.findLast((at) => running(at.state, "build"))!.state;
+/** `value`, or an error that says which moment the log lacks. */
+function found<T>(value: T | undefined, moment: string): T {
+  if (value === undefined) throw new Error(`The log has no moment where ${moment}`);
+  return value;
+}
+
+const sandbox = found(
+  states.find((at) => at.state.preparation?.status === "running"),
+  "the sandbox is prepared",
+).state;
+const build = found(
+  states.findLast((at) => running(at.state, "build")),
+  "the build runs",
+).state;
 const alchemy = states
   .filter((at) => running(at.state, "alchemy"))
   .reduce((most, at) => (inProgress(at.state) > inProgress(most.state) ? at : most));
-const beforeCheck = states.findLast((at) => running(at.state, "alchemy"))!;
-const checkBatch = states.find((at) => running(at.state, "check"))!.event;
-const done = states.at(-1)!.state;
+const beforeCheck = found(
+  states.findLast((at) => running(at.state, "alchemy")),
+  "Alchemy runs",
+);
+const checkBatch = found(
+  states.find((at) => running(at.state, "check")),
+  "the check runs",
+).event;
+const done = found(states.at(-1), "anything happens").state;
 
 // made: the check's first record alone, its step's marker, so the step runs with nothing printed
 const checking = reduce(beforeCheck.state, {
@@ -58,10 +76,14 @@ const checking = reduce(beforeCheck.state, {
 });
 // made: the Worker fails while Alchemy creates the resources, and the run settles failed with the
 // line Alchemy printed last, as runs.ts says it
-const worker = alchemy.state.run!.resources.find(
-  (resource) => resource.type === "Cloudflare.Worker",
-)!;
-const lastLine = alchemy.state.run!.steps.find((step) => step.name === "alchemy")!.tail.at(-1);
+const worker = found(
+  alchemy.state.run!.resources.find((resource) => resource.type === "Cloudflare.Worker"),
+  "Alchemy reports the Worker",
+);
+const lastLine = found(
+  alchemy.state.run!.steps.find((step) => step.name === "alchemy"),
+  "Alchemy's step is listed",
+).tail.at(-1);
 const failing = reduce(alchemy.state, {
   type: "cloud/alchemy-reported",
   offset: alchemy.event.offset + 1,

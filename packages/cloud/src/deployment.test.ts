@@ -167,7 +167,8 @@ test("the live state masks the config's secrets; the full state keeps them for t
   expect(live.config).toMatchObject({
     adminBearer: MASKED,
     secretsEncryption: { key: MASKED },
-    login: { methods: { password: { password: MASKED } } },
+    // nothing of the owner's sign-in is secret: they sign in through the Cloud's platform
+    login: { methods: { iterate: { issuer: "https://os.example" } } },
   });
   expect(JSON.stringify(live)).not.toContain(config.adminBearer);
   expect(JSON.stringify(live)).not.toContain(config.secretsEncryption.key);
@@ -226,7 +227,7 @@ function open(deps: DeploymentDeps) {
       void engine.catchUpFromLog();
     },
     request() {
-      const config = mintConfig(record);
+      const config = mintConfig(record, "https://os.example");
       log.stream.append({ type: "cloud/deployment-requested", payload: { record, config } });
       return config;
     },

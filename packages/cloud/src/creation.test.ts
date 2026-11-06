@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { createDeployment, finishCreation, type CreationScope } from "./creation.ts";
 import type { DeploymentRecord } from "./records.ts";
 
+const ISSUER = "https://os.example";
 const record: DeploymentRecord = {
   id: "dep_aaaabbbbccccdddd",
   name: "my-iterate",
@@ -16,7 +17,7 @@ const record: DeploymentRecord = {
 
 test("a creation makes the deployment reachable before it lists it, and requests it last; a creation that stops after the listing is finished the same way", async () => {
   const { itx, calls } = recording();
-  await createDeployment(itx, record, async () => true);
+  await createDeployment(itx, record, ISSUER, async () => true);
   expect(calls).toEqual([
     "/deployments/dep_aaaabbbbccccdddd enable cloud-deployment",
     "/deployments/dep_aaaabbbbccccdddd lend cloud-deployment to user_aaaabbbbccccddddaaaabbbbccccdddd",
@@ -26,13 +27,15 @@ test("a creation makes the deployment reachable before it lists it, and requests
 
   // the log listed another creation of the name first: this one stops at the listing, reachable
   const refused = recording();
-  await expect(createDeployment(refused.itx, record, async () => false)).rejects.toMatchObject({
+  await expect(
+    createDeployment(refused.itx, record, ISSUER, async () => false),
+  ).rejects.toMatchObject({
     code: "INVALID_INPUT",
   });
   expect(refused.calls.at(-1)).toBe("/people append cloud/deployment-added");
 
   const finished = recording();
-  await finishCreation(finished.itx, record);
+  await finishCreation(finished.itx, record, ISSUER);
   expect(finished).toMatchObject({
     calls: [
       "/deployments/dep_aaaabbbbccccdddd enable cloud-deployment",
@@ -48,7 +51,7 @@ function recording() {
   const contextAt = (path: string) => ({
     append: async (...events: { type: string }[]) => {
       calls.push(...events.map((event) => `${path} append ${event.type}`));
-      return [];
+      return events.map((event, index) => ({ ...event, offset: calls.length + index }));
     },
     processors: { enable: async (name: string) => void calls.push(`${path} enable ${name}`) },
     facets: {

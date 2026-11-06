@@ -85,6 +85,12 @@ export class Wizard {
     return this.#view;
   }
 
+  /** Why settling the connect the page came back from failed, or null: shown above whatever step
+   *  the wizard resumes at, since an older connected account lets it go on past the connect. */
+  returnError() {
+    return this.#settleError;
+  }
+
   subscribe(listener: () => void) {
     this.#listeners.add(listener);
     return () => void this.#listeners.delete(listener);
@@ -216,7 +222,7 @@ export class Wizard {
     if (choices.length === 0) {
       const last =
         back && back.status !== "connected" ? { status: back.status, error: back.error } : null;
-      return this.#set({ step: "connect", last, busy: false, error: this.#settleError });
+      return this.#set({ step: "connect", last, busy: false, error: null });
     }
     const chosen = choices.find((choice) => choice.account.id === this.#draft().accountId);
     if (chosen || choices.length === 1) return this.choose(chosen || choices[0]!);

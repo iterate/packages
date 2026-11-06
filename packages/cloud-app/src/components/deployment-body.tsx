@@ -3,7 +3,7 @@
 // Alchemy's resources, and the runs a person may ask for. Pure: state and actions come in as props.
 import { useState, type ReactNode } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
-import { isMasked } from "@iterate-com/cloud/config";
+import { isMasked, signInOf } from "@iterate-com/cloud/config";
 import type { RunKind, RunStep } from "@iterate-com/cloud/records";
 import {
   installStatusOf,
@@ -80,7 +80,13 @@ export function DeploymentBody({
       {hasRun ? (
         <>
           {state.url && record ? (
-            <RunningCard url={state.url} email={record.owner.email} actions={actions} act={act} />
+            <RunningCard
+              url={state.url}
+              email={record.owner.email}
+              config={state.config}
+              actions={actions}
+              act={act}
+            />
           ) : null}
           {run ? <RunCard run={run} readAllOf={readAllOf} /> : null}
         </>
@@ -130,18 +136,23 @@ function RunButtons({
   );
 }
 
+/** The running deployment: Open, and how its owner signs in there. One made since the Cloud signs
+ *  owners in through its platform opens through the deployment's sign-in, a chain that ends in the
+ *  Dash; one made before has a password the Cloud shows. */
 function RunningCard({
   url,
   email,
+  config,
   actions,
   act,
 }: {
   url: string;
   email: string;
+  config: DeploymentView["config"];
   actions: DeploymentActions;
   act: Act;
 }) {
-  const [password, setPassword] = useState<string | null>(null);
+  const signIn = config ? signInOf(config) : "password";
   return (
     <Card>
       <CardHeader>
@@ -149,7 +160,7 @@ function RunningCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <a
-          href={url}
+          href={signIn === "iterate" ? new URL("/.auth/sign-in/iterate?next=/", url).href : url}
           target="_blank"
           rel="noreferrer"
           className={buttonVariants({ size: "lg", className: "w-fit max-w-full" })}
@@ -158,29 +169,46 @@ function RunningCard({
           <span className="truncate">Open {new URL(url).host}</span>
           <ArrowUpRight data-icon="inline-end" />
         </a>
-        <p className="flex flex-wrap items-center gap-2 font-readme text-sm">
-          Sign in there as {email} with the password
-          {password ? (
-            <code className="rounded bg-muted px-1.5 py-0.5">{password}</code>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                act(
-                  actions.signInPassword().then((value) => {
-                    if (!value) throw new Error("No password for this deployment.");
-                    setPassword(value);
-                  }),
-                )
-              }
-            >
-              Show
-            </Button>
-          )}
-        </p>
+        {signIn === "password" ? <PasswordRow email={email} actions={actions} act={act} /> : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** A deployment made before the Cloud signed owners in through its platform: its password, shown
+ *  on a click. */
+function PasswordRow({
+  email,
+  actions,
+  act,
+}: {
+  email: string;
+  actions: DeploymentActions;
+  act: Act;
+}) {
+  const [password, setPassword] = useState<string | null>(null);
+  return (
+    <p className="flex flex-wrap items-center gap-2 font-readme text-sm">
+      Sign in there as {email} with the password
+      {password ? (
+        <code className="rounded bg-muted px-1.5 py-0.5">{password}</code>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            act(
+              actions.signInPassword().then((value) => {
+                if (!value) throw new Error("No password for this deployment.");
+                setPassword(value);
+              }),
+            )
+          }
+        >
+          Show
+        </Button>
+      )}
+    </p>
   );
 }
 

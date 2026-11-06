@@ -11,6 +11,11 @@
 import { z } from "zod";
 import type { DeploymentRecord } from "./records.ts";
 
+const IterateSignIn = z.strictObject({ iterate: z.strictObject({ issuer: z.url() }) });
+const PasswordSignIn = z.strictObject({
+  password: z.strictObject({ password: z.string().min(20) }),
+});
+
 export const DeploymentConfig = z.object({
   cloudflare: z.object({
     accountId: z.string().regex(/^[0-9a-f]{32}$/),
@@ -21,7 +26,11 @@ export const DeploymentConfig = z.object({
   login: z.object({
     /** Its owner, the one person who may sign in. */
     allow: z.array(z.object({ email: z.email() })).length(1),
-    methods: z.object({ password: z.object({ password: z.string().min(20) }) }),
+    /** How the owner signs in: through the platform the Cloud runs on (log in with iterate, the
+     *  only method, so a signed-out page load goes straight to it), or, for a deployment made
+     *  before that, a password the Cloud minted and shows the owner (durable-object.ts
+     *  `signInPassword`). */
+    methods: z.union([IterateSignIn, PasswordSignIn]),
   }),
   /** `ITERATE__ADMIN_BEARER`: the operator's bearer of the deployed platform. */
   adminBearer: z.string().regex(/^[0-9a-f]{64}$/),
@@ -30,14 +39,12 @@ export const DeploymentConfig = z.object({
 });
 export type DeploymentConfig = z.infer<typeof DeploymentConfig>;
 
-/** A new config for `record`, with fresh secrets: the facet's, once per deployment. */
-export function mintConfig(record: DeploymentRecord): DeploymentConfig {
-  // allow-high-entropy-next-line: the password's alphabet, letters and digits that do not look alike
-  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const password = [...random(20)].map((byte) => alphabet[byte % alphabet.length]).join("");
+/** A new config for `record`, with fresh secrets: the facet's, once per deployment. Its owner
+ *  signs in through `issuer`, the platform the Cloud runs on. */
+export function mintConfig(record: DeploymentRecord, issuer: string): DeploymentConfig {
   return DeploymentConfig.parse({
     cloudflare: { accountId: record.accountId, resourcePrefix: record.name, workersDev: true },
-    login: { allow: [{ email: record.owner.email }], methods: { password: { password } } },
+    login: { allow: [{ email: record.owner.email }], methods: { iterate: { issuer } } },
     adminBearer: hex(32),
     secretsEncryption: { key: hex(32) },
   });
@@ -70,7 +77,7 @@ const Masked = z.object({ masked: z.literal(true) }).strict();
 /** The config as the browser sees it: every secret replaced by `MASKED`. */
 export const MaskedConfig = DeploymentConfig.extend({
   login: DeploymentConfig.shape.login.extend({
-    methods: z.object({ password: z.object({ password: Masked }) }),
+    methods: z.union([IterateSignIn, z.strictObject({ password: z.object({ password: Masked }) })]),
   }),
   adminBearer: Masked,
   secretsEncryption: z.object({ key: Masked }),
@@ -80,15 +87,27 @@ export type MaskedConfig = z.infer<typeof MaskedConfig>;
 export function maskedConfigOf(config: DeploymentConfig): MaskedConfig {
   return {
     ...config,
-    login: { ...config.login, methods: { password: { password: MASKED } } },
+    login: {
+      ...config.login,
+      methods:
+        "password" in config.login.methods
+          ? { password: { password: MASKED } }
+          : config.login.methods,
+    },
     adminBearer: MASKED,
     secretsEncryption: { key: MASKED },
   };
 }
 
+/** How the owner of a deployment with `config` signs in there: through its Cloud's platform, or,
+ *  made before that, with a password. */
+export const signInOf = (config: Pick<DeploymentConfig, "login"> | Pick<MaskedConfig, "login">) =>
+  "iterate" in config.login.methods ? ("iterate" as const) : ("password" as const);
+
 /** Whether `value` is where a secret was (`MASKED`). */
 export const isMasked = (value: unknown): value is typeof MASKED => Masked.safeParse(value).success;
 
-const random = (bytes: number) => crypto.getRandomValues(new Uint8Array(bytes));
 const hex = (bytes: number) =>
-  [...random(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  [...crypto.getRandomValues(new Uint8Array(bytes))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");

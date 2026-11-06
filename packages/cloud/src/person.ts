@@ -15,8 +15,8 @@ export class PersonProcessor extends StreamProcessor<PersonState, Event> {
     switch (event.type) {
       case "cloud/person-signed-in":
         return { ...state, sub: event.payload.sub, email: event.payload.email };
-      case "cloud/cloudflare-client-configured":
-        return { ...state, cloudflareClient: event.payload };
+      case "cloud/platform-configured":
+        return { ...state, platform: event.payload };
       case "cloud/connection-requested": {
         const { connection, nonce } = event.payload;
         // a connection is asked for once; its id is fresh each time (durable-object.ts)

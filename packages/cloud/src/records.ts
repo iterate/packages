@@ -88,11 +88,18 @@ export const stateOf = (name: string) => ({
 export const CloudflareClient = z.object({ clientId: z.string().min(1), secret: z.string() });
 export type CloudflareClient = z.infer<typeof CloudflareClient>;
 
+/** What the Cloud knows of the platform it runs on: its origin, the issuer every deployment signs
+ *  its owner in through (null when neither the config nor the request names it: worker.ts), and
+ *  the Cloud's Cloudflare OAuth client. */
+export const Platform = z.object({ issuer: z.url().nullable(), cloudflare: CloudflareClient });
+export type Platform = z.infer<typeof Platform>;
+
 export const PersonState = z.object({
   sub: z.string().nullable().default(null),
   email: z.string().nullable().default(null),
-  /** The client the person's next connect goes through: the installing project's (worker.ts). */
-  cloudflareClient: CloudflareClient.nullable().default(null),
+  /** The platform the person's next connect and deployment go through: the installing project's
+   *  (worker.ts). */
+  platform: Platform.nullable().default(null),
   connections: z.array(Connection).default([]),
   /** Every deployment the person requested, as they requested it. */
   deployments: z.array(DeploymentRecord).default([]),

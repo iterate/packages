@@ -35,19 +35,28 @@ the facet's live state and the methods its class lists in `lentMethods`:
   [src/creation.ts](src/creation.ts)) and `finishCreation(id)` (a creation that stopped before
   its request, which the deployment's page offers as Start again).
 - **`cloud-deployment`**: `prepareAgain`, `requestRun(kind)`, `readOutput(requestOffset, step)` and
-  `signInPassword`.
+  `signInPassword` (only a deployment made before the next paragraph's sign-in has one; null for
+  the rest).
 
-`snapshot`, which holds the connections' nonces and the deployment's password, is never lent; nor is
+`snapshot`, which holds the connections' nonces and the deployment's secrets, is never lent; nor is
 anything of `/toolchain`. A lent method's own calls run as the facet's: the project's secrets through
 `itx.cd("/").secrets`, Cloudflare's API through a rule on the person's context that sends its
 `itx.fetch` to the root's, the project's egress ([src/cloudflare.ts](src/cloudflare.ts)).
+
+A DEPLOYMENT SIGNS ITS OWNER IN THROUGH THE PLATFORM ITS CLOUD RUNS ON. Its config's one sign-in
+method is log in with iterate, `login.methods.iterate = { issuer }`, the issuer the installing
+project's config names (`https://os.iterate.com` on prd), so a signed-out page load goes straight
+there ([src/config.ts](src/config.ts)). The page's Open is the deployment's deep link,
+`<deployment>/.auth/sign-in/iterate?next=/`: the issuer shows the identity card the first time, and
+the chain ends in the Dash, bound to the deployment (core/os docs/credentials.md). A password is
+history: a deployment made before this holds one, which its page still shows.
 
 The project's config worker serves the pages, fetched through to the Cloud app
 ([src/worker.ts](src/worker.ts)). The Cloud has no sign-in of its own either: who is signed in is
 who the platform's stamp says (iterate/sdk `auth.person`). A signed-in document load sets the person
 up, once per isolate and each step idempotent: their processor, the egress rule, the Cloudflare
-client the config names (`cloud/cloudflare-client-configured`), a `cloud/person-signed-in` record,
-and the lend of their facet. The person's facet lends every
+platform the config names (`cloud/platform-configured`: the issuer and the Cloudflare client), a
+`cloud/person-signed-in` record, and the lend of their facet. The person's facet lends every
 deployment it lists the first time it serves them, so a deployment made before the Cloud lent
 anything opens like a new one. The pages' button links to `/.auth/login?scope=identity`, and their
 sign-out posts to `/.auth/logout`: under subdomains these are the project host's own (a consent with
@@ -64,6 +73,8 @@ export { CloudDeploymentFacet, CloudPersonFacet, CloudToolchainFacet } from "@it
 
 ## What the installing project needs
 
+- **Its config's `issuer` and `cloudflare`** in `serveCloud`'s options: the platform the Cloud runs
+  on, through which every deployment signs its owner in, and the Cloud's Cloudflare OAuth client.
 - **`/secrets/cloud-cloudflare-client`**, `{ clientSecret }` pinned to `https://dash.cloudflare.com`:
   the secret of the Cloud's Cloudflare OAuth client, whose id the config passes in. Only the
   platform reads it, at a connect's code exchange and at each refresh. The client lists the

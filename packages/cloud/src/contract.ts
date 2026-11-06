@@ -16,12 +16,12 @@ import { DeploymentConfig } from "./config.ts";
 import {
   ConnectionId,
   CloudflareAccount,
-  CloudflareClient,
   DeploymentRecord,
   DeploymentState,
   ImageSource,
   PersonId,
   PersonState,
+  Platform,
   RunKind,
   RunAlchemyEvent,
   RunOutput,
@@ -47,10 +47,10 @@ export const PersonContract = defineProcessorContract({
         impersonatedBy: z.object({ actor: z.string(), email: z.string() }).optional(),
       }),
     },
-    "cloud/cloudflare-client-configured": {
+    "cloud/platform-configured": {
       description:
-        "The Cloudflare OAuth client the person's connects go through, as the installing project's config names it (worker.ts): once, and once more each time the config names another.",
-      payloadSchema: CloudflareClient,
+        "The platform the person's connects and deployments go through, as the installing project's config names it (worker.ts): the issuer a new deployment signs its owner in through, and the Cloud's Cloudflare OAuth client. Once, and once more each time the config names another.",
+      payloadSchema: Platform,
     },
     "cloud/connection-requested": {
       description:
@@ -78,7 +78,7 @@ export const PersonContract = defineProcessorContract({
   },
   consumes: [
     "cloud/person-signed-in",
-    "cloud/cloudflare-client-configured",
+    "cloud/platform-configured",
     "cloud/connection-requested",
     "cloud/connection-settled",
     "cloud/deployment-added",

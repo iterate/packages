@@ -10,7 +10,7 @@
 //   await project.cd(`/people/${me}`).facets.get("cloud-person").createDeployment(input);
 //
 // A lend gives the live state and the methods a class lists in `lentMethods`, never `snapshot`,
-// which holds the connections' nonces and the deployment's password. A lent method's own calls run
+// which holds the connections' nonces and the deployment's secrets. A lent method's own calls run
 // as the facet's, and it learns no caller: the person a facet serves is the one its context is for
 // (`sub` on the person's state, the record's owner on a deployment's). Every input is the page's,
 // so each is checked here.
@@ -75,8 +75,8 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
   async connectCloudflare(input: { next: { routingSlug?: string; path: string } }) {
     const asked = ConnectInput.safeParse(input);
     if (!asked.success) throw refused("A connect needs the page to come back to.");
-    const { sub, cloudflareClient } = await this.#state();
-    if (!cloudflareClient) throw new Error("This Cloud's config names no Cloudflare client.");
+    const { sub, platform } = await this.#state();
+    if (!platform) throw new Error("This Cloud's config names no platform.");
     const connection = hex(6);
     const { routingSlug, path } = asked.data.next;
     const query = new URLSearchParams({ connection });
@@ -86,7 +86,7 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
       .cd("/")
       .secrets.beginOAuth(
         connectionSecretOf(connection),
-        connectOptionsOf(cloudflareClient, sub, next),
+        connectOptionsOf(platform.cloudflare, sub, next),
       );
     await itx.append({
       type: "cloud/connection-requested",
@@ -171,19 +171,22 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
       if (name.status !== "free") throw refused(name.message);
     }
     using itx = this.getItx();
-    // the snapshot is caught up through the listing, and a creation the log refused is not listed
-    await createDeploymentIn(itx, record, async () =>
-      (await this.#state()).deployments.some((known) => known.id === id),
-    );
+    // the state once this facet has processed the listing: a creation the log refused is not
+    // listed. A snapshot alone may answer before the facet has reduced its own append.
+    await createDeploymentIn(itx, record, issuerOf(state), async (offset) => {
+      await this.waitUntilProcessed({ offset });
+      return (await this.#state()).deployments.some((known) => known.id === id);
+    });
     return { id };
   }
 
   /** Finish a creation that stopped before the deployment's own request (`createDeployment`). */
   async finishCreation(id: string) {
-    const record = (await this.#state()).deployments.find((known) => known.id === id);
+    const state = await this.#state();
+    const record = state.deployments.find((known) => known.id === id);
     if (!record) throw refused("No such deployment.");
     using itx = this.getItx();
-    await finishCreationIn(itx, record);
+    await finishCreationIn(itx, record, issuerOf(state));
   }
 
   /** The person's state, caught up through the log: who they are is the first fact on it
@@ -263,10 +266,12 @@ export class CloudDeploymentFacet extends StreamProcessorDurableObject<Deploymen
   }
 
   /** The password minted for the owner's sign-in to the deployed Worker (config.ts), from the full
-   *  state: the one secret the Cloud shows, to the person the deployment is lent to alone. */
+   *  state: the one secret the Cloud shows, to the person the deployment is lent to alone. Only a
+   *  deployment made before the Cloud signed owners in through its platform has one; null for the
+   *  rest. */
   async signInPassword() {
-    const { state } = await this.snapshot();
-    return state.config?.login.methods.password.password || null;
+    const methods = (await this.snapshot()).state.config?.login.methods;
+    return methods && "password" in methods ? methods.password.password : null;
   }
 }
 
@@ -288,6 +293,16 @@ export type CloudDeploymentMethods = Pick<
   CloudDeploymentFacet,
   (typeof CloudDeploymentFacet.lentMethods)[number]
 >;
+
+/** The issuer a new deployment signs its owner in through: the platform the Cloud runs on. */
+function issuerOf(state: PersonState) {
+  const issuer = state.platform?.issuer;
+  if (!issuer)
+    throw new Error(
+      "This Cloud does not know the platform it runs on: its config names no issuer (serveCloud's `issuer`).",
+    );
+  return issuer;
+}
 
 /** A person's state once the Cloud has recorded who they are. */
 type KnownPerson = PersonState & { sub: string; email: string };

@@ -67,6 +67,7 @@ function NewDeployment() {
     <>
       <h1 className="text-xl font-semibold">New deployment</h1>
       {person.error ? <ErrorMessage>{person.error}</ErrorMessage> : null}
+      {wizard.returnError() ? <ErrorMessage>{wizard.returnError()}</ErrorMessage> : null}
       <Step view={view} wizard={wizard} />
     </>
   );

@@ -119,6 +119,16 @@ test("back from Cloudflare, the live state lands before the connect is settled: 
   });
 });
 
+test("a connect whose settlement fails says so, even when an older connected account lets the wizard go on", async () => {
+  const storage = memory({ connection: "ddddccccbbbb", accountId: work.id });
+  const { wizard, deps } = start("?connection=aaaabbbbcccc", storage);
+  deps.settle.mockRejectedValueOnce(new Error("Cloudflare listed no accounts: HTTP 500"));
+  wizard.update(person([connected("ddddccccbbbb", [work])]));
+  await wizard.settleReturn();
+  expect(wizard.view()).toMatchObject({ step: "name", choice: { account: work } });
+  expect(wizard.returnError()).toBe("Cloudflare listed no accounts: HTTP 500");
+});
+
 function start(search: string, storage = memory({})) {
   let requests = 0;
   const deps = {
@@ -145,7 +155,7 @@ const person = (
 ): PersonView => ({
   sub: "user_aaaabbbbccccddddaaaabbbbccccdddd",
   email: "ada@example.test",
-  cloudflareClient: null,
+  platform: null,
   connections,
   deployments,
 });

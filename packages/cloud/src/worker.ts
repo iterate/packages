@@ -20,15 +20,20 @@
 // platform's `/api`. A signed-in document load sets the person up for that (`setUpPerson`).
 import type { IterateContextApi } from "iterate/api";
 import type { IterateConfigEntrypoint } from "iterate/sdk";
-import type { CloudflareClient } from "./records.ts";
+import type { Platform } from "./records.ts";
 import { PERSON_PROCESSOR, TOOLCHAIN_PATH, TOOLCHAIN_PROCESSOR } from "./specs.ts";
 
 /** What the installing project's config says about its Cloud. */
 export type CloudOptions = {
   /** The Cloud app's Worker (envs.ts `cloudAppEnvs`), which serves the pages. */
   frontend: string;
+  /** The platform the Cloud runs on, the issuer every deployment signs its owner in through:
+   *  `https://os.iterate.com` on prd. Under paths ingress the request says it (the Cloud is served
+   *  at `<platform>/projects/<project>`); under subdomains only this does, and without it the Cloud
+   *  makes no deployment. */
+  issuer?: string;
   /** The Cloud's own Cloudflare OAuth client, through which people connect their accounts. */
-  cloudflare: CloudflareClient;
+  cloudflare: Platform["cloudflare"];
 };
 
 const BASE_PATH_HEADER = "x-iterate-base-path";
@@ -79,7 +84,11 @@ export async function serveCloud(
   if (request.method !== "GET" && request.method !== "HEAD")
     return new Response("Not found\n", { status: 404 });
   const person = host.auth.person(request);
-  if (person && isDocumentLoad(request)) await setUpPerson(host, person, options.cloudflare);
+  if (person && isDocumentLoad(request))
+    await setUpPerson(host, person, {
+      issuer: options.issuer || (basePath ? url.origin : null),
+      cloudflare: options.cloudflare,
+    });
   // the pages: nothing of the visitor's goes with them. Only the headers a page or an asset is
   // chosen by are forwarded, so no cookie, no bearer and none of the edge's stamps of who the
   // caller is (`x-itx-person`, `x-itx-principal`) reach the pages Worker
@@ -121,8 +130,9 @@ const isDocumentLoad = (request: Request) =>
  *   1. the person's processor, `cloud-person`;
  *   2. a rule that sends the context's `itx.fetch` to the root's, the project's egress, which
  *      fills a connection's token in the facet's requests to Cloudflare (cloudflare.ts);
- *   3. `cloud/cloudflare-client-configured`, the client the person's connects go through, keyed by
- *      what it says, so a config that names another client records it once more;
+ *   3. `cloud/platform-configured`, the platform the person's connects and deployments go
+ *      through (the issuer and the Cloudflare client), keyed by what it says, so a config that
+ *      names another records it once more;
  *   4. `cloud/person-signed-in`, keyed by everything it says (the person's id and email, and the
  *      admin's, when one is signed in as them). The platform refuses an append whose key it holds
  *      with another payload (core/os/src/stream/stream.ts, IDEMPOTENCY_CONFLICT), so a key of the
@@ -135,13 +145,17 @@ const isDocumentLoad = (request: Request) =>
 async function setUpPerson(
   host: Host,
   stamped: NonNullable<ReturnType<Host["auth"]["person"]>>,
-  cloudflare: CloudflareClient,
+  platform: Platform,
 ) {
   const person = { sub: stamped.userId, email: stamped.email };
   const admin = stamped.impersonatedBy;
   const key = [person.sub, person.email, admin?.actor || "", admin?.email || ""].join(":");
-  const client = `${cloudflare.clientId}:${cloudflare.secret}`;
-  if (setUp.has(`${key}|${client}`)) return;
+  const said = [
+    platform.issuer || "",
+    platform.cloudflare.clientId,
+    platform.cloudflare.secret,
+  ].join(" ");
+  if (setUp.has(`${key}|${said}`)) return;
   using itx = host.getItx();
   const context = itx.cd(`/people/${person.sub}`);
   await context.processors.enable(PERSON_PROCESSOR.name, PERSON_PROCESSOR.spec);
@@ -155,9 +169,12 @@ async function setUpPerson(
     },
   });
   await context.append({
-    type: "cloud/cloudflare-client-configured",
-    idempotencyKey: `cloudflare-client-configured:${client}`,
-    payload: { clientId: cloudflare.clientId, secret: cloudflare.secret },
+    type: "cloud/platform-configured",
+    idempotencyKey: `platform-configured:${said}`,
+    payload: {
+      issuer: platform.issuer,
+      cloudflare: { clientId: platform.cloudflare.clientId, secret: platform.cloudflare.secret },
+    },
   });
   await context.append({
     type: "cloud/person-signed-in",
@@ -166,8 +183,8 @@ async function setUpPerson(
     payload: { ...person, ...(admin && { impersonatedBy: admin }) },
   });
   await context.facets.lend(PERSON_PROCESSOR.name, { to: person.sub });
-  setUp.add(`${key}|${client}`);
+  setUp.add(`${key}|${said}`);
 }
 
-/** The people (with the admin signed in as them, if any, and the client) this isolate has set up. */
+/** The people (with the admin signed in as them, if any, and the platform) this isolate has set up. */
 const setUp = new Set<string>();

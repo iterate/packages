@@ -16,29 +16,30 @@ import { DEPLOYMENT_PROCESSOR, deploymentPathOf } from "./specs.ts";
 /** What a creation calls of the person's context: its own log, and the deployment's context. */
 export type CreationScope = Pick<IterateContextApi, "append" | "cd">;
 
-/** Steps 1 to 3 for a new deployment. `listed` reads the person's state after the listing: of two
- *  creations of one name that overlap, the log lists only the first (person.ts), and the other
- *  stops there. */
+/** Steps 1 to 3 for a new deployment. `listed` reads the person's state once it has processed the
+ *  listing, at its offset: of two creations of one name that overlap, the log lists only the first
+ *  (person.ts), and the other stops there. */
 export async function createDeployment(
   itx: CreationScope,
   record: DeploymentRecord,
-  listed: () => Promise<boolean>,
+  issuer: string,
+  listed: (offset: number) => Promise<boolean>,
 ) {
   await reachDeployment(itx, record);
-  await itx.append({
+  const [added] = await itx.append({
     type: "cloud/deployment-added",
     idempotencyKey: `deployment-added:${record.id}`,
     payload: record,
   });
-  if (!(await listed()))
+  if (!(await listed(added!.offset)))
     throw refused(`You already have a deployment named ${record.name} in ${record.accountName}.`);
-  await requestCreation(itx, record);
+  await requestCreation(itx, record, issuer);
 }
 
 /** Steps 1 and 3 again, for a creation that stopped between them. */
-export async function finishCreation(itx: CreationScope, record: DeploymentRecord) {
+export async function finishCreation(itx: CreationScope, record: DeploymentRecord, issuer: string) {
   await reachDeployment(itx, record);
-  await requestCreation(itx, record);
+  await requestCreation(itx, record, issuer);
 }
 
 /** The deployment's processor, and its facet lent to its owner: what the person's page reads. */
@@ -48,15 +49,15 @@ export async function reachDeployment(itx: CreationScope, record: DeploymentReco
   await context.facets.lend(DEPLOYMENT_PROCESSOR.name, { to: record.owner.sub });
 }
 
-/** The deployment's request, keyed on its id: once one landed, a later one, whose config is
+/** The deployment's request, with a config whose owner signs in through `issuer`, keyed on its id: once one landed, a later one, whose config is
  *  another, is refused as a conflict, and the config that landed stays the only one. */
-async function requestCreation(itx: CreationScope, record: DeploymentRecord) {
+async function requestCreation(itx: CreationScope, record: DeploymentRecord, issuer: string) {
   await itx
     .cd(deploymentPathOf(record.id))
     .append({
       type: "cloud/deployment-requested",
       idempotencyKey: `deployment-requested:${record.id}`,
-      payload: { record, config: mintConfig(record) },
+      payload: { record, config: mintConfig(record, issuer) },
     })
     .catch((error: unknown) => {
       if (errorCodeOf(error) !== "IDEMPOTENCY_CONFLICT") throw error;

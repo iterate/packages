@@ -9,14 +9,20 @@ test("a connect is pending until its settlement, and the live state never carrie
       type: "cloud/person-signed-in",
       payload: { sub: "user_aaaabbbbccccddddaaaabbbbccccdddd", email: "ada@example.test" },
     },
-    // the client the config names, and the one it names after a change: the newer stands
+    // the platform the config names, and the one it names after a change: the newer stands
     {
-      type: "cloud/cloudflare-client-configured",
-      payload: { clientId: "old", secret: "/secrets/a" },
+      type: "cloud/platform-configured",
+      payload: {
+        issuer: "https://os.example",
+        cloudflare: { clientId: "old", secret: "/secrets/a" },
+      },
     },
     {
-      type: "cloud/cloudflare-client-configured",
-      payload: { clientId: "new", secret: "/secrets/b" },
+      type: "cloud/platform-configured",
+      payload: {
+        issuer: "https://os.example",
+        cloudflare: { clientId: "new", secret: "/secrets/b" },
+      },
     },
     { type: "cloud/connection-requested", payload: { connection: "aaaabbbbcccc", nonce: "n-1" } },
     { type: "cloud/connection-requested", payload: { connection: "ddddccccbbbb", nonce: "n-2" } },
@@ -41,7 +47,9 @@ test("a connect is pending until its settlement, and the live state never carrie
     ["aaaabbbbcccc", "connected"],
     ["ddddccccbbbb", "pending"],
   ]);
-  expect(state).toMatchObject({ cloudflareClient: { clientId: "new", secret: "/secrets/b" } });
+  expect(state).toMatchObject({
+    platform: { cloudflare: { clientId: "new", secret: "/secrets/b" } },
+  });
   expect(JSON.stringify(processor.projectLiveState(state))).not.toMatch(/n-1|n-2|nonce/);
 });
 
