@@ -106,6 +106,8 @@ function metaOf(item: GrantRecord, slugOf: Map<string, string>) {
       : GRANT_KIND_LABELS[item.kind],
     item.clientDomain,
     item.projects?.map((id) => slugOf.get(id) ?? id).join(", "),
+    item.approvedThrough &&
+      `approved because you signed in with ${new URL(item.approvedThrough).host}`,
   ];
   const when = [
     `Since ${dateOf(item.createdAt)}`,
@@ -148,6 +150,7 @@ function SessionsPage() {
         canMintToken={data.canMintToken}
       />
       <ConnectedAccounts projects={data.projects} />
+      <IdentityConfirmations />
       <TokenSheet projects={data.projects} canMintToken={data.canMintToken} />
     </div>
   );
@@ -540,6 +543,11 @@ const AccountConnections = z.looseObject({
       account: z.string(),
     }),
   ),
+  /** The sites the person confirmed who they are to, by client id (core/os consent.ts): each answers
+   *  at once from then on. */
+  identityConfirmations: z
+    .record(z.string(), z.object({ clientName: z.string(), at: z.string() }))
+    .default({}),
   /** The account's secrets, with the projects each one's connection is connected to (its lends). */
   secrets: z.record(
     z.string(),
@@ -683,6 +691,63 @@ function ConnectedAccounts({ projects }: { projects: { id: string; slug: string 
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** SITES THAT KNOW WHO YOU ARE: each one the person confirmed who they are to at the identity card,
+ *  which signs them in there with no card from then on, until they forget it here. */
+function IdentityConfirmations() {
+  const { api } = Route.useRouteContext();
+  const person = useAccountView(api, Route.useLoaderData()?.account);
+  const sites = Object.entries(person.state?.identityConfirmations || {});
+  const [error, setError] = useState<string | null>(null);
+  const [forgetting, setForgetting] = useState<string | null>(null);
+  // the button stays busy until the live state drops the row, as Disconnect's does
+  if (forgetting && !sites.some(([clientId]) => clientId === forgetting)) setForgetting(null);
+  if (!person.value || sites.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="identity-confirmations-heading">
+      <h2 id="identity-confirmations-heading" className="font-medium">
+        Sites that know who you are
+      </h2>
+      {error && (
+        <p role="alert" data-type="error" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <ul className="flex flex-col divide-y border-y" aria-label="Sites that know who you are">
+        {sites.map(([clientId, site]) => (
+          <li key={clientId} className="flex items-center gap-3 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium [overflow-wrap:anywhere]">{site.clientName}</p>
+              <p className="font-readme text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {URL.canParse(clientId) ? new URL(clientId).host : clientId} · since{" "}
+                {dateOf(Date.parse(site.at))}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Forget ${site.clientName}`}
+              disabled={Boolean(forgetting)}
+              onClick={async () => {
+                setError(null);
+                setForgetting(clientId);
+                try {
+                  await api.grants.forgetIdentity(clientId);
+                } catch (caught) {
+                  setError(caught instanceof Error ? caught.message : String(caught));
+                  setForgetting(null);
+                }
+              }}
+            >
+              {forgetting === clientId ? <Spinner data-icon="inline-start" /> : null}
+              Forget
+            </Button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
