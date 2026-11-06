@@ -2,5 +2,5 @@
   "name": "iterate-packages",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.24.0"
+  "packageManager": "pnpm@12.18.0"
 }

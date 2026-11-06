@@ -2,34 +2,47 @@
 # these packages alone, with the same settings and the catalog trimmed to what they use.
 packages:
   - packages/*
-
+# Every dependency two or more packages use is pinned here once and written `catalog:` in each
+# package.json; a dependency only one package uses keeps its version in that package.json. The
+# catalog is kept by hand: pnpm's other catalog modes have `pnpm add` write every new dependency
+# into it, rewriting this file.
+cleanupUnusedCatalogs: true
 catalog:
-  '@base-ui/react': ^1.8.0
-  '@cloudflare/vite-plugin': 1.67.0
-  '@cloudflare/workers-types': ^5.20261103.1
-  '@codemirror/autocomplete': ^6.20.3
-  '@codemirror/lang-css': ^6.3.1
-  '@codemirror/lang-html': ^6.4.12
-  '@codemirror/lang-javascript': ^6.2.5
-  '@codemirror/lang-json': ^6.0.2
-  '@codemirror/lang-markdown': ^6.5.2
-  '@codemirror/lang-sql': ^6.10.0
-  '@codemirror/lang-yaml': ^6.1.3
-  '@codemirror/language': ^6.12.4
-  '@codemirror/search': ^6.7.2
-  '@codemirror/state': ^6.7.6
-  '@codemirror/view': ^6.43.13
-  '@fsegurai/codemirror-theme-bundle': ^6.4.4
-  '@iterate-com/capnweb': 0.13.0
-  '@pierre/trees': 1.0.0-beta.6
-  '@tailwindcss/cli': ^4.3.3
-  '@tailwindcss/vite': ^4.3.3
-  '@tanstack/react-router': 1.170.39
-  '@tanstack/react-start': 1.168.58
-  '@types/node': ^24.13.6
-  '@types/react': ^19.3.0
-  '@types/react-dom': ^19.3.0
-  '@vitejs/plugin-react': ^6.1.1
+  # One Cloudflare toolchain for every Worker in the repo, pinned here even where one package uses
+  # it: the Vite plugin, the wrangler it builds and deploys with, the runtime types, the Workers
+  # test pool, and cf, which core/os runs `cf dev` and its local D1 migrate with, from
+  # cloudflare.config.ts in the @cloudflare/config format, which test/ reads too. core/os alone
+  # builds with the Vite plugin 2.0 beta (`catalog:vite-plugin-2`, below): the apps pass their
+  # Worker config through 1.x's `config` option, which 2.0 changes. Alchemy deploys core/os, on
+  # Effect: all pinned exactly, so every deployer runs the same set.
+  "@cloudflare/vite-plugin": 1.67.0
+  "@cloudflare/workers-types": ^5.20261103.1
+  wrangler: 4.158.0
+  "@base-ui/react": ^1.8.0
+  "@codemirror/autocomplete": ^6.20.3
+  "@codemirror/lang-css": ^6.3.1
+  "@codemirror/lang-html": ^6.4.12
+  "@codemirror/lang-javascript": ^6.2.5
+  "@codemirror/lang-json": ^6.0.2
+  "@codemirror/lang-markdown": ^6.5.2
+  "@codemirror/lang-sql": ^6.10.0
+  "@codemirror/lang-yaml": ^6.1.3
+  "@codemirror/language": ^6.12.4
+  "@codemirror/search": ^6.7.2
+  "@codemirror/state": ^6.7.6
+  "@codemirror/view": ^6.43.13
+  "@fsegurai/codemirror-theme-bundle": ^6.4.4
+  # the fork `capnweb` names below, under its own name: petshop-sdk publishes and imports it so
+  "@iterate-com/capnweb": 0.13.0
+  "@pierre/trees": 1.0.0-beta.6
+  "@tailwindcss/cli": ^4.3.3
+  "@tailwindcss/vite": ^4.3.3
+  "@tanstack/react-router": 1.170.39
+  "@tanstack/react-start": 1.168.58
+  "@types/node": ^24.13.6
+  "@types/react": ^19.3.0
+  "@types/react-dom": ^19.3.0
+  "@vitejs/plugin-react": ^6.1.1
   capnweb: npm:@iterate-com/capnweb@0.13.0
   class-variance-authority: ^0.7.1
   cn: ^0.4.0
@@ -47,57 +60,60 @@ catalog:
   tailwindcss: ^4.3.3
   trpc-cli: 0.17.0
   tsdown: 0.23.0
+  # TypeScript 7, the native compiler, and no 6 anywhere. typescript-eslint, under the oxlint
+  # jsPlugin @tanstack/eslint-plugin-router, peers on typescript <6.1 (typescript-eslint#10940), so
+  # pnpm warns of an unmet peer; the one rule lint loads from it never reaches TypeScript.
   tw-animate-css: ^1.4.0
   typescript: ^7.0.2
   vite: ^8.3.0
   vitest: ^4.1.11
-  wrangler: 4.158.0
+  # vitest's HTML reporter, the e2e rows' report in a cowboy run: vitest's own version
+  ws: 8.21.3
   yaml: ^2.9.1
   yjs: ^13.6.31
   zod: 4.6.5
-
 catalogs:
+  # core/os alone (the toolchain note at the top of `catalog`)
   vite-plugin-2:
-    '@cloudflare/vite-plugin': 2.0.0-beta.v.11
-
-cleanupUnusedCatalogs: true
-
+    "@cloudflare/vite-plugin": 2.0.0-beta.v.11
 minimumReleaseAge: 1440
-
 minimumReleaseAgeExclude:
+  # pinned exactly above, and taken the day it ships, with the packages each release carries
   - alchemy
-  - '@alchemy.run/*'
-  - '@distilled.cloud/*'
+  - "@alchemy.run/*"
+  - "@distilled.cloud/*"
   - miniflare
   - wrangler
   - workerd
-  - '@cloudflare/workerd-darwin-64'
-  - '@cloudflare/workerd-darwin-arm64'
-  - '@cloudflare/workerd-linux-64'
-  - '@cloudflare/workerd-linux-arm64'
-  - '@cloudflare/workerd-windows-64'
-  - '@cloudflare/unenv-preset'
-  - '@cloudflare/vite-plugin'
-  - '@cloudflare/vitest-plugin'
-  - '@cloudflare/workers-types'
+  - "@cloudflare/workerd-darwin-64"
+  - "@cloudflare/workerd-darwin-arm64"
+  - "@cloudflare/workerd-linux-64"
+  - "@cloudflare/workerd-linux-arm64"
+  - "@cloudflare/workerd-windows-64"
+  - "@cloudflare/unenv-preset"
+  - "@cloudflare/vite-plugin"
+  - "@cloudflare/vitest-plugin"
+  - "@cloudflare/workers-types"
   - middlewright
   - trpc-cli
-  - '@iterate-com/capnweb'
-
-onlyBuiltDependencies:
-  - '@tailwindcss/oxide'
-  - esbuild
-  - lightningcss
-  - sharp
-  - workerd
-
+  - "@iterate-com/capnweb"
+allowBuilds:
+  "@tailwindcss/oxide": true
+  esbuild: true
+  lightningcss: true
+  sharp: true
+  workerd: true
+  "@parcel/watcher": false
+  core-js: false
+  msw: false
 overrides:
-  '@codemirror/state': 'catalog:'
+  "@codemirror/state": "catalog:"
+  wrangler: "catalog:"
+  # One workerd for every Cloudflare tool: wrangler's and miniflare's exact pin. Alchemy's local dev
+  # runtime takes a caret range, which would otherwise resolve to a second, newer binary.
+  workerd: 1.20261104.1
+  ws: "catalog:"
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
   iterate: https://pkg.pr.new/iterate/private/iterate@9b5fc11ebc52b552de3006e93e91552ebe6da9fb
-  workerd: 1.20261104.1
-  wrangler: 'catalog:'
-  ws: '8.21.3'
-
 patchedDependencies:
   zod@4.6.5: patches/zod@4.6.5.patch
