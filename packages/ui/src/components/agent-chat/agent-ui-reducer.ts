@@ -8,7 +8,14 @@ import type { StreamEvent } from "./stream-event.ts";
 // Reduced from raw events: settled items, plus the in-flight activity and its
 // streamed text. Only a durable fact closes a step: `agent/llm-request-settled`
 // a model call, the context's `itx/run-settled` a script (the platform settles
-// every run, `deadline` or `interrupted` included).
+// every run, `deadline` or `interrupted` included), and a later intent one that
+// never opened (see `agent/llm-request-requested` below).
+//
+// The fold's memory is one turn long: once a turn is over `live` and the held
+// messages are empty, and the rest only stamps later rows. So folding from any
+// offset gives the rows folding from the first event gives, from the first turn
+// that starts after that offset on. The chat relies on this to read the newest
+// page of a log and older pages on request.
 
 /** One streamed window of an answer, as the agent's contract spells it. */
 const LlmResponseFrame =
@@ -42,6 +49,8 @@ export type AgentUiLlmStep = {
   inputTokens?: number;
   outputTokens?: number;
   durationMs?: number;
+  /** When its settlement landed. */
+  endedAtMs?: number;
   outcome?: "completed" | "failed" | "cancelled";
   /** Why a cancelled request stopped, when the UI recognizes the reason. */
   cancelReason?: AgentLlmRequestCancelReason;
@@ -60,6 +69,8 @@ export type AgentUiCodeStep = {
   result?: unknown;
   errorMessage?: string;
   durationMs?: number;
+  /** When its settlement landed. */
+  endedAtMs?: number;
   success?: boolean;
   startedAtMs: number;
   /** When the platform gives up on the run and settles it `deadline`: the
@@ -316,6 +327,8 @@ export type AgentUiState = {
    * a resume). A paused loop owes no follow-up round, so the "processing"
    * inference must not claim one. */
   paused: boolean;
+  /** The highest trigger an intent has named so far. */
+  latestTriggerOffset: number;
 };
 
 export function initialAgentUiState(): AgentUiState {
@@ -326,6 +339,7 @@ export function initialAgentUiState(): AgentUiState {
     summaryActivity: null,
     summaryActivityUpdatedAtMs: null,
     paused: false,
+    latestTriggerOffset: 0,
   };
 }
 
@@ -345,22 +359,19 @@ export function reduceAgentUi(
 }
 
 /**
- * Flush at an idle boundary the agent reports outside the journal, dated
- * `since`: once no step is running, the live activity closes and the deferred
- * and queued messages follow it. A running step stays running — only its own
- * settlement closes it. Callers render the returned items as a transient tail;
- * the reduction itself stays journal facts only.
+ * Flush at an idle boundary the agent reports outside the journal: once no step
+ * is running, the live activity closes and the deferred and queued messages
+ * follow it. A running step stays running — only its own settlement closes it.
+ * Callers render the returned items as a transient tail; the reduction itself
+ * stays journal facts only.
  */
-export function settleAgentUiAtIdleBoundary(
-  start: AgentUiState,
-  since: string,
-): { endState: AgentUiState; items: AgentUiItem[] } {
-  const boundaryAtMs = Date.parse(since);
-  if (!Number.isFinite(boundaryAtMs) || isAgentUiActivityWorking(start.live)) {
-    return { endState: start, items: [] };
-  }
+export function settleAgentUiAtIdleBoundary(start: AgentUiState): {
+  endState: AgentUiState;
+  items: AgentUiItem[];
+} {
+  if (isAgentUiActivityWorking(start.live)) return { endState: start, items: [] };
   const items: AgentUiItem[] = [];
-  const endState = flushDeferredMessages(settleLive(start, boundaryAtMs, items), items);
+  const endState = flushDeferredMessages(settleLive(start, items), items);
   return { endState, items };
 }
 
@@ -452,6 +463,19 @@ function reduceAgentUiEvent(
     }
 
     case "events.iterate.com/agent/llm-request-requested": {
+      // This event is an INTENT. The agent opens a request only for the intent
+      // naming its pending trigger, with nothing open (iterate/agents
+      // processor.ts), and nothing ever settles one it left unopened. A trigger
+      // only moves forward, and the next intent is scheduled only once the open
+      // request has settled. So an intent at or below the latest trigger never
+      // opens, and an earlier intent still unsettled when this one lands never
+      // opened.
+      const triggerOffset = readNumber(event, "triggerOffset");
+      if (triggerOffset !== null && triggerOffset <= state.latestTriggerOffset) return state;
+      const opening = withoutRunningRequests({
+        ...state,
+        latestTriggerOffset: triggerOffset ?? state.latestTriggerOffset,
+      });
       // The agent builds a request's prompt from the log, so this request
       // answers every queued input: the activity it waited behind closes, and
       // every held message moves into the transcript in log order. A step
@@ -459,9 +483,9 @@ function reduceAgentUiEvent(
       // its activity live, since only its settlement ends it; this request
       // joins that activity, and the script's later replies wait for it.
       const ready =
-        state.queuedUserMessages.length === 0 && state.live
-          ? state
-          : flushDeferredMessages(settleLive(state, timestampMs, items), items);
+        opening.queuedUserMessages.length === 0 && opening.live
+          ? opening
+          : flushDeferredMessages(settleLive(opening, items), items);
       const live = ensureLive(ready, event.offset, timestampMs);
       const model = readString(event, "model");
       const step: AgentUiLlmStep = {
@@ -527,6 +551,7 @@ function reduceAgentUiEvent(
           : {
               ...step,
               status: "done",
+              endedAtMs: timestampMs,
               outcome:
                 status === "succeeded" ? "completed" : status === "failed" ? "failed" : "cancelled",
               // partialText is the authoritative superset: it accrued per
@@ -596,6 +621,7 @@ function reduceAgentUiEvent(
         ...step,
         status: "done",
         durationMs: Math.max(0, timestampMs - step.startedAtMs),
+        endedAtMs: timestampMs,
         ...(settlement.status === "succeeded"
           ? {
               success: true,
@@ -631,7 +657,7 @@ function reduceAgentUiEvent(
           (repliedAtOnce && turnEnds)) &&
         !isAgentUiActivityWorking(next.live)
       ) {
-        return flushDeferredMessages(settleLive(next, timestampMs, items), items);
+        return flushDeferredMessages(settleLive(next, items), items);
       }
       return next;
     }
@@ -669,7 +695,7 @@ function reduceAgentUiEvent(
     // open, and that request settles normally.
     case "events.iterate.com/itx/paused":
     case "events.iterate.com/agent/paused": {
-      const settled = settleLive({ ...state, paused: true }, timestampMs, items);
+      const settled = settleLive({ ...state, paused: true }, items);
       const flushed = settled.live ? settled : flushDeferredMessages(settled, items);
       items.push({
         kind: "stream-paused",
@@ -710,13 +736,29 @@ function ensureLive(state: AgentUiState, offset: number, startedAtMs: number): A
 }
 
 /**
- * Close the live activity once nothing in it runs — every step closed by its
- * own settlement — and emit it as a settled item. A working activity stays
- * live: nothing but a step's settlement ends it.
+ * The state without its running requests: what is left once they are known
+ * never to have opened. An activity that held nothing else goes with them.
  */
-function settleLive(state: AgentUiState, endedAtMs: number, items: AgentUiItem[]): AgentUiState {
+export function withoutRunningRequests(state: AgentUiState): AgentUiState {
+  if (!state.live) return state;
+  const steps = state.live.steps.filter((step) => step.kind !== "llm" || step.status !== "running");
+  if (steps.length === state.live.steps.length) return state;
+  return { ...state, live: steps.length > 0 ? { ...state.live, steps } : null };
+}
+
+/**
+ * Close the live activity once nothing in it runs — every step closed by its
+ * own settlement — and emit it as a settled item, ended when its last step did:
+ * what closes it can come much later (the next words after a silent turn). A
+ * working activity stays live: nothing but a step's settlement ends it.
+ */
+function settleLive(state: AgentUiState, items: AgentUiItem[]): AgentUiState {
   if (!state.live || isAgentUiActivityWorking(state.live)) return state;
-  if (state.live.steps.length > 0) items.push({ ...state.live, status: "done", endedAtMs });
+  const { steps } = state.live;
+  if (steps.length > 0) {
+    const endedAtMs = Math.max(...steps.map((step) => step.endedAtMs ?? step.startedAtMs));
+    items.push({ ...state.live, status: "done", endedAtMs });
+  }
   return { ...state, live: null };
 }
 
@@ -743,7 +785,7 @@ function emitUserMessageItem(
   items: AgentUiItem[],
   item: AgentUiMessageItem,
 ): AgentUiState {
-  const settled = settleLive(state, item.timestampMs, items);
+  const settled = settleLive(state, items);
   if (isAgentUiActivityWorking(settled.live)) {
     return { ...settled, queuedUserMessages: [...settled.queuedUserMessages, item] };
   }
@@ -770,7 +812,7 @@ function emitAssistantMessageItem(
   llmRequestOffset: number | null,
 ): AgentUiState {
   // A live activity that survives settleLive is working.
-  const settled = settleLive(state, item.timestampMs, items);
+  const settled = settleLive(state, items);
   if (!settled.live) {
     const flushed = flushDeferredMessages(settled, items);
     items.push(item);

@@ -79,13 +79,11 @@ export function useTickingNowMs(intervalMs: number, stopAtMs: number | null = nu
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      let unsubscribe = () => {};
       const pastBoundary = () => typeof stopAtMs === "number" && clock.getSnapshot() >= stopAtMs;
-      const notifyUntilBoundary = () => {
+      const unsubscribe = clock.subscribe(() => {
         onStoreChange();
         if (pastBoundary()) unsubscribe();
-      };
-      unsubscribe = clock.subscribe(notifyUntilBoundary);
+      });
       if (pastBoundary()) unsubscribe();
       return unsubscribe;
     },

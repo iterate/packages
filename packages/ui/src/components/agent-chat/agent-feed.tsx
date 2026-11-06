@@ -2,7 +2,7 @@
 // requests · 7.4 s" activity row that opens into rounds — the LLM step that wrote a script and the
 // code step that ran it, each a `Script | Result | Meta` tab group. Items come from the shared
 // reducer (agent-ui-reducer.ts); this file owns only their look.
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import {
   BanIcon,
   ChevronRightIcon,
@@ -32,6 +32,7 @@ import {
 } from "./agent-ui-reducer.ts";
 import { sliceText } from "./chunked-text.ts";
 import {
+  authoredScript,
   formatClockTime,
   formatDateTime,
   formatElapsedSeconds,
@@ -55,7 +56,9 @@ export type Inspect = {
 /** A signed download URL for a file under the agent's path — the page's `itx.files` call. */
 export type SignedUrl = (path: string) => Promise<string>;
 
-export function AgentFeedItemRow({
+/** Memoised: a settled item keeps its identity (`foldAgentLog`), so a streamed frame re-renders the
+ *  live row alone. */
+export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   item,
   expanded,
   onToggle,
@@ -87,7 +90,7 @@ export function AgentFeedItemRow({
             {/* Settled text never streams: static mode renders synchronously and skips the
                 unpaired-marker balancing that appends a phantom `*` to "17 * 23". */}
             <MessageResponse
-              className="min-w-0 max-w-full overflow-hidden"
+              className="min-w-0 max-w-full"
               mode="static"
               parseIncompleteMarkdown={false}
             >
@@ -102,7 +105,7 @@ export function AgentFeedItemRow({
               <button
                 type="button"
                 onClick={() => inspect.llmRequest(traceOffset)}
-                className="self-start text-2xs text-muted-foreground/60 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                className="self-start text-2xs text-muted-foreground/60 opacity-0 transition-opacity pointer-coarse:opacity-100 hover:text-foreground group-hover:opacity-100"
                 title="See the model's raw response and the code this turn ran"
               >
                 trace ›
@@ -137,7 +140,7 @@ export function AgentFeedItemRow({
       );
     }
   }
-}
+});
 
 // ── the settled activity: the quiet "Ran code 2× · 3 requests · 7.4 s" row ──
 
@@ -168,7 +171,7 @@ function AgentActivityRow({
         title="Agent activity — click to see what it did"
         onClick={() => onToggle(activity.id)}
         className={cn(
-          "-ml-2.5 self-start font-medium text-muted-foreground",
+          "-ml-2.5 max-w-full self-start font-medium text-muted-foreground",
           failed && "text-destructive hover:text-destructive",
         )}
       >
@@ -179,19 +182,21 @@ function AgentActivityRow({
         ) : (
           <CodeIcon data-icon="inline-start" className="text-muted-foreground/60" />
         )}
-        {!activityLabel || summary.outcome !== "clean"
-          ? `${activityLabel ? `${activityLabel} · ` : ""}${formatAgentUiActivitySummary(activity, {
-              summary,
-              interruptedPartialHint: "click to see partial response",
-            })}`
-          : [
-              activityLabel,
-              activity.endedAtMs
-                ? formatAgentUiDuration(Math.max(0, activity.endedAtMs - activity.startedAtMs))
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+        <span className="min-w-0 truncate">
+          {!activityLabel || summary.outcome !== "clean"
+            ? `${activityLabel ? `${activityLabel} · ` : ""}${formatAgentUiActivitySummary(
+                activity,
+                { summary, interruptedPartialHint: "click to see partial response" },
+              )}`
+            : [
+                activityLabel,
+                activity.endedAtMs
+                  ? formatAgentUiDuration(Math.max(0, activity.endedAtMs - activity.startedAtMs))
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+        </span>
         <ChevronRightIcon
           data-icon="inline-end"
           className={cn("text-muted-foreground/50 transition-transform", expanded && "rotate-90")}
@@ -220,7 +225,7 @@ function AgentActivityRounds({
     <>
       {rounds.map((round, index) => (
         <RoundRow
-          key={round.code?.id || round.llm?.id || index}
+          key={round.code?.id || round.llm?.id}
           round={round}
           index={index}
           inspect={inspect}
@@ -417,80 +422,101 @@ function RoundTabs({
         </TabsTrigger>
       </TabsList>
       <TabsContent value="script" className="flex flex-col gap-1.5">
-        <div className="max-h-80 overflow-y-auto rounded-lg">
-          <CodeBlock
-            code={authored || code.code}
-            language="typescript"
-            showLineNumbers={false}
-            reindent
-          />
-        </div>
-        {!hasResult && code.errorMessage ? (
-          <pre
-            data-type="error"
-            className="whitespace-pre-wrap px-1.5 font-mono text-xs text-destructive"
-          >
-            {code.errorMessage}
-          </pre>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="xs"
-          title="Open this script's execution trace"
-          onClick={() => inspect.scriptRun(code.requestOffset)}
-          className="-ml-2 self-start font-normal text-muted-foreground"
-        >
-          Execution trace
-          <ChevronRightIcon data-icon="inline-end" className="text-muted-foreground/50" />
-        </Button>
+        <ScriptPane
+          source={authored || code.code}
+          error={hasResult ? undefined : code.errorMessage}
+          onTrace={() => inspect.scriptRun(code.requestOffset)}
+        />
       </TabsContent>
       <TabsContent value="result" className="flex flex-col gap-2">
         <ScriptResult code={code} />
       </TabsContent>
       {wrapped ? (
         <TabsContent value="full" className="flex flex-col gap-1.5">
-          <div className="max-h-80 overflow-y-auto rounded-lg">
-            <CodeBlock code={code.code} language="typescript" showLineNumbers={false} />
-          </div>
+          <CodeBlock code={code.code} language="typescript" showLineNumbers={false} />
         </TabsContent>
       ) : null}
       <TabsContent value="meta" className="flex flex-col gap-1.5">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-1.5 font-mono text-xs">
-          {llm ? (
-            <>
-              <dt className="text-muted-foreground">model</dt>
-              <dd>{llm.model || "?"}</dd>
-              <dt className="text-muted-foreground">requested</dt>
-              <dd>{formatDateTime(llm.startedAtMs)}</dd>
-              <dt className="text-muted-foreground">response</dt>
-              <dd>
-                {llm.durationMs == null ? "—" : formatAgentUiDuration(llm.durationMs)}
-                {llm.outcome && llm.outcome !== "completed" ? ` · ${llm.outcome}` : ""}
-              </dd>
-            </>
-          ) : null}
-          <dt className="text-muted-foreground">script</dt>
-          <dd>
-            {code.durationMs == null ? "running" : formatAgentUiDuration(code.durationMs)}
-            {code.success === false ? " · failed" : ""}
-          </dd>
-          <dt className="text-muted-foreground">run</dt>
-          <dd className="truncate">#{code.requestOffset}</dd>
-        </dl>
-        {llm ? <FullTraceButton onClick={() => inspect.llmRequest(llm.llmRequestOffset)} /> : null}
+        <RoundMeta llm={llm} code={code} inspect={inspect} />
       </TabsContent>
     </Tabs>
   );
 }
 
-/** The model's own code inside the agent loop's envelope (core/lib results-preamble.ts wraps it
- *  between these markers), or null for a script that has no envelope. */
-export function authoredScript(code: string): string | null {
-  const open = "//#region your script";
-  const start = code.indexOf(open);
-  const end = code.lastIndexOf("//#endregion your script");
-  if (start === -1 || end < start) return null;
-  return code.slice(start + open.length, end).trim();
+function ScriptPane({
+  source,
+  error,
+  onTrace,
+}: {
+  source: string;
+  error: string | undefined;
+  onTrace: () => void;
+}) {
+  return (
+    <>
+      <CodeBlock code={source} language="typescript" showLineNumbers={false} reindent />
+      {error ? (
+        <pre
+          data-type="error"
+          className="whitespace-pre-wrap px-1.5 font-mono text-xs text-destructive"
+        >
+          {error}
+        </pre>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="xs"
+        title="Open this script's execution trace"
+        onClick={onTrace}
+        className="-ml-2 self-start font-normal text-muted-foreground"
+      >
+        Execution trace
+        <ChevronRightIcon data-icon="inline-end" className="text-muted-foreground/50" />
+      </Button>
+    </>
+  );
+}
+
+function RoundMeta({
+  llm,
+  code,
+  inspect,
+}: {
+  llm: AgentUiLlmStep | null;
+  code: AgentUiCodeStep;
+  inspect: Inspect;
+}) {
+  return (
+    <>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-1.5 font-mono text-xs">
+        {llm ? <LlmMeta llm={llm} /> : null}
+        <dt className="text-muted-foreground">script</dt>
+        <dd>
+          {code.durationMs == null ? "running" : formatAgentUiDuration(code.durationMs)}
+          {code.success === false ? " · failed" : ""}
+        </dd>
+        <dt className="text-muted-foreground">run</dt>
+        <dd className="truncate">#{code.requestOffset}</dd>
+      </dl>
+      {llm ? <FullTraceButton onClick={() => inspect.llmRequest(llm.llmRequestOffset)} /> : null}
+    </>
+  );
+}
+
+function LlmMeta({ llm }: { llm: AgentUiLlmStep }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">model</dt>
+      <dd>{llm.model || "?"}</dd>
+      <dt className="text-muted-foreground">requested</dt>
+      <dd>{formatDateTime(llm.startedAtMs)}</dd>
+      <dt className="text-muted-foreground">response</dt>
+      <dd>
+        {llm.durationMs == null ? "—" : formatAgentUiDuration(llm.durationMs)}
+        {llm.outcome && llm.outcome !== "completed" ? ` · ${llm.outcome}` : ""}
+      </dd>
+    </>
+  );
 }
 
 /** The script's returned value: a string as itself, anything else as YAML with a JSON toggle. */
@@ -512,13 +538,11 @@ function ScriptResult({ code }: { code: AgentUiCodeStep }) {
           </p>
         )
       ) : typeof code.result === "string" ? (
-        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed">
+        <pre className="whitespace-pre-wrap rounded-lg wrap-break-word bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed">
           {code.result}
         </pre>
       ) : (
-        <div className="max-h-80 overflow-y-auto rounded-lg">
-          <SerializedObjectCodeBlock data={code.result} />
-        </div>
+        <SerializedObjectCodeBlock data={code.result} />
       )}
     </>
   );
@@ -550,7 +574,6 @@ export function AgentLiveActivity({
   const runningSteps = live.steps.filter((step) => step.status === "running");
   const liveStep = runningSteps.at(-1);
   const doneSteps = live.steps.filter((step) => step.status === "done");
-  const doneSummary = summarizeAgentUiActivity(live, doneSteps);
   const status = deriveAgentUiLiveStatus(state);
   // "processing": no step runs, but the journal already owes one (a script the model wrote, or the
   // round after a script's value), so the live row keeps its spinner through the gap.
@@ -573,82 +596,118 @@ export function AgentLiveActivity({
     );
   }
 
-  const currentLabel = status?.statusText || liveActivityLabel(runningSteps);
-  // With no step running (the "processing" gap), the clock counts from when the last step ended.
-  const lastStep = live.steps.at(-1);
-  const currentStartedAtMs =
-    liveStep?.startedAtMs ??
-    (lastStep ? lastStep.startedAtMs + (lastStep.durationMs ?? 0) : live.startedAtMs);
-  const inspectCurrentWork =
-    liveStep?.kind === "llm"
-      ? () => inspect.llmRequest(liveStep.llmRequestOffset)
-      : liveStep?.kind === "code"
-        ? () => inspect.scriptRun(liveStep.requestOffset)
-        : undefined;
-
   return (
     <div className="flex flex-col py-0.5" data-kind="live">
       {doneSteps.length > 0 ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={activityExpanded}
-          title="Agent activity so far — click to see details"
-          onClick={toggleActivity}
-          className="-ml-2.5 self-start font-mono text-xs font-normal text-muted-foreground"
-          data-testid="agent-live-summary"
-        >
-          {doneSummary.codeCount > 0 ? (
-            <CodeIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-          ) : (
-            <span className="shrink-0 text-2xs leading-none text-muted-foreground/60">✦</span>
-          )}
-          <span>
-            {formatAgentUiActivitySummary(live, {
-              summary: doneSummary,
-              interruptedPartialHint: "click to see partial response",
-            })}
-          </span>
-          <ChevronRightIcon
-            className={cn(
-              "size-2.5 text-muted-foreground/50 transition-transform",
-              activityExpanded && "rotate-90",
-            )}
-            aria-hidden="true"
-          />
-        </Button>
+        <LiveActivitySummary
+          live={live}
+          doneSteps={doneSteps}
+          expanded={activityExpanded}
+          onToggle={toggleActivity}
+        />
       ) : null}
-      {showStepRail ? (
-        <div className="mb-1.5 ml-1 mt-0.5 flex flex-col gap-1 border-l-2 border-muted py-1 pl-4">
-          {/* Rounds, like the settled rail — except the round whose llm step is still streaming
-              (no code step, so no tab bar yet): its thinking/response text streams in place. */}
-          {groupActivityRounds(live.steps).map((round, index) =>
-            !round.code && round.llm && round.llm.status === "running" ? (
-              round.llm === liveStep && liveStepHasVisibleContent(round.llm) ? (
-                <LiveStepStream key={round.llm.id} step={round.llm} />
-              ) : null
-            ) : (
-              <RoundRow
-                key={round.code?.id || round.llm?.id || index}
-                round={round}
-                index={index}
-                inspect={inspect}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
+      {showStepRail ? <LiveStepRail live={live} liveStep={liveStep} inspect={inspect} /> : null}
       {/* The running answer streams below the status even when the rail is collapsed — this is
           the whole point of the live tail. */}
       {!showStepRail && liveStep && liveStepHasVisibleContent(liveStep) ? (
         <LiveStepStream step={liveStep} />
       ) : null}
       <AgentLiveStatus
-        label={currentLabel}
-        startedAtMs={currentStartedAtMs}
+        label={status?.statusText || liveActivityLabel(runningSteps)}
+        startedAtMs={currentWorkStartedAtMs(live, liveStep)}
         deadlineMs={liveStep?.kind === "code" ? liveStep.deadlineAtMs : null}
-        onInspect={inspectCurrentWork}
+        onInspect={inspectStep(liveStep, inspect)}
       />
+    </div>
+  );
+}
+
+/** With no step running (the "processing" gap), the clock counts from when the last step ended. */
+function currentWorkStartedAtMs(live: AgentUiActivity, liveStep: AgentUiStep | undefined) {
+  if (liveStep) return liveStep.startedAtMs;
+  const lastStep = live.steps.at(-1);
+  return lastStep ? lastStep.startedAtMs + (lastStep.durationMs ?? 0) : live.startedAtMs;
+}
+
+/** Opening a running step's trace, when one is running. */
+function inspectStep(step: AgentUiStep | undefined, inspect: Inspect) {
+  if (step?.kind === "llm") return () => inspect.llmRequest(step.llmRequestOffset);
+  if (step?.kind === "code") return () => inspect.scriptRun(step.requestOffset);
+  return undefined;
+}
+
+/** The turn so far, above what runs now. */
+function LiveActivitySummary({
+  live,
+  doneSteps,
+  expanded,
+  onToggle,
+}: {
+  live: AgentUiActivity;
+  doneSteps: readonly AgentUiStep[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const summary = summarizeAgentUiActivity(live, doneSteps);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-expanded={expanded}
+      title="Agent activity so far — click to see details"
+      onClick={onToggle}
+      className="-ml-2.5 self-start font-mono text-xs font-normal text-muted-foreground"
+      data-testid="agent-live-summary"
+    >
+      {summary.codeCount > 0 ? (
+        <CodeIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+      ) : (
+        <span className="shrink-0 text-2xs leading-none text-muted-foreground/60">✦</span>
+      )}
+      <span>
+        {formatAgentUiActivitySummary(live, {
+          summary,
+          interruptedPartialHint: "click to see partial response",
+        })}
+      </span>
+      <ChevronRightIcon
+        className={cn(
+          "size-2.5 text-muted-foreground/50 transition-transform",
+          expanded && "rotate-90",
+        )}
+        aria-hidden="true"
+      />
+    </Button>
+  );
+}
+
+/** Rounds, like the settled rail — except the round whose llm step is still streaming (no code
+ *  step, so no tab bar yet): its thinking/response text streams in place. */
+function LiveStepRail({
+  live,
+  liveStep,
+  inspect,
+}: {
+  live: AgentUiActivity;
+  liveStep: AgentUiStep | undefined;
+  inspect: Inspect;
+}) {
+  return (
+    <div className="mb-1.5 ml-1 mt-0.5 flex flex-col gap-1 border-l-2 border-muted py-1 pl-4">
+      {groupActivityRounds(live.steps).map((round, index) =>
+        !round.code && round.llm && round.llm.status === "running" ? (
+          round.llm === liveStep && liveStepHasVisibleContent(round.llm) ? (
+            <LiveStepStream key={round.llm.id} step={round.llm} />
+          ) : null
+        ) : (
+          <RoundRow
+            key={round.code?.id || round.llm?.id}
+            round={round}
+            index={index}
+            inspect={inspect}
+          />
+        ),
+      )}
     </div>
   );
 }

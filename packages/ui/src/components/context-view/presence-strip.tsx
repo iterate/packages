@@ -9,21 +9,26 @@ import type { ContextViewEvent, ContextViewPresence } from "./types.tsx";
  *  every few seconds while there are any so the rate falls when the log goes quiet; nothing when
  *  the minute was quiet. */
 export function EventRate({ events }: { events: readonly ContextViewEvent[] }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [count, setCount] = useState(() => eventsInLastMinute(events));
+  useEffect(() => {
+    const recount = () => setCount(eventsInLastMinute(events));
+    recount(); // a new event restarts the minute from now
+    if (eventsInLastMinute(events) === 0) return;
+    const timer = setInterval(recount, 5_000);
+    return () => clearInterval(timer);
+  }, [events]);
+  if (count === 0) return null;
+  return <span title="Events in the last minute">{` · ${String(count)}/min`}</span>;
+}
+
+function eventsInLastMinute(events: readonly ContextViewEvent[]) {
+  const now = Date.now();
   let count = 0;
   for (let at = events.length - 1; at >= 0; at--) {
     if (now - Date.parse(events[at]!.createdAt) > 60_000) break;
     count += 1;
   }
-  useEffect(() => {
-    if (count === 0) return;
-    const timer = setInterval(() => setNow(Date.now()), 5_000);
-    return () => clearInterval(timer);
-  }, [count]);
-  // a new event restarts the minute from now
-  useEffect(() => setNow(Date.now()), [events]);
-  if (count === 0) return null;
-  return <span title="Events in the last minute">{` · ${String(count)}/min`}</span>;
+  return count;
 }
 
 export function PresenceStrip({

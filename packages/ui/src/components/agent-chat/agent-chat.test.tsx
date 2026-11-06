@@ -3,7 +3,7 @@
 // log alone then decides when a turn is over, instead of waiting on "Connecting…" for good.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { AgentChat } from "./agent-chat.tsx";
 
 Object.assign(globalThis, {
@@ -89,10 +89,55 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
   expect(chat.status()).toBe(status);
 });
 
+test("a newest page with nothing to say is no proof of silence: the chat reads on and shows how far, instead of claiming nothing was said", async () => {
+  const loadOlder = vi.fn();
+  using _chat = await mount({
+    processors: { rows: [], loaded: true },
+    liveState: {},
+    events: [
+      {
+        offset: 9_000,
+        type: "events.iterate.com/itx/woken",
+        createdAt: "2026-11-06T00:00:00.000Z",
+        payload: {},
+      },
+    ],
+    head: 10_000,
+    older: { loadOlder, loading: false, exhausted: false },
+  });
+  expect(loadOlder).toHaveBeenCalled();
+  expect(document.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("10");
+  expect(document.body.textContent).not.toContain("Nothing said yet");
+});
+
+test("a request the agent facet has not reported yet still shows as running: a pending trigger is an obligation", async () => {
+  using _chat = await mount({
+    processors: { rows: [], loaded: true },
+    liveState: {
+      agent: {
+        status: "live",
+        value: { paused: null, openRequest: null, pendingLlmRequestTrigger: {} },
+      },
+    },
+    events: [
+      {
+        offset: 5,
+        type: "events.iterate.com/agent/llm-request-requested",
+        createdAt: "2026-11-06T00:00:00.000Z",
+        payload: { model: "m", expiresAt: 9e12, triggerOffset: 4 },
+      },
+    ],
+  });
+  expect(document.querySelector("button[title='Stop generation']")).not.toBeNull();
+});
+
 type Context = ComponentProps<typeof AgentChat>["context"];
 
 /** The chat mounted in the document over an empty log; disposing unmounts it and clears the page. */
-async function mount(context: Pick<Context, "processors" | "liveState">) {
+async function mount(
+  context: Pick<Context, "processors" | "liveState"> &
+    Partial<Pick<Context, "events" | "head" | "older">>,
+) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () =>
     root.render(
@@ -108,7 +153,7 @@ async function mount(context: Pick<Context, "processors" | "liveState">) {
         state={{}}
         onStateChange={() => {}}
         onMessage={async () => {}}
-        onAppend={undefined}
+        onAppend={async () => {}}
         signedUrl={async () => ""}
       />,
     ),

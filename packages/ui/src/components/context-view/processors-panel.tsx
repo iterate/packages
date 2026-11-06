@@ -243,8 +243,6 @@ function Subscriber({
 }) {
   const kind = kindOf(row);
   const status = statusOf(row, kind);
-  const lag =
-    row.cursor && head !== undefined ? Math.max(0, head - row.cursor.confirmedOffset) : undefined;
   return (
     <section className="flex min-w-0 flex-col gap-1.5 py-3 first:pt-1">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
@@ -252,61 +250,7 @@ function Subscriber({
         <span className="text-xs text-muted-foreground">{KIND_LABEL[kind]}</span>
         <span className={cn("ml-auto text-xs", status.tone)}>{status.label}</span>
       </div>
-      <dl className="grid grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
-        <Fact label="consumes">
-          <span className="font-mono break-all">{consumesText(row.consumes)}</span>
-        </Fact>
-        <Fact label="delivers to">
-          <span className="font-mono break-all">{row.target}</span>
-        </Fact>
-        {row.hostedFacet ? (
-          <Fact label="hosts">
-            <span className="font-mono break-all">
-              {row.hostedFacet.className}
-              {row.hostedFacet.name === row.name ? "" : ` as ${row.hostedFacet.name}`}
-            </span>
-            <span
-              className={cn(
-                "ml-2",
-                row.hostedFacet.restarts > 0 ? "text-warning" : "text-muted-foreground",
-              )}
-              title="How often the platform failed the facet at its start and restarted it"
-            >
-              {row.hostedFacet.restarts > 0
-                ? `restarted ${row.hostedFacet.restarts}×`
-                : "never restarted"}
-            </span>
-          </Fact>
-        ) : null}
-        <Fact label="since">
-          <span className="tabular-nums">
-            configured at #{row.configuredAtOffset.toLocaleString()}
-            {row.afterOffset !== undefined && row.afterOffset !== row.configuredAtOffset
-              ? `, delivering after #${row.afterOffset.toLocaleString()}`
-              : ""}
-          </span>
-        </Fact>
-        {row.cursor ? (
-          <Fact label="confirmed">
-            <span className="tabular-nums">
-              #{row.cursor.confirmedOffset.toLocaleString()}
-              {lag === undefined ? null : (
-                <span className={cn("ml-2", lag > 0 ? "text-warning" : "text-muted-foreground")}>
-                  lag {lag.toLocaleString()}
-                </span>
-              )}
-            </span>
-          </Fact>
-        ) : null}
-        {row.halted ? (
-          <Fact label="halted">
-            <span className="text-destructive">
-              after #{row.halted.afterOffset.toLocaleString()}, {row.halted.attempts} attempts
-              {row.halted.error ? `: ${row.halted.error}` : ""}
-            </span>
-          </Fact>
-        ) : null}
-      </dl>
+      <SubscriberFacts row={row} head={head} />
       {state ? (
         <div className="flex min-w-0 flex-col gap-1 pt-1">
           <p className="text-xs text-muted-foreground">Live state</p>
@@ -314,6 +258,77 @@ function Subscriber({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** A subscriber's facts, label by value. */
+function SubscriberFacts({ row, head }: { row: ContextViewProcessor; head: number | undefined }) {
+  return (
+    <dl className="grid grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
+      <Fact label="consumes">
+        <span className="font-mono break-all">{consumesText(row.consumes)}</span>
+      </Fact>
+      <Fact label="delivers to">
+        <span className="font-mono break-all">{row.target}</span>
+      </Fact>
+      {row.hostedFacet ? <HostedFacetFact facet={row.hostedFacet} name={row.name} /> : null}
+      <Fact label="since">
+        <span className="tabular-nums">
+          configured at #{row.configuredAtOffset.toLocaleString()}
+          {row.afterOffset !== undefined && row.afterOffset !== row.configuredAtOffset
+            ? `, delivering after #${row.afterOffset.toLocaleString()}`
+            : ""}
+        </span>
+      </Fact>
+      {row.cursor ? <ConfirmedFact confirmed={row.cursor.confirmedOffset} head={head} /> : null}
+      {row.halted ? (
+        <Fact label="halted">
+          <span className="text-destructive">
+            after #{row.halted.afterOffset.toLocaleString()}, {row.halted.attempts} attempts
+            {row.halted.error ? `: ${row.halted.error}` : ""}
+          </span>
+        </Fact>
+      ) : null}
+    </dl>
+  );
+}
+
+function HostedFacetFact({
+  facet,
+  name,
+}: {
+  facet: NonNullable<ContextViewProcessor["hostedFacet"]>;
+  name: string;
+}) {
+  return (
+    <Fact label="hosts">
+      <span className="font-mono break-all">
+        {facet.className}
+        {facet.name === name ? "" : ` as ${facet.name}`}
+      </span>
+      <span
+        className={cn("ml-2", facet.restarts > 0 ? "text-warning" : "text-muted-foreground")}
+        title="How often the platform failed the facet at its start and restarted it"
+      >
+        {facet.restarts > 0 ? `restarted ${facet.restarts}×` : "never restarted"}
+      </span>
+    </Fact>
+  );
+}
+
+function ConfirmedFact({ confirmed, head }: { confirmed: number; head: number | undefined }) {
+  const lag = head === undefined ? undefined : Math.max(0, head - confirmed);
+  return (
+    <Fact label="confirmed">
+      <span className="tabular-nums">
+        #{confirmed.toLocaleString()}
+        {lag === undefined ? null : (
+          <span className={cn("ml-2", lag > 0 ? "text-warning" : "text-muted-foreground")}>
+            lag {lag.toLocaleString()}
+          </span>
+        )}
+      </span>
+    </Fact>
   );
 }
 

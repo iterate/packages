@@ -7,16 +7,8 @@ import { memo } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
 import { housekeepingSummary } from "./core-renderers.tsx";
-import {
-  EventSentence,
-  formatClockTime,
-  RowGutter,
-  RowOffset,
-  RowTimes,
-  RowWho,
-  rowBody,
-  rowClass,
-} from "./event-row.tsx";
+import { formatClockTime, rowClass } from "./event-row-format.ts";
+import { EventSentence, RowGutter, RowOffset, RowTimes, RowWho, rowBody } from "./event-row.tsx";
 import { actorLabel } from "./filters.tsx";
 import type { ContextViewEvent, EventRenderers } from "./types.tsx";
 

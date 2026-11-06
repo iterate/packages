@@ -563,7 +563,7 @@ test("keeps the live indicator while a running script emits chat messages", () =
     status: "running",
   });
 
-  const completed = settleAtIdle(reduceAll([...countdownEvents, runSettled(3)]), 20);
+  const completed = settleAtIdle(reduceAll([...countdownEvents, runSettled(3)]));
 
   expect(completed.live).toBeNull();
   expect(completed.items.map((item) => item.kind)).toEqual(["activity", "assistant"]);
@@ -756,7 +756,6 @@ test("settles a completed LLM request at run-level idle even without an assistan
         },
       },
     ]),
-    8,
   );
 
   expect(state.live).toBeNull();
@@ -773,7 +772,7 @@ test("the reported idle boundary closes no running step: the model call and the 
     { type: "events.iterate.com/agent/llm-request-requested", offset: 1, payload: { model: "m" } },
     runRequested(2, "async () => mutateExternalState()"),
   ];
-  const idle = settleAtIdle(reduceAll(events), 8);
+  const idle = settleAtIdle(reduceAll(events));
 
   expect(idle).toMatchObject({ items: [] });
   expect(idle.live?.steps).toMatchObject([
@@ -796,7 +795,6 @@ test("the reported idle boundary closes no running step: the model call and the 
         failureKind: "deadline",
       }),
     ]),
-    8,
   );
   expect(settled.live).toBeNull();
   expect(settled.items).toMatchObject([
@@ -818,13 +816,12 @@ test("the reported idle boundary closes no running step: the model call and the 
 
 test("a script settlement that lands after the idle report closes the step it names", () => {
   const requested = runRequested(10, "async () => mutate()");
-  const idle = settleAtIdle(reduceAll([requested]), 10);
+  const idle = settleAtIdle(reduceAll([requested]));
   expect(idle).toMatchObject({ items: [] });
   expect(idle.live?.steps).toMatchObject([{ kind: "code", requestOffset: 10, status: "running" }]);
 
   const settled = settleAtIdle(
     reduceAll([requested, runSettled(10, { status: "succeeded", result: { committed: true } })]),
-    11,
   );
   expect(settled.items).toMatchObject([
     {
@@ -845,7 +842,6 @@ test("an activity with one of its two scripts still running stays live at the id
       runRequested(11, "async () => mutateB()"),
       runSettled(10, { status: "succeeded", result: "a" }),
     ]),
-    12,
   );
 
   expect(state).toMatchObject({ items: [] });
@@ -866,7 +862,7 @@ test("the reported idle boundary never closes a running model call: only its llm
       payload: { model: "gpt-test" },
     },
   ]);
-  const projected = settleAtIdle(state, 11);
+  const projected = settleAtIdle(state);
 
   expect(projected).toMatchObject({ items: [] });
   expect(projected.live?.steps).toMatchObject([{ kind: "llm", status: "running" }]);
@@ -892,7 +888,7 @@ test("the reported idle boundary settles the activity after a later journal even
     },
   ]);
 
-  const projected = settleAtIdle(state, 3);
+  const projected = settleAtIdle(state);
 
   expect(projected.live).toBeNull();
   expect(projected.items).toMatchObject([
@@ -1402,7 +1398,6 @@ test("groups expired and unrecognized cancellations into one failed activity", (
         payload: { requestOffset: 11, result: { status: "cancelled", reason: "expired" } },
       },
     ]),
-    5,
   );
 
   expect(state.live).toBeNull();
@@ -1740,12 +1735,9 @@ function reduceAll(events: Array<Partial<StreamEvent> & { type: string; payload?
   return { ...state, items };
 }
 
-/** The agent reports itself idle at the moment of `sinceOffset` (one second per offset). */
-function settleAtIdle(reduced: ReturnType<typeof reduceAll>, sinceOffset: number) {
-  const projected = settleAgentUiAtIdleBoundary(
-    reduced,
-    new Date(Date.parse("2026-06-11T00:00:00.000Z") + sinceOffset * 1_000).toISOString(),
-  );
+/** The agent reports itself idle. */
+function settleAtIdle(reduced: ReturnType<typeof reduceAll>) {
+  const projected = settleAgentUiAtIdleBoundary(reduced);
   return { ...projected.endState, items: [...reduced.items, ...projected.items] };
 }
 

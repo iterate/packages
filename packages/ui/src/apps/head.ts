@@ -4,7 +4,11 @@ export function appHead(page: { title: string; stylesheet: string; description?:
   return {
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // resizes-content: a phone's keyboard shrinks the page, so what is at its bottom stays in view
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, interactive-widget=resizes-content",
+      },
       ...(page.description ? [{ name: "description", content: page.description }] : []),
       { title: page.title },
     ],

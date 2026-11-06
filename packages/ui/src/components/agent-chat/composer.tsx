@@ -15,7 +15,7 @@ import {
 import { cn } from "cn";
 import { AttachmentChips, AttachmentFileInput } from "./composer-attachments.tsx";
 import { ComposerTextarea } from "./composer-textarea.tsx";
-import { useComposerAttachments } from "./use-composer-attachments.ts";
+import { type ComposerDraft } from "./use-composer-attachments.ts";
 import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
@@ -72,11 +72,16 @@ function AgentPillComposer({
   isInterrupting?: boolean;
   onInterrupt?: () => Promise<void> | void;
 }) {
-  const [isDragging, setIsDragging] = useState(false);
   const canSubmit =
     !isSubmitting && (mode === "message" ? message.canSubmit : raw.value.trim() !== "");
   const showInterrupt = mode === "message" && !!onInterrupt;
-  const acceptsFileDrop = !isSubmitting;
+  const { isDragging, dropHandlers } = useFileDrop({
+    accepts: !isSubmitting,
+    onFiles: (files) => {
+      if (mode !== "message") onModeChange("message");
+      message.onAddFiles(files);
+    },
+  });
 
   function submit() {
     if (!canSubmit) return;
@@ -87,36 +92,6 @@ function AgentPillComposer({
   function interrupt() {
     if (isSubmitting || isInterrupting || !onInterrupt) return;
     void onInterrupt();
-  }
-
-  // Always claim file drags (even while submitting): letting the browser take the drop would
-  // navigate the tab to the dropped file.
-  function onDragEnter(event: DragEvent<HTMLDivElement>) {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    if (acceptsFileDrop) setIsDragging(true);
-  }
-
-  function onDragOver(event: DragEvent<HTMLDivElement>) {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = acceptsFileDrop ? "copy" : "none";
-  }
-
-  function onDragLeave(event: DragEvent<HTMLDivElement>) {
-    // `relatedTarget` is the element the pointer moved on to, or null once it left the window; the
-    // DOM types it as a bare EventTarget, while for drags it is always a node — what `contains` reads.
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    setIsDragging(false);
-  }
-
-  function onDrop(event: DragEvent<HTMLDivElement>) {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    setIsDragging(false);
-    if (!acceptsFileDrop) return;
-    if (mode !== "message") onModeChange("message");
-    message.onAddFiles(event.dataTransfer.files);
   }
 
   return (
@@ -131,68 +106,19 @@ function AgentPillComposer({
         </p>
       ) : null}
       <div
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
+        {...dropHandlers}
         data-drop-active={isDragging ? "true" : undefined}
         className={cn(
           "flex items-end gap-2 rounded-3xl border bg-background py-2 pl-1.5 pr-2 shadow-sm transition-shadow",
           isDragging && "ring-2 ring-primary/40 border-primary/40",
         )}
       >
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                title="Composer mode"
-                className="rounded-full"
-              />
-            }
-          >
-            <PlusIcon className="size-4.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top" className="w-60">
-            <DropdownMenuRadioGroup
-              value={mode}
-              onValueChange={(value) => onModeChange(value === "raw" ? "raw" : "message")}
-            >
-              <DropdownMenuRadioItem value="message" closeOnClick>
-                <MessageSquareIcon className="text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 flex-col py-0.5">
-                  <span className="font-medium">Message</span>
-                  <span className="text-xs text-muted-foreground">Chat with this agent</span>
-                </span>
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="raw" closeOnClick>
-                <FileCode2Icon className="text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 flex-col py-0.5">
-                  <span className="font-medium">Raw event</span>
-                  <span className="text-xs text-muted-foreground">Append YAML or JSON</span>
-                </span>
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={isSubmitting}
-              onClick={() => {
-                // Attachments belong to the message draft; leaving raw mode here keeps the picked
-                // files visible.
-                if (mode !== "message") onModeChange("message");
-                message.onAttach();
-              }}
-            >
-              <PaperclipIcon className="text-muted-foreground" />
-              <span className="flex min-w-0 flex-1 flex-col py-0.5">
-                <span className="font-medium">Attach files</span>
-                <span className="text-xs text-muted-foreground">Send along with a message</span>
-              </span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
+        <ComposerModeMenu
+          mode={mode}
+          onModeChange={onModeChange}
+          isSubmitting={isSubmitting}
+          onAttach={message.onAttach}
+        />
         {mode === "raw" ? (
           <CodeEditor
             value={raw.value}
@@ -214,41 +140,161 @@ function AgentPillComposer({
             />
           </div>
         )}
-
-        <Button
-          size="icon-lg"
-          data-spinner={showInterrupt ? "true" : undefined}
-          title={
-            showInterrupt
-              ? "Stop generation"
-              : mode === "raw"
-                ? "Append events (⌘↵)"
-                : "Send message"
-          }
-          onClick={showInterrupt ? interrupt : submit}
-          disabled={showInterrupt ? isSubmitting || isInterrupting : !canSubmit}
-          className="relative overflow-hidden rounded-full"
-        >
-          {showInterrupt ? (
-            <>
-              <span
-                aria-hidden
-                className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-primary/40 animate-spin"
-              />
-              {isInterrupting ? (
-                <Spinner className="size-4" />
-              ) : (
-                <SquareIcon className="size-3.5 fill-current" />
-              )}
-            </>
-          ) : isSubmitting ? (
-            <Spinner className="size-4" />
-          ) : (
-            <ArrowUpIcon className="size-4" />
-          )}
-        </Button>
+        {showInterrupt ? (
+          <ComposerStopButton
+            onClick={interrupt}
+            disabled={isSubmitting || isInterrupting}
+            isInterrupting={isInterrupting}
+          />
+        ) : (
+          <Button
+            size="icon-lg"
+            title={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
+            onClick={submit}
+            disabled={!canSubmit}
+            className="relative overflow-hidden rounded-full pointer-coarse:size-11"
+          >
+            {isSubmitting ? <Spinner className="size-4" /> : <ArrowUpIcon className="size-4" />}
+          </Button>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Dropped files, claimed from the browser. Always claim file drags, even while `accepts` is off:
+ *  letting the browser take the drop would navigate the tab to the dropped file. */
+function useFileDrop({
+  accepts,
+  onFiles,
+}: {
+  accepts: boolean;
+  onFiles: (files: FileList) => void;
+}) {
+  const [isDragging, setIsDragging] = useState(false);
+  const dropHandlers = {
+    onDragEnter(event: DragEvent<HTMLDivElement>) {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      if (accepts) setIsDragging(true);
+    },
+    onDragOver(event: DragEvent<HTMLDivElement>) {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = accepts ? "copy" : "none";
+    },
+    onDragLeave(event: DragEvent<HTMLDivElement>) {
+      // `relatedTarget` is the element the pointer moved on to, or null once it left the window; the
+      // DOM types it as a bare EventTarget, while for drags it is always a node — what `contains` reads.
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      setIsDragging(false);
+    },
+    onDrop(event: DragEvent<HTMLDivElement>) {
+      if (!event.dataTransfer.types.includes("Files")) return;
+      event.preventDefault();
+      setIsDragging(false);
+      if (accepts) onFiles(event.dataTransfer.files);
+    },
+  };
+  return { isDragging, dropHandlers };
+}
+
+/** The `+`: Message or Raw event, and Attach files. */
+function ComposerModeMenu({
+  mode,
+  onModeChange,
+  isSubmitting,
+  onAttach,
+}: {
+  mode: AgentComposerMode;
+  onModeChange: (mode: AgentComposerMode) => void;
+  isSubmitting: boolean;
+  onAttach: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            title="Composer mode"
+            className="rounded-full pointer-coarse:size-11"
+          />
+        }
+      >
+        <PlusIcon className="size-4.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top" className="w-60">
+        <DropdownMenuRadioGroup
+          value={mode}
+          onValueChange={(value) => onModeChange(value === "raw" ? "raw" : "message")}
+        >
+          <DropdownMenuRadioItem value="message" closeOnClick>
+            <MessageSquareIcon className="text-muted-foreground" />
+            <span className="flex min-w-0 flex-1 flex-col py-0.5">
+              <span className="font-medium">Message</span>
+              <span className="text-xs text-muted-foreground">Chat with this agent</span>
+            </span>
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="raw" closeOnClick>
+            <FileCode2Icon className="text-muted-foreground" />
+            <span className="flex min-w-0 flex-1 flex-col py-0.5">
+              <span className="font-medium">Raw event</span>
+              <span className="text-xs text-muted-foreground">Append YAML or JSON</span>
+            </span>
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={isSubmitting}
+          onClick={() => {
+            // Attachments belong to the message draft; leaving raw mode here keeps the picked
+            // files visible.
+            if (mode !== "message") onModeChange("message");
+            onAttach();
+          }}
+        >
+          <PaperclipIcon className="text-muted-foreground" />
+          <span className="flex min-w-0 flex-1 flex-col py-0.5">
+            <span className="font-medium">Attach files</span>
+            <span className="text-xs text-muted-foreground">Send along with a message</span>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The round button while a turn runs: it stops it. */
+function ComposerStopButton({
+  onClick,
+  disabled,
+  isInterrupting,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  isInterrupting: boolean;
+}) {
+  return (
+    <Button
+      size="icon-lg"
+      data-spinner="true"
+      title="Stop generation"
+      onClick={onClick}
+      disabled={disabled}
+      className="relative overflow-hidden rounded-full pointer-coarse:size-11"
+    >
+      <span
+        aria-hidden
+        className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-primary/40 animate-spin"
+      />
+      {isInterrupting ? (
+        <Spinner className="size-4" />
+      ) : (
+        <SquareIcon className="size-3.5 fill-current" />
+      )}
+    </Button>
   );
 }
 
@@ -283,23 +329,24 @@ function filesToPayload(files: readonly File[]): Promise<OutgoingFile[]> {
   );
 }
 
-/** The composer's state — mode, drafts, attachments, the submit error — around the pill; the page
- *  supplies only what a submit does and the running turn's interrupt. */
+/** The composer's state — mode, the raw text, the submit error — around the pill; the page supplies
+ *  the draft, what a submit does and the running turn's interrupt. */
 export function AgentComposer({
+  draft,
   onSubmit,
   onAppendRaw,
   interrupt,
   autoFocusMessage = false,
 }: {
+  draft: ComposerDraft;
   onSubmit: (input: { message: string; files: OutgoingFile[] }) => Promise<void>;
   onAppendRaw: (events: unknown[]) => Promise<void>;
   /** Null while no turn is running. */
   interrupt: StreamInterrupt | null;
   autoFocusMessage?: boolean;
 }) {
+  const { message, setMessage, attachments } = draft;
   const [mode, setMode] = useState<AgentComposerMode>("message");
-  const [message, setMessage] = useState("");
-  const attachments = useComposerAttachments();
   const [rawText, setRawText] = useState(
     "type: events.iterate.com/note/added\npayload:\n  text: Hello from the agents page\n",
   );
@@ -330,7 +377,8 @@ export function AgentComposer({
       }),
     );
     if (didSubmit) {
-      setMessage("");
+      // what was written while it was sending is the next message
+      setMessage((current) => (current === message ? "" : current));
       attachments.clearFiles();
     }
   }

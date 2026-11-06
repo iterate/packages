@@ -8,7 +8,10 @@ import { useIterateContext } from "iterate/react";
 import { ContextView } from "@iterate-com/ui/components/context-view/context-view";
 import { ContextViewState } from "@iterate-com/ui/components/context-view/context-view-search";
 import { ContextPath } from "@iterate-com/ui/components/context-view/context-path";
-import { ContextTree } from "@iterate-com/ui/components/context-view/context-tree";
+import {
+  ContextTree,
+  ContextTreeSheet,
+} from "@iterate-com/ui/components/context-view/context-tree";
 import { contextPathOf, useContextExplorer } from "@iterate-com/ui/hooks/use-context-explorer";
 
 const shell = getRouteApi("/_auth");
@@ -41,16 +44,18 @@ function GlobalExplorer() {
   const childPaths = announced.events.flatMap(({ payload }) =>
     typeof payload?.childPath === "string" ? [payload.childPath] : [],
   );
+  const tree = { paths: [...new Set(childPaths)], ...explorer.tree };
   return (
     <div className="flex min-h-0 flex-1">
-      <ContextTree
-        paths={[...new Set(childPaths)]}
-        {...explorer.tree}
-        className="w-60 shrink-0 border-r px-2 pt-1.5 pb-2"
-      />
+      <ContextTree {...tree} className="hidden w-60 shrink-0 border-r px-2 pt-1.5 pb-2 lg:flex" />
       <ContextView
         className="min-h-96 min-w-0 flex-1"
-        title={<ContextPath path={path} links={links} />}
+        title={
+          <>
+            <ContextTreeSheet {...tree} className="lg:hidden" />
+            <ContextPath path={path} links={links} className="max-lg:hidden" />
+          </>
+        }
         pathLinks={links}
         context={shown}
         error={explorer.error}

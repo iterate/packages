@@ -5,7 +5,13 @@
 import { expect, test } from "vitest";
 import { RUN_DEADLINE_MS } from "iterate/stream/run";
 import { committedEvent } from "iterate/stream/test-support";
-import { llmTrace, reduceAgentFeed, scriptTrace, toAgentEvent } from "./agent-events.ts";
+import {
+  foldAgentLog,
+  llmTrace,
+  reduceAgentFeed,
+  scriptTrace,
+  toAgentEvent,
+} from "./agent-events.ts";
 
 test("the run the agent asked for while processing the assistant's item is that turn's code step: keyed by the request's offset, its deadline the request's time plus RUN_DEADLINE_MS", () => {
   const events = turn().filter((e) => e.type !== "events.iterate.com/itx/run-settled");
@@ -92,12 +98,132 @@ test("through the reducer: the person's message, then one activity whose code st
   });
 });
 
+test("an intent the agent left unopened shows nothing running: its turn ends, and the next words go straight to the transcript", () => {
+  // the second message moved the trigger before the first one's debounce ran out, so the first
+  // intent lands as a fact the agent's reduce ignores, and nothing will ever settle it
+  const { state, items } = reduceAgentFeed(
+    [
+      person(1, "first"),
+      person(2, "second"),
+      intent(3, 1),
+      intent(4, 2),
+      at(5, "events.iterate.com/agent/llm-request-settled", {
+        requestOffset: 4,
+        result: { status: "succeeded", text: "ok" },
+      }),
+      at(6, "events.iterate.com/agent/web-message-sent", {
+        message: "Noted.",
+        llmRequestOffset: 4,
+      }),
+      person(7, "third"),
+    ],
+    true,
+  );
+  expect(state).toMatchObject({ live: null, queuedUserMessages: [] });
+  expect(items.map((item) => item.id)).toEqual([
+    "user-1",
+    "user-2",
+    "activity-4",
+    "assistant-6",
+    "user-7",
+  ]);
+  expect(items[2]).toMatchObject({ steps: [{ llmRequestOffset: 4, status: "done" }] });
+});
+
+test("an intent that lands after a later trigger's request opened never runs", () => {
+  const { state } = reduceAgentFeed(
+    [
+      person(1, "first"),
+      person(2, "second"),
+      intent(3, 2),
+      intent(4, 1),
+      at(5, "events.iterate.com/agent/llm-request-settled", {
+        requestOffset: 3,
+        result: { status: "succeeded", text: "ok" },
+      }),
+    ],
+    false,
+  );
+  expect(state.live?.steps).toMatchObject([{ llmRequestOffset: 3, status: "done" }]);
+});
+
+test("a silent turn's activity ends when its last step did, not when the next words close it", () => {
+  const { items } = reduceAgentFeed(
+    [
+      person(1, "first"),
+      intent(2, 1),
+      at(3, "events.iterate.com/agent/llm-request-settled", {
+        requestOffset: 2,
+        result: { status: "succeeded", text: "" },
+      }),
+      person(600, "much later"),
+    ],
+    true,
+  );
+  expect(items[1]).toMatchObject({ kind: "activity", startedAtMs: 2_000, endedAtMs: 3_000 });
+});
+
+test("the log folded piece by piece equals it folded whole, and a settled message keeps its identity when an older page arrives", () => {
+  const log = [
+    person(1, "first"),
+    intent(2, 1),
+    at(3, "events.iterate.com/agent/llm-request-settled", {
+      requestOffset: 2,
+      result: { status: "succeeded", text: "" },
+    }),
+    person(4, "second"),
+    intent(5, 4),
+    at(6, "events.iterate.com/agent/llm-request-settled", {
+      requestOffset: 5,
+      result: { status: "succeeded", text: "" },
+    }),
+    person(7, "third"),
+  ];
+  const whole = foldAgentLog(undefined, log);
+  // the newest page, then what arrives, then the page below it
+  const newest = foldAgentLog(undefined, log.slice(3, 6));
+  const grown = foldAgentLog(newest, log.slice(3));
+  expect(grown).toMatchObject({ items: foldAgentLog(undefined, log.slice(3)).items });
+  const paged = foldAgentLog(grown, log);
+  expect(paged).toMatchObject({ items: whole.items, state: whole.state });
+  const second = (fold: typeof whole) => fold.items.find((item) => item.id === "user-4");
+  expect(second(paged)).toBe(second(grown));
+});
+
+test("the newest intent with no open request in the agent's live state is not running; the log alone cannot tell", () => {
+  // a pause dropped the trigger that moved past this intent, so no later intent closes it
+  const events = [
+    person(1, "first"),
+    person(2, "second"),
+    intent(3, 1),
+    at(4, "events.iterate.com/agent/paused", { reason: "stop" }),
+  ];
+  expect(reduceAgentFeed(events, false).state.live?.steps).toMatchObject([{ status: "running" }]);
+  expect(reduceAgentFeed(events, true, false).state.live).toBeNull();
+});
+
 const at = (
   offset: number,
   type: string,
   payload: Record<string, unknown>,
   extra: { idempotencyKey?: string; source?: unknown } = {},
 ) => toAgentEvent({ ...committedEvent(offset, type, payload), ...extra })!;
+
+/** A person's words at `offset`, which raise the agent's trigger. */
+const person = (offset: number, content: string) =>
+  at(offset, "events.iterate.com/agent/context-added", {
+    role: "user",
+    content,
+    actor: { type: "user" },
+  });
+
+/** The agent's intent to request the model for the trigger at `triggerOffset`. */
+const intent = (offset: number, triggerOffset: number) =>
+  at(offset, "events.iterate.com/agent/llm-request-requested", {
+    model: "m",
+    expiresAt: 9e12,
+    triggerOffset,
+  });
 
 /** The engine's stamp on an event the agent processor appended while processing offset 6. */
 const byAgentWhile = (offset: number) => ({

@@ -10,6 +10,7 @@
 // fixed column. What a line cuts the inspector (click) shows whole.
 import { memo } from "react";
 import { cn } from "cn";
+import { formatClockTime, formatDelta, rowClass } from "./event-row-format.ts";
 import { actorLabel, payloadPreview, payloadSummary, shortEventType } from "./filters.tsx";
 import {
   type ContextViewEvent,
@@ -17,27 +18,6 @@ import {
   type EventRenderers,
   rendererFor,
 } from "./types.tsx";
-
-/** The row's clock: `19:36:58` in the reader's zone, always the 24-hour cycle — eight characters
- *  that fit the fixed column in every locale (a 12-hour locale's ` PM` would run into the delta). */
-export function formatClockTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-}
-
-/** `+950ms`, `+3.2s`, `+1m40s`, `+2h5m` — the compact gap between two rows. */
-export function formatDelta(ms: number): string {
-  if (ms < 1_000) return `+${String(ms)}ms`;
-  if (ms < 60_000) return `+${(Math.floor(ms / 100) / 10).toFixed(1).replace(/\.0$/, "")}s`;
-  const seconds = Math.floor(ms / 1_000);
-  if (seconds < 3_600) return `+${String(Math.floor(seconds / 60))}m${String(seconds % 60)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `+${String(Math.floor(minutes / 60))}h${String(minutes % 60)}m`;
-}
 
 /** The gap's colour by its size: under ten seconds the success colour, then the warning colour, a
  *  faded destructive, and the destructive colour for a pause of ten minutes or more — where the log
@@ -48,15 +28,6 @@ function deltaColor(ms: number): string {
   if (ms < 600_000) return "text-destructive/70";
   return "text-destructive";
 }
-
-/** The frame every row shares: full width, the columns on one line from `sm` (a phone wraps the
- *  body above the rest), 26px tall, the hover, the inspected row's left bar. Rows are buttons
- *  (inspect, or open a fold). */
-export const rowClass = (selected?: boolean) =>
-  cn(
-    "flex w-full min-w-0 flex-wrap items-baseline gap-x-3.5 px-3 sm:px-4 py-[3px] text-left hover:bg-muted/60 max-sm:gap-x-2 max-sm:py-1.5 sm:flex-nowrap",
-    selected && "bg-muted shadow-[inset_2px_0_0_var(--color-foreground)] hover:bg-muted",
-  );
 
 const OFFSET =
   "shrink-0 font-mono text-2xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
@@ -87,7 +58,7 @@ export function RowGutter({ times }: { times?: boolean }) {
 /** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 shrink-0 truncate text-xs text-muted-foreground max-sm:font-mono max-sm:text-2xs sm:ml-auto">
+    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground max-sm:font-mono max-sm:text-2xs sm:ml-auto">
       {who}
     </span>
   );
@@ -154,7 +125,7 @@ export function EventSentence({
     <span
       className={cn(
         // a phone gets two lines, a desktop one — never a third, never a sideways scroll
-        "block max-h-10 min-w-0 overflow-hidden text-sm leading-5 whitespace-normal sm:max-h-none sm:truncate [&_*]:inline",
+        "line-clamp-2 min-w-0 text-sm leading-5 wrap-break-word whitespace-normal sm:block sm:truncate [&_*]:inline",
         className,
       )}
     >

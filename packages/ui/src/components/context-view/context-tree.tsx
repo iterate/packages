@@ -10,9 +10,12 @@
 // `ContextTree` is the pane (a wide screen's left column); `ContextTreeSheet` is a phone's: the path
 // as a button that opens the same tree in a left Sheet.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "cn";
-import { navigateToPath, PathLink, type ContextPathLinks } from "./context-path.tsx";
+import { navigateToPath, type ContextPathLinks } from "./context-path-links.ts";
+import { PathLink } from "./context-path.tsx";
+import { contextTreeRows, type TreeRow } from "./context-tree-rows.ts";
 import { Input } from "#/components/ui/input.tsx";
 import {
   Sheet,
@@ -21,34 +24,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "#/components/ui/sheet.tsx";
-
-type TreeRow = { path: string; name: string; depth: number; context: boolean };
-
-/** The paths as tree rows, depth first in segment order; every ancestor a row, `/` the first. */
-export function contextTreeRows(paths: readonly string[]): TreeRow[] {
-  const known = new Set(["/", ...paths]);
-  const all = new Set<string>(["/"]);
-  for (const path of known) {
-    const segments = path.split("/").filter(Boolean);
-    for (let at = 1; at <= segments.length; at++) all.add(`/${segments.slice(0, at).join("/")}`);
-  }
-  return [...all]
-    .map((path) => path.split("/").filter(Boolean))
-    .sort((a, b) => {
-      for (let at = 0; at < Math.min(a.length, b.length); at++)
-        if (a[at] !== b[at]) return a[at]! < b[at]! ? -1 : 1;
-      return a.length - b.length;
-    })
-    .map((segments) => {
-      const path = `/${segments.join("/")}`;
-      return {
-        path,
-        name: segments.at(-1) ?? "/",
-        depth: segments.length,
-        context: known.has(path),
-      };
-    });
-}
 
 export function ContextTree({
   paths,
@@ -93,7 +68,6 @@ export function ContextTree({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const row = "flex h-[26px] min-w-0 items-center rounded-md pr-2 whitespace-nowrap";
   return (
     <nav aria-label="Contexts" className={cn("flex min-h-0 flex-col gap-1.5", className)}>
       <form
@@ -121,38 +95,7 @@ export function ContextTree({
           {needle ? "↵ go" : "/"}
         </kbd>
       </form>
-      <ul className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
-        {(matches || rows).map((item) => {
-          const indent = { paddingLeft: `${String(8 + (matches ? 0 : item.depth) * 12)}px` };
-          const label = matches ? item.path : item.name;
-          return (
-            <li key={item.path}>
-              {item.context ? (
-                <PathLink
-                  path={item.path}
-                  links={links}
-                  aria-label={item.path}
-                  aria-current={item.path === current ? "page" : undefined}
-                  className={cn(
-                    row,
-                    "text-foreground/85 hover:bg-muted/60 aria-[current=page]:bg-muted aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
-                  )}
-                >
-                  <span style={indent} className="truncate">
-                    {label}
-                  </span>
-                </PathLink>
-              ) : (
-                <span className={cn(row, "text-muted-foreground")}>
-                  <span style={indent} className="truncate">
-                    {label}
-                  </span>
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <TreeList rows={matches || rows} flat={Boolean(matches)} current={current} links={links} />
       <p className="px-2 text-2xs text-muted-foreground">
         {matches
           ? `${String(matches.length)} of ${String(total)} contexts`
@@ -161,6 +104,90 @@ export function ContextTree({
             : "Contexts show up here as they're created."}
       </p>
     </nav>
+  );
+}
+
+/** Each row's height: `h-[26px]` below. */
+const TREE_ROW_HEIGHT = 26;
+const TREE_ROW = "flex h-[26px] min-w-0 items-center rounded-md pr-2 whitespace-nowrap";
+
+/** The paths as a virtual list: a project's contexts grow with every call and every agent, and only
+ *  the rows in view are in the DOM. */
+function TreeList({
+  rows,
+  flat,
+  current,
+  links,
+}: {
+  rows: readonly TreeRow[];
+  /** Filtered: the matches read flat, as whole paths. */
+  flat: boolean;
+  current: string;
+  links: ContextPathLinks;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => TREE_ROW_HEIGHT,
+    getItemKey: (index) => rows[index]!.path,
+    overscan: 16,
+  });
+  return (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
+      <ul className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => (
+          <li
+            key={virtualItem.key}
+            className="absolute top-0 left-0 w-full"
+            style={{ transform: `translateY(${String(virtualItem.start)}px)` }}
+          >
+            <TreeRowLink
+              item={rows[virtualItem.index]!}
+              flat={flat}
+              current={current}
+              links={links}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function TreeRowLink({
+  item,
+  flat,
+  current,
+  links,
+}: {
+  item: TreeRow;
+  flat: boolean;
+  current: string;
+  links: ContextPathLinks;
+}) {
+  const label = (
+    <span
+      style={{ paddingLeft: `${String(8 + (flat ? 0 : item.depth) * 12)}px` }}
+      className="truncate"
+    >
+      {flat ? item.path : item.name}
+    </span>
+  );
+  if (!item.context) return <span className={cn(TREE_ROW, "text-muted-foreground")}>{label}</span>;
+  return (
+    <PathLink
+      path={item.path}
+      links={links}
+      aria-label={item.path}
+      aria-current={item.path === current ? "page" : undefined}
+      className={cn(
+        TREE_ROW,
+        "text-foreground/85 hover:bg-muted/60 aria-[current=page]:bg-muted aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
+      )}
+    >
+      {label}
+    </PathLink>
   );
 }
 

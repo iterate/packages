@@ -415,6 +415,98 @@ const context = useContextStub(() => api.projects.get(project.id), [api, project
 - **React Doctor**: `npx react-doctor@latest --yes src/components/repo-ide/*.tsx src/components/repo-ide/*.ts`
   from this package scores 100; keep it there.
 
+## The virtual log
+
+`src/components/virtual-log/` is the root every view of a log stands on: `VirtualLog`, one TanStack
+Virtual list in its own scroll region. A view brings its rows and how to draw one. The list does the
+rest: only the rows in view are in the DOM, it opens at the newest row and follows it, a reader in
+history is never moved, older pages load near the top with a progress bar, a bubble at the bottom
+says how many came in and leads back, and one at the top goes all the way up.
+
+```
+VirtualLog               rows, tail and footer in
+├── ContextView          the raw log, with `renderers` per event type
+├── AgentChat            the reduced log as rows, the work in flight as the tail, the composer
+├── an LLM trace         the prompt as rows, the answer as the tail
+└── a view of your own   a subset of a context's events, as your own components
+```
+
+A view has three places for what it shows, and the chat is the example of all three:
+
+| Slot     | For                                                  | Scrolls                                              | Grows                                             |
+| -------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------- |
+| `rows`   | What is in the log, as many as there are.            | yes                                                  | a row, once settled                               |
+| `tail`   | What is not in the log yet: ephemeral reduced state. | out, with the rows                                   | yes, and a view at the end stays at the end of it |
+| `footer` | What is always there: a composer.                    | never: rows go behind it, the scrollbar runs past it | yes, the same                                     |
+
+`tail` takes any node, so a stack of things in flight is one block at the end of the list, measured
+as one. A view of another domain is this much, and gets everything above:
+
+```tsx
+const DEPLOY_ROWS: VirtualLogRowInfo<DeployEvent> = {
+  key: (event) => String(event.offset),
+  estimateSize: () => 72,
+  offset: (event) => event.offset,
+};
+
+function Deploys({ context }: { context: ContextViewSource }) {
+  const deploys = useMemo(() => context.events.filter(isDeploy), [context.events]);
+  return (
+    <VirtualLog
+      rows={deploys}
+      rowInfo={DEPLOY_ROWS}
+      renderRow={(event) => <DeployCard event={event} />}
+      tail={running ? <DeployInProgress state={running} /> : undefined}
+      footer={<DeployComposer />}
+      older={context.older}
+      label="Deploys"
+    />
+  );
+}
+```
+
+`tail` and `footer` are optional, and so is the rest: `readingOlder` for the strip at the top
+(`<ReadProgress />` with `heldShare`), `empty`, `followTail`, `reveal`, `paddingStart` and
+`paddingEnd`, and `arrivals` when a row can stand for many events (a fold), so that the bubble counts
+events.
+
+- **A new view of a long log goes on this**, never `.map`. A list that is no log (the context tree)
+  uses TanStack Virtual itself.
+- **`rowInfo` is stable**: a constant, or `useMemo`. The virtualizer lays every row out again when it
+  changes.
+- **A row renders its real height at once**, its spacing padding, not margin: the first measurement
+  is the one the anchor trusts. Streamdown's streaming mode paints empty first, so settled text is
+  `mode="static"`.
+- **A settled row keeps its identity and is memoised**, so what streams re-renders the live row
+  alone. A pass over a growing log goes on from what it made last (`remembered`).
+- **`older` stops on an error**: a view passes `OLDER_EXHAUSTED` once its context has one, or the
+  list asks for the failed page again each time the read ends.
+- **Only the reader, or a jump, leaves the end.** Position alone cannot say it: while the virtualizer
+  catches up, a view that is following reads as behind, and the browser animates a key's scroll, so
+  its first steps are still inside the threshold. Test code that scrolls dispatches a `wheel` first,
+  as `scrollBy` in the spec does.
+- **One scrollbar.** A row never scrolls on its own: code wraps, a row that opens shows all of itself,
+  and only a table too wide for the view scrolls, sideways. A box with a capped height in a row traps
+  a finger on a phone. The spec's phone tests walk every element for it.
+- **What a person touches stays theirs** (`use-reader.ts`). A finger on the glass holds the view until
+  it lifts, and a row a press opens past the height of the view shows from its top, not the end.
+- **The footer brings its own background**: the chat's composer floats, with the rows fading behind
+  it; the Events tab's is a solid band.
+- **The browser's find sees only the rows in the DOM.**
+
+**The spec** (`test/playwright/ui/virtual-log.spec.ts`) is the load test, and the record of what this
+took. Its page publishes as the SDK's log does, in a rAF: a commit there runs after the frame's
+scroll events, which is what makes a row taller than its estimate paint short if the view follows
+late. `paintedFrames` reads each frame just after its paint, and a test on the screencast counts
+pixels, which is the only way to see what the compositor shows before the page has mounted rows. To
+watch 100,000 rows arrive: `pnpm spec test/playwright/ui/virtual-log.spec.ts --headed -g 100,000`.
+
+**React Doctor**: from this package, this scores 100; keep it there:
+
+```sh
+npx react-doctor@latest --yes src/components/virtual-log/*.tsx src/components/virtual-log/*.ts src/components/context-view/*.tsx src/components/context-view/*.ts src/components/agent-chat/*.tsx src/components/agent-chat/*.ts
+```
+
 ## The agent chat
 
 `src/components/agent-chat/` is one agent's conversation: its chat with a composer, its events
@@ -422,15 +514,12 @@ const context = useContextStub(() => api.projects.get(project.id), [api, project
 `/projects/<slug>` is the first host; any page that holds the agent's context mounts it the same way:
 
 ```tsx
-import {
-  AgentChat,
-  agentChatContextOptions,
-} from "@iterate-com/ui/components/agent-chat/agent-chat";
+import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 
 // route: `validateSearch: AgentChatState`, so the tab and the open trace are the URL
 const agent = useContextStub(() => project.cd(path), [project, path]);
-const log = useIterateContext(agent.stub, agentChatContextOptions);
+const log = useIterateContext(agent.stub, AgentChat.contextOptions);
 // in a flex column with a bounded height; the chat fills it
 <AgentChat
   path={path}
@@ -451,9 +540,14 @@ const log = useIterateContext(agent.stub, agentChatContextOptions);
   host without a router keeps it in state.
 - **It reads the agent's own events**, so it imports three of the SDK's pure modules at runtime
   (`iterate/agents/contract`, `iterate/agents/codemode-format`, `iterate/stream/run`).
-- **`agentChatContextOptions`** is what the chat asks of `useIterateContext`: the streamed chunk
-  windows by name (a wildcard never matches an ephemeral) and every page of the log. Without them
-  an answer does not stream, and a long chat shows only its newest page.
+- **`AgentChat.contextOptions`** is what the chat asks of `useIterateContext`: the streamed chunk
+  windows by name (a wildcard never matches an ephemeral). Without them an answer does not stream.
+- **A log of any length opens as fast as a short one.** The chat reads the newest page, folds it, and
+  reads older pages as the reader scrolls up, on [the virtual log](#the-virtual-log). This holds
+  because the reducer's memory is one turn long
+  (`agent-ui-reducer.ts`): the rows from any offset on equal the rows of a fold from the first event,
+  but for the turn the offset cuts. An LLM trace reads every older page, since its prompt is every
+  context item before the request.
 - **A row of the page's own** goes under a feed item: `itemFooter={(item) => …}`. `renderers` and
   `inspectors` name the page's own event types in the Events tab, over the agent's.
 - **For the project's own people**: it shows the raw log, scripts and traces, and its composer

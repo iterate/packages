@@ -27,18 +27,17 @@ export function usePinnedAgents(project: string): {
   const [held, setHeld] = useState<{ project: string; pinned: ReadonlySet<string> }>();
   useEffect(() => setHeld({ project, pinned: readPins(project) }), [project]);
   const togglePinned = useCallback(
-    (path: string) =>
-      setHeld((previous) => {
-        const next = new Set(previous?.project === project ? previous.pinned : readPins(project));
-        if (!next.delete(path)) next.add(path);
-        try {
-          localStorage.setItem(storageKey(project), JSON.stringify([...next]));
-        } catch {
-          // storage refused: the pin holds for this page's life
-        }
-        return { project, pinned: next };
-      }),
-    [project],
+    (path: string) => {
+      const next = new Set(held?.project === project ? held.pinned : readPins(project));
+      if (!next.delete(path)) next.add(path);
+      try {
+        localStorage.setItem(storageKey(project), JSON.stringify([...next]));
+      } catch {
+        // storage refused: the pin holds for this page's life
+      }
+      setHeld({ project, pinned: next });
+    },
+    [held, project],
   );
   return {
     pinned: held?.project === project ? held.pinned : NONE,

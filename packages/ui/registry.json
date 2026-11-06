@@ -15,7 +15,6 @@
         "lucide-react",
         "sonner",
         "streamdown",
-        "use-stick-to-bottom",
         "yaml",
         "zod"
       ],
@@ -26,6 +25,7 @@
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
         "iterate/packages/context-view",
+        "iterate/packages/virtual-log",
         "sheet",
         "spinner",
         "tabs"
@@ -66,6 +66,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/agent-feed-list.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/agent-inspectors.tsx",
           "type": "registry:component"
         },
@@ -91,10 +95,6 @@
         },
         {
           "path": "src/components/agent-chat/composer.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/agent-chat/conversation.tsx",
           "type": "registry:component"
         },
         {
@@ -304,6 +304,7 @@
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
         "iterate/packages/plain-left-click",
+        "iterate/packages/virtual-log",
         "sheet",
         "spinner"
       ],
@@ -407,11 +408,23 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/context-view/stick-to-bottom.ts",
+          "path": "src/components/context-view/types.tsx",
           "type": "registry:component"
         },
         {
-          "path": "src/components/context-view/types.tsx",
+          "path": "src/components/context-view/context-path-links.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-view/context-tree-rows.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-view/event-row-format.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-view/print-expression.ts",
           "type": "registry:component"
         }
       ]
@@ -731,6 +744,38 @@
       "files": [
         {
           "path": "src/components/time-chart.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "virtual-log",
+      "type": "registry:component",
+      "description": "A log as one virtual list: only the rows in view are in the DOM, it follows its tail, a reader in history is never moved, and older pages load near the top. A view brings its rows and how to draw one.",
+      "dependencies": [
+        "@tanstack/react-virtual",
+        "cn",
+        "lucide-react"
+      ],
+      "files": [
+        {
+          "path": "src/components/virtual-log/older-pages.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/virtual-log/read-progress.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/virtual-log/remembered.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/virtual-log/use-reader.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/virtual-log/virtual-log.tsx",
           "type": "registry:component"
         }
       ]

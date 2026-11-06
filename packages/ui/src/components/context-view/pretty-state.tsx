@@ -5,6 +5,7 @@
 // rules, schedules, fetch routes and open script runs, the pause. Every read is defensive: the state
 // crosses the wire untyped, and a shape miss degrades to the generic fields, never a crash.
 import type { ReactNode } from "react";
+import { compactJson, printExpression } from "./print-expression.ts";
 import { isRecord, record } from "./renderer-helpers.tsx";
 
 /** A state as fields, one line each. */
@@ -35,31 +36,35 @@ function PrettyField({ label, value, depth }: { label: string; value: unknown; d
 }
 
 function PrettyFieldValue({ value, depth }: { value: unknown; depth: number }): ReactNode {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-muted-foreground">none</span>;
-    if (value.length <= 8 && value.every((item) => !isRecord(item) && !Array.isArray(item)))
-      return <span className="font-mono break-all">{value.map(scalarText).join(", ")}</span>;
-    if (depth > 0 && compactJson(value, 200).length <= 100)
-      return <span className="font-mono break-all">{compactJson(value, 100)}</span>;
-    return (
-      <Folded summary={`${value.length.toLocaleString()} ${value.length === 1 ? "item" : "items"}`}>
-        <CompactLines items={value.map((item, index) => [`${index}`, item])} />
-      </Folded>
-    );
-  }
-  if (isRecord(value)) {
-    const size = Object.keys(value).length;
-    if (size === 0) return <span className="text-muted-foreground">{"{}"}</span>;
-    if (depth === 0) return <PrettyFields value={value} depth={1} />;
-    if (compactJson(value, 200).length <= 100)
-      return <span className="font-mono break-all">{compactJson(value, 100)}</span>;
-    return (
-      <Folded summary={`${size.toLocaleString()} ${size === 1 ? "field" : "fields"}`}>
-        <CompactLines items={Object.entries(value)} />
-      </Folded>
-    );
-  }
+  if (Array.isArray(value)) return <PrettyList value={value} depth={depth} />;
+  if (isRecord(value)) return <PrettyRecord value={value} depth={depth} />;
   return <PrettyScalar value={value} />;
+}
+
+function PrettyList({ value, depth }: { value: unknown[]; depth: number }) {
+  if (value.length === 0) return <span className="text-muted-foreground">none</span>;
+  if (value.length <= 8 && value.every((item) => !isRecord(item) && !Array.isArray(item)))
+    return <span className="font-mono break-all">{value.map(scalarText).join(", ")}</span>;
+  if (depth > 0 && compactJson(value, 200).length <= 100)
+    return <span className="font-mono break-all">{compactJson(value, 100)}</span>;
+  return (
+    <Folded summary={`${value.length.toLocaleString()} ${value.length === 1 ? "item" : "items"}`}>
+      <CompactLines items={value.map((item, index) => [`${index}`, item])} />
+    </Folded>
+  );
+}
+
+function PrettyRecord({ value, depth }: { value: Record<string, unknown>; depth: number }) {
+  const size = Object.keys(value).length;
+  if (size === 0) return <span className="text-muted-foreground">{"{}"}</span>;
+  if (depth === 0) return <PrettyFields value={value} depth={1} />;
+  if (compactJson(value, 200).length <= 100)
+    return <span className="font-mono break-all">{compactJson(value, 100)}</span>;
+  return (
+    <Folded summary={`${size.toLocaleString()} ${size === 1 ? "field" : "fields"}`}>
+      <CompactLines items={Object.entries(value)} />
+    </Folded>
+  );
 }
 
 function PrettyScalar({ value }: { value: unknown }) {
@@ -202,39 +207,6 @@ function CoreTable({
   );
 }
 
-/** A parsed itx expression as the call it spells: `["itx","builtins",["get","x"],"run"]` →
- *  `itx.builtins.get("x").run`. Anything else, as compact JSON. */
-export function printExpression(expression: unknown): string {
-  if (typeof expression === "string") return expression;
-  if (!Array.isArray(expression)) return compactJson(expression, 240);
-  const steps: string[] = [];
-  for (const step of expression) {
-    if (typeof step === "string") steps.push(step);
-    else if (Array.isArray(step) && typeof step[0] === "string")
-      steps.push(
-        `${step[0]}(${step
-          .slice(1)
-          .map((arg) => compactJson(arg, 80))
-          .join(", ")})`,
-      );
-    else return compactJson(expression, 240);
-  }
-  return steps.join(".");
-}
-
 function scalarText(value: unknown): string {
   return typeof value === "string" ? value : compactJson(value, 400);
-}
-
-function compactJson(value: unknown, max: number): string {
-  let text: string;
-  try {
-    text = JSON.stringify(value, (_key, item: unknown) =>
-      typeof item === "bigint" ? item.toString() : item,
-    );
-  } catch {
-    text = String(value);
-  }
-  text ||= String(value);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

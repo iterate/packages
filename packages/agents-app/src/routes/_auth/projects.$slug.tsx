@@ -27,10 +27,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@iterate-com/ui/components/ui/empty";
-import {
-  AgentChat,
-  agentChatContextOptions,
-} from "@iterate-com/ui/components/agent-chat/agent-chat";
+import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 import { AgentsNav } from "../../components/agents-nav.tsx";
 import { newWebAgentPath } from "../../lib/web-agent.ts";
@@ -58,6 +55,7 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
   // never an error page.
   validateSearch: AgentChatState.extend({ agent: z.string().optional().catch(undefined) }),
   loaderDeps: ({ search }) => ({ agent: search.agent }),
+  // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- each read needs the one before, and a first load's read is one batch that takes no calls after an await (iterate/app `read`)
   loader: async ({ context, params, deps }) => {
     const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
@@ -240,7 +238,7 @@ function AgentConversation({ project, path }: { project: string; path: string })
   const navigate = useNavigate();
   const { slug } = Route.useParams();
   const { context, error } = useAgentContext(api, project, path);
-  const log = useIterateContext(context, agentChatContextOptions);
+  const log = useIterateContext(context, AgentChat.contextOptions);
   const onStateChange = useCallback(
     (patch: Partial<AgentChatState>) =>
       void navigate({

@@ -6,7 +6,7 @@
 // consumes, grouped by processor. Nothing is inserted here: the appended events arrive by the view's
 // live subscription like anyone's, and the view pins the feed to its tail so they land in view. The
 // draft stays after a success — the next append is usually a tweak of the last.
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { PlusIcon, SparklesIcon } from "lucide-react";
 import { RowGutter } from "./event-row.tsx";
 import { appendCompletionsAt, knownEventTypes } from "./append-completions.ts";
@@ -17,9 +17,10 @@ import {
   parseAppendYaml,
   type ContextViewAppendEvent,
 } from "./append-events.ts";
-import { recount, shortEventType, sortedCounts, type TypeCounts } from "./filters.tsx";
+import { recount, shortEventType, sortedCounts } from "./filters.tsx";
 import type { ContextViewEvent, ContextViewProcessor } from "./types.tsx";
 import { CodeEditor } from "#/components/code-editor.tsx";
+import { remembered } from "#/components/virtual-log/remembered.ts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,16 +53,10 @@ export function AppendComposer({
   const [outcome, setOutcome] = useState<{ error: string } | { appended: number }>();
   const examples = useMemo(() => exampleGroups(processors), [processors]);
   // counted only while open, and then only what the log adds (filters.tsx `recount`)
-  const countsRef = useRef<TypeCounts>(undefined);
+  const [counted] = useState(() => remembered(recount));
   const known = useMemo(
-    () =>
-      open
-        ? knownEventTypes(
-            sortedCounts((countsRef.current = recount(countsRef.current, events)).counts),
-            processors,
-          )
-        : [],
-    [open, events, processors],
+    () => (open ? knownEventTypes(sortedCounts(counted(events).counts), processors) : []),
+    [open, counted, events, processors],
   );
   const edit = (value: string) => {
     setDraft(value);

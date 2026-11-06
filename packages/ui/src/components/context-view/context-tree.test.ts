@@ -1,7 +1,7 @@
 // The context tree's rows: every ancestor a row, `/` first, depth first in segment order; a
 // segment no context sits at is a heading.
 import { expect, test } from "vitest";
-import { contextTreeRows } from "./context-tree.tsx";
+import { contextTreeRows } from "./context-tree-rows.ts";
 
 test("paths become an indented tree with their ancestors, `/` first", () => {
   const rows = contextTreeRows(["/repos/config", "/agents/web/a", "/repos", "/agents-old"]);

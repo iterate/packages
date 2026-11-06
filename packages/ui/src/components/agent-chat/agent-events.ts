@@ -10,6 +10,7 @@ import {
   initialAgentUiState,
   reduceAgentUi,
   settleAgentUiAtIdleBoundary,
+  withoutRunningRequests,
   type AgentUiItem,
   type AgentUiState,
   type AgentUiStep,
@@ -26,34 +27,101 @@ const Committed = z.looseObject({
   idempotencyKey: z.string().optional(),
 });
 
-/** A wire event (a capnweb proxy value or a plain object) as the reducer's `StreamEvent`, or null
- *  when it is not a committed row. */
+/** A row of the log as the reducer's `StreamEvent`, or null when it is not a committed row. */
 export function toAgentEvent(raw: unknown): StreamEvent | null {
-  const parsed = Committed.safeParse(JSON.parse(JSON.stringify(raw)));
+  const parsed = Committed.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
-/** The whole feed from the log: every event in offset order through the reducer, then — when the
- *  agent facet reports itself idle — the turn boundary, dated at the last fact, which flushes what
- *  waits behind an activity whose every step has settled. */
-export function reduceAgentFeed(
-  events: readonly StreamEvent[],
-  idle: boolean,
-): { state: AgentUiState; items: AgentUiItem[] } {
-  let state = initialAgentUiState();
+/** The log folded so far, which the next call goes on from. */
+export type AgentLogFold = {
+  /** The rows folded, as the caller's array held them: how the next call tells what grew. */
+  log: readonly unknown[];
+  /** Those rows that are committed events, in offset order. */
+  events: readonly StreamEvent[];
+  state: AgentUiState;
+  items: readonly AgentUiItem[];
+};
+
+const NOTHING_FOLDED: AgentLogFold = {
+  log: [],
+  events: [],
+  state: initialAgentUiState(),
+  items: [],
+};
+
+/** `log`, sorted by offset, folded through the reducer: on from `held` when the log only grew at its
+ *  end, so a live tail costs what arrived; from the start otherwise (an older page). Either way a
+ *  settled row keeps its identity, so a memoised row skips the re-render that a streamed frame or an
+ *  older page would bring and its markdown is not parsed again. */
+export function foldAgentLog(
+  held: AgentLogFold | undefined,
+  log: readonly unknown[],
+): AgentLogFold {
+  const grewAtEnd =
+    held &&
+    held.log.length > 0 &&
+    log[0] === held.log[0] &&
+    log[held.log.length - 1] === held.log.at(-1);
+  const start = grewAtEnd ? held : NOTHING_FOLDED;
+  const fresh = log.slice(start.log.length).flatMap((row) => toAgentEvent(row) ?? []);
+  let { state } = start;
   const items: AgentUiItem[] = [];
-  for (const event of events) {
+  for (const event of fresh) {
     const reduced = reduceAgentUi(state, event);
     state = reduced.endState;
     items.push(...reduced.items);
   }
-  const last = events.at(-1);
-  if (idle && last) {
-    const reduced = settleAgentUiAtIdleBoundary(state, last.createdAt);
-    state = reduced.endState;
-    items.push(...reduced.items);
-  }
-  return { state, items };
+  return {
+    log,
+    events: fresh.length > 0 ? start.events.concat(fresh) : start.events,
+    state,
+    items:
+      items.length > 0
+        ? start.items.concat(grewAtEnd ? items : keepingHeldMessages(items, held?.items))
+        : start.items,
+  };
+}
+
+/** `items`, with each message that `held` has as the object `held` has. A message is one event, so
+ *  the same id is the same words; an activity can gain steps from an older page, so it is new. */
+function keepingHeldMessages(items: AgentUiItem[], held: readonly AgentUiItem[] = []) {
+  const heldById = new Map(held.map((item) => [item.id, item]));
+  return items.map((item) => (item.kind === "activity" ? item : heldById.get(item.id) || item));
+}
+
+/** The feed a fold shows, given what the agent facet says of the turn. When no request can be open,
+ *  one still running in the log never opened. With the facet `idle`, the turn boundary flushes what
+ *  waits behind an activity whose every step has settled. */
+export function agentFeedOf(
+  fold: AgentLogFold,
+  idle: boolean,
+  requestMayBeOpen = true,
+): { state: AgentUiState; items: readonly AgentUiItem[] } {
+  const state = requestMayBeOpen ? fold.state : withoutRunningRequests(fold.state);
+  if (!idle) return { state, items: fold.items };
+  const settled = settleAgentUiAtIdleBoundary(state);
+  const items = settled.items.length > 0 ? fold.items.concat(settled.items) : fold.items;
+  return { state: settled.endState, items };
+}
+
+/** The whole feed from the log, folded from its first row. */
+export function reduceAgentFeed(
+  events: readonly StreamEvent[],
+  idle: boolean,
+  requestMayBeOpen?: boolean,
+) {
+  return agentFeedOf(foldAgentLog(undefined, events), idle, requestMayBeOpen);
+}
+
+/** The model's own code inside the agent loop's envelope (core/lib results-preamble.ts wraps it
+ *  between these markers), or null for a script that has no envelope. */
+export function authoredScript(code: string): string | null {
+  const open = "//#region your script";
+  const start = code.indexOf(open);
+  const end = code.lastIndexOf("//#endregion your script");
+  if (start === -1 || end < start) return null;
+  return code.slice(start + open.length, end).trim();
 }
 
 // ── display formatters ──

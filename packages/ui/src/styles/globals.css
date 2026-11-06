@@ -42,6 +42,23 @@ file-tree-container {
     opacity: 0;
   }
 }
+/* A wide table scrolls sideways in its own box, and only sideways: the feed owns the vertical, so
+   the table shows all its rows (Streamdown caps it inline at 300px), and a swipe that reaches its
+   edge does not go on to the browser's back gesture. */
+:has(> [data-streamdown="table"]) {
+  max-height: none !important;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  border: 0;
+}
+
+/* A wrapped line of a list item hangs under its text, not under its bullet. */
+[data-streamdown="unordered-list"],
+[data-streamdown="ordered-list"] {
+  list-style-position: outside;
+  padding-inline-start: 1.25rem;
+}
+
 .animate-token-in {
   animation: token-in 120ms both;
 }

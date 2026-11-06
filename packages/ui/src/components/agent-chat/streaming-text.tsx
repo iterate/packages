@@ -1,7 +1,7 @@
 // The live text of a step as it streams — sealed groups keep their React subtree and only the small
 // append tail changes; code stays plain (no highlighting) while it is still being written; a
 // blinking caret marks the tail.
-import { memo, useLayoutEffect, useRef } from "react";
+import { memo } from "react";
 import { cn } from "cn";
 import { textGroupSize, type StreamText } from "./chunked-text.ts";
 import { FullTextSnapshot } from "./full-text-snapshot.tsx";
@@ -87,21 +87,8 @@ const TextBlock = memo(function TextBlock({
 
 /** Plain text while code is changing; syntax highlighting belongs to settled output. */
 export function StreamingCodeBlock({ code }: { code: StreamText }) {
-  const preRef = useRef<HTMLPreElement>(null);
-  const pinnedRef = useRef(true);
-  useLayoutEffect(() => {
-    const element = preRef.current;
-    if (element && pinnedRef.current) element.scrollTop = element.scrollHeight;
-  }, [code]);
   return (
-    <pre
-      ref={preRef}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
-      }}
-      className="max-h-80 overflow-y-auto overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-warning/10 px-4 py-3 font-mono text-xs leading-relaxed text-foreground"
-    >
+    <pre className="whitespace-pre-wrap rounded-xl bg-warning/10 px-4 py-3 font-mono text-xs leading-relaxed text-foreground wrap-break-word">
       <StreamingText text={code} />
       <StreamingCursor className="bg-warning" />
     </pre>

@@ -10,6 +10,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -147,7 +148,7 @@ export function AppShell({
   // the palette: the sidebar's navigation as it read when ⌘K opened it, null while closed
   const navRef = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<SidebarNavItem[] | null>(null);
-  const openPalette = () => setPalette(readSidebarNav(navRef.current));
+  const openPalette = useCallback(() => setPalette(readSidebarNav(navRef.current)), []);
   // the header row's middle and end, where a page's own row (`AppShellPageHeader`) and its menu
   // (`AppShellPageMenu`) go
   const [pageHeaderSlot, setPageHeaderSlot] = useState<HTMLElement | null>(null);
@@ -155,8 +156,13 @@ export function AppShell({
   usePaletteShortcut(
     useCallback(() => setPalette((open) => (open ? null : readSidebarNav(navRef.current))), []),
   );
+  useHeightOfWhatIsVisible();
+  const pageSlots = useMemo(
+    () => ({ header: pageHeaderSlot, menu: pageMenuSlot, openPalette, appHeader: header }),
+    [pageHeaderSlot, pageMenuSlot, openPalette, header],
+  );
   return (
-    <SidebarProvider defaultOpen={defaultOpen} className="h-svh">
+    <SidebarProvider defaultOpen={defaultOpen} className="h-(--app-height,100svh) min-h-0">
       {/* outside <Sidebar>: on a phone its children live in a Sheet that remounts when opened */}
       <CloseMobileSidebarOnNavigate locationKey={locationKey} />
       <Sidebar collapsible="icon">
@@ -221,9 +227,7 @@ export function AppShell({
           <div ref={setPageHeaderSlot} className="flex min-w-0 flex-1 items-center empty:hidden" />
           <div ref={setPageMenuSlot} className="ml-auto flex items-center md:hidden" />
         </header>
-        <PageSlotsContext
-          value={{ header: pageHeaderSlot, menu: pageMenuSlot, openPalette, appHeader: header }}
-        >
+        <PageSlotsContext value={pageSlots}>
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
         </PageSlotsContext>
       </SidebarInset>
@@ -469,6 +473,22 @@ function ProjectSwitcher({
       </SidebarMenuItem>
     </SidebarMenu>
   );
+}
+
+/** The height the page can show. Safari shrinks only the visual viewport for a phone's keyboard, so
+ *  a page sized in CSS units goes behind it. Pinch zoom shrinks it too, and is no keyboard. */
+function useHeightOfWhatIsVisible() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const fit = () => {
+      if (viewport.scale > 1) return;
+      document.documentElement.style.setProperty("--app-height", `${String(viewport.height)}px`);
+      window.scrollTo(0, 0);
+    };
+    viewport.addEventListener("resize", fit);
+    return () => viewport.removeEventListener("resize", fit);
+  }, []);
 }
 
 function CollapseButton() {

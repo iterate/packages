@@ -2,7 +2,7 @@
 // log (the event, its neighbours — by comparison, not offset ± 1, since a log's offsets are sparse
 // where ephemeral events were and a stale link still finds real neighbours), the gap to each, the
 // signal-first key order the raw event reads in, and which keydowns ← → must leave alone.
-import { formatDelta } from "./event-row.tsx";
+import { formatDelta } from "./event-row-format.ts";
 import type { ContextViewEvent } from "./types.tsx";
 
 /** The inspected offset in a log sorted by offset: the event (when loaded), the events either side
@@ -38,7 +38,7 @@ export function inspectedPlace(
   return { previous, next, missing };
 }
 
-/** The gap between two events' `createdAt` in the rows' notation (event-row.tsx `formatDelta`), never
+/** The gap between two events' `createdAt` in the rows' notation (`formatDelta`), never
  *  negative; none when either time does not parse. */
 export function elapsedBetween(from: string, to: string): string | undefined {
   const ms = Date.parse(to) - Date.parse(from);

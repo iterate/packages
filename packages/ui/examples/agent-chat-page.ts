@@ -46,7 +46,7 @@ export async function agentChatPage(scope: {
     <div id="root"><p class="p-4 text-sm text-muted-foreground">Connecting…</p></div>
     <script type="module">
       import { html, render, useState } from "@iterate-com/ui/page";
-      import { AgentChat, agentChatContextOptions } from "@iterate-com/ui/components/agent-chat/agent-chat";
+      import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
       import { Button } from "@iterate-com/ui/components/ui/button";
       import { Input } from "@iterate-com/ui/components/ui/input";
       import { Toaster } from "@iterate-com/ui/components/ui/sonner";
@@ -64,7 +64,7 @@ export async function agentChatPage(scope: {
         const root = useContextStub(() => api.projects.get(project.id), []);
         const agent = useContextStub(root.stub ? () => root.stub.cd(path) : null, [root.stub, path]);
         // ONE live read of the agent's context, with the events and the history the chat asks for
-        const context = useIterateContext(agent.stub, agentChatContextOptions);
+        const context = useIterateContext(agent.stub, AgentChat.contextOptions);
         return html\`<\${AgentChat}
           path=\${path}
           context=\${context}

@@ -12,7 +12,8 @@ const LazyComposerTextarea: ComponentType<ComposerTextareaProps> = import.meta.e
 
 export function ComposerTextarea(props: ComposerTextareaProps) {
   return (
-    <Suspense fallback={null}>
+    // the editor's own height, so the composer does not move when it lands
+    <Suspense fallback={<div className="min-h-10" />}>
       <LazyComposerTextarea {...props} />
     </Suspense>
   );
