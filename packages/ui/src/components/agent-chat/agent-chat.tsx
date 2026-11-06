@@ -455,6 +455,7 @@ function ChatTab({
             />
             <AgentComposer
               draft={draft}
+              placeholder="Message this agent"
               autoFocusMessage
               interrupt={interrupt}
               onSubmit={(message) => {

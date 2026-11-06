@@ -2,10 +2,10 @@
 // the project's agents, most recently active first. Each shows its name or the first thing a
 // person said to it, with its path beneath (agent-summary.ts, kept live by use-agent-rows.ts;
 // neither reads an agent). Pinned agents sit in their own list above, pins kept per project in this
-// browser. An agent IS its path (`/agents/...`); "New agent" births one at a generated path and the
-// page opens it — no name to type.
+// browser. "New agent" opens the project's home page, whose composer starts one with its first
+// message (agents-home.tsx).
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { BotIcon, PinIcon, SquarePenIcon } from "lucide-react";
 import {
   SidebarGroup,
@@ -15,9 +15,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@iterate-com/ui/components/ui/sidebar";
-import { toast } from "sonner";
 import { cn } from "cn";
-import { orderAgents, type AgentRow } from "../lib/agent-summary.ts";
+import { agentTitle, orderAgents, type AgentRow } from "../lib/agent-summary.ts";
 import { usePinnedAgents } from "../lib/use-pinned-agents.ts";
 
 export function AgentsNav({
@@ -25,7 +24,6 @@ export function AgentsNav({
   slug,
   agents,
   agent,
-  onCreate,
   installed,
 }: {
   /** the project's id — pins are kept under it */
@@ -35,24 +33,11 @@ export function AgentsNav({
   /** whether the project has `itx.agents`: without it there is nothing to create an agent with */
   installed: boolean;
   agents: AgentRow[];
+  /** the open agent; none on the home page */
   agent: string | undefined;
-  /** Births an agent at a fresh path; the page navigates to it once it exists. */
-  onCreate: () => Promise<void>;
 }) {
-  const [creating, setCreating] = useState(false);
   const { pinned, togglePinned } = usePinnedAgents(project);
   const ordered = useMemo(() => orderAgents(agents, pinned), [agents, pinned]);
-  async function create() {
-    if (creating) return;
-    setCreating(true);
-    try {
-      await onCreate();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
-    }
-  }
   const renderRow = (row: AgentRow) => (
     <AgentsNavRow
       key={row.path}
@@ -71,13 +56,12 @@ export function AgentsNav({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  type="button"
-                  onClick={() => void create()}
-                  disabled={creating}
+                  isActive={!agent}
                   tooltip="New agent"
+                  render={<Link to="/projects/$slug" params={{ slug }} />}
                 >
                   <SquarePenIcon />
-                  <span>{creating ? "Creating…" : "New agent"}</span>
+                  <span>New agent</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -120,7 +104,6 @@ function AgentsNavRow({
   pinned: boolean;
   onTogglePinned: () => void;
 }) {
-  const title = row.title || row.path.split("/").filter(Boolean).at(-1) || row.path;
   return (
     <SidebarMenuItem data-agent-path={row.path}>
       <SidebarMenuButton
@@ -131,7 +114,7 @@ function AgentsNavRow({
       >
         <BotIcon />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm">{title}</span>
+          <span className="truncate text-sm">{agentTitle(row)}</span>
           <span className="truncate font-mono text-2xs text-muted-foreground">{row.path}</span>
         </span>
       </SidebarMenuButton>

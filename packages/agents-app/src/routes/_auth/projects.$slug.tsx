@@ -1,13 +1,7 @@
 // registers `itx.agents` on InstalledAppRoots
 import type {} from "iterate/agents";
 import type { IterateContextApiWith } from "iterate/api";
-import {
-  createFileRoute,
-  getRouteApi,
-  useNavigate,
-  useRouter,
-  useRouterState,
-} from "@tanstack/react-router";
+import { createFileRoute, getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
@@ -29,14 +23,13 @@ import {
 } from "@iterate-com/ui/components/ui/empty";
 import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
+import { AgentsHome } from "../../components/agents-home.tsx";
 import { AgentsNav } from "../../components/agents-nav.tsx";
-import { newWebAgentPath } from "../../lib/web-agent.ts";
-import { agentRowsOf } from "../../lib/agent-summary.ts";
 import { useAgentRows } from "../../lib/use-agent-rows.ts";
 
-// The project's agents in the sidebar, and one agent's chat (`AgentChat`, whose file says what a
-// chat is) beside them. The project stub is held for the page's life; the agent's context is
-// `project.cd(path)`.
+// The project's agents in the sidebar, and beside them one agent's chat (`AgentChat`, whose file
+// says what a chat is) or, with no agent in the URL, the home page that starts one. The project
+// stub is held for the page's life; the agent's context is `project.cd(path)`.
 type ProjectPromise = ReturnType<AuthenticatedApp["api"]["projects"]["get"]>;
 type Project = Awaited<ProjectPromise>;
 type Context = Awaited<ReturnType<Project["cd"]>>;
@@ -44,8 +37,8 @@ type Context = Awaited<ReturnType<Project["cd"]>>;
 /** The project — its stub, or the pipelined one a loader's `read` holds — with its `itx.agents`
  *  root typed (iterate/agents api.ts). The root is there only by the project's rewrite rule, so the
  *  session's project stub cannot name it; the page calls it only where the rule is known to be
- *  there: the loader after reading it, the sidebar's create only when the loader found it, the
- *  composer only beside an agent. */
+ *  there: the loader after reading it, the home page's composer only when the loader found it, the
+ *  chat's composer only beside an agent. */
 const withAgents = <P extends Project | ProjectPromise>(itx: P) =>
   itx as P & Pick<IterateContextApiWith<"agents">, "agents">;
 
@@ -54,9 +47,8 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
   // tab's mode, filter, inspected event and open sheet). A hand-edited value is an absent key,
   // never an error page.
   validateSearch: AgentChatState.extend({ agent: z.string().optional().catch(undefined) }),
-  loaderDeps: ({ search }) => ({ agent: search.agent }),
   // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- each read needs the one before, and a first load's read is one batch that takes no calls after an await (iterate/app `read`)
-  loader: async ({ context, params, deps }) => {
+  loader: async ({ context, params }) => {
     const projects = await context.read((api) => api.projects.list());
     // the URL names the project by slug; one this sign-in lacks → sign in again
     const project = projects.find((item) => item.slug === params.slug);
@@ -66,23 +58,12 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
       using itx = api.projects.get(project.id);
       return await itx.rewriteRules.get("itx.agents");
     });
-    if (!rule?.target)
-      return {
-        projects,
-        project,
-        catalog: null,
-        agent: undefined,
-      };
+    if (!rule?.target) return { projects, project, catalog: null };
     const catalog = await context.read(async (api) => {
       using itx = api.projects.get(project.id);
       return await facetSnapshotOf(itx, "agents");
     });
-    return {
-      projects,
-      project,
-      catalog,
-      agent: deps.agent || agentRowsOf(catalog.state)[0]?.path,
-    };
+    return { projects, project, catalog };
   },
   // the project's frame from the URL while the page reads
   pendingComponent: () => <ProjectAppFrame app="Agents" />,
@@ -91,9 +72,8 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
 
 function AgentsPage() {
   const data = Route.useLoaderData();
+  const { agent } = Route.useSearch();
   const { api, info } = Route.useRouteContext();
-  const navigate = useNavigate();
-  const router = useRouter();
   const href = useRouterState({ select: (state) => state.location.href });
   // the loader sends a sign-in the project is missing from off to sign in again, so it is here
   const project = data.project.id;
@@ -111,29 +91,17 @@ function AgentsPage() {
           slug={data.project.slug}
           agents={agents}
           installed={installed}
-          agent={data.agent}
-          onCreate={async () => {
-            // An agent is its path; a new one is born at this moment's path.
-            const path = newWebAgentPath(new Date());
-            using itx = await api.projects.get(project);
-            await withAgents(itx).agents.create(path);
-            await router.invalidate();
-            await navigate({
-              to: "/projects/$slug",
-              params: { slug: data.project.slug },
-              search: { agent: path },
-            });
-          }}
+          agent={agent}
         />
       }
       header={
-        data.agent ? (
+        agent ? (
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem className="hidden md:inline-flex">Agents</BreadcrumbItem>
               <BreadcrumbSeparator className="hidden md:inline-flex" />
               <BreadcrumbItem>
-                <BreadcrumbPage className="font-mono">{data.agent}</BreadcrumbPage>
+                <BreadcrumbPage className="font-mono">{agent}</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -142,15 +110,22 @@ function AgentsPage() {
       account={info.principal}
       locationKey={href}
     >
-      {data.agent ? (
-        <AgentConversation key={`${project}${data.agent}`} project={project} path={data.agent} />
+      {agent ? (
+        <AgentConversation key={`${project}${agent}`} project={project} path={agent} />
       ) : installed ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>No agents yet</EmptyTitle>
-            <EmptyDescription>Create one in the sidebar, then talk to it here.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <AgentsHome
+          key={project}
+          slug={data.project.slug}
+          agents={agents}
+          onCreate={async (path) => {
+            using itx = await api.projects.get(project);
+            await withAgents(itx).agents.create(path);
+          }}
+          onMessage={async (path, { message, files }) => {
+            using itx = await api.projects.get(project);
+            await withAgents(itx).agents.get(path).message({ message, files });
+          }}
+        />
       ) : (
         <NotInstalled slug={data.project.slug} platformOrigin={info.platformOrigin} />
       )}

@@ -1,7 +1,8 @@
 // The pill composer: a `+` menu (Message / Raw event, and Attach files), the CodeMirror message
 // editor that grows with the draft, a raw-event editor that appends YAML or JSON to the agent's
 // log, attachment chips with drag-and-drop, and one round button that sends — or, while a turn
-// runs, STOPS it (an interruption is a property of the person's next input).
+// runs, STOPS it (an interruption is a property of the person's next input). A composer for an
+// agent that does not exist yet has no log to append to, so it has no raw mode.
 import { useState, type DragEvent, type ReactNode } from "react";
 import { parse as parseYaml } from "yaml";
 import {
@@ -65,15 +66,17 @@ function AgentPillComposer({
   mode: AgentComposerMode;
   onModeChange: (mode: AgentComposerMode) => void;
   message: AgentComposerMessageConfig;
-  raw: AgentComposerRawConfig;
+  /** Absent: no raw mode, and the `+` only attaches files. */
+  raw: AgentComposerRawConfig | undefined;
   isSubmitting?: boolean;
   error?: string;
   autoFocusMessage?: boolean;
   isInterrupting?: boolean;
   onInterrupt?: () => Promise<void> | void;
 }) {
-  const canSubmit =
-    !isSubmitting && (mode === "message" ? message.canSubmit : raw.value.trim() !== "");
+  // the raw editor while it is the open mode; otherwise the message editor is
+  const openRaw = mode === "raw" ? raw : undefined;
+  const canSubmit = !isSubmitting && (openRaw ? openRaw.value.trim() !== "" : message.canSubmit);
   const showInterrupt = mode === "message" && !!onInterrupt;
   const { isDragging, dropHandlers } = useFileDrop({
     accepts: !isSubmitting,
@@ -85,8 +88,7 @@ function AgentPillComposer({
 
   function submit() {
     if (!canSubmit) return;
-    if (mode === "message") void message.onSubmit();
-    else void raw.onSubmit();
+    void (openRaw || message).onSubmit();
   }
 
   function interrupt() {
@@ -96,15 +98,7 @@ function AgentPillComposer({
 
   return (
     <div className="w-full">
-      {error ? (
-        <p
-          className="mb-2 ml-4 truncate font-mono text-xs text-destructive"
-          role="alert"
-          data-type="error"
-        >
-          {error}
-        </p>
-      ) : null}
+      <ComposerError error={error} />
       <div
         {...dropHandlers}
         data-drop-active={isDragging ? "true" : undefined}
@@ -116,13 +110,14 @@ function AgentPillComposer({
         <ComposerModeMenu
           mode={mode}
           onModeChange={onModeChange}
+          hasRaw={Boolean(raw)}
           isSubmitting={isSubmitting}
           onAttach={message.onAttach}
         />
-        {mode === "raw" ? (
+        {openRaw ? (
           <CodeEditor
-            value={raw.value}
-            onValueChange={raw.onValueChange}
+            value={openRaw.value}
+            onValueChange={openRaw.onValueChange}
             onSubmit={submit}
             focusOnMount
             placeholder={"type: events.iterate.com/note/added\npayload:\n  text: hello"}
@@ -159,6 +154,20 @@ function AgentPillComposer({
         )}
       </div>
     </div>
+  );
+}
+
+/** The failures above the pill, if any. */
+function ComposerError({ error }: { error: string | undefined }) {
+  if (!error) return null;
+  return (
+    <p
+      className="mb-2 ml-4 truncate font-mono text-xs text-destructive"
+      role="alert"
+      data-type="error"
+    >
+      {error}
+    </p>
   );
 }
 
@@ -199,15 +208,17 @@ function useFileDrop({
   return { isDragging, dropHandlers };
 }
 
-/** The `+`: Message or Raw event, and Attach files. */
+/** The `+`: Message or Raw event when there is a raw mode, and Attach files. */
 function ComposerModeMenu({
   mode,
   onModeChange,
+  hasRaw,
   isSubmitting,
   onAttach,
 }: {
   mode: AgentComposerMode;
   onModeChange: (mode: AgentComposerMode) => void;
+  hasRaw: boolean;
   isSubmitting: boolean;
   onAttach: () => void;
 }) {
@@ -226,26 +237,30 @@ function ComposerModeMenu({
         <PlusIcon className="size-4.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-60">
-        <DropdownMenuRadioGroup
-          value={mode}
-          onValueChange={(value) => onModeChange(value === "raw" ? "raw" : "message")}
-        >
-          <DropdownMenuRadioItem value="message" closeOnClick>
-            <MessageSquareIcon className="text-muted-foreground" />
-            <span className="flex min-w-0 flex-1 flex-col py-0.5">
-              <span className="font-medium">Message</span>
-              <span className="text-xs text-muted-foreground">Chat with this agent</span>
-            </span>
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="raw" closeOnClick>
-            <FileCode2Icon className="text-muted-foreground" />
-            <span className="flex min-w-0 flex-1 flex-col py-0.5">
-              <span className="font-medium">Raw event</span>
-              <span className="text-xs text-muted-foreground">Append YAML or JSON</span>
-            </span>
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
+        {hasRaw ? (
+          <>
+            <DropdownMenuRadioGroup
+              value={mode}
+              onValueChange={(value) => onModeChange(value === "raw" ? "raw" : "message")}
+            >
+              <DropdownMenuRadioItem value="message" closeOnClick>
+                <MessageSquareIcon className="text-muted-foreground" />
+                <span className="flex min-w-0 flex-1 flex-col py-0.5">
+                  <span className="font-medium">Message</span>
+                  <span className="text-xs text-muted-foreground">Chat with this agent</span>
+                </span>
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="raw" closeOnClick>
+                <FileCode2Icon className="text-muted-foreground" />
+                <span className="flex min-w-0 flex-1 flex-col py-0.5">
+                  <span className="font-medium">Raw event</span>
+                  <span className="text-xs text-muted-foreground">Append YAML or JSON</span>
+                </span>
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem
           disabled={isSubmitting}
           onClick={() => {
@@ -333,14 +348,18 @@ function filesToPayload(files: readonly File[]): Promise<OutgoingFile[]> {
  *  the draft, what a submit does and the running turn's interrupt. */
 export function AgentComposer({
   draft,
+  placeholder,
   onSubmit,
   onAppendRaw,
   interrupt,
   autoFocusMessage = false,
 }: {
   draft: ComposerDraft;
+  /** The empty editor's text, which also names its textbox. */
+  placeholder: string;
   onSubmit: (input: { message: string; files: OutgoingFile[] }) => Promise<void>;
-  onAppendRaw: (events: unknown[]) => Promise<void>;
+  /** Absent: no raw mode. */
+  onAppendRaw: ((events: unknown[]) => Promise<void>) | undefined;
   /** Null while no turn is running. */
   interrupt: StreamInterrupt | null;
   autoFocusMessage?: boolean;
@@ -383,12 +402,12 @@ export function AgentComposer({
     }
   }
 
-  async function submitRawEvents() {
+  async function submitRawEvents(append: (events: unknown[]) => Promise<void>) {
     const trimmed = rawText.trim();
     if (!trimmed) return;
     await runSubmit(async () => {
       const parsed: unknown = parseYaml(trimmed);
-      await onAppendRaw(Array.isArray(parsed) ? parsed : [parsed]);
+      await append(Array.isArray(parsed) ? parsed : [parsed]);
     });
   }
 
@@ -415,9 +434,17 @@ export function AgentComposer({
             ),
           onAttach: attachments.openFilePicker,
           onAddFiles: attachments.addFiles,
-          placeholder: "Message this agent",
+          placeholder,
         }}
-        raw={{ value: rawText, onValueChange: setRawText, onSubmit: submitRawEvents }}
+        raw={
+          onAppendRaw
+            ? {
+                value: rawText,
+                onValueChange: setRawText,
+                onSubmit: () => submitRawEvents(onAppendRaw),
+              }
+            : undefined
+        }
         isSubmitting={isSubmitting}
         error={error}
         isInterrupting={interrupt?.isInterrupting}

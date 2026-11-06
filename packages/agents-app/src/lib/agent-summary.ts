@@ -1,6 +1,6 @@
-// What the sidebar shows about the project's agents. It reads the catalog on `/` (iterate/agents
-// catalog.ts), which has one row per agent kept up to date by copies of the agent's events, so a
-// list of any length reads no agent. These are pure functions, so agent-summary.test.ts can test the
+// What the sidebar and the home page show about the project's agents. It reads the catalog on `/`
+// (iterate/agents catalog.ts), which has one row per agent kept up to date by copies of the agent's
+// events, so a list of any length reads no agent. These are pure functions, so agent-summary.test.ts can test the
 // ordering directly; use-agent-rows.ts keeps the rows live.
 import { z } from "zod";
 
@@ -40,23 +40,33 @@ export function agentRowsOf(value: unknown): AgentRow[] {
   }));
 }
 
+/** What a list calls an agent: its title, or else the last segment of its path. */
+export function agentTitle(row: AgentRow): string {
+  return row.title || row.path.split("/").filter(Boolean).at(-1) || row.path;
+}
+
 /** When an agent last did anything, as far as the catalog knows: its last activity, or else when
  *  it was created. */
 function agentActivityAt(row: AgentRow): string {
   return row.lastActivityAt || row.createdAt;
 }
 
-/** The sidebar's two lists, each most recently active first (the path breaks a tie): the agents
- *  this person pinned, then the rest. */
-export function orderAgents(
-  rows: readonly AgentRow[],
-  pinned: ReadonlySet<string>,
-): { pinned: AgentRow[]; recent: AgentRow[] } {
-  const ordered = rows.toSorted(
+/** The agents, most recently active first (the path breaks a tie): the home page's list. */
+export function byRecentActivity(rows: readonly AgentRow[]): AgentRow[] {
+  return rows.toSorted(
     (left, right) =>
       agentActivityAt(right).localeCompare(agentActivityAt(left)) ||
       left.path.localeCompare(right.path),
   );
+}
+
+/** The sidebar's two lists, each most recently active first: the agents this person pinned, then
+ *  the rest. */
+export function orderAgents(
+  rows: readonly AgentRow[],
+  pinned: ReadonlySet<string>,
+): { pinned: AgentRow[]; recent: AgentRow[] } {
+  const ordered = byRecentActivity(rows);
   return {
     pinned: ordered.filter((row) => pinned.has(row.path)),
     recent: ordered.filter((row) => !pinned.has(row.path)),
