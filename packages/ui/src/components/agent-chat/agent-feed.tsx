@@ -389,6 +389,9 @@ function RoundTabs({
   // Every settled script has a result pane — a `return;` that ended the turn says so there.
   const hasResult = code.status === "done";
   const active = selected === "result" && !hasResult ? "script" : selected;
+  // A script the agent loop wrapped: the Script tab shows the model's own code, Full script all of it.
+  const authored = authoredScript(code.code);
+  const wrapped = Boolean(authored);
   return (
     <Tabs
       value={active}
@@ -404,13 +407,23 @@ function RoundTabs({
             Result
           </TabsTrigger>
         ) : null}
+        {wrapped ? (
+          <TabsTrigger value="full" className="text-xs">
+            Full script
+          </TabsTrigger>
+        ) : null}
         <TabsTrigger value="meta" className="text-xs">
           Meta
         </TabsTrigger>
       </TabsList>
       <TabsContent value="script" className="flex flex-col gap-1.5">
         <div className="max-h-80 overflow-y-auto rounded-lg">
-          <CodeBlock code={code.code} language="typescript" showLineNumbers={false} />
+          <CodeBlock
+            code={authored || code.code}
+            language="typescript"
+            showLineNumbers={false}
+            reindent
+          />
         </div>
         {!hasResult && code.errorMessage ? (
           <pre
@@ -434,6 +447,13 @@ function RoundTabs({
       <TabsContent value="result" className="flex flex-col gap-2">
         <ScriptResult code={code} />
       </TabsContent>
+      {wrapped ? (
+        <TabsContent value="full" className="flex flex-col gap-1.5">
+          <div className="max-h-80 overflow-y-auto rounded-lg">
+            <CodeBlock code={code.code} language="typescript" showLineNumbers={false} />
+          </div>
+        </TabsContent>
+      ) : null}
       <TabsContent value="meta" className="flex flex-col gap-1.5">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-1.5 font-mono text-xs">
           {llm ? (
@@ -461,6 +481,16 @@ function RoundTabs({
       </TabsContent>
     </Tabs>
   );
+}
+
+/** The model's own code inside the agent loop's envelope (core/lib results-preamble.ts wraps it
+ *  between these markers), or null for a script that has no envelope. */
+export function authoredScript(code: string): string | null {
+  const open = "//#region your script";
+  const start = code.indexOf(open);
+  const end = code.lastIndexOf("//#endregion your script");
+  if (start === -1 || end < start) return null;
+  return code.slice(start + open.length, end).trim();
 }
 
 /** The script's returned value: a string as itself, anything else as YAML with a JSON toggle. */
@@ -521,7 +551,10 @@ export function AgentLiveActivity({
   const liveStep = runningSteps.at(-1);
   const doneSteps = live.steps.filter((step) => step.status === "done");
   const doneSummary = summarizeAgentUiActivity(live, doneSteps);
-  const working = isAgentUiActivityWorking(live);
+  const status = deriveAgentUiLiveStatus(state);
+  // "processing": no step runs, but the journal already owes one (a script the model wrote, or the
+  // round after a script's value), so the live row keeps its spinner through the gap.
+  const working = isAgentUiActivityWorking(live) || status?.phase === "processing";
   const activityExpanded = toggledIds.has(activityToggleId);
   const showStepRail =
     activityExpanded &&
@@ -540,9 +573,12 @@ export function AgentLiveActivity({
     );
   }
 
-  const status = deriveAgentUiLiveStatus(state);
   const currentLabel = status?.statusText || liveActivityLabel(runningSteps);
-  const currentStartedAtMs = liveStep?.startedAtMs ?? live.startedAtMs;
+  // With no step running (the "processing" gap), the clock counts from when the last step ended.
+  const lastStep = live.steps.at(-1);
+  const currentStartedAtMs =
+    liveStep?.startedAtMs ??
+    (lastStep ? lastStep.startedAtMs + (lastStep.durationMs ?? 0) : live.startedAtMs);
   const inspectCurrentWork =
     liveStep?.kind === "llm"
       ? () => inspect.llmRequest(liveStep.llmRequestOffset)
@@ -704,7 +740,9 @@ function LiveStepStream({ step }: { step: AgentUiStep }) {
   if (step.kind === "code") {
     return (
       <div className="flex flex-col gap-1.5 py-1">
-        {step.code === "" ? null : <StreamingCodeBlock code={step.code} />}
+        {step.code === "" ? null : (
+          <StreamingCodeBlock code={authoredScript(step.code) || step.code} />
+        )}
       </div>
     );
   }

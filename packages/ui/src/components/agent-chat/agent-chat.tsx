@@ -131,7 +131,7 @@ export function AgentChat({
   // follow-up round). Without live state at all, the log alone decides: the reducer settles only
   // once no step is running, and a follow-up round reopens an activity.
   const idle = facet.success
-    ? !facet.data.openRequest && !facet.data.pendingLlmRequestTrigger
+    ? !facet.data.openRequest && !facet.data.pendingLlmRequestTrigger && !facet.data.awaitingRun
     : liveUnavailable;
   const feed = useMemo(() => reduceAgentFeed(events, idle), [events, idle]);
   // A script still running is the context's, read from the log: the feed's running code step.
@@ -211,7 +211,9 @@ export function AgentChat({
           ? { text: `Thinking · ${facet.data.openRequest.model}`, tone: "live" as const }
           : facet.data.pendingLlmRequestTrigger
             ? { text: "About to think", tone: "live" as const }
-            : { text: "Idle", tone: "muted" as const };
+            : facet.data.awaitingRun
+              ? { text: "About to run a script", tone: "live" as const }
+              : { text: "Idle", tone: "muted" as const };
   const error = hostError || context.error;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -353,12 +355,14 @@ export function AgentChat({
 }
 
 /** The agent facet's live state, the fields the strip reads (iterate/agents contract.ts
- *  `stateSchema`): a pause, the one open request, the one pending trigger. A script the agent asked
- *  for is the CONTEXT's obligation, not in this state: the feed's running code step says so. */
+ *  `stateSchema`): a pause, the one open request, the one pending trigger, and the answer whose
+ *  script the loop has not asked to run yet. A script the agent asked for is the CONTEXT's
+ *  obligation, not in this state: the feed's running code step says so. */
 const AgentLive = z.object({
   paused: z.object({ reason: z.string() }).nullable(),
   openRequest: z.object({ model: z.string() }).nullable(),
   pendingLlmRequestTrigger: z.object({}).nullable(),
+  awaitingRun: z.object({}).nullable().default(null),
 });
 
 /** The interrupt affordance for the running turn, shared by the composer and the queued
