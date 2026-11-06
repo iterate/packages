@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { installStatusOf } from "@iterate-com/cloud/views";
 import type { DeploymentRecord } from "@iterate-com/cloud/records";
+import { ErrorMessage } from "@iterate-com/ui/components/standalone-page";
 import { Badge } from "@iterate-com/ui/components/ui/badge";
 import { buttonVariants } from "@iterate-com/ui/components/ui/button";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
@@ -18,7 +19,7 @@ import { Connection } from "../../components/connection.tsx";
 import { useDeployment, usePerson } from "../../lib/live.ts";
 
 /** The person's deployments, live from their own context, each row live from its own. With none
- *  yet, the wizard. */
+ *  yet, the wizard; the spinner until the person's state says which. */
 export const Route = createFileRoute("/_app/deployments/")({
   head: () => ({ meta: [{ title: "Deployments · iterate" }] }),
   component: Deployments,
@@ -31,6 +32,10 @@ function Deployments() {
   useEffect(() => {
     if (deployments?.length === 0) void navigate({ to: "/new", replace: true });
   }, [deployments, navigate]);
+  // until the person's state arrives the page does not know yet, and with none it leaves for the
+  // wizard: neither draws an empty list
+  if (!deployments?.length)
+    return person.error ? <ErrorMessage>{person.error}</ErrorMessage> : <Spinner />;
   return (
     <>
       <div className="flex items-center gap-3">
@@ -41,23 +46,21 @@ function Deployments() {
           New deployment
         </Link>
       </div>
-      {deployments?.length ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead>Cloudflare account</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {[...deployments].reverse().map((deployment) => (
-              <Row key={deployment.id} record={deployment} />
-            ))}
-          </TableBody>
-        </Table>
-      ) : null}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Address</TableHead>
+            <TableHead>Cloudflare account</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {[...deployments].reverse().map((deployment) => (
+            <Row key={deployment.id} record={deployment} />
+          ))}
+        </TableBody>
+      </Table>
     </>
   );
 }

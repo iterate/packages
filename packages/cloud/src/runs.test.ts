@@ -79,19 +79,19 @@ test("a deploy, and only a deploy, ends by asking the new Worker's address until
   expect(deploy).not.toMatch(/GitOrigin-RevId|api\.github\.com/);
 });
 
-test("with no image source a run copies no image: its step says so, and core's deploy pins none", () => {
+test("with no image source a run copies no image and prints no image step, and core's deploy pins none", () => {
   for (const kind of ["plan", "deploy"] as const) {
     const script = runScriptOf(record, kind, 42, null, undefined);
     execFileSync("bash", ["-n"], { input: script });
-    expect(script).toContain(
-      `echo "== step image"\necho "skipped: sandboxes start Cloudflare's managed image"\n`,
-    );
+    expect(script).not.toContain("== step image");
     expect(script).not.toMatch(/crane|registry\.cloudflare\.com|image-preparations/);
     expect(script).toContain("export ITERATE_IMAGE_PINS='{}'");
-    // where the copy would stand: after the namespace, before the build
-    expect(script.indexOf("== step image")).toBeGreaterThan(script.indexOf("== step namespace"));
-    expect(script.indexOf("== step build")).toBeGreaterThan(script.indexOf("== step image"));
+    expect(script.indexOf("== step build")).toBeGreaterThan(script.indexOf("== step namespace"));
   }
+  // with an image source the copy is a step of its own, between the namespace and the build
+  const copying = runScriptOf(record, "deploy", 42, image, step);
+  expect(copying.indexOf("== step image")).toBeGreaterThan(copying.indexOf("== step namespace"));
+  expect(copying.indexOf("== step build")).toBeGreaterThan(copying.indexOf("== step image"));
 });
 
 test("each script is valid bash, and a destroy, and only a destroy, ends by deleting the namespace the install made", () => {

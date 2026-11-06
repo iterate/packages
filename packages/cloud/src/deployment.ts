@@ -44,6 +44,7 @@ import {
   type Run,
   type RunKind,
   type RunSettled,
+  RunStep as RunStepSchema,
   type RunStep,
   type Step,
 } from "./records.ts";
@@ -417,20 +418,27 @@ const threw = (error: unknown): Outcome => ({
 const isOpen = (run: Run | null, requestOffset: number): run is Run =>
   run?.status === "open" && run.requestOffset === requestOffset;
 
-/** The named steps of a run of `kind`, all pending: a plan or deploy makes the Artifacts namespace,
- *  puts the sandbox image in the account and builds core/os before Alchemy runs (runs.ts). */
+/** The named steps of a run of `kind`, all pending: a plan or deploy makes the Artifacts namespace
+ *  and builds core/os before Alchemy runs (runs.ts). The image step is not among them: only a run
+ *  whose toolchain names an image source copies one, and `reach` adds the step when it runs. */
 const stepsOf = (kind: RunKind): Step[] =>
   ({
-    plan: ["namespace", "image", "build", "alchemy"] as const,
-    deploy: ["namespace", "image", "build", "alchemy", "check"] as const,
+    plan: ["namespace", "build", "alchemy"] as const,
+    deploy: ["namespace", "build", "alchemy", "check"] as const,
     destroy: ["alchemy", "repos"] as const,
   })[kind].map((name) => ({ name, status: "pending", lines: 0, tail: [] }));
 
-/** `reached` runs; every step before it succeeded. A step already running stays as it is. */
+/** `reached` runs; every step before it succeeded. A step the run's kind does not list from the
+ *  start (the image copy, which only a toolchain with an image source makes) joins the list at its
+ *  place in the order when the run reaches it. */
 function reach(steps: Step[], reached: Step["name"]): Step[] {
-  const at = steps.findIndex((step) => step.name === reached);
-  if (at < 0) return steps;
-  return steps.map((step, index): Step =>
+  const listed = steps.some((step) => step.name === reached)
+    ? steps
+    : [...steps, { name: reached, status: "pending" as const, lines: 0, tail: [] }].sort(
+        (a, b) => STEP_ORDER.indexOf(a.name) - STEP_ORDER.indexOf(b.name),
+      );
+  const at = listed.findIndex((step) => step.name === reached);
+  return listed.map((step, index): Step =>
     index < at
       ? { ...step, status: "succeeded" }
       : index === at
@@ -438,3 +446,6 @@ function reach(steps: Step[], reached: Step["name"]): Step[] {
         : step,
   );
 }
+
+/** Every step a run may take, in the order it takes them (records.ts `RunStep`). */
+const STEP_ORDER = RunStepSchema.options;

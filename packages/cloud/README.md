@@ -53,8 +53,8 @@ export { CloudDeploymentFacet, CloudPersonFacet, CloudToolchainFacet } from "@it
   then fails and names it. A Cloud whose toolchain names no image needs none.
 - **The toolchain**, prepared once and again for each new core, with one event:
   `itx.cd("/toolchain").append({ type: "cloud/toolchain-requested", payload: {} })`.
-  Its deployments get no sandbox image: a run's image step says it is skipped, and their sandboxes
-  start Cloudflare's managed image.
+  Its deployments get no sandbox image: a run has no image step, and their sandboxes start
+  Cloudflare's managed image.
 - **The sandbox image, optional**: the same event with
   `payload: { image: { account, secret, digest } }` makes each plan and deploy put
   `iterate-dev-image` into the customer's account first ([src/image.ts](src/image.ts)). The digest

@@ -73,12 +73,18 @@ export function installStepsOf(state: Creation): InstallStep[] {
   return [sandbox, ...steps];
 }
 
-/** The steps of `run`, every step its kind goes through, with what each printed. The script's own
+/** The steps of `run`, every step its kind goes through (the image copy only once reached), with
+ *  what each printed. The script's own
  *  `== ` marker lines (runs.ts) are not shown. */
 export function runStepsOf(
   run: Pick<Run, "kind" | "steps" | "resources" | "error">,
 ): InstallStep[] {
-  return STEPS_OF[run.kind].map((name): InstallStep => {
+  // the image copy is listed only once the run reached it: a toolchain with no image source copies
+  // none, and its runs never show the row (deployment.ts `reach`)
+  const names = STEPS_OF[run.kind].filter(
+    (name) => name !== "image" || run.steps.some((step) => step.name === "image"),
+  );
+  return names.map((name): InstallStep => {
     const step = run.steps.find((candidate) => candidate.name === name);
     const status = step?.status || "pending";
     return {

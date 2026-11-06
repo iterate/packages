@@ -43,6 +43,27 @@ test("a destroy that succeeded leaves the deployment destroyed until a deploy su
   );
 });
 
+test("the image copy shows only for a run that reached it: never before, during or after a run without one", () => {
+  const ids = (run: Run | null) => installStepsOf(creation(run as Run, [])).map((step) => step.id);
+  const withoutImage = (status: Run["status"]): Run => ({
+    ...deploy(9, status),
+    steps: deploy(9, status).steps.filter((step) => step.name !== "image"),
+  });
+  const noRow = ["sandbox", "namespace", "build", "alchemy", "check"];
+  expect(ids(null)).toEqual(noRow);
+  expect(ids(withoutImage("open"))).toEqual(noRow);
+  expect(ids(withoutImage("succeeded"))).toEqual(noRow);
+  // a toolchain with an image source: its run reached the copy
+  expect(ids(deploy(9, "succeeded"))).toEqual([
+    "sandbox",
+    "namespace",
+    "image",
+    "build",
+    "alchemy",
+    "check",
+  ]);
+});
+
 function deploy(requestOffset: number, status: Run["status"], error: string | null = null): Run {
   const failed = status === "failed";
   return {

@@ -173,6 +173,28 @@ test("the live state masks the config's secrets; the full state keeps them for t
   expect(JSON.stringify(live)).not.toContain(config.secretsEncryption.key);
 });
 
+test("a run lists the image copy only once it reaches it", async () => {
+  const deployment = open({
+    prepare: async () => ({ status: "succeeded" }),
+    attempt: async (_run, report) => {
+      await report([
+        printed(0, "namespace", "== step namespace", "created my-iterate-repos"),
+        printed(2, "build", "== step build", "built"),
+      ]);
+      await report([printed(4, "alchemy", "== step alchemy", "Done")]);
+      return { status: "succeeded", url: "https://my-iterate.example.workers.dev" };
+    },
+  });
+  deployment.request();
+  await vi.waitFor(async () => expect((await deployment.state()).run?.status).toBe("succeeded"));
+  expect((await deployment.state()).run?.steps.map((step) => [step.name, step.status])).toEqual([
+    ["namespace", "succeeded"],
+    ["build", "succeeded"],
+    ["alchemy", "succeeded"],
+    ["check", "succeeded"],
+  ]);
+});
+
 test("each processor is delivered every event its contract defines: the facet specs take the contract's list", () => {
   for (const contract of [DeploymentContract, PersonContract, ToolchainContract])
     expect([...contract.consumes].sort()).toEqual(Object.keys(contract.events).sort());
