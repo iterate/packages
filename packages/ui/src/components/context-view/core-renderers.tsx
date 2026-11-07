@@ -3,20 +3,30 @@
 // an app's renderers over these (the app's win), so a page never shows `itx/woken {"incarnation"…}`.
 import { ContextPathText } from "./context-path.tsx";
 import { mono, record, str } from "./renderer-helpers.tsx";
-import type { EventInspectors, EventRenderers } from "./types.tsx";
+import type { ContextViewEvent, EventInspectors, EventRenderers } from "./types.tsx";
 
 /** The platform's housekeeping reads quieter than what people and apps did. */
 const quiet = (text: string) => <span className="text-muted-foreground">{text}</span>;
 
+/** An agent keeping itself ready: a voice call's warm-ups, and the pings of an idle agent. Warming
+ *  that stopped is not one of these: it says the cache was missed, or its budget ran out. */
+const KEEPING_WARM = new Set([
+  "events.iterate.com/agent/warm-up-requested",
+  "events.iterate.com/agent/cache-kept-warm",
+  "events.iterate.com/agent/idle-check",
+]);
+
 /** The platform's HOUSEKEEPING — what the stream does to keep itself running (waking, wiring a
- *  client's subscription, a live-state tick, a scheduled append), never what anyone did. Pretty mode
- *  folds a run of these into one quiet row; the birth, a pause and a script run are not housekeeping. */
-export function isHousekeeping(type: string): boolean {
+ *  client's subscription, a live-state tick, a scheduled append, an agent keeping warm), never what
+ *  anyone did. Pretty mode folds a run of these into one quiet row; the birth, a pause and a script
+ *  run are not housekeeping. */
+export function isHousekeeping({ type, payload }: Pick<ContextViewEvent, "type" | "payload">) {
   return (
     type === "events.iterate.com/itx/woken" ||
     type.startsWith("events.iterate.com/itx/subscription-") ||
     type.startsWith("events.iterate.com/itx/schedule-") ||
-    type === "events.iterate.com/itx/live-state-changed"
+    type === "events.iterate.com/itx/live-state-changed" ||
+    (KEEPING_WARM.has(type) && !record(payload).stopped)
   );
 }
 
@@ -32,7 +42,11 @@ export function housekeepingSummary(types: readonly string[]): string {
           ? "subscription"
           : type === "events.iterate.com/itx/live-state-changed"
             ? "live state"
-            : "scheduled append";
+            : type === "events.iterate.com/agent/idle-check"
+              ? "idle check"
+              : KEEPING_WARM.has(type)
+                ? "kept warm"
+                : "scheduled append";
     counts.set(label, (counts.get(label) || 0) + 1);
   }
   return [...counts.entries()]

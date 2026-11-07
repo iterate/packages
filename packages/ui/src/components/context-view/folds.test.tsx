@@ -90,6 +90,34 @@ test("housekeepingSummary counts by kind", () => {
   ).toBe("woke ×2, subscription ×2, live state");
 });
 
+test("an agent keeping warm folds as housekeeping, however long the call", () => {
+  const kept = [
+    at(1, "events.iterate.com/agent/warm-up-requested", {}),
+    at(2, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 1 }),
+    at(3, "events.iterate.com/agent/warm-up-requested", {}),
+    at(4, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 3 }),
+    at(5, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
+  ];
+  const [first, ...rest] = foldEvents(kept, "pretty").filter((item) => item.kind !== "day");
+  expect(rest).toEqual([]);
+  expect(first?.kind).toBe("housekeeping");
+  expect(housekeepingSummary(kept.map((event) => event.type))).toBe("kept warm ×4, idle check");
+});
+
+test("warming that stopped stays a row of its own: that is news, not housekeeping", () => {
+  const kept = [
+    at(1, "events.iterate.com/agent/warm-up-requested", {}),
+    at(2, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
+    at(3, "events.iterate.com/agent/cache-kept-warm", { stopped: "missed" }),
+    at(4, "events.iterate.com/agent/cache-kept-warm", { stopped: "cost-cap" }),
+  ];
+  expect(
+    foldEvents(kept, "pretty")
+      .filter((item) => item.kind !== "day")
+      .map((item) => item.kind),
+  ).toEqual(["housekeeping", "event", "event"]);
+});
+
 // ── the same fact is the same sentence ──
 test("payloads that differ only in timestamps and ids fold when a fact key says they read the same", () => {
   const signIns = [

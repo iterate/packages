@@ -68,13 +68,9 @@ export function foldEvents(
       lastDay = day;
     }
     if (mode === "pretty") {
-      if (isHousekeeping(event.type)) {
+      if (isHousekeeping(event)) {
         let end = i + 1;
-        while (
-          end < events.length &&
-          isHousekeeping(events[end]!.type) &&
-          dayOf(events[end]!) === day
-        )
+        while (end < events.length && isHousekeeping(events[end]!) && dayOf(events[end]!) === day)
           end += 1;
         const run = events.slice(i, end);
         items.push(
