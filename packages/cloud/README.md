@@ -75,6 +75,8 @@ export { CloudDeploymentFacet, CloudPersonFacet, CloudToolchainFacet } from "@it
 
 - **Its config's `issuer` and `cloudflare`** in `serveCloud`'s options: the platform the Cloud runs
   on, through which every deployment signs its owner in, and the Cloud's Cloudflare OAuth client.
+  `dash`, when the platform's Dash is not iterate's, is the Dash a deployment's `/` sends its owner
+  to (the playground's; prd names none).
 - **`/secrets/cloud-cloudflare-client`**, `{ clientSecret }` pinned to `https://dash.cloudflare.com`:
   the secret of the Cloud's Cloudflare OAuth client, whose id the config passes in. Only the
   platform reads it, at a connect's code exchange and at each refresh. The client lists the
@@ -133,6 +135,10 @@ account, at https://cloud-dev-os.iterate-dev-preview.workers.dev, whose `cloud` 
 Cloud at `/projects/cloud`, with the dev account's pages Worker (`cloudAppEnvs.preview`). A core
 change goes there with one command, and the same deployment keeps its data:
 `doppler run --project os --config preview -- pnpm os deploy --env cloud-dev`.
+It has a Dash and an Agents app of its own (`cloud-dev-dash` and `cloud-dev-agents` on
+`iterate-dev-preview.workers.dev`), which sign in against it and which it names as its own apps, so
+a deployment's owner goes from the Cloud to that Dash as on prd. They deploy after it:
+`doppler run --project os --config preview -- pnpm preview deploy-playground-apps`.
 
 ## The spec
 

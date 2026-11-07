@@ -36,17 +36,28 @@ export const DeploymentConfig = z.object({
   adminBearer: z.string().regex(/^[0-9a-f]{64}$/),
   /** `ITERATE__SECRETS_ENCRYPTION__KEY`: seals the secrets the deployed platform stores. */
   secretsEncryption: z.object({ key: z.string().regex(/^[0-9a-f]{64}$/) }),
+  /** The Dash the deployment's `/` sends its owner to: its Cloud's platform's own, when the
+   *  Cloud's config names one; otherwise core/os's default, iterate's (`urls.dash`). */
+  urls: z.object({ dash: z.url().optional() }).default({}),
 });
 export type DeploymentConfig = z.infer<typeof DeploymentConfig>;
 
 /** A new config for `record`, with fresh secrets: the facet's, once per deployment. Its owner
- *  signs in through `issuer`, the platform the Cloud runs on. */
-export function mintConfig(record: DeploymentRecord, issuer: string): DeploymentConfig {
+ *  signs in through `platform.issuer`, the platform the Cloud runs on, and opens that platform's
+ *  Dash when it names one. */
+export function mintConfig(
+  record: DeploymentRecord,
+  platform: { issuer: string; dash: string | null },
+): DeploymentConfig {
   return DeploymentConfig.parse({
     cloudflare: { accountId: record.accountId, resourcePrefix: record.name, workersDev: true },
-    login: { allow: [{ email: record.owner.email }], methods: { iterate: { issuer } } },
+    login: {
+      allow: [{ email: record.owner.email }],
+      methods: { iterate: { issuer: platform.issuer } },
+    },
     adminBearer: hex(32),
     secretsEncryption: { key: hex(32) },
+    urls: { dash: platform.dash || undefined },
   });
 }
 
@@ -67,6 +78,7 @@ export default {
   login: { ...base.login, allow: cloud.login.allow, methods: { ...base.login?.methods, ...cloud.login.methods } },
   adminBearer: cloud.adminBearer,
   secretsEncryption: { ...base.secretsEncryption, key: cloud.secretsEncryption.key },
+  ...(cloud.urls?.dash ? { urls: { ...base.urls, dash: cloud.urls.dash } } : {}),
 } satisfies IterateConfigInput;
 `;
 

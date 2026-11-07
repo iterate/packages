@@ -22,7 +22,7 @@ export type CreationScope = Pick<IterateContextApi, "append" | "cd">;
 export async function createDeployment(
   itx: CreationScope,
   record: DeploymentRecord,
-  issuer: string,
+  platform: { issuer: string; dash: string | null },
   listed: (offset: number) => Promise<boolean>,
 ) {
   await reachDeployment(itx, record);
@@ -33,13 +33,17 @@ export async function createDeployment(
   });
   if (!(await listed(added!.offset)))
     throw refused(`You already have a deployment named ${record.name} in ${record.accountName}.`);
-  await requestCreation(itx, record, issuer);
+  await requestCreation(itx, record, platform);
 }
 
 /** Steps 1 and 3 again, for a creation that stopped between them. */
-export async function finishCreation(itx: CreationScope, record: DeploymentRecord, issuer: string) {
+export async function finishCreation(
+  itx: CreationScope,
+  record: DeploymentRecord,
+  platform: { issuer: string; dash: string | null },
+) {
   await reachDeployment(itx, record);
-  await requestCreation(itx, record, issuer);
+  await requestCreation(itx, record, platform);
 }
 
 /** The deployment's processor, and its facet lent to its owner: what the person's page reads. */
@@ -49,15 +53,19 @@ export async function reachDeployment(itx: CreationScope, record: DeploymentReco
   await context.facets.lend(DEPLOYMENT_PROCESSOR.name, { to: record.owner.sub });
 }
 
-/** The deployment's request, with a config whose owner signs in through `issuer`, keyed on its id: once one landed, a later one, whose config is
+/** The deployment's request, with a config whose owner signs in through `platform.issuer`, keyed on its id: once one landed, a later one, whose config is
  *  another, is refused as a conflict, and the config that landed stays the only one. */
-async function requestCreation(itx: CreationScope, record: DeploymentRecord, issuer: string) {
+async function requestCreation(
+  itx: CreationScope,
+  record: DeploymentRecord,
+  platform: { issuer: string; dash: string | null },
+) {
   await itx
     .cd(deploymentPathOf(record.id))
     .append({
       type: "cloud/deployment-requested",
       idempotencyKey: `deployment-requested:${record.id}`,
-      payload: { record, config: mintConfig(record, issuer) },
+      payload: { record, config: mintConfig(record, platform) },
     })
     .catch((error: unknown) => {
       if (errorCodeOf(error) !== "IDEMPOTENCY_CONFLICT") throw error;

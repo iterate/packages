@@ -173,7 +173,7 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     using itx = this.getItx();
     // the state once this facet has processed the listing: a creation the log refused is not
     // listed. A snapshot alone may answer before the facet has reduced its own append.
-    await createDeploymentIn(itx, record, issuerOf(state), async (offset) => {
+    await createDeploymentIn(itx, record, platformOf(state), async (offset) => {
       await this.waitUntilProcessed({ offset });
       return (await this.#state()).deployments.some((known) => known.id === id);
     });
@@ -186,7 +186,7 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     const record = state.deployments.find((known) => known.id === id);
     if (!record) throw refused("No such deployment.");
     using itx = this.getItx();
-    await finishCreationIn(itx, record, issuerOf(state));
+    await finishCreationIn(itx, record, platformOf(state));
   }
 
   /** The person's state, caught up through the log: who they are is the first fact on it
@@ -294,14 +294,15 @@ export type CloudDeploymentMethods = Pick<
   (typeof CloudDeploymentFacet.lentMethods)[number]
 >;
 
-/** The issuer a new deployment signs its owner in through: the platform the Cloud runs on. */
-function issuerOf(state: PersonState) {
+/** The platform a new deployment goes through: the issuer it signs its owner in through, and
+ *  that platform's own Dash when it names one. */
+function platformOf(state: PersonState) {
   const issuer = state.platform?.issuer;
   if (!issuer)
     throw new Error(
       "This Cloud does not know the platform it runs on: its config names no issuer (serveCloud's `issuer`).",
     );
-  return issuer;
+  return { issuer, dash: state.platform?.dash || null };
 }
 
 /** A person's state once the Cloud has recorded who they are. */

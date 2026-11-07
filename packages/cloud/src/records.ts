@@ -91,7 +91,13 @@ export type CloudflareClient = z.infer<typeof CloudflareClient>;
 /** What the Cloud knows of the platform it runs on: its origin, the issuer every deployment signs
  *  its owner in through (null when neither the config nor the request names it: worker.ts), and
  *  the Cloud's Cloudflare OAuth client. */
-export const Platform = z.object({ issuer: z.url().nullable(), cloudflare: CloudflareClient });
+export const Platform = z.object({
+  issuer: z.url().nullable(),
+  /** The platform's own Dash, which a deployment's `/` then sends its owner to; null for
+   *  iterate's, core/os's default. */
+  dash: z.url().nullable().default(null),
+  cloudflare: CloudflareClient,
+});
 export type Platform = z.infer<typeof Platform>;
 
 export const PersonState = z.object({

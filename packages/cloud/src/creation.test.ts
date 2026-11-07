@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createDeployment, finishCreation, type CreationScope } from "./creation.ts";
 import type { DeploymentRecord } from "./records.ts";
 
-const ISSUER = "https://os.example";
+const PLATFORM = { issuer: "https://os.example", dash: null };
 const record: DeploymentRecord = {
   id: "dep_aaaabbbbccccdddd",
   name: "my-iterate",
@@ -17,7 +17,7 @@ const record: DeploymentRecord = {
 
 test("a creation makes the deployment reachable before it lists it, and requests it last; a creation that stops after the listing is finished the same way", async () => {
   const { itx, calls } = recording();
-  await createDeployment(itx, record, ISSUER, async () => true);
+  await createDeployment(itx, record, PLATFORM, async () => true);
   expect(calls).toEqual([
     "/deployments/dep_aaaabbbbccccdddd enable cloud-deployment",
     "/deployments/dep_aaaabbbbccccdddd lend cloud-deployment to user_aaaabbbbccccddddaaaabbbbccccdddd",
@@ -28,14 +28,14 @@ test("a creation makes the deployment reachable before it lists it, and requests
   // the log listed another creation of the name first: this one stops at the listing, reachable
   const refused = recording();
   await expect(
-    createDeployment(refused.itx, record, ISSUER, async () => false),
+    createDeployment(refused.itx, record, PLATFORM, async () => false),
   ).rejects.toMatchObject({
     code: "INVALID_INPUT",
   });
   expect(refused.calls.at(-1)).toBe("/people append cloud/deployment-added");
 
   const finished = recording();
-  await finishCreation(finished.itx, record, ISSUER);
+  await finishCreation(finished.itx, record, PLATFORM);
   expect(finished).toMatchObject({
     calls: [
       "/deployments/dep_aaaabbbbccccdddd enable cloud-deployment",

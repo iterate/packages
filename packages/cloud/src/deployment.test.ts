@@ -227,7 +227,7 @@ function open(deps: DeploymentDeps) {
       void engine.catchUpFromLog();
     },
     request() {
-      const config = mintConfig(record, "https://os.example");
+      const config = mintConfig(record, { issuer: "https://os.example", dash: null });
       log.stream.append({ type: "cloud/deployment-requested", payload: { record, config } });
       return config;
     },

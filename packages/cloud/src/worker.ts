@@ -32,6 +32,9 @@ export type CloudOptions = {
    *  at `<platform>/projects/<project>`); under subdomains only this does, and without it the Cloud
    *  makes no deployment. */
   issuer?: string;
+  /** The platform's own Dash, when it is not iterate's: a deployment's `/` sends its owner there
+   *  (the playground's, `cloud-dev-dash`). Unset on prd, whose Dash is core/os's default. */
+  dash?: string;
   /** The Cloud's own Cloudflare OAuth client, through which people connect their accounts. */
   cloudflare: Platform["cloudflare"];
 };
@@ -87,6 +90,7 @@ export async function serveCloud(
   if (person && isDocumentLoad(request))
     await setUpPerson(host, person, {
       issuer: options.issuer || (basePath ? url.origin : null),
+      dash: options.dash || null,
       cloudflare: options.cloudflare,
     });
   // the pages: nothing of the visitor's goes with them. Only the headers a page or an asset is
@@ -131,7 +135,7 @@ const isDocumentLoad = (request: Request) =>
  *   2. a rule that sends the context's `itx.fetch` to the root's, the project's egress, which
  *      fills a connection's token in the facet's requests to Cloudflare (cloudflare.ts);
  *   3. `cloud/platform-configured`, the platform the person's connects and deployments go
- *      through (the issuer and the Cloudflare client), keyed by what it says, so a config that
+ *      through (the issuer, its own Dash, and the Cloudflare client), keyed by what it says, so a config that
  *      names another records it once more;
  *   4. `cloud/person-signed-in`, keyed by everything it says (the person's id and email, and the
  *      admin's, when one is signed in as them). The platform refuses an append whose key it holds
@@ -152,6 +156,7 @@ async function setUpPerson(
   const key = [person.sub, person.email, admin?.actor || "", admin?.email || ""].join(":");
   const said = [
     platform.issuer || "",
+    platform.dash || "",
     platform.cloudflare.clientId,
     platform.cloudflare.secret,
   ].join(" ");
@@ -173,6 +178,7 @@ async function setUpPerson(
     idempotencyKey: `platform-configured:${said}`,
     payload: {
       issuer: platform.issuer,
+      dash: platform.dash,
       cloudflare: { clientId: platform.cloudflare.clientId, secret: platform.cloudflare.secret },
     },
   });

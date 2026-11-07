@@ -28,7 +28,7 @@ const reduce = (state: DeploymentState, event: Logged) =>
 // a config of fresh secrets in place of the one left out: the live state masks every one
 const requested = log.find((event) => event.type === "cloud/deployment-requested")!;
 const record: DeploymentRecord = requested.payload.record;
-requested.payload.config = mintConfig(record, "https://os.iterate.com");
+requested.payload.config = mintConfig(record, { issuer: "https://os.iterate.com", dash: null });
 
 const states: { event: Logged; state: DeploymentState }[] = [];
 let state = DeploymentState.parse({});

