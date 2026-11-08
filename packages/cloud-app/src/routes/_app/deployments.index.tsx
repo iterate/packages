@@ -30,7 +30,7 @@ function Deployments() {
   const navigate = useNavigate();
   const deployments = person.value?.deployments;
   useEffect(() => {
-    if (deployments?.length === 0) void navigate({ to: "/new", replace: true });
+    if (deployments?.length === 0) void navigate({ to: "/deployments/new", replace: true });
   }, [deployments, navigate]);
   // until the person's state arrives the page does not know yet, and with none it leaves for the
   // wizard: neither draws an empty list
@@ -41,7 +41,7 @@ function Deployments() {
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold">Deployments</h1>
         <Connection live={person} />
-        <Link to="/new" className={buttonVariants({ className: "ml-auto" })}>
+        <Link to="/deployments/new" className={buttonVariants({ className: "ml-auto" })}>
           <Plus data-icon="inline-start" />
           New deployment
         </Link>

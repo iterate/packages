@@ -21,7 +21,13 @@
 import type { IterateContextApi } from "iterate/api";
 import type { IterateConfigEntrypoint } from "iterate/sdk";
 import type { Platform } from "./records.ts";
-import { PERSON_PROCESSOR, TOOLCHAIN_PATH, TOOLCHAIN_PROCESSOR } from "./specs.ts";
+import {
+  PERSON_PROCESSOR,
+  TOOLCHAIN_PATH,
+  TOOLCHAIN_PROCESSOR,
+  X_PATH,
+  X_PROCESSOR,
+} from "./specs.ts";
 
 /** What the installing project's config says about its Cloud. */
 export type CloudOptions = {
@@ -37,6 +43,9 @@ export type CloudOptions = {
   dash?: string;
   /** The Cloud's own Cloudflare OAuth client, through which people connect their accounts. */
   cloudflare: Platform["cloudflare"];
+  /** The Cloud's own X OAuth client, through which people connect their X accounts; unset, no
+   *  one connects X here. */
+  x?: Platform["x"];
 };
 
 const BASE_PATH_HEADER = "x-iterate-base-path";
@@ -92,6 +101,7 @@ export async function serveCloud(
       issuer: options.issuer || (basePath ? url.origin : null),
       dash: options.dash || null,
       cloudflare: options.cloudflare,
+      x: options.x || null,
     });
   // the pages: nothing of the visitor's goes with them. Only the headers a page or an asset is
   // chosen by are forwarded, so no cookie, no bearer and none of the edge's stamps of who the
@@ -116,11 +126,21 @@ export async function serveCloud(
 }
 
 /** On `project/worker-updated`: the toolchain's processor, which every deployment's sandbox
- *  starts from. Idempotent. An operator then prepares it with one event (toolchain.ts). */
-export async function installCloud(itx: IterateContextApi) {
+ *  starts from, and the Cloud's X context with the X client the config names. Idempotent. An
+ *  operator then prepares the toolchain with one event (toolchain.ts). */
+export async function installCloud(itx: IterateContextApi, options?: Pick<CloudOptions, "x">) {
   await itx
     .cd(TOOLCHAIN_PATH)
     .processors.enable(TOOLCHAIN_PROCESSOR.name, TOOLCHAIN_PROCESSOR.spec);
+  // the Cloud on X: its context, and the X client it speaks through when the config names one
+  const x = itx.cd(X_PATH);
+  await x.processors.enable(X_PROCESSOR.name, X_PROCESSOR.spec);
+  if (options?.x)
+    await x.append({
+      type: "cloud/x-client-configured",
+      idempotencyKey: `x-client-configured:${options.x.clientId}:${options.x.secret}`,
+      payload: { clientId: options.x.clientId, secret: options.x.secret },
+    });
 }
 
 /** A page, not one of its assets: what a browser loads into a tab. */
@@ -159,6 +179,8 @@ async function setUpPerson(
     platform.dash || "",
     platform.cloudflare.clientId,
     platform.cloudflare.secret,
+    platform.x?.clientId || "",
+    platform.x?.secret || "",
   ].join(" ");
   if (setUp.has(`${key}|${said}`)) return;
   using itx = host.getItx();
@@ -180,6 +202,7 @@ async function setUpPerson(
       issuer: platform.issuer,
       dash: platform.dash,
       cloudflare: { clientId: platform.cloudflare.clientId, secret: platform.cloudflare.secret },
+      x: platform.x && { clientId: platform.x.clientId, secret: platform.x.secret },
     },
   });
   await context.append({

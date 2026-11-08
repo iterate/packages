@@ -3,7 +3,7 @@
 // anywhere in the project sends mail with it (`iterateCloud(itx).email.send`): the ask is an event
 // on `/iterate-cloud`, which a fan-out row delivers to the Cloud's router as a signed webhook.
 import type { IterateContextApi } from "iterate/api";
-import { EMAIL_REQUESTED, EmailRequest, ITERATE_CLOUD_PATH } from "./contract.ts";
+import { EMAIL_REQUESTED, EmailRequest, ITERATE_CLOUD_PATH, XReply } from "./contract.ts";
 
 export {
   EMAIL_REQUESTED,
@@ -11,6 +11,9 @@ export {
   ITERATE_CLOUD_PATH,
   IterateCloudEvents,
   ReceivedEmail,
+  XEvents,
+  XMessage,
+  XReply,
 } from "./contract.ts";
 
 /** The secret the webhook is signed with: the project's, pinned to the router's origin (README.md,
@@ -56,6 +59,25 @@ export function iterateCloud(
   { domain = "iterate2.app" }: { domain?: string } = {},
 ) {
   return {
+    /** The project's X context for one connected account, `/iterate-cloud/integrations/x/<account>`:
+     *  where the Cloud's router lands what that account said to @iterate (`x/message-received`),
+     *  and where a reply is asked for. */
+    x: {
+      pathOf: (account: string) => `${ITERATE_CLOUD_PATH}/integrations/x/${account.toLowerCase()}`,
+      /** Ask @iterate to answer a message: `x/reply-requested` on the account's context, keyed by
+       *  the message it answers, so a second reaction to the same message asks once. */
+      async reply(account: string, inReplyTo: string, input: XReply): Promise<{ offset: number }> {
+        const reply = XReply.parse(input);
+        const [requested] = await itx
+          .cd(`${ITERATE_CLOUD_PATH}/integrations/x/${account.toLowerCase()}`)
+          .append({
+            type: "x/reply-requested",
+            idempotencyKey: `x/reply:${reply.kind}:${inReplyTo}`,
+            payload: reply,
+          });
+        return { offset: requested!.offset };
+      },
+    },
     email: {
       /** Ask the Cloud to send a message from the project's address: `iterate-cloud/email-requested`
        *  on `/iterate-cloud`, its offset answered. The router records what happened on the same

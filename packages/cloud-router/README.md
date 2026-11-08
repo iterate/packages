@@ -23,6 +23,25 @@ whose home page has sub-paths needs the deployment to serve iterate2.app as its 
 which takes a core change (a forwarded host the deployment trusts from its Cloud); the design is in
 `tasks/iterate-cloud.md`.
 
+## X
+
+A person connects their X account at the Cloud (`packages/cloud`, the Cloud's own X client), and:
+
+- a deployment of theirs reads the account through `/.cloud/egress/api.x.com/2/…` with
+  `authorization: Bearer cloudSecret("x")`: the router asks the Cloud's person facet (`xFetch`, a
+  member's call) to make the request through its own egress, and hands X's answer back;
+- what the account writes to `@iterate` reaches their deployments: the Worker's minute schedule
+  asks the Cloud's X facet for the inbox (`@iterate`'s direct messages and mentions since the last
+  read, each with whose it is), and lands each message as `x/message-received` on
+  `/iterate-cloud/integrations/x/<account>` of every routed project of the person's registered
+  deployments, installing there the row that brings `x/reply-requested` back to the hook;
+- a reply asked for goes out as `@iterate` through the Cloud's X facet, and `x/reply-sent` or
+  `x/reply-failed` is recorded on the context.
+
+`@iterate`'s own tokens are the Cloud's secret (`/secrets/cloud-x-iterate`), which a member
+connects once (`connectIterateAccount`); the router reaches the Cloud's facets with the operator's
+bearer for now (`CLOUD_API_BEARER`), a key of its own later.
+
 ## The registry
 
 `src/registry.ts`: Workers KV, every value sealed with AES-GCM under `CLOUD_ROUTER_KV_KEY` (Doppler

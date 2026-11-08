@@ -56,5 +56,49 @@ export const IterateCloudEvents = {
   },
 } as const;
 
+/** What a person's X account said to @iterate, as the Cloud's router lands it on the project's
+ *  `/iterate-cloud/integrations/x/<account>` context. */
+export const XMessage = z.object({
+  kind: z.enum(["dm", "mention"]),
+  /** X's id of the direct message event or the post. */
+  id: z.string(),
+  text: z.string(),
+  at: z.string(),
+  from: z.object({ xUserId: z.string(), username: z.string() }),
+  conversationId: z.string().nullable(),
+});
+export type XMessage = z.infer<typeof XMessage>;
+
+/** An answer the project asks @iterate to send: a direct message to the person, or a post in the
+ *  mention's thread. */
+export const XReply = z.union([
+  z.object({ kind: z.literal("dm"), to: z.string(), text: z.string().min(1).max(10_000) }),
+  z.object({ kind: z.literal("mention"), inReplyTo: z.string(), text: z.string().min(1).max(280) }),
+]);
+export type XReply = z.infer<typeof XReply>;
+
+/** The events of a project's X context, `/iterate-cloud/integrations/x/<account>`: what the
+ *  Cloud's router lands there and answers there, and what the project asks. */
+export const XEvents = {
+  "x/message-received": {
+    description:
+      "The connected X account wrote to @iterate, by direct message or by mention; the Cloud's router landed it here within a minute. Keyed by X's id of the message.",
+    payloadSchema: XMessage,
+  },
+  "x/reply-requested": {
+    description:
+      "The project asks @iterate to answer: a direct message to the person, or a post in the mention's thread. The router sends it; its offset names the ask.",
+    payloadSchema: XReply,
+  },
+  "x/reply-sent": {
+    description: "@iterate sent the reply `requestOffset` asked for, as `id` names it on X.",
+    payloadSchema: z.object({ requestOffset: z.number().int(), id: z.string() }),
+  },
+  "x/reply-failed": {
+    description: "@iterate will not send the reply `requestOffset` asked for, and why.",
+    payloadSchema: z.object({ requestOffset: z.number().int(), error: z.string() }),
+  },
+} as const;
+
 export type IterateCloudEventType = keyof typeof IterateCloudEvents;
 export const EMAIL_REQUESTED: IterateCloudEventType = "iterate-cloud/email-requested";

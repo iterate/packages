@@ -29,24 +29,172 @@ export type Env = {
   ZONE: string;
   /** The key the registry's values are sealed with: 32 bytes, base64. */
   CLOUD_ROUTER_KV_KEY: string;
+  /** The Cloud's platform (`https://os.iterate.com`) and a bearer that reaches the Cloud's project
+   *  there as a member: how the router asks the Cloud for what a person connected (X). The
+   *  operator's bearer for now; a key of the router's own later. */
+  CLOUD_API: string;
+  CLOUD_API_BEARER: string;
 };
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const registry = new Registry(env.REGISTRY, env.CLOUD_ROUTER_KV_KEY);
+    const registry = registryOf(env);
     const hook = /^\/\.cloud\/hooks\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
     if (url.hostname === env.ZONE) {
-      if (hook && request.method === "POST") return await mailOut(request, hook[1]!, env, registry);
-      if (url.pathname.startsWith("/.cloud/egress/")) return await egress(request, url, registry);
+      if (hook && request.method === "POST") return await hooked(request, hook[1]!, env, registry);
+      if (url.pathname.startsWith("/.cloud/egress/"))
+        return await egress(request, url, env, registry);
       return text(404, "Not found.");
     }
     return await forward(request, url, env, registry);
   },
   async email(message, env) {
-    await mailIn(message, env, new Registry(env.REGISTRY, env.CLOUD_ROUTER_KV_KEY));
+    await mailIn(message, env, registryOf(env));
+  },
+  // every minute: what reached @iterate from connected people, to their deployments. Until a
+  // member connects @iterate the Cloud refuses the read, which is no failure of the schedule.
+  async scheduled(_controller, env) {
+    try {
+      await deliverInbox(env, registryOf(env));
+    } catch (failure) {
+      const why = failure instanceof Error ? failure.message : String(failure);
+      if (!why.includes("no @iterate account connected")) throw failure;
+      console.warn(`inbox: ${why}`);
+    }
   },
 } satisfies ExportedHandler<Env>;
+
+/** The registry over the Worker's namespace. */
+export const registryOf = (env: Env) =>
+  new Registry(
+    {
+      get: (key) => env.REGISTRY.get(key),
+      put: (key, value) => env.REGISTRY.put(key, value),
+      delete: (key) => env.REGISTRY.delete(key),
+      list: async (prefix) => (await env.REGISTRY.list({ prefix })).keys.map((key) => key.name),
+    },
+    env.CLOUD_ROUTER_KV_KEY,
+  );
+
+// ── the Cloud on X ──────────────────────────────────────────────────────────────────────────────
+
+/** The Cloud's X facet (packages/cloud `CloudXFacet`, a member's calls), through the Cloud's
+ *  platform: the inbox, and a reply as @iterate. */
+function cloudX(env: Env) {
+  const call = async <T>(
+    name: "inbox" | "inboxRead" | "reply",
+    schema: z.ZodType<T>,
+    ...args: unknown[]
+  ) => {
+    // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
+    // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, with no live capability
+    using api = newHttpBatchRpcSession<IterateApi>(
+      new Request(`${env.CLOUD_API}/api`, {
+        headers: { authorization: `Bearer ${env.CLOUD_API_BEARER}` },
+      }),
+    );
+    const handle = api
+      .authenticate({ type: "admin-secret", secret: env.CLOUD_API_BEARER })
+      .projects.get("cloud")
+      .cd("/x")
+      .facets.get("cloud-x");
+    // safe: a capnweb stub of `facets.get` erases the facet's methods; these are the X facet's
+    const facet = handle as unknown as Record<string, (...input: unknown[]) => Promise<unknown>>;
+    return schema.parse(await facet[name]!(...args));
+  };
+  return {
+    inbox: () => call("inbox", Inbox),
+    inboxRead: (cursor: z.infer<typeof Inbox>["cursor"] & { delivered: number }) =>
+      call("inboxRead", z.unknown(), cursor),
+    reply: (ask: z.infer<typeof ReplyAsk>) => call("reply", z.object({ id: z.string() }), ask),
+  };
+}
+
+const Inbox = z.object({
+  /** where the next read starts once these are landed (`inboxRead`) */
+  cursor: z.object({ dmSince: z.string().nullable(), mentionSince: z.string().nullable() }),
+  messages: z.array(
+    z.object({
+      kind: z.enum(["dm", "mention"]),
+      id: z.string(),
+      text: z.string(),
+      at: z.string(),
+      from: z.object({ xUserId: z.string() }),
+      conversationId: z.string().nullable(),
+      person: z.object({ sub: z.string(), username: z.string(), deployments: z.array(z.string()) }),
+    }),
+  ),
+});
+
+/** What reached @iterate from connected people since the last read, delivered to every routed
+ *  project of each person's registered deployments as `x/message-received` on the project's
+ *  `/iterate-cloud/integrations/x/<account>` context, where a reply may be asked for: the first
+ *  delivery there installs the row that brings `x/reply-requested` back to this hook. Each message
+ *  is keyed by X's id, so a second read of the same message lands nothing new, and the Cloud's
+ *  cursor advances only once every message of a read has landed. */
+export async function deliverInbox(env: Env, registry: Registry) {
+  const cloud = cloudX(env);
+  const { messages, cursor } = await cloud.inbox();
+  for (const message of messages) {
+    const account = message.person.username.toLowerCase();
+    for (const id of message.person.deployments) {
+      const deployment = await registry.deployment(id);
+      if (!deployment) continue;
+      for (const route of await registry.routesOf(id)) {
+        const path = `/iterate-cloud/integrations/x/${account}`;
+        await appendAsAdmin(
+          deployment,
+          route.projectId,
+          {
+            type: "events.iterate.com/itx/subscription-configured",
+            idempotencyKey: `x/hook:${env.ZONE}/.cloud/hooks/${id}`,
+            payload: {
+              name: "iterate-cloud",
+              target: [
+                "itx",
+                ["cd", "/"],
+                "webhooks",
+                [
+                  "get",
+                  {
+                    url: `https://${env.ZONE}/.cloud/hooks/${id}`,
+                    signingSecret: "/secrets/iterate-cloud",
+                  },
+                ],
+                "deliverEvent",
+              ],
+              consumes: ["x/reply-requested"],
+              ordered: false,
+            },
+          },
+          path,
+        );
+        await appendAsAdmin(
+          deployment,
+          route.projectId,
+          {
+            type: "x/message-received",
+            idempotencyKey: `x/message:${message.kind}:${message.id}`,
+            payload: {
+              kind: message.kind,
+              id: message.id,
+              text: message.text,
+              at: message.at,
+              from: { xUserId: message.from.xUserId, username: message.person.username },
+              conversationId: message.conversationId,
+            },
+          },
+          path,
+        );
+      }
+    }
+  }
+  // every message landed (a throw above leaves the cursor, and the next read brings them back):
+  // the Cloud's cursor advances past what was read
+  await cloud.inboxRead({ ...cursor, delivered: messages.length });
+  return messages.length;
+}
 
 // ── forwarding ──────────────────────────────────────────────────────────────────────────────────
 
@@ -158,7 +306,7 @@ export async function receivedOf(
  *  project's), acked with a 200 so the platform does not retry it. A signature that does not
  *  verify answers 410: the row's secret is wrong, and the platform halts the row until an operator
  *  resumes it. The zone's sender failing answers 500, and the platform retries. */
-async function mailOut(request: Request, id: string, env: Env, registry: Registry) {
+async function hooked(request: Request, id: string, env: Env, registry: Registry) {
   const deployment = await registry.deployment(id);
   const body = await request.text();
   const timestamp = request.headers.get("iterate-timestamp") || "";
@@ -171,6 +319,67 @@ async function mailOut(request: Request, id: string, env: Env, registry: Registr
   if (!delivered.success) return text(400, z.prettifyError(delivered.error));
   const event = delivered.data;
   const projectId = /^(prj_[a-z0-9]+)/.exec(request.headers.get("iterate-event-id") || "")?.[1];
+  if (event.type === "x/reply-requested") return await replyOut(deployment, event, projectId, env);
+  return await mailOut(id, deployment, event, projectId, env, registry);
+}
+
+/** A project's ask to answer a message to @iterate (`x/reply-requested` on its X context): the
+ *  Cloud sends it as @iterate, and what happened is recorded on that context, `x/reply-sent
+ *  { requestOffset, id }` or `x/reply-failed { requestOffset, error }`, both acked. */
+async function replyOut(
+  deployment: Deployment,
+  event: z.infer<typeof Delivery>,
+  projectId: string | undefined,
+  env: Env,
+) {
+  // As a mail's outcome (`mailOut`): a sent reply is acked even when its record cannot be
+  // written, so @iterate never says it twice; a refusal whose record cannot be written is not
+  // acked, so the platform brings it back.
+  const outcome = async (fact: { id: string } | { error: string }) => {
+    try {
+      if (projectId)
+        await appendAsAdmin(
+          deployment,
+          projectId,
+          {
+            type: "error" in fact ? "x/reply-failed" : "x/reply-sent",
+            idempotencyKey: `x/reply-outcome:${event.offset}`,
+            payload: { requestOffset: event.offset, ...fact },
+          },
+          event.path,
+        );
+    } catch (failure) {
+      if ("error" in fact)
+        return text(500, `The refusal could not be recorded on the project: ${String(failure)}`);
+      console.error(
+        `reply ${event.offset}: sent as ${fact.id}, its record not written: ${String(failure)}`,
+      );
+    }
+    return Response.json(fact);
+  };
+  const asked = ReplyAsk.safeParse(event.payload);
+  if (!asked.success) return await outcome({ error: z.prettifyError(asked.error) });
+  try {
+    return await outcome(await cloudX(env).reply(asked.data));
+  } catch (failure) {
+    return await outcome({ error: failure instanceof Error ? failure.message : String(failure) });
+  }
+}
+
+const ReplyAsk = z.union([
+  z.object({ kind: z.literal("dm"), to: z.string(), text: z.string().min(1) }),
+  z.object({ kind: z.literal("mention"), inReplyTo: z.string(), text: z.string().min(1) }),
+]);
+
+/** A project's ask to send mail from its address (`iterate-cloud/email-requested`). */
+async function mailOut(
+  id: string,
+  deployment: Deployment,
+  event: z.infer<typeof Delivery>,
+  projectId: string | undefined,
+  env: Env,
+  registry: Registry,
+) {
   // The outcome goes on the project, then the delivery is acked. A sent message is acked even when
   // its record cannot be written (the record is lost, the message is not sent twice); a refusal
   // whose record cannot be written is not acked, so the platform brings it back (nothing was sent).
@@ -205,7 +414,12 @@ async function mailOut(request: Request, id: string, env: Env, registry: Registr
 }
 
 /** The delivered event, as far as the router reads it. */
-const Delivery = z.object({ offset: z.number().int(), path: z.string(), payload: z.unknown() });
+const Delivery = z.object({
+  type: z.string(),
+  offset: z.number().int(),
+  path: z.string(),
+  payload: z.unknown(),
+});
 
 const Addresses = z.union([z.email(), z.array(z.email()).min(1).max(50)]);
 const Outbound = z
@@ -224,6 +438,7 @@ async function appendAsAdmin(
   deployment: Deployment,
   projectId: string,
   event: { type: string; idempotencyKey: string; payload: Record<string, unknown> },
+  path = "/iterate-cloud",
 ) {
   // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
   // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, the append, with no live capability
@@ -235,7 +450,7 @@ async function appendAsAdmin(
   await api
     .authenticate({ type: "admin-secret", secret: deployment.bearer })
     .projects.get(projectId)
-    .cd("/iterate-cloud")
+    .cd(path)
     .append(event);
 }
 
@@ -251,7 +466,7 @@ const CLOUD_SECRET = /cloudSecret\("([a-zA-Z0-9._-]+)"\)/g;
  *  secret the Cloud lends that deployment under `name` (registry.ts `lends`), and the answer streams
  *  back as it comes. A name the Cloud does not lend the deployment is refused, and no request goes
  *  out. The deployment never holds the key; the Cloud sees every use. */
-async function egress(request: Request, url: URL, registry: Registry) {
+async function egress(request: Request, url: URL, env: Env, registry: Registry) {
   const secret = request.headers.get("x-itx-cloud") || "";
   const deployment = secret && (await registry.deploymentByHookSecret(secret));
   if (!deployment) return text(401, "Not a deployment's hook secret.");
@@ -281,6 +496,10 @@ async function egress(request: Request, url: URL, registry: Registry) {
     });
     headers.set(name, filled);
   }
+  // the person's X account, connected at the Cloud: the Cloud makes the request on their behalf,
+  // through its own egress, and the token never leaves the platform
+  if (missing === "x" && host === xApiHost && deployment.owner)
+    return await viaCloud(request, `${target.slice(slash)}${url.search}`, deployment.owner, env);
   if (missing) return text(403, `The Cloud lends this deployment no secret named ${missing}.`);
   const upstream = new URL(
     `https://${host}${slash === -1 ? "/" : target.slice(slash)}${url.search}`,
@@ -297,6 +516,49 @@ async function egress(request: Request, url: URL, registry: Registry) {
     }),
   );
 }
+
+const xApiHost = "api.x.com";
+
+/** A request to X's API on the deployment owner's behalf, made by the Cloud (packages/cloud
+ *  `CloudPersonFacet.xFetch`, a member's call): the owner's connected account, its token in the
+ *  Cloud's egress alone. The answer is X's, status and body. */
+async function viaCloud(request: Request, path: string, owner: string, env: Env) {
+  const method = request.method;
+  if (method !== "GET" && method !== "POST" && method !== "DELETE")
+    return text(405, "X is asked with GET, POST or DELETE.");
+  const body = method === "GET" ? "" : await request.text();
+  // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
+  // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, the fetch, with no live capability
+  using api = newHttpBatchRpcSession<IterateApi>(
+    new Request(`${env.CLOUD_API}/api`, {
+      headers: { authorization: `Bearer ${env.CLOUD_API_BEARER}` },
+    }),
+  );
+  const handle = api
+    .authenticate({ type: "admin-secret", secret: env.CLOUD_API_BEARER })
+    .projects.get("cloud")
+    .cd(`/people/${owner}`)
+    .facets.get("cloud-person");
+  // safe: a capnweb stub of `facets.get` erases the facet's methods; `xFetch` is the person facet's
+  // (packages/cloud durable-object.ts), a member's call
+  const person = handle as unknown as { xFetch(input: XRequest): Promise<unknown> };
+  try {
+    const answer = XAnswer.parse(
+      await person.xFetch({ method, path: path || "/2/users/me", body }),
+    );
+    return new Response(answer.body, {
+      status: answer.status,
+      headers: { "content-type": answer.contentType },
+    });
+  } catch (failure) {
+    // the Cloud refused (no X account connected, a path X's API has not) or did not answer
+    const why = failure instanceof Error ? failure.message : String(failure);
+    return text(409, `The Cloud did not ask X: ${why}`);
+  }
+}
+
+type XRequest = { method: "GET" | "POST" | "DELETE"; path: string; body?: string };
+const XAnswer = z.object({ status: z.number().int(), contentType: z.string(), body: z.string() });
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────────────────
 

@@ -91,14 +91,40 @@ export type CloudflareClient = z.infer<typeof CloudflareClient>;
 /** What the Cloud knows of the platform it runs on: its origin, the issuer every deployment signs
  *  its owner in through (null when neither the config nor the request names it: worker.ts), and
  *  the Cloud's Cloudflare OAuth client. */
+/** The Cloud's own X OAuth client: its id, and the project secret that holds its secret,
+ *  `{ clientSecret }`. Through it a person connects their X account to the Cloud. */
+export const XClient = z.object({ clientId: z.string().min(1), secret: z.string() });
+export type XClient = z.infer<typeof XClient>;
+
 export const Platform = z.object({
   issuer: z.url().nullable(),
   /** The platform's own Dash, which a deployment's `/` then sends its owner to; null for
    *  iterate's, core/os's default. */
   dash: z.url().nullable().default(null),
   cloudflare: CloudflareClient,
+  /** Null where the Cloud's config names no X client: no one connects X there. */
+  x: XClient.nullable().default(null),
 });
 export type Platform = z.infer<typeof Platform>;
+
+/** A person's X account, connected to the Cloud through its X client: the platform holds the
+ *  tokens in the person's X secret (`xSecretOf`), refreshed as X rotates them; no code reads them.
+ *  One per person; a new connect replaces it. */
+export const XConnection = z.object({
+  /** The offset of its `cloud/x-connect-requested` on the person's context. */
+  requestOffset: Offset,
+  status: z.enum(["pending", "connected", "failed"]),
+  startedAt: z.string(),
+  /** The platform's nonce for the attempt; never sent to a browser. */
+  nonce: z.string(),
+  /** The X user the tokens are for, as `/2/users/me` names them. */
+  xUserId: z.string().nullable().default(null),
+  username: z.string().nullable().default(null),
+  scopes: z.array(z.string()).default([]),
+  error: z.string().nullable().default(null),
+  settledAt: z.string().nullable().default(null),
+});
+export type XConnection = z.infer<typeof XConnection>;
 
 export const PersonState = z.object({
   sub: z.string().nullable().default(null),
@@ -107,6 +133,8 @@ export const PersonState = z.object({
    *  (worker.ts). */
   platform: Platform.nullable().default(null),
   connections: z.array(Connection).default([]),
+  /** The person's X account, when they connected one. */
+  x: XConnection.nullable().default(null),
   /** Every deployment the person requested, as they requested it. */
   deployments: z.array(DeploymentRecord).default([]),
 });
@@ -115,6 +143,7 @@ export type PersonState = z.infer<typeof PersonState>;
 /** The person's state as their page reads it, their live state: no connection's nonce (person.ts). */
 export const PersonView = PersonState.extend({
   connections: z.array(Connection.omit({ nonce: true })).default([]),
+  x: XConnection.omit({ nonce: true }).nullable().default(null),
 });
 export type PersonView = z.infer<typeof PersonView>;
 
@@ -294,3 +323,30 @@ export function stepOfLine(line: string): RunStep | null {
  *  `ENOENT`), or undefined for any other value thrown. */
 export const errorCodeOf = (error: unknown): string | undefined =>
   z.object({ code: z.string() }).safeParse(error).data?.code;
+
+// ── the Cloud on X ──────────────────────────────────────────────────────────────────────────────
+
+/** The `/x` context's state (x.ts `XProcessor`). */
+export const XState = z.object({
+  /** The Cloud's X client, as the installing project's config names it (worker.ts `installCloud`). */
+  client: XClient.nullable().default(null),
+  /** The @iterate account the Cloud speaks as, once a member connected it. */
+  iterate: z
+    .object({
+      requestOffset: Offset,
+      status: z.enum(["pending", "connected", "failed"]),
+      nonce: z.string(),
+      xUserId: z.string().nullable().default(null),
+      username: z.string().nullable().default(null),
+      error: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** Every connected X account, by its X user id: whose it is. */
+  accounts: z.record(z.string(), z.object({ sub: PersonId, username: z.string() })).default({}),
+  /** The inbox's cursor: the newest direct message event and mention read. */
+  inbox: z
+    .object({ dmSince: z.string().nullable(), mentionSince: z.string().nullable() })
+    .default({ dmSince: null, mentionSince: null }),
+});
+export type XState = z.infer<typeof XState>;

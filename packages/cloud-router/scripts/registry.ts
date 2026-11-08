@@ -41,11 +41,11 @@ const [first, second, third] = rest;
 
 if (command === "deployment" && first && rest.length === 1) {
   const id = first;
-  const { origin, bearer } = cloudDeployment(env.cloudProject, id);
+  const { origin, bearer, owner } = cloudDeployment(env.cloudProject, id);
   const hookSecret = [...crypto.getRandomValues(new Uint8Array(32))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  await registry.setDeployment(id, { origin, bearer, hookSecret });
+  await registry.setDeployment(id, { origin, bearer, hookSecret, owner });
   console.log(`deployment ${id}: ${origin}`);
 } else if (command === "route" && first && second && rest.length === 2) {
   const [slug, id] = [first, second];
@@ -116,6 +116,17 @@ async function storeOf(title: string): Promise<Store> {
       });
       if (!answer.ok)
         throw new Error(`KV write ${key}: HTTP ${answer.status} ${await answer.text()}`);
+    },
+    async list(prefix) {
+      const answer = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${env.cloudflareAccountId}/storage/kv/namespaces/${namespace.id}/keys?prefix=${encodeURIComponent(prefix)}&limit=1000`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      if (!answer.ok) throw new Error(`KV list ${prefix}: HTTP ${answer.status}`);
+      return z
+        .object({ result: z.array(z.object({ name: z.string() })) })
+        .parse(await answer.json())
+        .result.map((key) => key.name);
     },
     async delete(key) {
       const answer = await fetch(url(key), {

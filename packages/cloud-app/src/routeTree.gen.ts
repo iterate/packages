@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from "./routes/__root.tsx";
 import { Route as IndexRouteImport } from "./routes/index.tsx";
 import { Route as AppRouteImport } from "./routes/_app.tsx";
-import { Route as AppNewRouteImport } from "./routes/_app/new.tsx";
 import { Route as AppDeploymentsIndexRouteImport } from "./routes/_app/deployments.index.tsx";
 import { Route as AppDeploymentsIdRouteImport } from "./routes/_app/deployments.$id.tsx";
+import { Route as AppDeploymentsNewRouteImport } from "./routes/_app/deployments.new.tsx";
+import { Route as AppIntegrationsIndexRouteImport } from "./routes/_app/integrations.index.tsx";
+import { Route as AppIntegrationsCloudflareRouteImport } from "./routes/_app/integrations.cloudflare.tsx";
+import { Route as AppIntegrationsXRouteImport } from "./routes/_app/integrations.x.tsx";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -23,11 +26,6 @@ const IndexRoute = IndexRouteImport.update({
 const AppRoute = AppRouteImport.update({
   id: "/_app",
   getParentRoute: () => rootRouteImport,
-} as any);
-const AppNewRoute = AppNewRouteImport.update({
-  id: "/new",
-  path: "/new",
-  getParentRoute: () => AppRoute,
 } as any);
 const AppDeploymentsIndexRoute = AppDeploymentsIndexRouteImport.update({
   id: "/deployments/",
@@ -39,39 +37,86 @@ const AppDeploymentsIdRoute = AppDeploymentsIdRouteImport.update({
   path: "/deployments/$id",
   getParentRoute: () => AppRoute,
 } as any);
+const AppDeploymentsNewRoute = AppDeploymentsNewRouteImport.update({
+  id: "/deployments/new",
+  path: "/deployments/new",
+  getParentRoute: () => AppRoute,
+} as any);
+const AppIntegrationsIndexRoute = AppIntegrationsIndexRouteImport.update({
+  id: "/integrations/",
+  path: "/integrations/",
+  getParentRoute: () => AppRoute,
+} as any);
+const AppIntegrationsCloudflareRoute =
+  AppIntegrationsCloudflareRouteImport.update({
+    id: "/integrations/cloudflare",
+    path: "/integrations/cloudflare",
+    getParentRoute: () => AppRoute,
+  } as any);
+const AppIntegrationsXRoute = AppIntegrationsXRouteImport.update({
+  id: "/integrations/x",
+  path: "/integrations/x",
+  getParentRoute: () => AppRoute,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
-  "/new": typeof AppNewRoute;
   "/deployments/$id": typeof AppDeploymentsIdRoute;
+  "/deployments/new": typeof AppDeploymentsNewRoute;
+  "/integrations/cloudflare": typeof AppIntegrationsCloudflareRoute;
+  "/integrations/x": typeof AppIntegrationsXRoute;
   "/deployments/": typeof AppDeploymentsIndexRoute;
+  "/integrations/": typeof AppIntegrationsIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
-  "/new": typeof AppNewRoute;
   "/deployments/$id": typeof AppDeploymentsIdRoute;
+  "/deployments/new": typeof AppDeploymentsNewRoute;
+  "/integrations/cloudflare": typeof AppIntegrationsCloudflareRoute;
+  "/integrations/x": typeof AppIntegrationsXRoute;
   "/deployments": typeof AppDeploymentsIndexRoute;
+  "/integrations": typeof AppIntegrationsIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/_app": typeof AppRouteWithChildren;
-  "/_app/new": typeof AppNewRoute;
   "/_app/deployments/$id": typeof AppDeploymentsIdRoute;
+  "/_app/deployments/new": typeof AppDeploymentsNewRoute;
+  "/_app/integrations/cloudflare": typeof AppIntegrationsCloudflareRoute;
+  "/_app/integrations/x": typeof AppIntegrationsXRoute;
   "/_app/deployments/": typeof AppDeploymentsIndexRoute;
+  "/_app/integrations/": typeof AppIntegrationsIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/new" | "/deployments/$id" | "/deployments/";
+  fullPaths:
+    | "/"
+    | "/deployments/$id"
+    | "/deployments/new"
+    | "/integrations/cloudflare"
+    | "/integrations/x"
+    | "/deployments/"
+    | "/integrations/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/new" | "/deployments/$id" | "/deployments";
+  to:
+    | "/"
+    | "/deployments/$id"
+    | "/deployments/new"
+    | "/integrations/cloudflare"
+    | "/integrations/x"
+    | "/deployments"
+    | "/integrations";
   id:
     | "__root__"
     | "/"
     | "/_app"
-    | "/_app/new"
     | "/_app/deployments/$id"
-    | "/_app/deployments/";
+    | "/_app/deployments/new"
+    | "/_app/integrations/cloudflare"
+    | "/_app/integrations/x"
+    | "/_app/deployments/"
+    | "/_app/integrations/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -95,13 +140,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AppRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_app/new": {
-      id: "/_app/new";
-      path: "/new";
-      fullPath: "/new";
-      preLoaderRoute: typeof AppNewRouteImport;
-      parentRoute: typeof AppRoute;
-    };
     "/_app/deployments/": {
       id: "/_app/deployments/";
       path: "/deployments";
@@ -116,19 +154,53 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AppDeploymentsIdRouteImport;
       parentRoute: typeof AppRoute;
     };
+    "/_app/deployments/new": {
+      id: "/_app/deployments/new";
+      path: "/deployments/new";
+      fullPath: "/deployments/new";
+      preLoaderRoute: typeof AppDeploymentsNewRouteImport;
+      parentRoute: typeof AppRoute;
+    };
+    "/_app/integrations/": {
+      id: "/_app/integrations/";
+      path: "/integrations";
+      fullPath: "/integrations/";
+      preLoaderRoute: typeof AppIntegrationsIndexRouteImport;
+      parentRoute: typeof AppRoute;
+    };
+    "/_app/integrations/cloudflare": {
+      id: "/_app/integrations/cloudflare";
+      path: "/integrations/cloudflare";
+      fullPath: "/integrations/cloudflare";
+      preLoaderRoute: typeof AppIntegrationsCloudflareRouteImport;
+      parentRoute: typeof AppRoute;
+    };
+    "/_app/integrations/x": {
+      id: "/_app/integrations/x";
+      path: "/integrations/x";
+      fullPath: "/integrations/x";
+      preLoaderRoute: typeof AppIntegrationsXRouteImport;
+      parentRoute: typeof AppRoute;
+    };
   }
 }
 
 interface AppRouteChildren {
-  AppNewRoute: typeof AppNewRoute;
   AppDeploymentsIdRoute: typeof AppDeploymentsIdRoute;
+  AppDeploymentsNewRoute: typeof AppDeploymentsNewRoute;
+  AppIntegrationsCloudflareRoute: typeof AppIntegrationsCloudflareRoute;
+  AppIntegrationsXRoute: typeof AppIntegrationsXRoute;
   AppDeploymentsIndexRoute: typeof AppDeploymentsIndexRoute;
+  AppIntegrationsIndexRoute: typeof AppIntegrationsIndexRoute;
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppNewRoute: AppNewRoute,
   AppDeploymentsIdRoute: AppDeploymentsIdRoute,
+  AppDeploymentsNewRoute: AppDeploymentsNewRoute,
+  AppIntegrationsCloudflareRoute: AppIntegrationsCloudflareRoute,
+  AppIntegrationsXRoute: AppIntegrationsXRoute,
   AppDeploymentsIndexRoute: AppDeploymentsIndexRoute,
+  AppIntegrationsIndexRoute: AppIntegrationsIndexRoute,
 };
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren);

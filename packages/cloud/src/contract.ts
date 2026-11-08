@@ -27,6 +27,8 @@ import {
   RunOutput,
   RunSettled,
   ToolchainState,
+  XState,
+  XClient,
 } from "./records.ts";
 
 const Offset = z.number().int().positive();
@@ -70,6 +72,23 @@ export const PersonContract = defineProcessorContract({
         error: z.string().optional(),
       }),
     },
+    "cloud/x-connect-requested": {
+      description:
+        "The person left for X's consent through the Cloud's X client: the platform's OAuth attempt for the person's X secret, by its nonce. Its offset is the attempt's id.",
+      payloadSchema: z.object({ nonce: z.string() }),
+    },
+    "cloud/x-connect-settled": {
+      description:
+        "How X's consent ended: connected, with the X user the tokens are for, or failed, and why.",
+      payloadSchema: z.object({
+        requestOffset: Offset,
+        status: z.enum(["connected", "failed"]),
+        xUserId: z.string().optional(),
+        username: z.string().optional(),
+        scopes: z.array(z.string()).optional(),
+        error: z.string().optional(),
+      }),
+    },
     "cloud/deployment-added": {
       description:
         "The person requested a deployment. Appended before the deployment's own `cloud/deployment-requested`, with the whole record, so a creation that stopped between the two is listed and can be requested again from here (durable-object.ts `finishCreation`).",
@@ -81,7 +100,63 @@ export const PersonContract = defineProcessorContract({
     "cloud/platform-configured",
     "cloud/connection-requested",
     "cloud/connection-settled",
+    "cloud/x-connect-requested",
+    "cloud/x-connect-settled",
     "cloud/deployment-added",
+  ],
+  emits: [],
+});
+
+/** The Cloud's X context, `/x` (x-facet.ts): the `@iterate` account's own connection, every
+ *  connected person's X account by its id, and the inbox's cursor. */
+export const XContract = defineProcessorContract({
+  slug: "cloud-x",
+  version: "1",
+  description:
+    "The Cloud on X: the @iterate account the Cloud speaks as, which person each connected X account belongs to, and how far the inbox has been read.",
+  stateSchema: XState,
+  events: {
+    "cloud/x-client-configured": {
+      description:
+        "The Cloud's X client, as the installing project's config names it: its id, and the project secret holding its secret. Keyed by what it says.",
+      payloadSchema: XClient,
+    },
+    "cloud/x-account-linked": {
+      description:
+        "A person connected their X account to the Cloud (the person facet's settleX): which person the X user id belongs to, so a message from that account reaches their deployments.",
+      payloadSchema: z.object({ sub: PersonId, xUserId: z.string(), username: z.string() }),
+    },
+    "cloud/x-iterate-connect-requested": {
+      description:
+        "A member left for X's consent as @iterate: the platform's OAuth attempt for the Cloud's own X secret, by its nonce.",
+      payloadSchema: z.object({ nonce: z.string() }),
+    },
+    "cloud/x-iterate-connect-settled": {
+      description: "How @iterate's consent ended: connected, with its X user, or failed.",
+      payloadSchema: z.object({
+        requestOffset: Offset,
+        status: z.enum(["connected", "failed"]),
+        xUserId: z.string().optional(),
+        username: z.string().optional(),
+        error: z.string().optional(),
+      }),
+    },
+    "cloud/x-inbox-polled": {
+      description:
+        "The inbox was read: the newest direct message and mention seen, so the next read starts after them, and how many messages reached a connected person.",
+      payloadSchema: z.object({
+        dmSince: z.string().nullable(),
+        mentionSince: z.string().nullable(),
+        delivered: z.number().int(),
+      }),
+    },
+  },
+  consumes: [
+    "cloud/x-client-configured",
+    "cloud/x-account-linked",
+    "cloud/x-iterate-connect-requested",
+    "cloud/x-iterate-connect-settled",
+    "cloud/x-inbox-polled",
   ],
   emits: [],
 });

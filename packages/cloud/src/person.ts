@@ -65,6 +65,39 @@ export class PersonProcessor extends StreamProcessor<PersonState, Event> {
           ),
         };
       }
+      case "cloud/x-connect-requested":
+        // a new connect replaces whatever stood: one X account per person
+        return {
+          ...state,
+          x: {
+            requestOffset: event.offset,
+            status: "pending",
+            startedAt: event.createdAt,
+            nonce: event.payload.nonce,
+            xUserId: null,
+            username: null,
+            scopes: [],
+            error: null,
+            settledAt: null,
+          },
+        };
+      case "cloud/x-connect-settled": {
+        const { requestOffset, status, xUserId, username, scopes, error } = event.payload;
+        if (state.x?.requestOffset !== requestOffset || state.x.status !== "pending")
+          return undefined;
+        return {
+          ...state,
+          x: {
+            ...state.x,
+            status,
+            xUserId: xUserId || null,
+            username: username || null,
+            scopes: scopes || [],
+            error: error || null,
+            settledAt: event.createdAt,
+          },
+        };
+      }
       case "cloud/deployment-added": {
         const added = event.payload;
         // two creations of one name that overlap both pass create's check, which reads before
@@ -81,9 +114,11 @@ export class PersonProcessor extends StreamProcessor<PersonState, Event> {
   }
 
   override projectLiveState(state: PersonState) {
+    const { nonce: _xNonce, ...x } = state.x || {};
     return {
       ...state,
       connections: state.connections.map(({ nonce: _nonce, ...connection }) => connection),
+      x: state.x ? x : null,
     };
   }
 }

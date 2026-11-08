@@ -26,6 +26,7 @@ import {
   type DeploymentState,
   type PersonState,
   type ToolchainState,
+  type XState,
 } from "./records.ts";
 import { accountsOf, connectOptionsOf, nameInAccount } from "./cloudflare.ts";
 import {
@@ -37,13 +38,33 @@ import {
 import { DeploymentProcessor } from "./deployment.ts";
 import { PersonProcessor } from "./person.ts";
 import { connectionSecretOf, prepareDeployment, prepareToolchain, runAttempt } from "./runs.ts";
-import { TOOLCHAIN_PATH } from "./specs.ts";
+import { PERSON_PROCESSOR, TOOLCHAIN_PATH, X_PATH } from "./specs.ts";
 import { ToolchainProcessor } from "./toolchain.ts";
+import {
+  type InboxMessage,
+  ITERATE_X_SECRET,
+  iterateConnectOptionsOf,
+  iterateUserOf,
+  readInbox,
+  Reply,
+  sendReply,
+  xConnectOptionsOf,
+  xFetch,
+  XRequest,
+  xSecretOf,
+  xUserOf,
+} from "./x.ts";
+import { XProcessor } from "./x-processor.ts";
 
 export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> {
+  /** A member's calls beyond the lent ones: X on the person's behalf, which the Cloud's router makes
+   *  for their deployments (packages/cloud-router) and no page needs. */
+  static override publicMethods = [...super.publicMethods, "xFetch"];
   static override lentMethods = [
     "connectCloudflare",
     "settleConnection",
+    "connectX",
+    "settleX",
     "checkName",
     "createDeployment",
     "finishCreation",
@@ -130,6 +151,75 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
                 "This connect ended before Cloudflare's tokens were stored, or a newer one replaced it. Connect again.",
             },
     });
+  }
+
+  /** Begin an X connect through the Cloud's X client: the platform's start link. X returns to the
+   *  platform's callback, which stores the tokens in the person's X secret and sends the browser to
+   *  `next` with `x=1` added to its query; the page then calls `settleX`. */
+  async connectX(input: { next: { routingSlug?: string; path: string } }) {
+    const asked = ConnectInput.safeParse(input);
+    if (!asked.success) throw refused("A connect needs the page to come back to.");
+    const { sub, platform } = await this.#state();
+    if (!platform) throw new Error("This Cloud's config names no platform.");
+    if (!platform.x) throw refused("This Cloud has no X client; no one connects X here.");
+    const { routingSlug, path } = asked.data.next;
+    const next = { routingSlug, path: `${path}${path.includes("?") ? "&" : "?"}x=1` };
+    using itx = this.getItx();
+    const { authorizationUrl, nonce } = await itx
+      .cd("/")
+      .secrets.beginOAuth(xSecretOf(sub!), xConnectOptionsOf(platform.x, sub!, next));
+    await itx.append({ type: "cloud/x-connect-requested", payload: { nonce } });
+    return { url: authorizationUrl };
+  }
+
+  /** The platform's callback stored the X tokens (or did not): how the attempt ended, settled here,
+   *  with the X user the tokens are for. */
+  async settleX(): Promise<{ status: "pending" | "connected" | "failed" | "none" }> {
+    const { sub, x } = await this.#state();
+    if (!x) return { status: "none" };
+    if (x.status !== "pending") return { status: x.status };
+    using itx = this.getItx();
+    const result = await itx.cd("/").secrets.oauthResult(xSecretOf(sub!), { nonce: x.nonce });
+    if (result.status === "pending") return { status: "pending" };
+    const settled = { requestOffset: x.requestOffset };
+    const user = result.status === "complete" ? await xUserOf(sub!) : null;
+    // whose account it is, on the Cloud's X context, so a message from it reaches this person
+    if (user)
+      await itx.cd(X_PATH).append({
+        type: "cloud/x-account-linked",
+        // keyed by the attempt: a reconnect to an account held before is a new link, reduced anew
+        idempotencyKey: `x-account-linked:${sub}:${x.requestOffset}`,
+        payload: { sub: sub!, xUserId: user.id, username: user.username },
+      });
+    await itx.append({
+      type: "cloud/x-connect-settled",
+      idempotencyKey: `x-connect-settled:${x.requestOffset}`,
+      payload:
+        result.status === "complete" && user
+          ? {
+              ...settled,
+              status: "connected",
+              xUserId: user.id,
+              username: user.username,
+              scopes: result.scopes,
+            }
+          : {
+              ...settled,
+              status: "failed",
+              error:
+                "This connect ended before X's tokens were stored, or a newer one replaced it. Connect again.",
+            },
+    });
+    return { status: user ? "connected" : "failed" };
+  }
+
+  /** One request to X's API on the person's behalf, for a member: the Cloud's router makes it for
+   *  the person's deployments (packages/cloud-router), which hold no token. Not lent: a page never
+   *  needs it, and a deployment reaches it only through the router. */
+  async xFetch(input: XRequest) {
+    const { sub, x } = await this.#state();
+    if (!x || x.status !== "connected") throw refused("This person has no X account connected.");
+    return await xFetch(sub!, XRequest.parse(input));
   }
 
   /** Whether `name` is free for a new deployment in the account, as `createDeployment` checks it:
@@ -284,6 +374,132 @@ export class CloudToolchainFacet extends StreamProcessorDurableObject<ToolchainS
   });
 }
 
+/** The Cloud on X, `/x` (x-processor.ts): a member connects the @iterate account the Cloud speaks
+ *  as, the router reads the inbox and sends replies through it, and the person facet links each
+ *  connected account here. Nothing lent: a page never needs it. */
+export class CloudXFacet extends StreamProcessorDurableObject<XState> {
+  static override publicMethods = [
+    ...super.publicMethods,
+    "connectIterateAccount",
+    "settleIterateAccount",
+    "inbox",
+    "inboxRead",
+    "reply",
+  ];
+  processor = new XProcessor();
+
+  /** Begin @iterate's connect through the Cloud's X client: the platform's start link, for a member
+   *  signed in at X as @iterate. X returns to the platform's callback, which stores the tokens in the
+   *  Cloud's own X secret and sends the browser to `next` with `x=iterate` added; the page then
+   *  calls `settleIterateAccount`. */
+  async connectIterateAccount(input: { next: { routingSlug?: string; path: string } }) {
+    const asked = ConnectInput.safeParse(input);
+    if (!asked.success) throw refused("A connect needs the page to come back to.");
+    const { state } = await this.snapshot();
+    if (!state.client) throw refused("This Cloud has no X client; nothing connects X here.");
+    const { routingSlug, path } = asked.data.next;
+    const next = { routingSlug, path: `${path}${path.includes("?") ? "&" : "?"}x=iterate` };
+    using itx = this.getItx();
+    const { authorizationUrl, nonce } = await itx
+      .cd("/")
+      .secrets.beginOAuth(ITERATE_X_SECRET, iterateConnectOptionsOf(state.client, next));
+    await itx.append({ type: "cloud/x-iterate-connect-requested", payload: { nonce } });
+    return { url: authorizationUrl };
+  }
+
+  async settleIterateAccount() {
+    const { state } = await this.snapshot();
+    const pending = state.iterate;
+    if (!pending || pending.status !== "pending") return;
+    using itx = this.getItx();
+    const result = await itx
+      .cd("/")
+      .secrets.oauthResult(ITERATE_X_SECRET, { nonce: pending.nonce });
+    if (result.status === "pending") return;
+    const user = result.status === "complete" ? await iterateUserOf() : null;
+    await itx.append({
+      type: "cloud/x-iterate-connect-settled",
+      idempotencyKey: `x-iterate-connect-settled:${pending.requestOffset}`,
+      payload: user
+        ? {
+            requestOffset: pending.requestOffset,
+            status: "connected",
+            xUserId: user.id,
+            username: user.username,
+          }
+        : {
+            requestOffset: pending.requestOffset,
+            status: "failed",
+            error: "This connect ended before X's tokens were stored, or a newer one replaced it.",
+          },
+    });
+  }
+
+  /** The newest messages to @iterate from connected people, each with whose it is and which of
+   *  their deployments may hear it (the installed ones), and the cursor advanced past them. The
+   *  router calls this on its schedule and delivers each message (packages/cloud-router). A message
+   *  from an account no person connected is dropped here: nobody's. */
+  async inbox() {
+    const { state } = await this.snapshot();
+    if (state.iterate?.status !== "connected" || !state.iterate.xUserId)
+      throw refused("The Cloud has no @iterate account connected.");
+    const read = await readInbox(state.iterate.xUserId, state.inbox);
+    using itx = this.getItx();
+    const messages: (InboxMessage & {
+      person: { sub: string; username: string; deployments: string[] };
+    })[] = [];
+    const deploymentsOf = new Map<string, Promise<string[]>>();
+    for (const message of read) {
+      const account = state.accounts[message.from.xUserId];
+      if (!account) continue;
+      if (!deploymentsOf.has(account.sub))
+        deploymentsOf.set(
+          account.sub,
+          itx
+            .cd(`/people/${account.sub}`)
+            .facets.get<{ liveSnapshot(): Promise<{ state: PersonState }> }>(PERSON_PROCESSOR.name)
+            .liveSnapshot()
+            .then(({ state: person }) => person.deployments.map((deployment) => deployment.id)),
+        );
+      messages.push({
+        ...message,
+        person: {
+          sub: account.sub,
+          username: account.username,
+          deployments: await deploymentsOf.get(account.sub)!,
+        },
+      });
+    }
+    // the cursor to advance to once the router has landed these: `inboxRead`
+    const cursor = {
+      dmSince: read.find((message) => message.kind === "dm")?.id || null,
+      mentionSince: read.find((message) => message.kind === "mention")?.id || null,
+    };
+    return { messages, cursor };
+  }
+
+  /** The router landed what `inbox` answered: the cursor advances past it, so the next read starts
+   *  after. Until then a read answers the same messages again, which their keys make harmless. */
+  async inboxRead(input: {
+    dmSince: string | null;
+    mentionSince: string | null;
+    delivered: number;
+  }) {
+    const cursor = InboxCursor.parse(input);
+    if (!cursor.dmSince && !cursor.mentionSince) return;
+    using itx = this.getItx();
+    await itx.append({ type: "cloud/x-inbox-polled", payload: cursor });
+  }
+
+  /** A reply as @iterate, for the router (a project's `x/reply-requested`). */
+  async reply(input: Reply) {
+    const { state } = await this.snapshot();
+    if (state.iterate?.status !== "connected")
+      throw refused("The Cloud has no @iterate account connected.");
+    return await sendReply(Reply.parse(input));
+  }
+}
+
 /** What a person's page may call on their facets: each class's `lentMethods`. */
 export type CloudPersonMethods = Pick<
   CloudPersonFacet,
@@ -309,6 +525,12 @@ function platformOf(state: PersonState) {
 type KnownPerson = PersonState & { sub: string; email: string };
 
 type ToolchainSnapshot = { snapshot(): Promise<{ state: ToolchainState }> };
+
+const InboxCursor = z.object({
+  dmSince: z.string().nullable(),
+  mentionSince: z.string().nullable(),
+  delivered: z.number().int().nonnegative(),
+});
 
 const ConnectInput = z.object({
   next: z.object({

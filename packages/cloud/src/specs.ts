@@ -1,10 +1,12 @@
 // cloud/specs.ts — WHERE THE CLOUD'S CONTEXTS ARE, and the facet spec each one's processor is
 // enabled from: the classes of the project's published config, whose top-level `cloud.ts`
 // re-exports this package (a processor row names a top-level module).
-import { DeploymentContract, PersonContract, ToolchainContract } from "./contract.ts";
+import { DeploymentContract, PersonContract, ToolchainContract, XContract } from "./contract.ts";
 
 export const deploymentPathOf = (id: string) => `/deployments/${id}`;
 export const TOOLCHAIN_PATH = "/toolchain";
+/** The Cloud on X: the @iterate account, the connected accounts, the inbox's cursor. */
+export const X_PATH = "/x";
 
 /** The facet spec of one of the package's processors. `consumes` is its contract's: the platform
  *  delivers the processor no other type. */
@@ -31,4 +33,8 @@ export const DEPLOYMENT_PROCESSOR = {
 export const TOOLCHAIN_PROCESSOR = {
   name: ToolchainContract.slug,
   spec: facetSpecOf("CloudToolchainFacet", ToolchainContract.consumes),
+};
+export const X_PROCESSOR = {
+  name: XContract.slug,
+  spec: facetSpecOf("CloudXFacet", XContract.consumes),
 };

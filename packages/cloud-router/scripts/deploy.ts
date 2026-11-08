@@ -3,7 +3,8 @@
 // router secrets), then the Alchemy CLI on alchemy.run.ts with them in its environment.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { cloudRouterEnvs, getEnv } from "../../../envs.ts";
+import { cloudRouterEnvs, getEnv, osEnvs } from "../../../envs.ts";
+import { osIterateConfigOf } from "../../../scripts/os/iterate-config.ts";
 import { resolveEnvContext } from "../../../scripts/lib/env-context.ts";
 
 const [command = "deploy", flag, name] = process.argv.slice(2);
@@ -12,6 +13,10 @@ if (!["deploy", "plan"].includes(command) || flag !== "--env" || !name)
 const ctx = await resolveEnvContext(getEnv(name, cloudRouterEnvs), { dopplerProject: "os" });
 if (!ctx.secrets.CLOUD_ROUTER_KV_KEY)
   throw new Error(`Doppler os/${ctx.env.dopplerConfig} has no CLOUD_ROUTER_KV_KEY`);
+// the operator's bearer of the Cloud's platform, as its config holds it: a key of the router's own
+// later
+const cloudPlatform = getEnv(ctx.env.cloudProject.config, osEnvs);
+const operator = osIterateConfigOf(cloudPlatform, ctx.secrets).adminBearer.exposeSecret();
 const run = spawnSync(
   process.execPath,
   [
@@ -31,6 +36,8 @@ const run = spawnSync(
       CLOUD_ROUTER_KV_KEY: ctx.secrets.CLOUD_ROUTER_KV_KEY,
       CLOUD_ROUTER_ZONE: ctx.env.zone,
       CLOUD_ROUTER_WORKER: ctx.env.workerName,
+      CLOUD_API: cloudPlatform.baseUrl,
+      CLOUD_API_BEARER: operator,
     },
   },
 );

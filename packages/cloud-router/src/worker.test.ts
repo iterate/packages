@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { Registry } from "./registry.ts";
-import router, { receivedOf, slugOfAddress, type Env } from "./worker.ts";
+import router, { deliverInbox, receivedOf, registryOf, slugOfAddress, type Env } from "./worker.ts";
 
 const ORIGIN = "https://one.example";
 
@@ -235,12 +235,133 @@ test("egress through the Cloud: a lent secret is filled, the hook secret is the 
   expect([noHost.status, seen.length]).toEqual([400, 1]);
 });
 
+test("X on the owner's behalf: the Cloud makes the request through its own egress, and the answer is X's", async () => {
+  const { env, registry } = await setup();
+  await registry.setDeployment("dep_1", {
+    origin: ORIGIN,
+    bearer: "bearer-one",
+    hookSecret: "hook-secret",
+    owner: "user_ada",
+  });
+  const calls: { url: string; body: string }[] = [];
+  vi.stubGlobal("fetch", async (request: Request, init?: RequestInit) => {
+    calls.push({ url: request.url, body: String(init?.body || (await request.text())) });
+    // the facet's answer, X's status and body, as capnweb resolves the pulled import
+    const answer = JSON.stringify({
+      status: 200,
+      contentType: "application/json",
+      body: '{"data":[]}',
+    });
+    return new Response(`["resolve",5,${answer}]`, { status: 200 });
+  });
+  const answered = await router.fetch(
+    new Request("https://iterate2.app/.cloud/egress/api.x.com/2/users/me/bookmarks?max_results=5", {
+      headers: { "x-itx-cloud": "hook-secret", authorization: 'Bearer cloudSecret("x")' },
+    }),
+    env,
+  );
+  expect([answered.status, await answered.text()]).toEqual([200, '{"data":[]}']);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!).toMatchObject({ url: "https://os.example/api" });
+  expect(calls[0]!.body).toContain('"/people/user_ada"');
+  expect(calls[0]!.body).toContain('"/2/users/me/bookmarks?max_results=5"');
+  expect(calls[0]!.body).not.toContain("cloudSecret");
+});
+
+test("the inbox: a message to @iterate from a connected person lands on each routed project of their deployments, with the row that brings a reply back; the reply goes out as @iterate", async () => {
+  const { env } = await setup();
+  const calls: { url: string; body: string }[] = [];
+  vi.stubGlobal("fetch", async (request: Request, init?: RequestInit) => {
+    const body = String(init?.body || (await request.text()));
+    calls.push({ url: request.url, body });
+    if (request.url === "https://os.example/api" && body.includes('["inbox"]'))
+      return new Response(
+        `["resolve",5,${JSON.stringify(
+          wire({
+            cursor: { dmSince: "dm-1", mentionSince: null },
+            messages: [
+              {
+                kind: "dm",
+                id: "dm-1",
+                text: "deploy a blog about cats",
+                at: "2026-11-08T10:00:00Z",
+                from: { xUserId: "9001" },
+                conversationId: "c-1",
+                person: { sub: "user_ada", username: "Ada", deployments: ["dep_1", "dep_9"] },
+              },
+            ],
+          }),
+        )}]`,
+      );
+    if (request.url === "https://os.example/api" && body.includes('["reply"]'))
+      return new Response('["resolve",5,{"id":"dm-2"}]');
+    if (request.url === "https://os.example/api" && body.includes('["inboxRead"]'))
+      return new Response('["resolve",5,null]');
+    // the deployment's admin API: an append
+    return new Response('["resolve",4,[[{"offset":3}]]]');
+  });
+  expect(await deliverInbox(env, registryOf(env))).toBe(1);
+  // the cursor advanced once everything landed, and after the deliveries
+  const read = calls.findIndex((call) => call.body.includes('["inboxRead"]'));
+  expect(read).toBeGreaterThan(
+    calls.findIndex((call) => call.body.includes('"x/message-received"')),
+  );
+  expect(calls[read]!.body).toContain('"dmSince":"dm-1"');
+  const toDeployment = calls.filter((call) => call.url === `${ORIGIN}/api`);
+  expect(toDeployment).toHaveLength(2);
+  expect(toDeployment[0]!.body).toContain('"/iterate-cloud/integrations/x/ada"');
+  expect(toDeployment[0]!.body).toContain('"x/reply-requested"');
+  expect(toDeployment[1]!.body).toContain('"x/message-received"');
+  expect(toDeployment[1]!.body).toContain('"x/message:dm:dm-1"');
+  expect(toDeployment[1]!.body).toContain("deploy a blog about cats");
+
+  // the project asks for a reply: the hook sends it as @iterate and records the outcome
+  const event = {
+    offset: 7,
+    path: "/iterate-cloud/integrations/x/ada",
+    type: "x/reply-requested",
+    payload: { kind: "dm", to: "9001", text: "On it." },
+  };
+  const json = JSON.stringify(event);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const answered = await router.fetch(
+    new Request("https://iterate2.app/.cloud/hooks/dep_1", {
+      method: "POST",
+      headers: {
+        "iterate-event-id": "prj_first/iterate-cloud/integrations/x/ada@7",
+        "iterate-timestamp": timestamp,
+        "iterate-signature": `v1=${await hmac("hook-secret", `${timestamp}.${json}`)}`,
+      },
+      body: json,
+    }),
+    env,
+  );
+  expect([answered.status, await answered.json()]).toEqual([200, { id: "dm-2" }]);
+  const replied = calls.find(
+    (call) => call.url === "https://os.example/api" && call.body.includes('["reply"]'),
+  );
+  expect(replied!.body).toContain('"On it."');
+  const recorded = calls.at(-1)!;
+  expect(recorded.body).toContain('"x/reply-sent"');
+  expect(recorded.body).toContain('"/iterate-cloud/integrations/x/ada"');
+});
+
+/** A value as capnweb's wire spells it: an array is wrapped once, so a bare array can be a special
+ *  form. */
+function wire(value: unknown): unknown {
+  if (Array.isArray(value)) return [value.map(wire)];
+  if (typeof value === "object" && value)
+    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, wire(inner)]));
+  return value;
+}
+
 async function setup() {
   const kv = new Map<string, string>();
   const store = {
     get: async (key: string) => kv.get(key) ?? null,
     put: async (key: string, value: string) => void kv.set(key, value),
     delete: async (key: string) => void kv.delete(key),
+    list: async (prefix: string) => [...kv.keys()].filter((key) => key.startsWith(prefix)),
   };
   const key = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
   const registry = new Registry(store, key);
@@ -257,13 +378,21 @@ async function setup() {
   await registry.setRoute("first", { deployment: "dep_1", projectId: "prj_first" });
   // nothing in the namespace is readable without the key
   expect(JSON.stringify([...kv.values()])).not.toMatch(/one\.example|hook-secret|bearer-one/);
+  const namespace = {
+    ...store,
+    list: async ({ prefix }: { prefix: string }) => ({
+      keys: (await store.list(prefix)).map((name) => ({ name })),
+    }),
+  };
   const env: Env = {
-    // safe: the registry calls get and put alone (registry.ts `Store`)
-    REGISTRY: store as unknown as KVNamespace,
+    // safe: the Worker's adapter calls get, put, delete and list alone (worker.ts `registryOf`)
+    REGISTRY: namespace as unknown as KVNamespace,
     // safe: the router calls `send` alone
     EMAIL: { send: vi.fn(async () => ({ messageId: "m-1" })) } as unknown as SendEmail,
     ZONE: "iterate2.app",
     CLOUD_ROUTER_KV_KEY: key,
+    CLOUD_API: "https://os.example",
+    CLOUD_API_BEARER: "operator",
   };
   return { env, registry };
 }

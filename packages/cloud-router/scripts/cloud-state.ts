@@ -8,7 +8,9 @@ import { z } from "zod";
 export const CloudDeployment = z.object({
   origin: z.url(),
   bearer: z.string().min(1),
-  owner: z.email(),
+  /** The owner's id at the Cloud's platform (`user_…`). */
+  owner: z.string().min(1),
+  ownerEmail: z.email(),
 });
 export type CloudDeployment = z.infer<typeof CloudDeployment>;
 
@@ -20,7 +22,7 @@ export function cloudDeployment(
   delete childEnv.ITERATE_BEARER_TOKEN;
   delete childEnv.ITERATE_ADMIN_BEARER;
   const script = `const { state } = await itx.cd(${JSON.stringify(`/deployments/${id}`)}).facets.get("cloud-deployment").snapshot();
-    return JSON.stringify({ origin: state.url ? new URL(state.url).origin : null, bearer: state.config?.adminBearer || null, owner: state.record?.owner?.email || null });`;
+    return JSON.stringify({ origin: state.url ? new URL(state.url).origin : null, bearer: state.config?.adminBearer || null, owner: state.record?.owner?.sub || null, ownerEmail: state.record?.owner?.email || null });`;
   const out = execFileSync(
     "iterate",
     ["--config", cloud.config, "itx", "run", "--project", cloud.project, "--eval", script],

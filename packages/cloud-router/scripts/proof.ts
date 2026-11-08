@@ -24,7 +24,7 @@ const [command, id, slug, to] = process.argv.slice(2);
 const env = getEnv("prd", cloudRouterEnvs);
 if (!command || !id)
   throw new Error("usage: proof.ts project|worker|webhook|inbox <id> [<slug>] [<to>]");
-const { origin, bearer, owner } = cloudDeployment(env.cloudProject, id);
+const { origin, bearer, ownerEmail } = cloudDeployment(env.cloudProject, id);
 using connection = await connectIterate({
   baseUrl: origin,
   auth: { type: "admin-secret", secret: bearer },
@@ -35,7 +35,7 @@ if (command === "project") {
   const made = `r${[...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   using asOwner = await connectIterate({
     baseUrl: origin,
-    auth: { type: "admin-secret", secret: bearer, as: { email: owner } },
+    auth: { type: "admin-secret", secret: bearer, as: { email: ownerEmail } },
   });
   await asOwner.session.projects.create({ project: made });
   console.log(made);

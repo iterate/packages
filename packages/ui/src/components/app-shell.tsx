@@ -95,6 +95,7 @@ export function AppShell({
   projectHref,
   onNavigate,
   switcherActions,
+  switcher,
   nav,
   paletteEntries,
   searchRow = true,
@@ -119,6 +120,9 @@ export function AppShell({
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
   /** the app's own items at the end of the switcher menu — `DropdownMenuItem`s, after a separator */
   switcherActions?: ReactNode;
+  /** what heads the sidebar instead of the project switcher, for an app that is not about one
+   *  project (the Cloud: a person and their deployments) — `AppShellBrand` is the plain one */
+  switcher?: ReactNode;
   /** the app's own navigation, its `SidebarGroup`s */
   nav?: ReactNode;
   /** rows for ⌘K beside what it reads off `nav`: what the sidebar shows in a way it can't read
@@ -174,14 +178,16 @@ export function AppShell({
       <CloseMobileSidebarOnNavigate locationKey={locationKey} />
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <ProjectSwitcher
-            app={app}
-            projects={projects}
-            activeProjectId={activeProjectId}
-            projectHref={projectHref}
-            onNavigate={onNavigate}
-            actions={switcherActions}
-          />
+          {switcher ?? (
+            <ProjectSwitcher
+              app={app}
+              projects={projects}
+              activeProjectId={activeProjectId}
+              projectHref={projectHref}
+              onNavigate={onNavigate}
+              actions={switcherActions}
+            />
+          )}
           {searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
         </SidebarHeader>
         {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the projects alone */}
@@ -264,6 +270,26 @@ const PageSlotsContext = createContext<{
  *  the row the shell has anyway, between the phone's sidebar trigger and the page's ⋯. The row gets
  *  a rule under it while a page has one, and a desktop shows it then even when the app gave the
  *  shell no `header`. */
+/** The sidebar's head for an app with no project switcher: the logo, the app's name, and a line
+ *  under it (whom the app serves, or what it is about). */
+export function AppShellBrand({ app, line }: { app: string; line?: string | null }) {
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton size="lg" className="pointer-events-none">
+          <span className="flex aspect-square size-8 items-center justify-center rounded-md bg-black">
+            <IterateLogo alt="" className="size-6" />
+          </span>
+          <span className="grid flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-medium">{app}</span>
+            {line ? <span className="truncate text-xs text-muted-foreground">{line}</span> : null}
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
 export function AppShellPageHeader({ children }: { children: ReactNode }) {
   const shell = useContext(PageSlotsContext);
   if (!shell) throw new Error("AppShellPageHeader is drawn inside an AppShell");

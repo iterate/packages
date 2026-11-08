@@ -156,6 +156,7 @@ const person = (
   sub: "user_aaaabbbbccccddddaaaabbbbccccdddd",
   email: "ada@example.test",
   platform: null,
+  x: null,
   connections,
   deployments,
 });

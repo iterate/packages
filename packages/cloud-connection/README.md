@@ -104,3 +104,14 @@ ITERATE_ADMIN_BEARER=… pnpm exec iterate --config <deployment> itx run --proje
 ```
 
 The router keeps the same key for the deployment's hook to verify with.
+
+## X
+
+A person who connected their X account at the Cloud can write to `@iterate`, by direct message or
+by mention. The Cloud's router reads `@iterate`'s inbox every minute and lands each message on
+their deployments' projects as `x/message-received` on `/iterate-cloud/integrations/x/<account>`
+(the account's handle, lowercase), with the row that brings a reply back. The project answers with
+`iterateCloud(itx).x.reply(account, message.id, { kind: "dm", to: message.from.xUserId, text })`,
+or `{ kind: "mention", inReplyTo: message.id, text }`, which `@iterate` sends; `x/reply-sent` or
+`x/reply-failed` follows on the same context (`src/contract.ts` `XEvents`). The project reaches the
+person's own X data through the router's egress with `cloudSecret("x")` (`packages/cloud-router`).

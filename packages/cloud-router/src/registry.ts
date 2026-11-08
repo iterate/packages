@@ -3,8 +3,9 @@
 // away. scripts/registry.ts writes the rows; the Worker reads them. Each row is parsed with its
 // schema when it is read back.
 //
-//   deployment:<id>            { origin, bearer, hookSecret }  the deployment's admin bearer, and the
-//                                                            secret its mail-out hook signs with
+//   deployment:<id>            { origin, bearer, hookSecret, owner }  the deployment's admin bearer,
+//                                                            the secret its mail-out hook signs with,
+//                                                            and who owns it at the Cloud
 //   hook:<sha256(hookSecret)>  { deployment }                 who a hook secret belongs to (egress);
 //                                                            a new secret retires the old row
 //   route:<slug>               { deployment, projectId }      `<slug>.iterate2.app`, `<slug>@iterate2.app`,
@@ -16,6 +17,8 @@ export const Deployment = z.object({
   origin: z.url(),
   bearer: z.string().min(1),
   hookSecret: z.string().min(1),
+  /** The person who owns it at the Cloud (`user_…`), whose connected accounts it may use. */
+  owner: z.string().min(1).optional(),
 });
 export type Deployment = z.infer<typeof Deployment>;
 const Route = z.object({ deployment: z.string().min(1), projectId: z.string().min(1) });
@@ -28,6 +31,8 @@ export type Store = {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<unknown>;
   delete(key: string): Promise<unknown>;
+  /** The keys under `prefix`. */
+  list(prefix: string): Promise<string[]>;
 };
 
 export class Registry {
@@ -62,6 +67,16 @@ export class Registry {
   setRoute = (slug: string, route: Route) => this.#put(`route:${slug}`, route);
   lends = (id: string) => this.#get(`lends:${id}`, Lends);
   setLends = (id: string, lends: Record<string, string>) => this.#put(`lends:${id}`, lends);
+
+  /** Every route to the deployment: the slugs it serves, each with its project. */
+  async routesOf(id: string) {
+    const routes: (Route & { slug: string })[] = [];
+    for (const key of await this.#store.list("route:")) {
+      const route = await this.#get(key, Route);
+      if (route?.deployment === id) routes.push({ ...route, slug: key.slice("route:".length) });
+    }
+    return routes;
+  }
 
   /** The deployment `<slug>` is routed to, with its id and the route, or null. */
   async routed(slug: string) {

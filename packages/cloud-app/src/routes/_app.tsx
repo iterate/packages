@@ -1,13 +1,13 @@
-import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router";
-import { documentBasePath } from "@iterate-com/ui/apps/base-path";
-import { IterateLogo } from "@iterate-com/ui/components/iterate-logo";
-import { Button } from "@iterate-com/ui/components/ui/button";
+import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
+import { AppShell, AppShellBrand } from "@iterate-com/ui/components/app-shell";
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import { iterateClient, MeContext, signedIn } from "../lib/iterate.ts";
+import { CloudNav } from "../components/cloud-nav.tsx";
 import { PersonProvider } from "../components/person-provider.tsx";
 
-/** Everything a signed-in person sees: who the platform says they are, the tab's session, one
- *  header. A visitor nobody signed in goes to the Cloud's first page, which offers the sign-in. */
+/** Everything a signed-in person sees, in the apps' one shell: the sidebar lists their deployments
+ *  and the integrations, the account menu signs them out. A visitor nobody signed in goes to the
+ *  Cloud's first page, which offers the sign-in. */
 export const Route = createFileRoute("/_app")({
   ssr: false,
   beforeLoad: async ({ context, location }) => {
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app")({
     const { actor, email } = await api.whoami();
     return { me: { api, sub: actor, email: email || null } };
   },
-  // the header's frame while the session is asked about
+  // the shell's frame while the session is asked about
   pendingComponent: () => (
     <Frame>
       <Spinner />
@@ -30,40 +30,38 @@ export const Route = createFileRoute("/_app")({
 function Shell() {
   const { me } = Route.useRouteContext();
   return (
-    <Frame email={me.email}>
-      <MeContext value={me}>
-        <PersonProvider>
+    <MeContext value={me}>
+      <PersonProvider>
+        <Frame me={me}>
           <Outlet />
-        </PersonProvider>
-      </MeContext>
-    </Frame>
+        </Frame>
+      </PersonProvider>
+    </MeContext>
   );
 }
 
-function Frame({ email, children }: { email?: string | null; children: React.ReactNode }) {
+/** The shell around a page: with `me`, the person's sidebar; without, the frame alone. */
+function Frame({
+  me,
+  children,
+}: {
+  me?: { sub: string; email: string | null };
+  children: React.ReactNode;
+}) {
+  const href = useRouterState({ select: (state) => state.location.href });
   return (
-    <div className="flex min-h-svh flex-col">
-      <header className="flex items-center gap-3 border-b px-5 py-3">
-        <Link to="/deployments" className="flex items-center gap-2 font-semibold">
-          <IterateLogo alt="" className="size-5" />
-          iterate
-        </Link>
-        {email ? (
-          <>
-            <span className="ml-auto text-sm text-muted-foreground">{email}</span>
-            {/* the platform's sign-out, back to the Cloud's first page */}
-            <form
-              method="post"
-              action={`/.auth/logout?${new URLSearchParams({ next: `${documentBasePath()}/` })}`}
-            >
-              <Button type="submit" variant="ghost" size="sm">
-                Sign out
-              </Button>
-            </form>
-          </>
-        ) : null}
-      </header>
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-8">{children}</main>
-    </div>
+    <AppShell
+      app="Cloud"
+      projects={[]}
+      activeProjectId={null}
+      projectHref={() => "/"}
+      searchRow={false}
+      switcher={<AppShellBrand app="Cloud" line={me?.email} />}
+      nav={me ? <CloudNav /> : null}
+      account={me ? { actor: me.sub, email: me.email || undefined } : undefined}
+      locationKey={href}
+    >
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-6">{children}</div>
+    </AppShell>
   );
 }

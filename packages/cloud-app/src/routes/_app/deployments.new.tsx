@@ -1,4 +1,4 @@
-// /new — the first deployment, or another: @iterate-com/cloud/wizard's state machine, drawn. The
+// /deployments/new — the first deployment, or another: @iterate-com/cloud/wizard's state machine, drawn. The
 // machine owns every move; this page draws its view and hands it the person's live state.
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -26,7 +26,7 @@ import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import { documentBasePath } from "@iterate-com/ui/apps/base-path";
 import { callPerson, useMe, usePerson } from "../../lib/iterate.ts";
 
-export const Route = createFileRoute("/_app/new")({
+export const Route = createFileRoute("/_app/deployments/new")({
   validateSearch: z.object({ connection: z.string().optional().catch(undefined) }),
   head: () => ({ meta: [{ title: "New deployment · iterate" }] }),
   component: NewDeployment,
@@ -78,7 +78,9 @@ function NewDeployment() {
  *  apex has no sub-paths: the platform composes `/projects/<project>/<routingSlug><path>`, and the
  *  config worker folds the slug back into the path (@iterate-com/cloud worker.ts). */
 function returnPage() {
-  return documentBasePath() ? { routingSlug: "new", path: "/" } : { path: "/new" };
+  return documentBasePath()
+    ? { routingSlug: "deployments", path: "/new" }
+    : { path: "/deployments/new" };
 }
 
 function Step({ view, wizard }: { view: WizardView; wizard: Wizard }) {
