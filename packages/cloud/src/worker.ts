@@ -132,9 +132,21 @@ export async function installCloud(itx: IterateContextApi, options?: Pick<CloudO
   await itx
     .cd(TOOLCHAIN_PATH)
     .processors.enable(TOOLCHAIN_PROCESSOR.name, TOOLCHAIN_PROCESSOR.spec);
-  // the Cloud on X: its context, and the X client it speaks through when the config names one
+  // the Cloud on X: its context, and the X client it speaks through when the config names one.
+  // A loaded worker's plain `fetch` is `itx.fetch` at its own context, and only the root has the
+  // egress, so the context's `itx.fetch` is sent there, as a person's is (setUpPerson): that is
+  // what fills @iterate's token in the facet's requests to X.
   const x = itx.cd(X_PATH);
   await x.processors.enable(X_PROCESSOR.name, X_PROCESSOR.spec);
+  await x.append({
+    type: "events.iterate.com/itx/rewrite-rule-configured",
+    idempotencyKey: "cloud/x-egress",
+    payload: {
+      match: "itx.fetch",
+      target: "itx.cd('/').fetch",
+      description: "the project's egress, for the Cloud's requests to X as @iterate",
+    },
+  });
   if (options?.x)
     await x.append({
       type: "cloud/x-client-configured",
