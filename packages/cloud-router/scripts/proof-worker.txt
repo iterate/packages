@@ -1,0 +1,46 @@
+import { IterateConfigEntrypoint } from "iterate/sdk";
+
+// A test project on iterate-nov7 for the Cloud's router (iterate/private packages/cloud-router): its
+// home page names the project and the routing slug a host carries (blog--<slug>.iterate2.app), and
+// ask--<slug>.iterate2.app/?q=<question> asks a model through the Cloud, with a key the Cloud lends this deployment and
+// this project never holds: the request goes to the router, which fills `cloudSecret("openai")`.
+export default class extends IterateConfigEntrypoint {
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+    using itx = this.getItx();
+    const { projectSlug } = await itx.whoami();
+    const routingSlug = request.headers.get("x-iterate-routing-slug");
+    if (routingSlug === "ask") {
+      const question = url.searchParams.get("q") || "Say hello in five words.";
+      const started = Date.now();
+      const answer = await fetch("https://iterate2.app/.cloud/egress/api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          // the deployment's own egress fills this from the project's secret, pinned to the router
+          "x-itx-cloud": 'getSecret("/secrets/iterate-cloud")',
+          // the router fills this with the key the Cloud lends the deployment
+          authorization: 'Bearer cloudSecret("openai")',
+        },
+        body: JSON.stringify({ model: "gpt-6-luna", messages: [{ role: "user", content: question }], max_completion_tokens: 200 }),
+      });
+      const body = await answer.text();
+      let reply = body;
+      try {
+        const parsed = JSON.parse(body);
+        reply = parsed.choices?.[0]?.message?.content ?? body;
+      } catch {}
+      return new Response(`${reply}\n\n(${answer.status} from api.openai.com through iterate2.app in ${Date.now() - started} ms; project ${projectSlug} holds no key)\n`, {
+        status: answer.ok ? 200 : 502,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    const lines = [
+      routingSlug ? `The ${routingSlug} of project ${projectSlug}` : `Homepage of project ${projectSlug}`,
+      `path ${url.pathname}${url.search}`,
+    ];
+    return new Response(lines.join("\n") + "\n", {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+}
