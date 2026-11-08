@@ -21,8 +21,15 @@ const X_SCOPES = [
 const X_API = "https://api.x.com";
 
 /** The person's X secret: the platform's, at the Cloud's root, where the OAuth attempt stores the
- *  tokens. One per person. */
-export const xSecretOf = (sub: string) => `/secrets/cloud-x-${sub.replace(/[^a-zA-Z0-9._-]/g, "")}`;
+ *  tokens. One per person. Its name is SHORT: the platform signs the secret's context into the
+ *  OAuth `state`, with the person's id and the page to return to, and X grants a consent only when
+ *  `state` is at most 500 characters (docs.x.com, OAuth 2.0 authorization code). Sixteen hex digits
+ *  of the platform's `user_<32 hex>` id name the person apart; any other id is carried whole,
+ *  cleaned. */
+export const xSecretOf = (sub: string) => {
+  const hex = /^user_([0-9a-f]{32})$/.exec(sub)?.[1];
+  return `/secrets/x-${hex ? hex.slice(0, 16) : sub.replace(/[^a-zA-Z0-9._-]/g, "")}`;
+};
 
 /** The token as a request carries it: the placeholder egress fills. */
 const xPlaceholderOf = (sub: string) => `getSecret("${xSecretOf(sub)}", { field: "accessToken" })`;
