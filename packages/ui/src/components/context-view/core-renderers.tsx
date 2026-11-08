@@ -44,9 +44,11 @@ export function housekeepingSummary(types: readonly string[]): string {
             ? "live state"
             : type === "events.iterate.com/agent/idle-check"
               ? "idle check"
-              : KEEPING_WARM.has(type)
-                ? "kept warm"
-                : "scheduled append";
+              : type === "events.iterate.com/agent/warm-up-requested"
+                ? "warm-up"
+                : KEEPING_WARM.has(type)
+                  ? "kept warm"
+                  : "scheduled append";
     counts.set(label, (counts.get(label) || 0) + 1);
   }
   return [...counts.entries()]

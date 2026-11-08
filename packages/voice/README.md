@@ -103,7 +103,10 @@ first. Every fact and frame names its activation. The device sends microphone fr
 press, never waiting for an answer: the relay queues them (at most 6 s) until the provider is
 ready, then sends everything through one pacer (`src/mic-pacer.ts`): up to 5 s of what it held at
 once, the rest at 1.2× real time. A frame can reach the relay a moment before its own
-`call-started` does; up to 1 s of such frames waits for that call. Words typed into a call
+`call-started` does; up to 1 s of such frames waits for that call, and `conversation-accepted`
+counts any past it as `droppedEarlyMs`. A device queues its own frames while its link is slow: Kit's
+firmware up to 21 s, and the call client up to 2 s, sending what waited in the next free append.
+Words typed into a call
 (`voice-call.ts --say`) reach the relay as `voice-agent/words-typed`, a hand-over like a spoken
 request. Words the device gives the voice to say, such as a phone bridge's opening line, reach it as
 `voice-agent/words-given` (the client's `speak`): the live model says them at once, or once the
@@ -116,11 +119,11 @@ if it has one (a project's own `llm.apiKeys`) and has the provider cache its pro
 (`iterate/agents`, Warming up), which its log shows as `agent/cache-kept-warm`. A first hand-over
 that comes while the ping runs is answered at once, beside it. Facts the relay writes:
 
-| Event                   | Payload                                                                                              |
-| ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `conversation-accepted` | `pressToDialMs` (`call-started`'s commit to the dial), `handshakeTookMs`, `upgradeTookMs`, `heldMs`  |
-| `call-ended`            | `reason`, and on the relay's own, `startup`: how far the call got (the same fields, `trimmedMs` too) |
-| `audio-trimmed`         | `ms`: microphone audio past the 6 s queue, which ends the call                                       |
+| Event                   | Payload                                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversation-accepted` | `pressToDialMs` (`call-started`'s commit to the dial), `handshakeTookMs`, `upgradeTookMs`, `heldMs`, and `droppedEarlyMs` when audio before the press was lost |
+| `call-ended`            | `reason`, and on the relay's own, `startup`: how far the call got (the same fields, `trimmedMs` too)                                                           |
+| `audio-trimmed`         | `ms`: microphone audio past the 6 s queue, which ends the call                                                                                                 |
 
 The call client counts the rest on the device's own clock: `pressToAcceptedMs` and
 `pressToFirstAudioMs`.

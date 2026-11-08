@@ -1,8 +1,9 @@
 // call-client.ts — a device's calls as a client makes them. `connectVoiceDevice` provisions the
 // device (`itx.voice.ensureVoiceDevice`) and subscribes ONCE to its relay's context; each `call()` is
 // then the press, ONE append of `call-started` under a new activation, after which microphone
-// frames go up at once as ephemeral `mic-frame` appends, never waiting for an answer. A `keepalive`
-// every 20 s says the caller is still there through a quiet stretch, and hanging up appends
+// frames go up at once as ephemeral `mic-frame` appends, never waiting for an answer. Frames that
+// come while the link is slow wait, and go together in the next free append, one event each. A
+// `keepalive` every 20 s says the caller is still there through a quiet stretch, and hanging up appends
 // `call-ended`. The subscription routes each frame and fact to its call by activation. A client whose
 // link to the project can drop (a phone bridge under `iterate provide`) carries its device to the
 // new link with `moveTo`.
@@ -13,6 +14,7 @@ import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
 import { errorCode } from "iterate/lib";
 import type { VoiceApi } from "./api.ts";
+import { PCM16_BYTES_PER_MS } from "./mic-pacer.ts";
 
 /** How often a live call says `keepalive`: the relay reaps a call after 60 s without device input,
  *  and a caller who listens quietly sends none. */
@@ -22,9 +24,19 @@ export const VOICE_CALL_KEEPALIVE_MS = 20_000;
  *  so: the relay's own opening deadline is 5 s from its dial. */
 export const VOICE_CALL_OPENING_DEADLINE_MS = 5_000;
 
-/** A slow link drops microphone frames rather than queueing them: at most this many appends in
- *  flight at once. */
-const MAX_MIC_FRAMES_IN_FLIGHT = 5;
+/** At most this many microphone appends in flight at once. The frames that come while all of them
+ *  are out wait, and go together in the next one to free: a relay that is waking takes about a second
+ *  over its first appends, and dropping frames then cut off the start of what was said. */
+const MIC_APPENDS_IN_FLIGHT = 5;
+
+/** The most microphone audio one append carries. */
+const MIC_APPEND_MAX_MS = 1_000;
+
+/** The most microphone audio this client holds, in flight or waiting. Enough for a relay that is
+ *  waking, and far under the 6 s the relay holds before it ends a call (mic-pacer.ts
+ *  `MIC_QUEUE_MAX_MS`): a link that stalls mid-call and recovers sends at most this at once, so it
+ *  cannot end the call. Past it a frame is dropped. */
+const MIC_HELD_MAX_MS = 2_000;
 
 /** A move reads at most this many pages of 200 events from the gap: a link is down for seconds,
  *  and a call writes a few events a second. */
@@ -114,7 +126,8 @@ export type VoiceCallFact = z.infer<typeof CallFact> | z.infer<typeof AgentMessa
 /** What this client saw of the call, counted here because the relay cannot see the last hop. */
 export type VoiceCallStats = {
   micFramesSent: number;
-  /** Frames offered while five appends were still in flight (a slow link). */
+  /** Frames offered with `MIC_HELD_MAX_MS` of audio already in flight or waiting, a link too slow
+   *  for the call, and frames still waiting when the call ended. */
   micFramesDropped: number;
   /** Frames whose append failed. */
   micFramesFailed: number;
@@ -133,14 +146,15 @@ export type VoiceCall = {
   stats: VoiceCallStats;
   /** Settles once the press has landed; rejects with why it was refused. */
   pressed: Promise<void>;
-  /** Append one microphone frame (16 kHz mono PCM16, base64) without waiting for it; false when
-   *  the link is too slow and the frame was dropped, or the call is over. */
+  /** Send one microphone frame (16 kHz mono PCM16, base64) without waiting for it, at once or with
+   *  the next free append; false when `MIC_HELD_MAX_MS` of audio is already held and the frame was
+   *  dropped, or the call is over. */
   sendMicFrame(pcm: string): boolean;
   /** Give the voice words to say in this call, such as a phone bridge's opening line
    *  (`voice-agent/words-given`), appended once the press has landed: said at once, or once the
    *  session starts. */
   speak(text: string): Promise<void>;
-  /** Stop the microphone and the keepalive, wait for the frames in flight, append `call-ended`
+  /** Stop the microphone and the keepalive, send what waits and wait for it, append `call-ended`
    *  with `reason` unless the call is already over, and wait (at most 2 s) for the answer's last
    *  frames to arrive. */
   hangUp(reason: string): Promise<void>;
@@ -245,15 +259,15 @@ export async function connectVoiceDevice<
   // device's link. A platform without the verb refuses it as no match; the frames then go as
   // `append`s.
   let framesAsAppends = false;
-  const appendFrame = async (event: Parameters<Context["append"]>[0]) => {
+  const appendFrames = async (events: Parameters<IterateContextApi["append"]>) => {
     if (!framesAsAppends)
       try {
-        return await itx.appendOffsets(event);
+        return await itx.appendOffsets(...events);
       } catch (error) {
         if (errorCode(error) !== "NO_ITX_EXPRESSION_MATCH") throw error;
         framesAsAppends = true;
       }
-    return await itx.append(event);
+    return await itx.append(...events);
   };
 
   return {
@@ -279,6 +293,48 @@ export async function connectVoiceDevice<
       let open = true;
       let over = false;
       const inFlight = new Set<Promise<unknown>>();
+      /** Frames waiting for a free append, oldest first, and the audio they and the appends in
+       *  flight hold. */
+      const waiting: { pcm: string; ms: number }[] = [];
+      let waitingMs = 0;
+      let inFlightMs = 0;
+      /** Each free append takes what waits, oldest first, up to `MIC_APPEND_MAX_MS`; once the call
+       *  is over, nothing waiting is worth sending. */
+      const sendWaiting = () => {
+        if (over) {
+          stats.micFramesDropped += waiting.length;
+          waiting.length = 0;
+          waitingMs = 0;
+        }
+        while (waiting.length > 0 && inFlight.size < MIC_APPENDS_IN_FLIGHT) {
+          const batch = [waiting.shift()!];
+          let batchMs = batch[0]!.ms;
+          while (waiting.length > 0 && batchMs + waiting[0]!.ms <= MIC_APPEND_MAX_MS) {
+            const frame = waiting.shift()!;
+            batch.push(frame);
+            batchMs += frame.ms;
+          }
+          waitingMs -= batchMs;
+          inFlightMs += batchMs;
+          stats.micFramesSent += batch.length;
+          const sent = appendFrames(
+            batch.map(({ pcm }) => ({
+              type: "events.iterate.com/voice-agent/mic-frame",
+              ephemeral: true,
+              payload: { activation, pcm },
+            })),
+          )
+            .catch(() => {
+              stats.micFramesFailed += batch.length;
+            })
+            .finally(() => {
+              inFlight.delete(sent);
+              inFlightMs -= batchMs;
+              sendWaiting();
+            });
+          inFlight.add(sent);
+        }
+      };
       const end = (reason: string) =>
         itx
           .append({
@@ -314,9 +370,7 @@ export async function connectVoiceDevice<
           if (frame.pcm) {
             stats.pressToFirstAudioMs ??= Date.now() - pressedAt;
             stats.spkChunksReceived += 1;
-            // base64 carries 3 bytes in every 4 characters; PCM16 at 16 kHz is 32 bytes a millisecond
-            const bytes = Math.floor((frame.pcm.replace(/=+$/, "").length * 3) / 4);
-            stats.spkMsReceived += bytes / 32;
+            stats.spkMsReceived += pcmMs(frame.pcm);
           }
           onSpeakerFrame(frame);
         },
@@ -343,9 +397,12 @@ export async function connectVoiceDevice<
           payload: { activation },
         })
         .then(() => undefined);
+      // a refused press is a call that never was: nothing still waiting goes after it
       pressed.catch(() => {
+        over = true;
         stop();
         calls.delete(activation);
+        sendWaiting();
       });
       return {
         activation,
@@ -353,21 +410,14 @@ export async function connectVoiceDevice<
         pressed,
         sendMicFrame(pcm) {
           if (!open) return false;
-          if (inFlight.size >= MAX_MIC_FRAMES_IN_FLIGHT) {
+          const ms = pcmMs(pcm);
+          if (waitingMs + inFlightMs + ms > MIC_HELD_MAX_MS) {
             stats.micFramesDropped += 1;
             return false;
           }
-          stats.micFramesSent += 1;
-          const sent = appendFrame({
-            type: "events.iterate.com/voice-agent/mic-frame",
-            ephemeral: true,
-            payload: { activation, pcm },
-          })
-            .catch(() => {
-              stats.micFramesFailed += 1;
-            })
-            .finally(() => inFlight.delete(sent));
-          inFlight.add(sent);
+          waiting.push({ pcm, ms });
+          waitingMs += ms;
+          sendWaiting();
           return true;
         },
         async speak(text) {
@@ -380,7 +430,8 @@ export async function connectVoiceDevice<
         },
         async hangUp(reason) {
           stop();
-          await Promise.all(inFlight);
+          // each append that ends sends what waits: the last words before a hang-up count too
+          while (inFlight.size > 0) await Promise.all(inFlight);
           if (!over && (await end(reason))) {
             let timer: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
@@ -440,4 +491,9 @@ function randomHex(bytes: number): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+/** How much audio base64 PCM16 holds: 3 bytes in every 4 characters, `PCM16_BYTES_PER_MS` a ms. */
+function pcmMs(pcm: string): number {
+  return Math.floor((pcm.replace(/=+$/, "").length * 3) / 4) / PCM16_BYTES_PER_MS;
 }

@@ -35,6 +35,9 @@ const StartupSummary = z.looseObject({
   upgradeTookMs: z.number().optional(),
   heldMs: z.number().optional(),
   trimmedMs: z.number().optional(),
+  /** Microphone audio that came before the press and past `EARLY_FRAMES_MAX_MS`: the start of what
+   *  was said, which the live model never heard. */
+  droppedEarlyMs: z.number().optional(),
 });
 type StartupSummary = z.infer<typeof StartupSummary>;
 
@@ -69,7 +72,7 @@ const MIC_PACER_TICK_MS = 20;
 /** A device sends frames from the press, never waiting for an answer, so a frame can reach the
  *  relay a moment before its own `call-started` does. Up to this much audio of an activation the
  *  relay has no call for waits for that call; past it, or once another activation's frame comes,
- *  it is not a press in flight and is dropped. */
+ *  it is not a press in flight and is dropped, and the call's `startup` says how much. */
 const EARLY_FRAMES_MAX_MS = 1_000;
 
 /** The idle stamp in the fold advances in steps of this, not per frame: the deadline is a
@@ -285,6 +288,9 @@ const VoiceAgentContract = defineProcessorContract({
         /** Microphone audio queued during the handshake, in ms: up to 5 s goes at once, the rest
          *  at the pacer's pace. */
         heldMs: z.number(),
+        /** Microphone audio lost before the press reached the relay (`EARLY_FRAMES_MAX_MS`), when
+         *  any was: said here, as a device's own hang-up carries no `startup`. */
+        droppedEarlyMs: z.number().optional(),
       }),
     },
     "events.iterate.com/voice-agent/audio-trimmed": {
@@ -574,8 +580,12 @@ export class VoiceAgentProcessor extends StreamProcessor<
    *  dial sends it the moment the provider answers; null again after a failure. */
   #session: Promise<Record<string, unknown>> | null = null;
   /** Frames of an activation with no call yet, oldest first (`EARLY_FRAMES_MAX_MS`). */
-  #earlyFrames: { activation: string; frames: { pcm: string; ms: number }[]; ms: number } | null =
-    null;
+  #earlyFrames: {
+    activation: string;
+    frames: { pcm: string; ms: number }[];
+    ms: number;
+    droppedMs: number;
+  } | null = null;
 
   reduce({ state, event }: ReduceArgs<VoiceState, ConsumedEvent<VoiceAgentContract>>) {
     const committedAtStreamMs = Date.parse(event.createdAt);
@@ -914,9 +924,13 @@ export class VoiceAgentProcessor extends StreamProcessor<
     if (early?.activation === activation)
       for (const frame of early.frames) dial.mic.push(frame.pcm, frame.ms);
     const dialStartedAtFacetMs = this.deps.nowAtFacetMs();
+    const droppedEarlyMs = early?.activation === activation ? early.droppedMs : 0;
     this.#startup = {
       activation,
-      summary: { pressToDialMs: dialStartedAtFacetMs - pressedAtStreamMs },
+      summary: {
+        pressToDialMs: dialStartedAtFacetMs - pressedAtStreamMs,
+        ...(droppedEarlyMs > 0 && { droppedEarlyMs }),
+      },
     };
     const session = this.#prepareSession(agentPath);
     this.#background(async () => {
@@ -1077,12 +1091,13 @@ export class VoiceAgentProcessor extends StreamProcessor<
       case "session.started": {
         /* Usable. What the handshake held goes: up to 5 s at once, the rest at the pace. */
         dial.ready = true;
+        const before = this.#startup?.activation === activation ? this.#startup.summary : undefined;
         const startup = {
-          pressToDialMs:
-            this.#startup?.activation === activation ? this.#startup.summary.pressToDialMs : 0,
+          pressToDialMs: before?.pressToDialMs ?? 0,
           handshakeTookMs: receivedAtFacetMs - dialStartedAtFacetMs,
           upgradeTookMs: dial.socketReadyAtFacetMs - dialStartedAtFacetMs,
           heldMs: dial.mic.queuedMs,
+          ...(before?.droppedEarlyMs !== undefined && { droppedEarlyMs: before.droppedEarlyMs }),
         };
         this.#startup = { activation, summary: startup };
         dial.mic.start(receivedAtFacetMs);
@@ -1349,9 +1364,12 @@ export class VoiceAgentProcessor extends StreamProcessor<
   /** Keep a frame that came before its call (`EARLY_FRAMES_MAX_MS`). */
   #holdEarlyFrame(activation: string, pcm: string, ms: number): void {
     if (this.#earlyFrames?.activation !== activation)
-      this.#earlyFrames = { activation, frames: [], ms: 0 };
+      this.#earlyFrames = { activation, frames: [], ms: 0, droppedMs: 0 };
     const early = this.#earlyFrames;
-    if (early.ms + ms > EARLY_FRAMES_MAX_MS) return;
+    if (early.ms + ms > EARLY_FRAMES_MAX_MS) {
+      early.droppedMs += ms;
+      return;
+    }
     early.frames.push({ pcm, ms });
     early.ms += ms;
   }

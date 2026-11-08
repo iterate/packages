@@ -12,6 +12,7 @@ import {
   VOICE_CALL_OPENING_DEADLINE_MS,
   type VoiceCallFact,
 } from "./call-client.ts";
+import { PCM16_BYTES_PER_MS } from "./mic-pacer.ts";
 
 test("a device provisions itself and subscribes once to its relay's context; each call is one append of call-started, and frames follow it at once", async () => {
   const root = project();
@@ -119,7 +120,7 @@ test("the subscription hands each call its own frames and facts, and the agent's
   await call.hangUp("done");
 });
 
-test("microphone frames are ephemeral appends, five in flight at most: the sixth is dropped and a failed append is counted", async () => {
+test("microphone frames are ephemeral appends, five in flight at most: those that come meanwhile wait, and go together and in order in the next free append", async () => {
   const root = project();
   const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
   await call.pressed;
@@ -128,19 +129,77 @@ test("microphone frames are ephemeral appends, five in flight at most: the sixth
     await held.promise;
     return [];
   });
-  const sent = Array.from({ length: 6 }, (_, index) => call.sendMicFrame(`frame-${index}`));
+  // a relay that is waking answers its first appends slowly: nothing is lost meanwhile
+  const sent = Array.from({ length: 8 }, (_, index) => call.sendMicFrame(`frame-${index}`));
+  expect(sent).toEqual([true, true, true, true, true, true, true, true]);
+  expect(root.append).toHaveBeenCalledTimes(6);
   held.reject(new Error("the link dropped"));
-  await vi.waitFor(() => expect(call.stats).toMatchObject({ micFramesFailed: 5 }));
+  await vi.waitFor(() => expect(call.stats).toMatchObject({ micFramesFailed: 8 }));
 
-  expect(sent).toEqual([true, true, true, true, true, false]);
-  expect(root.append.mock.calls[1]).toEqual([
-    {
-      type: "events.iterate.com/voice-agent/mic-frame",
-      ephemeral: true,
-      payload: { activation: call.activation, pcm: "frame-0" },
-    },
+  expect(root.append.mock.calls[1]).toEqual([micFrame(call.activation, "frame-0")]);
+  expect(root.append.mock.calls[6]).toEqual(
+    ["frame-5", "frame-6", "frame-7"].map((pcm) => micFrame(call.activation, pcm)),
+  );
+  expect(call.stats).toMatchObject({ micFramesSent: 8, micFramesDropped: 0, micFramesFailed: 8 });
+});
+
+test("a frame is dropped once 2 s of audio is held, in flight or waiting: a link that recovers then cannot overflow the relay's 6 s queue and end the call", async () => {
+  const root = project();
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
+  await call.pressed;
+  root.append.mockImplementation(() => new Promise<never[]>(() => undefined));
+  const half = Buffer.alloc(PCM16_BYTES_PER_MS * 500).toString("base64");
+  const sent = Array.from({ length: 6 }, () => call.sendMicFrame(half));
+  // four halves in flight are 2 s, so the fifth waits for nothing: it is dropped, as is the sixth
+  expect(sent).toEqual([true, true, true, true, false, false]);
+  expect(call.stats).toMatchObject({ micFramesSent: 4, micFramesDropped: 2 });
+});
+
+test("a press the relay refused sends none of the frames still waiting, though the appends ahead of them settle", async () => {
+  const root = project();
+  const press = Promise.withResolvers<never[]>();
+  const frames = Promise.withResolvers<never[]>();
+  root.append.mockImplementation(async (...events) =>
+    events[0]?.type === "events.iterate.com/voice-agent/call-started"
+      ? press.promise
+      : frames.promise,
+  );
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
+  for (let index = 0; index < 8; index++) call.sendMicFrame(`frame-${index}`);
+  expect(root.append).toHaveBeenCalledTimes(6);
+  press.reject(new Error("refused"));
+  await call.pressed.catch(() => undefined);
+  frames.resolve([]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(root.append).toHaveBeenCalledTimes(6);
+  expect(call.sendMicFrame("after the refusal")).toBe(false);
+  // the three that waited count as dropped, so no frame goes uncounted
+  expect(call.stats).toMatchObject({ micFramesSent: 5, micFramesDropped: 3 });
+});
+
+test("hanging up sends what still waits before call-ended: the last words before a hang-up count too", async () => {
+  const root = project();
+  const call = (await connectVoiceDevice(root, { client: "cli" })).call(handlers());
+  await call.pressed;
+  const log = root.append.getMockImplementation()!;
+  const gate = Promise.withResolvers<void>();
+  root.append.mockImplementation(async (...events) => {
+    if (events[0]?.type === "events.iterate.com/voice-agent/mic-frame") await gate.promise;
+    return log(...events);
+  });
+  for (let index = 0; index < 7; index++) call.sendMicFrame(`frame-${index}`);
+  const hungUp = call.hangUp("hung up");
+  gate.resolve();
+  await hungUp;
+  expect(root.append.mock.calls.slice(-2)).toEqual([
+    [micFrame(call.activation, "frame-5"), micFrame(call.activation, "frame-6")],
+    [
+      {
+        type: "events.iterate.com/voice-agent/call-ended",
+        payload: { activation: call.activation, reason: "hung up" },
+      },
+    ],
   ]);
-  expect(call.stats).toMatchObject({ micFramesSent: 5, micFramesDropped: 1, micFramesFailed: 5 });
 });
 
 test("a frame's answer is its offset alone (appendOffsets); a platform without the verb refuses it as no match, and the frames go as appends from then on", async () => {
@@ -431,5 +490,13 @@ function accepted(activation: string) {
   return {
     type: "events.iterate.com/voice-agent/conversation-accepted",
     payload: { activation, pressToDialMs: 40, handshakeTookMs: 812, upgradeTookMs: 240, heldMs: 0 },
+  };
+}
+
+function micFrame(activation: string, pcm: string) {
+  return {
+    type: "events.iterate.com/voice-agent/mic-frame",
+    ephemeral: true,
+    payload: { activation, pcm },
   };
 }

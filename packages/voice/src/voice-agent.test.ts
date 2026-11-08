@@ -375,6 +375,23 @@ test("frames that reach the relay just before their call's press wait for it, an
   }).toMatchObject({ accepted: { activation: "second", heldMs: 100 }, heard: frames(0, 2) });
 });
 
+test("frames past 1 s before their call's press are dropped, and accepted says how much", async () => {
+  const call = await liveCall();
+  // 1.2 s of audio before the press: 1 s of it waits, the rest cannot
+  await call.take({ micFrames: 24, activation: "second" });
+  await call.take({ press: "second" });
+  await call.take({ providerReady: true });
+  expect(call.facts("events.iterate.com/voice-agent/conversation-accepted").at(-1)).toMatchObject({
+    activation: "second",
+    heldMs: 1_000,
+    droppedEarlyMs: 200,
+  });
+  // the first call's acceptance lost nothing, and says nothing about it
+  expect(call.facts("events.iterate.com/voice-agent/conversation-accepted")[0]).not.toHaveProperty(
+    "droppedEarlyMs",
+  );
+});
+
 test("audio held through the handshake reaches the provider at once and in order, and accepted says how much", async () => {
   const call = await liveCall([], new Map(), {}, { ready: false });
   await call.take({ micFrames: 20 });

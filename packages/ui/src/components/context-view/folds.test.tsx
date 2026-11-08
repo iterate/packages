@@ -101,7 +101,9 @@ test("an agent keeping warm folds as housekeeping, however long the call", () =>
   const [first, ...rest] = foldEvents(kept, "pretty").filter((item) => item.kind !== "day");
   expect(rest).toEqual([]);
   expect(first?.kind).toBe("housekeeping");
-  expect(housekeepingSummary(kept.map((event) => event.type))).toBe("kept warm ×4, idle check");
+  expect(housekeepingSummary(kept.map((event) => event.type))).toBe(
+    "warm-up ×2, kept warm ×2, idle check",
+  );
 });
 
 test("warming that stopped stays a row of its own: that is news, not housekeeping", () => {
