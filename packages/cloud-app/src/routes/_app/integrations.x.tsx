@@ -1,6 +1,7 @@
 // /integrations/x — the person's X account at the Cloud: connected, with its handle, or the button
 // that starts X's consent through the Cloud's own X client. `?x=1` is the consent coming back
-// through the platform's callback: the person's facet settles it, and the page shows the account.
+// through the platform's callback: the person's facet settles it, asked by the page at once and by
+// its own schedule after, and the page shows the account.
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
@@ -30,8 +31,10 @@ function XIntegration() {
   const { x: returned } = Route.useSearch();
   const [error, setError] = useState<string | null>(null);
   // back from X's consent: settle it. The platform's callback may still be storing the tokens
-  // when the browser arrives, so a pending answer is asked again, a few times; the query is
-  // dropped only once the attempt has an outcome, so a reload asks again until then.
+  // when the browser arrives, so a pending answer is asked again, a few times, and a call that
+  // failed counts as one. The facet's own schedule asks on after that (@iterate-com/cloud
+  // durable-object.ts `connectX`), and the live state shows the outcome; the query is dropped once
+  // the page has asked.
   useEffect(() => {
     if (!returned) return;
     let stopped = false;

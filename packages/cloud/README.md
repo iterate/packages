@@ -34,6 +34,12 @@ the facet's live state and the methods its class lists in `lentMethods`:
   listing, then the deployment's request, so the page reaches it wherever the creation stops:
   [src/creation.ts](src/creation.ts)) and `finishCreation(id)` (a creation that stopped before
   its request, which the deployment's page offers as Start again).
+- **`cloud-person`, X**: `connectX({ next })` and `settleX()` do the same for the person's X
+  account through the Cloud's own X client ([src/x.ts](src/x.ts)). A connect also appends the
+  platform's schedule of an ask, `cloud/x-settle-asked` after 20 s; each ask writes the next, after
+  twice the wait up to ten minutes, and then the facet settles ([src/person.ts](src/person.ts)), so
+  a consent settles when the page's own ask failed or the tab is gone. An attempt still pending
+  after two hours of asks is given up as failed.
 - **`cloud-deployment`**: `prepareAgain`, `requestRun(kind)`, `readOutput(requestOffset, step)` and
   `signInPassword` (only a deployment made before the next paragraph's sign-in has one; null for
   the rest).

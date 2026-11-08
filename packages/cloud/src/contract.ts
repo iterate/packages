@@ -89,6 +89,15 @@ export const PersonContract = defineProcessorContract({
         error: z.string().optional(),
       }),
     },
+    "cloud/x-settle-asked": {
+      description:
+        "The platform's schedule asks what became of the attempt the nonce names: `connectX` appends the first ask with the attempt, and each ask appends the next, after the delay doubled up to ten minutes, before the facet settles (person.ts). `waitedMs` is the chain's waiting in all when the ask fires. An ask for a settled or replaced attempt is spent; one that comes after two hours of waiting gives the attempt up as failed.",
+      payloadSchema: z.object({
+        nonce: z.string(),
+        afterMs: z.number().int().positive(),
+        waitedMs: z.number().int().positive(),
+      }),
+    },
     "cloud/deployment-added": {
       description:
         "The person requested a deployment. Appended before the deployment's own `cloud/deployment-requested`, with the whole record, so a creation that stopped between the two is listed and can be requested again from here (durable-object.ts `finishCreation`).",
@@ -102,9 +111,10 @@ export const PersonContract = defineProcessorContract({
     "cloud/connection-settled",
     "cloud/x-connect-requested",
     "cloud/x-connect-settled",
+    "cloud/x-settle-asked",
     "cloud/deployment-added",
   ],
-  emits: [],
+  emits: ["events.iterate.com/itx/schedule-set", "cloud/x-connect-settled"],
 });
 
 /** The Cloud's X context, `/x` (x-facet.ts): the `@iterate` account's own connection, every

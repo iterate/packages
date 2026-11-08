@@ -36,7 +36,7 @@ import {
   refused,
 } from "./creation.ts";
 import { DeploymentProcessor } from "./deployment.ts";
-import { PersonProcessor } from "./person.ts";
+import { PersonProcessor, X_SETTLE_FIRST_MS, xSettleAsk } from "./person.ts";
 import { connectionSecretOf, prepareDeployment, prepareToolchain, runAttempt } from "./runs.ts";
 import { PERSON_PROCESSOR, TOOLCHAIN_PATH, X_PATH } from "./specs.ts";
 import { ToolchainProcessor } from "./toolchain.ts";
@@ -69,7 +69,7 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     "createDeployment",
     "finishCreation",
   ] as const;
-  processor = new PersonProcessor();
+  processor = new PersonProcessor({ settleX: () => this.settleX() });
 
   /** The live state's seed read, the first call a page makes: before this incarnation first
    *  answers it, every deployment the person has is reachable (its processor) and lent to them, so a deployment made before
@@ -155,7 +155,9 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
 
   /** Begin an X connect through the Cloud's X client: the platform's start link. X returns to the
    *  platform's callback, which stores the tokens in the person's X secret and sends the browser to
-   *  `next` with `x=1` added to its query; the page then calls `settleX`. */
+   *  `next` with `x=1` added to its query; the page then calls `settleX`. The schedule appended with
+   *  the attempt asks it too, until the attempt has an outcome (person.ts `processEvent`): a page
+   *  whose call failed, or that is gone, settles nothing. */
   async connectX(input: { next: { routingSlug?: string; path: string } }) {
     const asked = ConnectInput.safeParse(input);
     if (!asked.success) throw refused("A connect needs the page to come back to.");
@@ -168,7 +170,10 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     const { authorizationUrl, nonce } = await itx
       .cd("/")
       .secrets.beginOAuth(xSecretOf(sub!), xConnectOptionsOf(platform.x, sub!, next));
-    await itx.append({ type: "cloud/x-connect-requested", payload: { nonce } });
+    await itx.append(
+      { type: "cloud/x-connect-requested", payload: { nonce } },
+      xSettleAsk(nonce, X_SETTLE_FIRST_MS),
+    );
     return { url: authorizationUrl };
   }
 
@@ -210,6 +215,8 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
                 "This connect ended before X's tokens were stored, or a newer one replaced it. Connect again.",
             },
     });
+    // the attempt has its outcome: the chain's next ask, when one is still to come, is not needed
+    await itx.schedules.cancel(["x-settle", x.nonce]);
     return { status: user ? "connected" : "failed" };
   }
 
