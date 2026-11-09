@@ -36,6 +36,8 @@ const AGENT_ANSWER_MS = 3 * 60_000;
 const PROJECT_READY_MS = 3 * 60_000;
 /** How many times, 5 s apart, the proof asks for the agents app before it says it is missing. */
 const AGENTS_READY_TRIES = 24;
+/** How many times, 5 s apart, a call is asked again while Cloudflare's edge answers for it. */
+const EDGE_TRIES = 24;
 
 /** Run the proof's steps in order; the first that fails ends it, with its reason. */
 export async function prove(
@@ -82,9 +84,26 @@ function asOwner({ origin, adminBearer, owner }: ProveInput) {
   return { session, [Symbol.dispose]: () => api[Symbol.dispose]() };
 }
 
+/** `run`, asked again while Cloudflare's edge answers in the Worker's place (HTTP 5xx before the
+ *  Worker: 522 when an edge does not know a new route yet and tries the record's `100::`, run 18).
+ *  The install's check passed at one edge; the proof's next call can land at another. */
+async function throughEdge<T>(run: () => Promise<T>): Promise<T> {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/RPC request failed: 5\d\d/.test(message) || tries >= EDGE_TRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
+}
+
 /** The first project, the owner's, from the platform's default template; then its config worker
  *  published, which installs the agents app (iterate/agents `installAgents`). */
-async function setUpProject(input: ProveInput) {
+const setUpProject = (input: ProveInput) => throughEdge(() => setUpProjectOnce(input));
+
+async function setUpProjectOnce(input: ProveInput) {
   {
     using api = asOwner(input);
     const listed = await api.session.projects.list();
@@ -115,10 +134,12 @@ async function askAgent(input: ProveInput) {
   // (iterate/agents `installAgents` in the template's init): until then `itx.agents` has no rule
   for (let tries = 0; ; tries++) {
     try {
-      using api = asOwner(input);
-      await api.session.projects
-        .get(input.project)
-        .invoke(["itx", "agents", ["create", WELCOME_AGENT]]);
+      await throughEdge(async () => {
+        using api = asOwner(input);
+        await api.session.projects
+          .get(input.project)
+          .invoke(["itx", "agents", ["create", WELCOME_AGENT]]);
+      });
       break;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -126,10 +147,9 @@ async function askAgent(input: ProveInput) {
       await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
   }
-  let sent: { offset: number };
-  {
+  const sent = await throughEdge(async () => {
     using api = asOwner(input);
-    sent = (await api.session.projects
+    return (await api.session.projects
       .get(input.project)
       .invoke([
         "itx",
@@ -137,16 +157,18 @@ async function askAgent(input: ProveInput) {
         ["get", WELCOME_AGENT],
         ["message", "Say hello to your new owner in one short sentence."],
       ])) as { offset: number };
-  }
-  using api = asOwner(input);
-  const settled = (await api.session.projects
-    .get(input.project)
-    .cd(WELCOME_AGENT)
-    .waitForEvent({
-      type: ["events.iterate.com/agent/llm-request-settled"],
-      afterOffset: sent.offset,
-      timeoutMs: AGENT_ANSWER_MS,
-    })) as { payload?: { result?: { status: string; text?: string; errorMessage?: string } } };
+  });
+  const settled = await throughEdge(async () => {
+    using api = asOwner(input);
+    return (await api.session.projects
+      .get(input.project)
+      .cd(WELCOME_AGENT)
+      .waitForEvent({
+        type: ["events.iterate.com/agent/llm-request-settled"],
+        afterOffset: sent.offset,
+        timeoutMs: AGENT_ANSWER_MS,
+      })) as { payload?: { result?: { status: string; text?: string; errorMessage?: string } } };
+  });
   const result = settled.payload?.result;
   if (result?.status !== "succeeded")
     throw new Error(`the model did not answer: ${result?.errorMessage || result?.status}`);
