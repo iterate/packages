@@ -1,43 +1,82 @@
-// What the sidebar and the home page show about the project's agents. It reads the catalog on `/`
-// (iterate/agents catalog.ts), which has one row per agent kept up to date by copies of the agent's
-// events, so a list of any length reads no agent. These are pure functions, so agent-summary.test.ts can test the
-// ordering directly; use-agent-rows.ts keeps the rows live.
+// Pure transformations for the agent rows the sidebar and the home page show, tested in
+// agent-summary.test.ts. See use-agent-rows.ts for how the catalog rows are kept live.
 import { z } from "zod";
+
+const AgentStatus = z.enum(["working", "idle", "waiting", "ended"]);
+export type AgentStatus = z.infer<typeof AgentStatus>;
 
 export type AgentRow = {
   path: string;
   createdAt: string;
+  /** The nearest agent above it, or null at the top. */
+  parent: string | null;
+  /** What runs it (`iterate`, `claude`, …). Null until it says, and for an agent that never does. */
+  kind: string | null;
+  /** The machine it runs on, for an agent that runs on one. */
+  host: string | null;
+  status: AgentStatus | null;
+  /** One line: what it is doing now. */
+  activity: string | null;
+  /** A few sentences: its purpose or conclusions. */
+  description: string | null;
   /** What the agent calls itself, or else the first line of the first thing a person said to it.
-   *  Null until either exists, and always null for an agent created before the catalog's rows. */
+   *  Null until either exists. */
   title: string | null;
-  /** When it was last active. Null until it has been, and always null for an agent created before
-   *  the rows. */
+  /** When it was last active. Null until it has been. */
   lastActivityAt: string | null;
 };
 
 /** The part of the catalog's live state the sidebar reads. Parsed rather than cast, because live
- *  updates arrive unvalidated. A row nothing has been copied to yet has neither optional field. */
+ *  updates arrive unvalidated. A row nothing has been copied to yet has none of the optional
+ *  fields, and a field the sidebar does not know is read as absent rather than failing the list. */
 const AgentCatalog = z.object({
   agents: z.record(
     z.string(),
     z.object({
       createdAt: z.string(),
+      parent: z.string().nullish(),
+      kind: z.string().nullish(),
+      host: z.string().nullish(),
+      status: AgentStatus.nullish().catch(null),
+      activity: z.string().nullish(),
+      description: z.string().nullish(),
       title: z.string().nullish(),
       lastActivityAt: z.string().nullish(),
     }),
   ),
 });
 
-/** The catalog's rows, oldest agent first, or none if `value` isn't a catalog. */
+/** The catalog's rows, or none if `value` isn't a catalog. */
 export function agentRowsOf(value: unknown): AgentRow[] {
   const parsed = AgentCatalog.safeParse(value);
   if (!parsed.success) return [];
   return Object.entries(parsed.data.agents).map(([path, row]) => ({
     path,
     createdAt: row.createdAt,
+    parent: row.parent || null,
+    kind: row.kind || null,
+    host: row.host || null,
+    status: row.status || null,
+    activity: row.activity || null,
+    description: row.description || null,
     title: row.title || null,
     lastActivityAt: row.lastActivityAt || null,
   }));
+}
+
+/** The agents the sidebar lists: those at the top, with no agent above them. Every context under
+ *  `/agents` is a row, so `/agents/web`, which only holds the web agents, is one too: a row that
+ *  never said what it is (no kind, no title) and holds others is a folder, not an agent. It is not
+ *  listed, and its children count as at the top. */
+export function topLevelAgents(rows: readonly AgentRow[]): AgentRow[] {
+  const byPath = new Map(rows.map((row) => [row.path, row]));
+  const holders = new Set(rows.map((row) => row.parent));
+  const isFolder = (row: AgentRow) => !row.kind && !row.title && holders.has(row.path);
+  return rows.filter((row) => {
+    if (isFolder(row)) return false;
+    const parent = row.parent && byPath.get(row.parent);
+    return !parent || isFolder(parent);
+  });
 }
 
 /** What a list calls an agent: its title, or else the last segment of its path. */

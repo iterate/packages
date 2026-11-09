@@ -59,9 +59,10 @@ export const Route = createFileRoute("/_auth/projects/$slug")({
       return await itx.rewriteRules.get("itx.agents");
     });
     if (!rule?.target) return { projects, project, catalog: null };
+    // the catalog is on `/agents` (iterate/agents catalog.ts)
     const catalog = await context.read(async (api) => {
       using itx = api.projects.get(project.id);
-      return await facetSnapshotOf(itx, "agents");
+      return await facetSnapshotOf(itx.cd("/agents"), "agents");
     });
     return { projects, project, catalog };
   },
@@ -112,7 +113,12 @@ function AgentsPage() {
       locationKey={href}
     >
       {agent ? (
-        <AgentConversation key={`${project}${agent}`} project={project} path={agent} />
+        <AgentConversation
+          key={`${project}${agent}`}
+          project={project}
+          path={agent}
+          kind={agents.find((row) => row.path === agent)?.kind ?? null}
+        />
       ) : installed ? (
         <AgentsHome
           key={project}
@@ -207,10 +213,23 @@ function useAgentContext(
 
 /** One agent's chat: the route holds the agent's context and reads it live with the SDK's ONE
  *  `useIterateContext`; `AgentChat` draws everything inside. The chat's state is this route's
- *  search, so every view of it is a link. */
-function AgentConversation({ project, path }: { project: string; path: string }) {
+ *  search, so every view of it is a link. An agent iterate does not run (`kind`: a coding session,
+ *  say) opens on its Events tab: the chat draws an iterate agent's events. */
+function AgentConversation({
+  project,
+  path,
+  kind,
+}: {
+  project: string;
+  path: string;
+  kind: string | null;
+}) {
   const { api } = Route.useRouteContext();
-  const search = Route.useSearch();
+  const routeSearch = Route.useSearch();
+  const search: AgentChatState =
+    routeSearch.view || !kind || kind === "iterate"
+      ? routeSearch
+      : { ...routeSearch, view: "events" };
   const navigate = useNavigate();
   const { slug } = Route.useParams();
   const { context, error } = useAgentContext(api, project, path);

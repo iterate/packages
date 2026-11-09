@@ -1,5 +1,5 @@
-// How the sidebar reads a project's agents: it subscribes to the live state of the catalog on `/`
-// (iterate/agents catalog.ts). That's one subscription for the whole list, however long it is, and it
+// How the sidebar reads a project's agents: it subscribes to the live state of the catalog on
+// `/agents` (iterate/agents catalog.ts). That's one subscription for the whole list, however long it is, and it
 // reads no agent, so opening the page wakes none of them. Copies of each agent's events keep its row
 // up to date.
 import { useMemo } from "react";
@@ -15,11 +15,10 @@ export function useAgentRows(
   catalog: FacetLiveSnapshot | null,
 ): AgentRow[] {
   const installed = Boolean(catalog);
-  const { stub } = useContextStub(installed ? () => api.projects.get(project) : null, [
-    api,
-    project,
-    installed,
-  ]);
+  const { stub } = useContextStub(
+    installed ? () => api.projects.get(project).cd("/agents") : null,
+    [api, project, installed],
+  );
   const { value } = useFacetLiveState(stub, "agents", catalog || undefined);
   return useMemo(() => agentRowsOf(value), [value]);
 }

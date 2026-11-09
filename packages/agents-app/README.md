@@ -15,6 +15,12 @@ core/configs/default does). This app installs nothing: on a project without `itx
 and links to the config repo. `itx.agents.create(path)` installs an agent at that context;
 `get(path).message(text)` sends a message. The project owns its data.
 
+The sidebar reads the catalog on `/agents`, which lists every context under `/agents`: an agent is
+any of them, iterate's own or not ([what an agent is](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#what-an-agent-is)).
+It lists the agents at the top (no `parent`; a row that only holds others, like `/agents/web`, is a
+folder and is skipped), each with an icon for its `kind` and a dot for its `status`. An agent
+iterate does not run opens on its Events tab.
+
 The collection delegates capabilities to each agent: `itx ⇒ itx.cd(<creator>)` and `itx.agents` at
 the agent's own path, written into its context at birth. The agent's scripts run in that same
 context, so the loop and its scripts share one table, and an agent holds its creator's reach. A

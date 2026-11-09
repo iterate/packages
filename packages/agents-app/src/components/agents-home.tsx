@@ -7,7 +7,12 @@ import { BotIcon } from "lucide-react";
 import { AgentComposer } from "@iterate-com/ui/components/agent-chat/composer";
 import { useComposerDraft } from "@iterate-com/ui/components/agent-chat/use-composer-attachments";
 import { Card, CardDescription, CardHeader, CardTitle } from "@iterate-com/ui/components/ui/card";
-import { agentTitle, byRecentActivity, type AgentRow } from "../lib/agent-summary.ts";
+import {
+  agentTitle,
+  byRecentActivity,
+  topLevelAgents,
+  type AgentRow,
+} from "../lib/agent-summary.ts";
 import { newWebAgentPath } from "../lib/web-agent.ts";
 
 export function AgentsHome({
@@ -32,8 +37,8 @@ export function AgentsHome({
   // the agent born for a first message that then failed to send: sending again goes to it, so a
   // retry leaves no empty agent behind
   const born = useRef<string | undefined>(undefined);
-  // a few to pick up again; the sidebar lists every agent
-  const recent = useMemo(() => byRecentActivity(agents).slice(0, 8), [agents]);
+  // a few to pick up again, of those the sidebar lists (no folders or sub-agents); it lists them all
+  const recent = useMemo(() => byRecentActivity(topLevelAgents(agents)).slice(0, 8), [agents]);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-4 pt-8 md:p-8 md:pt-16">
       <AgentComposer
