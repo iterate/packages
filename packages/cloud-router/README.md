@@ -66,6 +66,16 @@ pnpm run route <slug> <deployment id>               # the project's hosts and ad
 pnpm run lend <deployment id> openai os/preview/OPENAI_API_KEY   # the Cloud lends that Doppler secret under `openai`
 ```
 
+## A deployment with no origin
+
+A deployment row is either `{ origin, bearer }` (a core/os Worker, called at its paths ingress and
+its `/api`) or `{ provided: { project, host, at } }`: a deployment that dialled the Cloud's platform
+and `provide`d a live stub on a project's root, the lend `iterate tunnel` makes, kept by the
+platform as a hibernatable rpc stub. The router forwards its hosts to the project's host with
+`x-iterate-cloud-deployment`, which the stub's fetch route matches, and appends to it with
+`invoke` on that project as the Cloud's operator. [examples/bun-box](examples/bun-box/README.md)
+is one: a Bun server on a laptop, in plain capnweb.
+
 ## Deploy
 
 ```sh

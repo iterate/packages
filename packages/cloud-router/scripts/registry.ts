@@ -52,6 +52,8 @@ if (command === "deployment" && first && rest.length === 1) {
   const deployment = await registry.deployment(id);
   if (!deployment)
     throw new Error(`No deployment ${id} in the registry: pnpm run deployment ${id}`);
+  if ("provided" in deployment)
+    throw new Error(`${id} provides itself as a stub: it enrols its own routes (examples/bun-box)`);
   // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
   // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, the secret's write, with no live capability
   using api = newHttpBatchRpcSession<IterateApi>(

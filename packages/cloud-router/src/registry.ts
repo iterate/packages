@@ -3,9 +3,11 @@
 // away. scripts/registry.ts writes the rows; the Worker reads them. Each row is parsed with its
 // schema when it is read back.
 //
-//   deployment:<id>            { origin, bearer, hookSecret, owner }  the deployment's admin bearer,
-//                                                            the secret its mail-out hook signs with,
-//                                                            and who owns it at the Cloud
+//   deployment:<id>            { origin, bearer, hookSecret, owner }  where the deployment answers
+//                              or { provided, hookSecret, owner }      (its origin and admin bearer,
+//                                                            or the stub it provides on the Cloud's
+//                                                            platform), the secret its mail-out hook
+//                                                            signs with, and who owns it at the Cloud
 //   hook:<sha256(hookSecret)>  { deployment }                 who a hook secret belongs to (egress);
 //                                                            a new secret retires the old row
 //   route:<slug>               { deployment, projectId }      `<slug>.iterate2.app`, `<slug>@iterate2.app`,
@@ -13,14 +15,38 @@
 //   lends:<id>                 { <name>: <secret> }           the secrets the Cloud lends the deployment
 import { z } from "zod";
 
-export const Deployment = z.object({
-  origin: z.url(),
-  bearer: z.string().min(1),
+const Common = {
   hookSecret: z.string().min(1),
   /** The person who owns it at the Cloud (`user_…`), whose connected accounts it may use. */
   owner: z.string().min(1).optional(),
+};
+
+/** A deployment with a public origin (a core/os Worker): the router fetches its paths ingress and
+ *  calls its `/api` with its admin bearer. */
+const AtOrigin = z.object({ origin: z.url(), bearer: z.string().min(1), ...Common });
+
+/** A deployment with no origin of its own (a box: a laptop, a server behind NAT, a reimplementation)
+ *  that dialled the Cloud's platform and `provide`d a live stub on a project's root, the same lend
+ *  `iterate tunnel` makes: the platform keeps it as a hibernatable rpc stub (core/os
+ *  context/rpc-stubs.ts), paged when a call needs it. The stub answers what a deployment's API
+ *  answers, as far as the router asks it (`projects.get(id).cd(path).append(event)`), and `fetch`
+ *  through a fetch route that matches the router's `x-iterate-cloud-deployment` header. */
+const Provided = z.object({
+  /** The project on the Cloud's platform whose root holds the stub. */
+  project: z.string().min(1),
+  /** The project's origin there, where the fetch route answers. */
+  host: z.url(),
+  /** The itx expression the stub is provided at (`itx.boxes.<id>`). */
+  at: z.string().regex(/^itx(\.[A-Za-z_$][\w$]*)+$/),
 });
+const ProvidedDeployment = z.object({ provided: Provided, ...Common });
+
+export const Deployment = z.union([AtOrigin, ProvidedDeployment]);
 export type Deployment = z.infer<typeof Deployment>;
+
+/** The header the router stamps on a request it forwards to a provided deployment, naming it: its
+ *  fetch route matches on it. The router removes any a visitor sent. */
+export const DEPLOYMENT_HEADER = "x-iterate-cloud-deployment";
 const Route = z.object({ deployment: z.string().min(1), projectId: z.string().min(1) });
 export type Route = z.infer<typeof Route>;
 const Owner = z.object({ deployment: z.string().min(1) });

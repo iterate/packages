@@ -20,7 +20,7 @@ import type { IterateApi } from "iterate/api";
 import { projectAddressOf } from "iterate/project-ingress";
 import PostalMime from "postal-mime";
 import { z } from "zod";
-import { Registry, sha256Hex, type Deployment } from "./registry.ts";
+import { DEPLOYMENT_HEADER, Registry, sha256Hex, type Deployment } from "./registry.ts";
 
 export type Env = {
   REGISTRY: KVNamespace;
@@ -144,6 +144,7 @@ export async function deliverInbox(env: Env, registry: Registry) {
       for (const route of await registry.routesOf(id)) {
         const path = `/iterate-cloud/integrations/x/${account}`;
         await appendAsAdmin(
+          env,
           deployment,
           route.projectId,
           {
@@ -171,6 +172,7 @@ export async function deliverInbox(env: Env, registry: Registry) {
           path,
         );
         await appendAsAdmin(
+          env,
           deployment,
           route.projectId,
           {
@@ -206,9 +208,18 @@ async function forward(request: Request, url: URL, env: Env, registry: Registry)
   // already names the project (a page's own link under its base path) goes as it is.
   const base = `/projects/${address.project}${address.routingSlug ? `/${address.routingSlug}` : ""}`;
   const own = url.pathname.startsWith(`/projects/${address.project}/`);
-  const target = new URL(`${own ? "" : base}${url.pathname}${url.search}`, deployment.origin);
+  // A provided deployment answers on the project host that holds its stub, through the fetch
+  // route its `provide` set, which matches the header naming it: the same paths as an origin's.
+  const origin = "provided" in deployment ? deployment.provided.host : deployment.origin;
+  const target = new URL(`${own ? "" : base}${url.pathname}${url.search}`, origin);
   const headers = new Headers(request.headers);
   for (const name of [...headers.keys()]) if (name.startsWith("x-itx-")) headers.delete(name);
+  headers.delete(DEPLOYMENT_HEADER);
+  if ("provided" in deployment) {
+    headers.set(DEPLOYMENT_HEADER, deployment.id);
+    // the platform's edge reads a bearer on its project hosts and refuses one it did not mint
+    headers.delete("authorization");
+  }
   const answer = await fetch(
     new Request(target, {
       method: request.method,
@@ -225,7 +236,7 @@ async function forward(request: Request, url: URL, env: Env, registry: Registry)
   if (answer.status === 101 || !location) return answer;
   const moved = new URL(location, target);
   const inside = moved.pathname === base || moved.pathname.startsWith(`${base}/`);
-  if (moved.origin !== deployment.origin || !inside) return answer;
+  if (moved.origin !== origin || !inside) return answer;
   const rewritten = new Response(answer.body, answer);
   rewritten.headers.set(
     "location",
@@ -246,11 +257,17 @@ async function mailIn(message: ForwardableEmailMessage, env: Env, registry: Regi
   const deployment = slug && (await registry.routed(slug));
   if (!slug || !deployment) return message.setReject("No such address.");
   const raw = new Uint8Array(await new Response(message.raw).arrayBuffer());
-  const payload = await receivedOf({ ...message, raw });
+  // named one by one: the message's fields are getters, which a spread does not copy
+  const payload = await receivedOf({
+    from: message.from,
+    to: message.to,
+    headers: message.headers,
+    raw,
+  });
   // keyed by the message itself when it carries no id, so a redelivery after a lost answer lands
   // nothing new (the platform's own receiveEmail keys the same way)
   const key = payload.messageId || (await sha256Hex(new TextDecoder().decode(raw))).slice(0, 16);
-  await appendAsAdmin(deployment, deployment.projectId, {
+  await appendAsAdmin(env, deployment, deployment.projectId, {
     type: "iterate-cloud/email-received", // a package's own type, unprefixed (core/lib README.md)
     idempotencyKey: `iterate-cloud/email-received:${key}:${message.to}`,
     payload,
@@ -339,6 +356,7 @@ async function replyOut(
     try {
       if (projectId)
         await appendAsAdmin(
+          env,
           deployment,
           projectId,
           {
@@ -386,7 +404,7 @@ async function mailOut(
   const outcome = async (fact: { id: string } | { error: string }) => {
     try {
       if (projectId)
-        await appendAsAdmin(deployment, projectId, {
+        await appendAsAdmin(env, deployment, projectId, {
           type: "error" in fact ? "iterate-cloud/email-failed" : "iterate-cloud/email-sent",
           idempotencyKey: `iterate-cloud/email-outcome:${event.offset}`,
           payload: { requestOffset: event.offset, ...fact },
@@ -433,13 +451,31 @@ const Outbound = z
   })
   .refine((mail) => mail.text || mail.html, "A message has a text or an html body.");
 
-/** One append on a project of the deployment, through its admin API, as the router's own fact. */
+/** One append on a project of the deployment, as the router's own fact: through its admin API, or,
+ *  for a provided deployment, through the stub it provided, which the Cloud's platform pages
+ *  (`invoke` on the project that holds it, as the Cloud's operator). */
 async function appendAsAdmin(
+  env: Env,
   deployment: Deployment,
   projectId: string,
   event: { type: string; idempotencyKey: string; payload: Record<string, unknown> },
   path = "/iterate-cloud",
 ) {
+  if ("provided" in deployment) {
+    const { project, at } = deployment.provided;
+    // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
+    // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, the append, with no live capability
+    using api = newHttpBatchRpcSession<IterateApi>(
+      new Request(`${env.CLOUD_API}/api`, {
+        headers: { authorization: `Bearer ${env.CLOUD_API_BEARER}` },
+      }),
+    );
+    await api
+      .authenticate({ type: "admin-secret", secret: env.CLOUD_API_BEARER })
+      .projects.get(project)
+      .invoke([...at.split("."), "projects", ["get", projectId], ["cd", path], ["append", event]]);
+    return;
+  }
   // the bearer rides the request too: an HTTP batch without one meets the API's 401 before it runs
   // oxlint-disable-next-line iterate/no-capnweb-http-batch -- one bounded call, the append, with no live capability
   using api = newHttpBatchRpcSession<IterateApi>(
