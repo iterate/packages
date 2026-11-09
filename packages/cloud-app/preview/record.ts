@@ -18,7 +18,7 @@ type Logged = { type: string; offset: number; createdAt: string; payload: any };
 const log: Logged[] = JSON.parse(readFileSync(process.argv[2]!, "utf8"));
 // the reduce is pure: it never calls the sandbox work, so the deps refuse
 const refuse = () => Promise.reject(new Error("a replay does no sandbox work"));
-const processor = new DeploymentProcessor({ prepare: refuse, attempt: refuse });
+const processor = new DeploymentProcessor({ prepare: refuse, attempt: refuse, prove: refuse });
 const reduce = (state: DeploymentState, event: Logged) =>
   // safe: a logged event is the deployment context's own (`{ type, offset, createdAt, payload }`
   // as readEvents gives it), of the types the contract defines; the reduce reads only `state` and

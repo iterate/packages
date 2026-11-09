@@ -17,6 +17,8 @@ const record: DeploymentRecord = {
   stack: "iterate-my-iterate",
   owner: { sub: "user_aaaabbbbccccddddaaaabbbbccccdddd", email: "ada@example.test" },
   createdAt: "2026-11-06T12:00:00.000Z",
+  project: null,
+  domain: null,
 };
 
 test("a creation prepares the sandbox, requests the first deploy itself, and its steps move with the output", async () => {
@@ -201,20 +203,72 @@ test("each processor is delivered every event its contract defines: the facet sp
     expect([...contract.consumes].sort()).toEqual(Object.keys(contract.events).sort());
 });
 
+test("after the first install the Cloud sets up the first project and proves each step, once", async () => {
+  const prove = vi.fn<DeploymentDeps["prove"]>(async ({ url }, report) => {
+    expect(url).toBe("https://os.example.com");
+    await report("project", "running", null);
+    await report("project", "succeeded", "home is the owner's");
+    await report("agent", "running", null);
+    await report("agent", "failed", "the model did not answer: no credits");
+    return { status: "failed", error: "agent: the model did not answer: no credits" };
+  });
+  const deployment = open(
+    {
+      prepare: async () => ({ status: "succeeded" }),
+      attempt: async () => ({ status: "succeeded", url: "https://os.example.com" }),
+      prove,
+    },
+    { ...record, project: "home" },
+  );
+  deployment.request();
+  await vi.waitFor(async () => expect((await deployment.state()).proof?.status).toBe("failed"));
+  expect((await deployment.state()).proof).toMatchObject({
+    attempt: 1,
+    error: "agent: the model did not answer: no credits",
+    steps: [
+      { name: "project", status: "succeeded", detail: "home is the owner's" },
+      { name: "agent", status: "failed", detail: "the model did not answer: no credits" },
+    ],
+  });
+  // Prove again is a new request, and only that
+  deployment.log.stream.append({ type: "cloud/proof-requested", payload: {} });
+  await vi.waitFor(() => expect(prove).toHaveBeenCalledTimes(2));
+});
+
+test("a deployment made before the wizard named a project proves nothing", async () => {
+  const prove = vi.fn<DeploymentDeps["prove"]>(async () => ({ status: "succeeded" }));
+  const deployment = open({
+    prepare: async () => ({ status: "succeeded" }),
+    attempt: async () => ({ status: "succeeded", url: "https://x.example.workers.dev" }),
+    prove,
+  });
+  deployment.request();
+  await vi.waitFor(async () => expect((await deployment.state()).run?.status).toBe("succeeded"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(prove).not.toHaveBeenCalled();
+  expect((await deployment.state()).proof).toBeNull();
+});
+
 /** Text lines `from` on, all of `step`, as runs.ts reports them. */
 const printed = (from: number, step: RunStep, ...lines: string[]) =>
   ({ kind: "lines", from, step, lines }) as const;
 
 /** A deployment's log and its processor, as its facet hosts them, with `deps` for the sandbox. */
-function open(deps: DeploymentDeps) {
+function open(
+  deps: Omit<DeploymentDeps, "prove"> & Partial<Pick<DeploymentDeps, "prove">>,
+  made: DeploymentRecord = record,
+) {
   const log = memoryStream(`/deployments/${record.id}`);
   // the checkpoint outlives an incarnation, as the facet's storage does
   const checkpoints = memoryStorage();
   const start = () => {
-    const engine = new ProcessorEngine(new DeploymentProcessor(deps), {
-      stream: log.stream,
-      storage: checkpoints,
-    });
+    const engine = new ProcessorEngine(
+      new DeploymentProcessor({ prove: async () => ({ status: "succeeded" as const }), ...deps }),
+      {
+        stream: log.stream,
+        storage: checkpoints,
+      },
+    );
     log.engines.splice(0, log.engines.length, engine);
     return engine;
   };
@@ -227,8 +281,8 @@ function open(deps: DeploymentDeps) {
       void engine.catchUpFromLog();
     },
     request() {
-      const config = mintConfig(record, { issuer: "https://os.example", dash: null });
-      log.stream.append({ type: "cloud/deployment-requested", payload: { record, config } });
+      const config = mintConfig(made, { issuer: "https://os.example", dash: null });
+      log.stream.append({ type: "cloud/deployment-requested", payload: { record: made, config } });
       return config;
     },
     state: async () => (await engine.snapshot()).state as DeploymentState,

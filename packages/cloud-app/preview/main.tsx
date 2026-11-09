@@ -48,5 +48,6 @@ function actionsOf(state: DeploymentView): DeploymentActions {
       lines: state.run?.steps.find((known) => known.name === step)?.tail || [],
     }),
     signInPassword: async () => "password-of-the-preview",
+    proveAgain: async () => null,
   };
 }

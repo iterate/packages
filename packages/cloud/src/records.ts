@@ -34,6 +34,59 @@ export const WorkerName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 export const CloudflareAccount = z.object({ id: AccountId, name: z.string() });
 export type CloudflareAccount = z.infer<typeof CloudflareAccount>;
 
+/** A project's slug on the new deployment, as core/os accepts one. */
+export const ProjectSlug = z
+  .string()
+  .regex(
+    /^[a-z][a-z0-9-]{1,38}[a-z0-9]$/,
+    "3 to 40 characters: lowercase letters, digits and hyphens, starting with a letter",
+  );
+export const DEFAULT_PROJECT = "home";
+
+/** A zone of the account, as Cloudflare lists it. */
+/** A DNS name in lowercase: the run's script writes it, so it holds nothing else. */
+const DnsName = z
+  .string()
+  .toLowerCase()
+  .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Not a DNS name");
+export const Zone = z.object({ id: z.string().regex(/^[0-9a-f]{32}$/), name: DnsName });
+export type Zone = z.infer<typeof Zone>;
+
+/** THE DOMAIN A DEPLOYMENT OWNS, in Jeeves's shape (envs.ts `jeeves`): the platform at
+ *  `iterate.<domain>` (config.ts `platformHostOf`), and the domain itself with every name under it the first
+ *  project's site (core/os `urls.projectWildcard`), as `templestein.com` is the jeeves project's.
+ *  Behind the routes `<domain>/*` and `*.<domain>/*` and two proxied records. Other projects are
+ *  paths on the platform (`iterate.<domain>/projects/<project>`): Jeeves's `<project>.iterate.<domain>`
+ *  needs an Advanced certificate for `*.iterate.<domain>`, which Universal SSL (the apex and
+ *  `*.<zone>`) does not cover. Today `hostname` is the zone itself. */
+export const Domain = z
+  .object({ hostname: DnsName, zone: Zone })
+  .refine(
+    ({ hostname, zone }) =>
+      hostname === zone.name ||
+      (hostname.endsWith(`.${zone.name}`) &&
+        /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(hostname.slice(0, -zone.name.length - 1))),
+    { message: "The hostname must be the zone, or one label under it" },
+  );
+export type Domain = z.infer<typeof Domain>;
+
+/** What the account needs before an install, each as Cloudflare answered: true, false, or null
+ *  when it did not say. `message` says what to do about the first that is not true. */
+export const AccountReadiness = z.object({
+  workersPaid: z.boolean().nullable(),
+  r2: z.boolean().nullable(),
+  containers: z.boolean().nullable(),
+  message: z.string().nullable(),
+});
+export type AccountReadiness = z.infer<typeof AccountReadiness>;
+
+/** The scope the wizard needs beyond a deploy's: the domain's wildcard record (`dns.write`). A
+ *  connection made before lacks it and is asked again. Cloudflare's OAuth catalog has no billing
+ *  scope (its consent answers `invalid_scope` to `billing.read`, tried 2026-11-09), so the plan is
+ *  read where a token may (an API token) and otherwise inferred from Containers, which need Workers
+ *  Paid (cloudflare.ts `readinessOf`). */
+export const WIZARD_SCOPES = ["dns.write"] as const;
+
 // ── the person ──────────────────────────────────────────────────────────────────────────────────
 
 export const Connection = z.object({
@@ -73,6 +126,12 @@ export const DeploymentRecord = z.object({
   /** The OS user who owns it, and who may sign in to it (`login.allow`). */
   owner: z.object({ sub: PersonId, email: z.email() }),
   createdAt: z.string(),
+  /** The owner's first project, which the Cloud makes once the deployment answers. A deployment
+   *  made before the wizard asked has none. */
+  project: ProjectSlug.nullable().default(null),
+  /** The domain the deployment owns (`Domain`): the platform at `iterate.<domain>`, the first
+   *  project's site at `<domain>`. Null: workers.dev only, projects as paths. */
+  domain: Domain.nullable().default(null),
 });
 export type DeploymentRecord = z.infer<typeof DeploymentRecord>;
 
@@ -155,7 +214,7 @@ export type RunKind = z.infer<typeof RunKind>;
  *  Artifacts namespace, the image, core/os's build, Alchemy's deploy and the check that the new
  *  Worker answers; a plan stops after Alchemy's plan; a destroy is Alchemy's destroy, then `repos`,
  *  the Artifacts namespace the install made outside Alchemy, with every repo in it. */
-export const RunStep = z.enum(["namespace", "image", "build", "alchemy", "check", "repos"]);
+export const RunStep = z.enum(["namespace", "dns", "image", "build", "alchemy", "check", "repos"]);
 export type RunStep = z.infer<typeof RunStep>;
 
 export const StepStatus = z.enum(["pending", "running", "succeeded", "failed"]);
@@ -224,6 +283,29 @@ export const Preparation = z.object({
 });
 export type Preparation = z.infer<typeof Preparation>;
 
+/** What the Cloud proves after the install (prove.ts), in order. */
+export const ProofStepName = z.enum(["project", "agent", "mcp", "domain"]);
+export type ProofStepName = z.infer<typeof ProofStepName>;
+
+export const ProofStep = z.object({
+  name: ProofStepName,
+  status: StepStatus,
+  /** What it found, or why it failed. */
+  detail: z.string().nullable().default(null),
+});
+export type ProofStep = z.infer<typeof ProofStep>;
+
+/** The setup and proof after the install: requested (by the first deploy that succeeded, or the
+ *  page's Prove again), running (an attempt of it), then settled. */
+export const Proof = z.object({
+  requestOffset: Offset,
+  status: z.enum(["requested", "running", "succeeded", "failed"]),
+  attempt: z.number().int().nonnegative().default(0),
+  steps: z.array(ProofStep).default([]),
+  error: z.string().nullable().default(null),
+});
+export type Proof = z.infer<typeof Proof>;
+
 export const DeploymentState = z.object({
   record: DeploymentRecord.nullable().default(null),
   /** The config every run uses (config.ts), secrets included: the live state masks them. */
@@ -239,6 +321,9 @@ export const DeploymentState = z.object({
   /** The sandbox image the last deploy that succeeded pinned: null when it pinned none (the
    *  toolchain has no image source), and after a destroy that succeeded. */
   image: z.string().nullable().default(null),
+  /** The first project's setup and the proof that the deployment works (prove.ts); null before
+   *  the first install, and for a deployment made before the wizard named a project. */
+  proof: Proof.nullable().default(null),
 });
 export type DeploymentState = z.infer<typeof DeploymentState>;
 

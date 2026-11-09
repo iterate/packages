@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { DeploymentState, type Run } from "./records.ts";
-import { installStatusOf, installStepsOf } from "./views.ts";
+import { installStatusOf, installStepsOf, nextStepsOf } from "./views.ts";
 
 test("a deployment its creation reached but never requested is not started, which its page offers to start again", () => {
   // creation.ts makes the deployment reachable before it lists it: its state is the empty one
@@ -69,6 +69,42 @@ test("the image copy shows only for a run that reached it: never before, during 
     "alchemy",
     "check",
   ]);
+});
+
+test("the end of the wizard: the project to create, the agent, MCP, the CLI and the deployment", () => {
+  const steps = nextStepsOf(
+    {
+      name: "my-iterate",
+      accountId: "1".repeat(32),
+      project: "home",
+      domain: { hostname: "example.com", zone: { id: "a".repeat(32), name: "example.com" } },
+    },
+    "https://my-iterate.ada.workers.dev",
+    undefined,
+  );
+  // the platform at iterate.<domain>; the domain itself the project's site, as Jeeves's
+  expect(steps).toMatchObject({
+    dash: "https://iterate.example.com/.auth/sign-in/iterate?next=/",
+    agents:
+      "https://agents.iterate.com/.auth/connect?issuer=https%3A%2F%2Fiterate.example.com&next=%2Fprojects%2Fhome",
+    site: "https://example.com/",
+    mcp: "https://iterate.example.com/mcp",
+    worker: "https://iterate.example.com",
+  });
+  expect(steps.cliCommands[0]).toBe(
+    "npx iterate config set --name my-iterate --os-base-url https://iterate.example.com --default-project home",
+  );
+  // no domain: the workers.dev origin, projects as paths
+  const plain = nextStepsOf(
+    { name: "x-y-z", accountId: "1".repeat(32), project: "home", domain: null },
+    "https://x-y-z.ada.workers.dev/",
+    "https://cloud-dev-dash.iterate-dev-preview.workers.dev",
+  );
+  expect(plain).toMatchObject({ site: "https://x-y-z.ada.workers.dev/projects/home/" });
+  // the playground's Dash has its Agents app beside it
+  expect(plain.agents).toMatch(
+    /^https:\/\/cloud-dev-agents\.iterate-dev-preview\.workers\.dev\/\.auth\/connect/,
+  );
 });
 
 function deploy(requestOffset: number, status: Run["status"], error: string | null = null): Run {

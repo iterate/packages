@@ -22,6 +22,7 @@ import {
   PersonId,
   PersonState,
   Platform,
+  ProofStepName,
   RunKind,
   RunAlchemyEvent,
   RunOutput,
@@ -234,6 +235,33 @@ export const DeploymentContract = defineProcessorContract({
         "The run's one terminal fact: succeeded (with the Worker's URL after a deploy, and the sandbox image a plan or deploy pinned), refused (an expected outcome) or failed (the script exited nonzero, or the attempts ran out), and why.",
       payloadSchema: RunSettled,
     },
+    "cloud/proof-requested": {
+      description:
+        "Set up the first project and prove the deployment works (prove.ts): asked by the processor after the first deploy that succeeded, or by the page's Prove again.",
+      payloadSchema: z.object({}),
+    },
+    "cloud/proof-started": {
+      description: "An attempt of the proof began, by its number.",
+      payloadSchema: z.object({ requestOffset: Offset, attempt: z.number().int().positive() }),
+    },
+    "cloud/proof-step": {
+      description: "One step of the proof ran, passed or failed, with what it found.",
+      payloadSchema: z.object({
+        requestOffset: Offset,
+        attempt: z.number().int().positive(),
+        name: ProofStepName,
+        status: z.enum(["running", "succeeded", "failed"]),
+        detail: z.string().nullable(),
+      }),
+    },
+    "cloud/proof-settled": {
+      description: "The proof's terminal fact: succeeded, or failed and why.",
+      payloadSchema: z.object({
+        requestOffset: Offset,
+        status: z.enum(["succeeded", "failed"]),
+        error: z.string().nullable(),
+      }),
+    },
   },
   consumes: [
     "cloud/deployment-requested",
@@ -245,6 +273,10 @@ export const DeploymentContract = defineProcessorContract({
     "cloud/output-printed",
     "cloud/alchemy-reported",
     "cloud/run-settled",
+    "cloud/proof-requested",
+    "cloud/proof-started",
+    "cloud/proof-step",
+    "cloud/proof-settled",
   ],
   emits: [
     "cloud/preparation-started",
@@ -254,6 +286,10 @@ export const DeploymentContract = defineProcessorContract({
     "cloud/output-printed",
     "cloud/alchemy-reported",
     "cloud/run-settled",
+    "cloud/proof-requested",
+    "cloud/proof-started",
+    "cloud/proof-step",
+    "cloud/proof-settled",
   ],
 });
 

@@ -9,7 +9,7 @@ import {
   mintConfig,
   signInOf,
 } from "./config.ts";
-import type { DeploymentRecord } from "./records.ts";
+import { DeploymentRecord } from "./records.ts";
 import { runScriptOf } from "./runs.ts";
 
 // Free text a customer controls: Cloudflare's account name, and the address they sign in with.
@@ -27,6 +27,8 @@ const record: DeploymentRecord = {
   stack: "iterate-my-iterate",
   owner: { sub: "user_aaaabbbbccccddddaaaabbbbccccdddd", email: hostileEmail },
   createdAt: "2026-11-06T12:00:00.000Z",
+  project: null,
+  domain: null,
 };
 const image = {
   account: "11111111222222223333333344444444",
@@ -92,7 +94,7 @@ test("a deployment opens its Cloud's platform's own Dash when the Cloud names on
   const own = mintConfig(owner, { issuer: ISSUER, dash });
   expect(own).toMatchObject({ urls: { dash } });
   expect(configFileOf(own, "/work/core/core/os")).toContain(
-    "...(cloud.urls?.dash ? { urls: { ...base.urls, dash: cloud.urls.dash } } : {})",
+    "...(cloud.urls?.dash ? { dash: cloud.urls.dash } : {}),",
   );
   expect(JSON.stringify(mintConfig(owner, PLATFORM))).not.toMatch(/"dash"/);
 });
@@ -109,6 +111,54 @@ test("a hostile address is refused at minting, and each config gets its own secr
   expect(one).toMatchObject({
     cloudflare: { accountId: record.accountId, resourcePrefix: "my-iterate", workersDev: true },
   });
+});
+
+test("a chosen domain is the deployment's, in Jeeves's shape: the platform at iterate.<domain>, the domain the first project's site, its records and routes", () => {
+  const domain = { hostname: "example.com", zone: { id: "a".repeat(32), name: "example.com" } };
+  const owner = {
+    ...record,
+    owner: { ...record.owner, email: "ada@example.test" },
+    project: "home",
+    domain,
+  };
+  const config = mintConfig(owner, PLATFORM);
+  expect(config.cloudflare).toMatchObject({
+    workerRoutes: [
+      { pattern: "example.com/*", zone: "example.com" },
+      { pattern: "*.example.com/*", zone: "example.com" },
+    ],
+  });
+  expect(config.urls).toMatchObject({
+    os: "https://iterate.example.com",
+    projectWildcard: { hostname: "example.com", project: "home" },
+  });
+  // projects other than the first stay paths on the platform: no ingress wildcard, no certificate
+  expect(config.urls).not.toHaveProperty("ingressRouting");
+  expect(configFileOf(config, "/work/core/core/os")).toContain(
+    "projectWildcard: cloud.urls.projectWildcard",
+  );
+  const deploy = runScriptOf(owner, "deploy", 42, image, step);
+  expect(deploy.indexOf("== step dns")).toBeGreaterThan(deploy.indexOf("== step namespace"));
+  expect(deploy.indexOf("== step dns")).toBeLessThan(deploy.indexOf("== step alchemy"));
+  expect(deploy).toContain('for name in "example.com" "*.example.com"; do');
+  // the check ends on the domain: its address is the platform's there
+  expect(deploy).not.toContain("workers/subdomain");
+  expect(deploy.indexOf('address="https://iterate.example.com"')).toBeGreaterThan(
+    deploy.indexOf("== step check"),
+  );
+  expect(runScriptOf(owner, "plan", 42, image, step)).not.toContain("== step dns");
+  // a destroy deletes the wildcard last, and only one of the install's own shape
+  const destroy = runScriptOf(owner, "destroy", 43, image, step);
+  expect(destroy.lastIndexOf("== step dns")).toBeGreaterThan(destroy.indexOf("== step repos"));
+  expect(destroy).toContain("?name=$name&type=AAAA&content=100::");
+  expect(runScriptOf(record, "deploy", 42, image, step)).not.toContain("== step dns");
+  expect(JSON.stringify(mintConfig({ ...owner, domain: null }, PLATFORM))).not.toMatch(
+    /projectWildcard/,
+  );
+  // the script writes the hostname: a name of any other shape never reaches it
+  expect(
+    DeploymentRecord.safeParse({ ...owner, domain: { ...domain, hostname: "example.com';x" } }),
+  ).toMatchObject({ success: false });
 });
 
 test("a deploy, and only a deploy, ends by asking the new Worker's address until it answers", () => {

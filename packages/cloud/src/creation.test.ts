@@ -13,6 +13,8 @@ const record: DeploymentRecord = {
   stack: "iterate-my-iterate",
   owner: { sub: "user_aaaabbbbccccddddaaaabbbbccccdddd", email: "ada@example.test" },
   createdAt: "2026-11-06T00:00:00.000Z",
+  project: null,
+  domain: null,
 };
 
 test("a creation makes the deployment reachable before it lists it, and requests it last; a creation that stops after the listing is finished the same way", async () => {

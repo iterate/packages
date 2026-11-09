@@ -24,7 +24,7 @@ import {
   shellQuote,
   type ImageStep,
 } from "./image.ts";
-import { configFileOf, type DeploymentConfig } from "./config.ts";
+import { configFileOf, type DeploymentConfig, platformHostOf } from "./config.ts";
 import {
   errorCodeOf,
   stepOfLine,
@@ -374,26 +374,65 @@ ${
 # The Artifacts namespace, which no deploy makes (core/os/SELF-HOSTING.md): every project's code lives in it.
 answer=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${record.accountId}/artifacts/namespaces" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" -H "content-type: application/json" --data '{"namespace":"${record.name}-repos"}')
 case "$answer" in *'"success":true'*) echo "created ${record.name}-repos";; *'"code":10201'*) echo "${record.name}-repos exists";; *) echo "refused: $answer"; echo "__EXIT__:1"; exit 1;; esac
-${image && step ? imageStepOf(record, image, step, `${RUNS}/${requestOffset}-image`) : ""}echo "== step build"
+${kind === "deploy" && record.domain ? DNS_STEP(record.domain) : ""}${image && step ? imageStepOf(record, image, step, `${RUNS}/${requestOffset}-image`) : ""}echo "== step build"
 pnpm build || { echo "__EXIT__:1"; exit 1; }
 `
 }echo "== step alchemy"
 ${alchemy}
 code=$?
-${kind === "deploy" ? CHECK_STEP(record) : ""}${kind === "destroy" ? REPOS_STEP(record) : ""}echo "__EXIT__:$code"
+${kind === "deploy" ? CHECK_STEP(record) : ""}${kind === "destroy" ? REPOS_STEP(record) : ""}${kind === "destroy" && record.domain ? DNS_FORGET(record.domain) : ""}echo "__EXIT__:$code"
 `;
 }
 
-/** After a deploy that succeeded: the new Worker answers at its workers.dev address, where a first
+/** The domain's records: a proxied AAAA to 100:: for the domain itself and for `*.<domain>`,
+ *  which only the Worker's routes answer (the deploy makes no DNS record: core/os/SELF-HOSTING.md).
+ *  One that exists is left alone: the wizard and `createDeployment` refused a domain whose names
+ *  serve anything, so it is this deployment's from an earlier run. The hostname and the zone's id
+ *  are of strict patterns (records.ts `Domain`). */
+const DNS_STEP = (domain: NonNullable<DeploymentRecord["domain"]>) => `echo "== step dns"
+records="https://api.cloudflare.com/client/v4/zones/${domain.zone.id}/dns_records"
+for name in "${domain.hostname}" "*.${domain.hostname}"; do
+  found=$(curl -s "$records?name=$name&type=AAAA" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" | jq -r '.result | length')
+  if [ "$found" = 0 ]; then
+    answer=$(curl -s -X POST "$records" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" -H "content-type: application/json" --data "$(jq -cn --arg name "$name" '{type: "AAAA", name: $name, content: "100::", proxied: true, comment: "iterate"}')")
+    case "$answer" in *'"success":true'*) echo "created $name";; *) echo "refused: $answer"; echo "__EXIT__:1"; exit 1;; esac
+  elif [ -n "$found" ]; then echo "$name has a record"
+  else echo "dns: Cloudflare did not list $name's records"; echo "__EXIT__:1"; exit 1; fi
+done
+`;
+
+/** After a destroy that succeeded: the domain's two records the install made go, the person's
+ *  other records stay. Only a record of the install's own shape (AAAA 100::) is deleted. */
+const DNS_FORGET = (domain: NonNullable<DeploymentRecord["domain"]>) => `if [ "$code" = 0 ]; then
+  echo "== step dns"
+  records="https://api.cloudflare.com/client/v4/zones/${domain.zone.id}/dns_records"
+  for name in "${domain.hostname}" "*.${domain.hostname}"; do
+    for id in $(curl -s "$records?name=$name&type=AAAA&content=100::" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" | jq -r '.result[]?.id'); do
+      answer=$(curl -s -X DELETE "$records/$id" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN")
+      case "$answer" in *'"success":true'*) echo "deleted $name";; *) echo "dns: deleting $name answered $answer"; code=1;; esac
+    done
+  done
+fi
+`;
+
+/** After a deploy that succeeded: the new Worker answers at its address (on a domain,
+ *  `iterate.<domain>`, through its record, the route and the zone's certificate; else its
+ *  workers.dev address), where a first
  *  deploy's address can answer Cloudflare's own not-found for a while. It asks the platform's
  *  `/version` (core/os/src/worker.ts) every 5 s for at most 5 minutes, says each new answer, and
  *  fails the run with the last one. The address is the account's workers.dev subdomain's
  *  (https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/). */
 const CHECK_STEP = (record: DeploymentRecord) => `if [ "$code" = 0 ]; then
   echo "== step check"
-  sub=$(curl -s "https://api.cloudflare.com/client/v4/accounts/${record.accountId}/workers/subdomain" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" | jq -r '.result.subdomain // empty')
-  if [ -z "$sub" ]; then echo "check: the account names no workers.dev subdomain"; code=1; else
-    address="https://${record.name}.$sub.workers.dev"
+  ${
+    record.domain
+      ? // a deployment on a domain answers there alone: its workers.dev host is not its origin
+        // (core/os answers 421 to a host other than urls.os)
+        `address="https://${platformHostOf(record.domain)}"`
+      : `sub=$(curl -s "https://api.cloudflare.com/client/v4/accounts/${record.accountId}/workers/subdomain" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" | jq -r '.result.subdomain // empty')
+  [ -n "$sub" ] && address="https://${record.name}.$sub.workers.dev" || address=""`
+  }
+  if [ -z "$address" ]; then echo "check: the account names no workers.dev subdomain"; code=1; else
     echo "== url $address"
     said=""; code=1
     for i in $(seq 1 60); do

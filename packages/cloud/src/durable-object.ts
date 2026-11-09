@@ -17,7 +17,9 @@
 import { z } from "zod";
 import { StreamProcessorDurableObject } from "iterate/sdk";
 import {
+  DEFAULT_PROJECT,
   DeploymentRecord,
+  Domain,
   RunKind,
   RunOutput,
   RunStep,
@@ -28,7 +30,14 @@ import {
   type ToolchainState,
   type XState,
 } from "./records.ts";
-import { accountsOf, connectOptionsOf, nameInAccount } from "./cloudflare.ts";
+import {
+  accountsOf,
+  connectOptionsOf,
+  hostnameInZone,
+  nameInAccount,
+  readinessOf,
+  zonesOf,
+} from "./cloudflare.ts";
 import {
   createDeployment as createDeploymentIn,
   finishCreation as finishCreationIn,
@@ -36,6 +45,7 @@ import {
   refused,
 } from "./creation.ts";
 import { DeploymentProcessor } from "./deployment.ts";
+import { prove as proveDeployment } from "./prove.ts";
 import { PersonProcessor, X_SETTLE_FIRST_MS, xSettleAsk } from "./person.ts";
 import { connectionSecretOf, prepareDeployment, prepareToolchain, runAttempt } from "./runs.ts";
 import { PERSON_PROCESSOR, TOOLCHAIN_PATH, X_PATH } from "./specs.ts";
@@ -66,6 +76,9 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     "connectX",
     "settleX",
     "checkName",
+    "checkAccount",
+    "listZones",
+    "checkHostname",
     "createDeployment",
     "finishCreation",
   ] as const;
@@ -244,6 +257,36 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     }
   }
 
+  /** Whether the account can hold a deployment (cloudflare.ts `readinessOf`). */
+  async checkAccount(input: { connection: string; accountId: string }) {
+    const { connection } = this.#reach(await this.#state(), input);
+    return await readinessOf(connection.id, input.accountId);
+  }
+
+  /** The account's active zones, where the first project's hostname can go. */
+  async listZones(input: { connection: string; accountId: string }) {
+    const { connection } = this.#reach(await this.#state(), input);
+    return await zonesOf(connection.id, input.accountId);
+  }
+
+  /** Whether the hostname is free on its zone, as `createDeployment` checks it again. */
+  async checkHostname(input: { connection: string; accountId: string; domain: unknown }) {
+    const { connection } = this.#reach(await this.#state(), input);
+    const domain = Domain.safeParse(input.domain);
+    if (!domain.success)
+      return { status: "taken" as const, message: domain.error.issues[0]!.message };
+    return await hostnameInZone(connection.id, domain.data);
+  }
+
+  /** The connected connection and the account the page names, or a refusal. */
+  #reach(state: KnownPerson, input: { connection: string; accountId: string }) {
+    const connection = state.connections.find((known) => known.id === input?.connection);
+    if (connection?.status !== "connected") throw refused("Connect that Cloudflare account first.");
+    const account = connection.accounts.find((known) => known.id === input.accountId);
+    if (!account) throw refused("That Cloudflare account is not one this connection reaches.");
+    return { connection, account };
+  }
+
   /** Request a deployment into one of the accounts a connected connection reaches. `request` is
    *  the page's own random id for this creation: the deployment's id is derived from it, so a
    *  retried request (a reload, a lost answer) is the same deployment. The steps and their order
@@ -255,6 +298,8 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
     connection: string;
     accountId: string;
     name: string;
+    project?: string;
+    domain?: unknown;
   }) {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(input?.request || ""))
       throw refused("A creation needs the page's request id.");
@@ -266,6 +311,15 @@ export class CloudPersonFacet extends StreamProcessorDurableObject<PersonState> 
       record = recordOf(state, id, input);
       const name = await nameInAccount(record);
       if (name.status !== "free") throw refused(name.message);
+      if (
+        record.domain &&
+        !(await zonesOf(record.connection, record.accountId)).some(
+          (zone) => zone.id === record!.domain!.zone.id && zone.name === record!.domain!.zone.name,
+        )
+      )
+        throw refused(`${record.domain.zone.name} is not an active zone of ${record.accountName}.`);
+      const hostname = await hostnameInZone(record.connection, record.domain);
+      if (hostname.status !== "free") throw refused(hostname.message);
     }
     using itx = this.getItx();
     // the state once this facet has processed the listing: a creation the log refused is not
@@ -302,6 +356,7 @@ export class CloudDeploymentFacet extends StreamProcessorDurableObject<Deploymen
     "requestRun",
     "readOutput",
     "signInPassword",
+    "proveAgain",
   ] as const;
   processor = new DeploymentProcessor({
     prepare: async (record) => {
@@ -317,7 +372,29 @@ export class CloudDeploymentFacet extends StreamProcessorDurableObject<Deploymen
       ).state;
       return await runAttempt(root, toolchain.ready?.image || null, run, report);
     },
+    prove: async ({ record, config, url }, report) =>
+      await proveDeployment(
+        {
+          // on a domain the platform's own origin; else the workers.dev address
+          origin: config.urls.os || new URL(url).origin,
+          adminBearer: config.adminBearer,
+          owner: record.owner.email,
+          project: record.project!,
+          domain: record.domain?.hostname || null,
+        },
+        report,
+      ),
   });
+
+  /** Set up the first project and prove the deployment again (deployment.ts, prove.ts). */
+  async proveAgain() {
+    const { state } = await this.snapshot();
+    if (!state.record?.project || !state.url)
+      throw refused("Prove it once the deployment is installed.");
+    if (state.proof?.status === "running" || state.proof?.status === "requested") return;
+    using itx = this.getItx();
+    await itx.append({ type: "cloud/proof-requested", payload: {} });
+  }
 
   /** Prepare the sandbox again after a preparation failed. */
   async prepareAgain() {
@@ -553,7 +630,13 @@ const ConnectInput = z.object({
 function recordOf(
   state: KnownPerson,
   id: string,
-  input: { connection: string; accountId: string; name: string },
+  input: {
+    connection: string;
+    accountId: string;
+    name: string;
+    project?: string;
+    domain?: unknown;
+  },
 ): DeploymentRecord {
   const connection = state.connections.find((known) => known.id === input?.connection);
   if (connection?.status !== "connected") throw refused("Connect that Cloudflare account first.");
@@ -572,6 +655,8 @@ function recordOf(
     ...stateOf(input.name),
     owner: { sub: state.sub, email: state.email },
     createdAt: new Date().toISOString(),
+    project: input.project || DEFAULT_PROJECT,
+    domain: input.domain || null,
   });
   if (!parsed.success) throw refused(parsed.error.issues.map((issue) => issue.message).join("; "));
   return parsed.data;

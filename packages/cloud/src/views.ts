@@ -2,10 +2,11 @@
 // each with its real status, from the processor's state (deployment.ts) and nothing else. The page
 // never folds events. Browser-safe: records.ts and config.ts only.
 import { z } from "zod";
-import { MaskedConfig } from "./config.ts";
+import { MaskedConfig, platformHostOf } from "./config.ts";
 import {
   DeploymentState,
   stateOf,
+  type DeploymentRecord,
   type Resource,
   type Run,
   type RunStep,
@@ -36,6 +37,7 @@ export type InstallStep = {
 export const STEP_LABELS: Record<InstallStep["id"], string> = {
   sandbox: "Start the installer",
   namespace: "Make storage for your projects' code",
+  dns: "Point your domain at the Worker",
   image: "Copy the sandbox image into your account",
   build: "Build iterate",
   alchemy: "Deploy the Worker and its resources",
@@ -91,14 +93,17 @@ export function runStepsOf(
   // the image copy is listed only once the run reached it: a toolchain with no image source copies
   // none, and its runs never show the row (deployment.ts `reach`)
   const names = STEPS_OF[run.kind].filter(
-    (name) => name !== "image" || run.steps.some((step) => step.name === "image"),
+    (name) => (name !== "image" && name !== "dns") || run.steps.some((step) => step.name === name),
   );
   return names.map((name): InstallStep => {
     const step = run.steps.find((candidate) => candidate.name === name);
     const status = step?.status || "pending";
     return {
       id: name,
-      label: (name === "alchemy" && ALCHEMY_LABELS[run.kind]) || STEP_LABELS[name],
+      label:
+        (name === "alchemy" && ALCHEMY_LABELS[run.kind]) ||
+        (name === "dns" && run.kind === "destroy" && "Remove your domain's records") ||
+        STEP_LABELS[name],
       status,
       error: status === "failed" ? run.error : null,
       tail: (step?.tail || []).filter((line) => !line.startsWith("== ")),
@@ -117,8 +122,8 @@ const ALCHEMY_LABELS: Partial<Record<Run["kind"], string>> = {
 
 const STEPS_OF: Record<Run["kind"], RunStep[]> = {
   plan: ["namespace", "image", "build", "alchemy"],
-  deploy: ["namespace", "image", "build", "alchemy", "check"],
-  destroy: ["alchemy", "repos"],
+  deploy: ["namespace", "dns", "image", "build", "alchemy", "check"],
+  destroy: ["alchemy", "repos", "dns"],
 };
 
 /** Alchemy's status of a resource as a person reads it: its one failure is spelled `fail`. */
@@ -158,3 +163,49 @@ export function resourcesOf(name: string) {
     { kind: "Alchemy stack", name: stack },
   ];
 }
+
+/** The Dash a deployment's owner lands in when its config names none: core/os's default
+ *  (core/os/src/iterate-config.ts `DEFAULT_DASH`). */
+const DEFAULT_DASH = "https://dash.iterate.com";
+
+/** What a person can do with a running deployment, as links and commands: the end of the
+ *  wizard. `url` is the Worker's address (workers.dev); the project's own hostname, when chosen,
+ *  serves its site. The Agents app sits beside the Dash on the platform, at the same name with
+ *  `agents` for `dash` (dash.iterate.com, agents.iterate.com; cloud-dev-dash…, cloud-dev-agents…). */
+export function nextStepsOf(
+  record: Pick<DeploymentRecord, "name" | "accountId" | "project" | "domain">,
+  url: string,
+  dash: string | undefined,
+) {
+  // on a domain, the platform is `iterate.<domain>` and the domain the first project's site
+  const domain = record.domain;
+  const origin = domain ? `https://${platformHostOf(domain)}` : new URL(url).origin;
+  const dashOrigin = new URL(dash || DEFAULT_DASH).origin;
+  const agentsOrigin = dashOrigin.replace(/\/\/([a-z0-9-]*?)dash\b/, "//$1agents");
+  const project = record.project;
+  const mcp = `${origin}/mcp`;
+  return {
+    project,
+    /** The new iterate, through its own sign-in: the platform's identity card the first time,
+     *  then its Dash with no page between (iterate/private#272, iterate/private#274, iterate/private#278; proven on prd 2026-11-07). The
+     *  Dash's own connect for an issuer it has not bound asks the person first, a page more. */
+    dash: `${origin}/.auth/sign-in/iterate?next=/`,
+    agents: `${agentsOrigin}/.auth/connect?${new URLSearchParams({ issuer: origin, next: project ? `/projects/${project}` : "/" })}`,
+    site: !project
+      ? null
+      : domain
+        ? `https://${domain.hostname}/`
+        : `${origin}/projects/${project}/`,
+    mcp,
+    mcpCommands: [`claude mcp add --transport http iterate ${mcp}`],
+    cliCommands: [
+      `npx iterate config set --name ${record.name} --os-base-url ${origin}${project ? ` --default-project ${project}` : ""}`,
+      `npx iterate --config ${record.name} login`,
+      `npx iterate --config ${record.name} use-my-computer`,
+    ],
+    // a deployment on a domain answers there alone (core/os answers 421 to another host)
+    worker: origin,
+    cloudflare: `https://dash.cloudflare.com/${record.accountId}/workers/services/view/${record.name}/production`,
+  };
+}
+export type NextSteps = ReturnType<typeof nextStepsOf>;

@@ -50,4 +50,5 @@ const actionsOf = (me: Me, id: string): DeploymentActions => ({
   readOutput: (requestOffset, step) =>
     callDeployment(me, id, (deployment) => deployment.readOutput(requestOffset, step)),
   signInPassword: () => callDeployment(me, id, (deployment) => deployment.signInPassword()),
+  proveAgain: () => callDeployment(me, id, (deployment) => deployment.proveAgain()),
 });

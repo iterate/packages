@@ -41,6 +41,8 @@ import {
   type DeploymentRecord,
   type DeploymentState,
   type Preparation,
+  type Proof,
+  type ProofStepName,
   type Run,
   type RunKind,
   type RunSettled,
@@ -82,6 +84,15 @@ export type DeploymentDeps = {
       reported: number;
     },
     report: (printed: Printed[]) => Promise<unknown>,
+  ): Promise<Outcome>;
+  /** Set up the first project and prove the deployment works (prove.ts), reporting each step. */
+  prove(
+    input: { record: DeploymentRecord; config: DeploymentConfig; url: string },
+    report: (
+      name: ProofStepName,
+      status: "running" | "succeeded" | "failed",
+      detail: string | null,
+    ) => Promise<unknown>,
   ): Promise<Outcome>;
 };
 
@@ -145,7 +156,7 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
           status: "open",
           attempt: 0,
           lines: 0,
-          steps: stepsOf(event.payload.kind),
+          steps: stepsOf(event.payload.kind, Boolean(state.record?.domain)),
           resources: [],
           error: null,
           settledAt: null,
@@ -215,6 +226,51 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
           ? { ...next, url: url || state.url, image: image || null }
           : { ...next, url: null, image: null };
       }
+      case "cloud/proof-requested": {
+        if (state.proof?.status === "running") return undefined;
+        return {
+          ...state,
+          proof: {
+            requestOffset: event.offset,
+            status: "requested",
+            attempt: 0,
+            steps: [],
+            error: null,
+          },
+        };
+      }
+      case "cloud/proof-started": {
+        const { proof } = state;
+        if (proof?.requestOffset !== event.payload.requestOffset) return undefined;
+        return {
+          ...state,
+          proof: {
+            ...proof,
+            status: "running",
+            attempt: event.payload.attempt,
+            steps: [],
+            error: null,
+          },
+        };
+      }
+      case "cloud/proof-step": {
+        const { proof } = state;
+        const { requestOffset, attempt, name, status, detail } = event.payload;
+        if (proof?.requestOffset !== requestOffset || proof.attempt !== attempt) return undefined;
+        const step = { name, status, detail };
+        const steps = proof.steps.some((known) => known.name === name)
+          ? proof.steps.map((known) => (known.name === name ? step : known))
+          : [...proof.steps, step];
+        return { ...state, proof: { ...proof, steps } };
+      }
+      case "cloud/proof-settled": {
+        const { proof } = state;
+        if (proof?.requestOffset !== event.payload.requestOffset) return undefined;
+        return {
+          ...state,
+          proof: { ...proof, status: event.payload.status, error: event.payload.error },
+        };
+      }
     }
   }
 
@@ -267,13 +323,30 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
       (work.kind === "run" &&
         answered.kind === "run" &&
         work.run.requestOffset === answered.requestOffset &&
-        work.run.attempt <= answered.attempt);
+        work.run.attempt <= answered.attempt) ||
+      (work.kind === "prove" &&
+        answered.kind === "prove" &&
+        work.proof.requestOffset === answered.requestOffset &&
+        work.proof.attempt <= answered.attempt) ||
+      (work.kind === "request-proof" && answered.kind === "request-proof");
     if (done) return null;
     return work;
   }
 
   async #do(work: Work, append: Args["append"]) {
     const { record } = work;
+    if (work.kind === "request-proof") {
+      await append({
+        type: "cloud/proof-requested",
+        idempotencyKey: this.idempotencyKey("first-proof"),
+        payload: {},
+      });
+      return;
+    }
+    if (work.kind === "prove") {
+      await this.#prove(work, append);
+      return;
+    }
     if (work.kind === "first-deploy") {
       await append({
         type: "cloud/run-requested",
@@ -354,6 +427,38 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
     await this.#settle(append, { requestOffset, attempts: attempt, ...outcome });
   }
 
+  async #prove(work: Extract<Work, { kind: "prove" }>, append: Args["append"]) {
+    const { record, config, url, proof } = work;
+    const { requestOffset } = proof;
+    const settle = (status: "succeeded" | "failed", error: string | null) =>
+      append({
+        type: "cloud/proof-settled",
+        idempotencyKey: this.idempotencyKey(`proof-settled:${requestOffset}`),
+        payload: { requestOffset, status, error },
+      });
+    if (proof.attempt >= ATTEMPTS) {
+      await settle("failed", `Gave up after ${proof.attempt} attempts, none of which finished.`);
+      return;
+    }
+    const attempt = proof.attempt + 1;
+    await append({
+      type: "cloud/proof-started",
+      idempotencyKey: this.idempotencyKey(`proof-started:${requestOffset}:${attempt}`),
+      payload: { requestOffset, attempt },
+    });
+    let step = 0;
+    const outcome = await this.#deps
+      .prove({ record, config, url }, (name, status, detail) =>
+        append({
+          type: "cloud/proof-step",
+          idempotencyKey: this.idempotencyKey(`proof-step:${requestOffset}:${attempt}:${++step}`),
+          payload: { requestOffset, attempt, name, status, detail },
+        }),
+      )
+      .catch(threw);
+    await settle(outcome.status, outcome.status === "failed" ? outcome.error : null);
+  }
+
   #settle(append: Args["append"], settled: RunSettled) {
     return append({
       type: "cloud/run-settled",
@@ -382,15 +487,33 @@ export class DeploymentProcessor extends StreamProcessor<DeploymentState, Event>
 type Work =
   | { kind: "prepare"; record: DeploymentRecord; preparation: Preparation }
   | { kind: "first-deploy"; record: DeploymentRecord }
-  | { kind: "run"; record: DeploymentRecord; config: DeploymentConfig; run: Run };
+  | { kind: "run"; record: DeploymentRecord; config: DeploymentConfig; run: Run }
+  | { kind: "request-proof"; record: DeploymentRecord }
+  | {
+      kind: "prove";
+      record: DeploymentRecord;
+      config: DeploymentConfig;
+      url: string;
+      proof: Proof;
+    };
 
-/** What the state owes, at head: the sandbox, then the first deploy, then an open run. */
-function nextWork({ record, config, preparation, run }: DeploymentState): Work | null {
+/** What the state owes, at head: the sandbox, then the first deploy, then an open run, then the
+ *  proof: asked for once the first deploy succeeded (a deployment whose record names a project),
+ *  and run while it is requested or an attempt of it died. */
+function nextWork({ record, config, preparation, run, url, proof }: DeploymentState): Work | null {
   if (!record || !config) return null;
   if (preparation?.status === "running") return { kind: "prepare", record, preparation };
   if (preparation?.status !== "succeeded") return null;
   if (!run) return { kind: "first-deploy", record };
-  return run.status === "open" ? { kind: "run", record, config, run } : null;
+  if (run.status === "open") return { kind: "run", record, config, run };
+  if (!record.project || !url) return null;
+  if (!proof)
+    return run.kind === "deploy" && run.status === "succeeded"
+      ? { kind: "request-proof", record }
+      : null;
+  if (proof.status === "requested" || proof.status === "running")
+    return { kind: "prove", record, config, url, proof };
+  return null;
 }
 
 /** What answering `work` did: the preparation or run attempt it made, by its number. */
@@ -407,6 +530,12 @@ function answerOf(work: Work) {
       requestOffset: work.run.requestOffset,
       attempt: work.run.attempt + 1,
     };
+  if (work.kind === "prove")
+    return {
+      kind: work.kind,
+      requestOffset: work.proof.requestOffset,
+      attempt: work.proof.attempt + 1,
+    };
   return { kind: work.kind };
 }
 
@@ -421,12 +550,15 @@ const isOpen = (run: Run | null, requestOffset: number): run is Run =>
 /** The named steps of a run of `kind`, all pending: a plan or deploy makes the Artifacts namespace
  *  and builds core/os before Alchemy runs (runs.ts). The image step is not among them: only a run
  *  whose toolchain names an image source copies one, and `reach` adds the step when it runs. */
-const stepsOf = (kind: RunKind): Step[] =>
-  ({
-    plan: ["namespace", "build", "alchemy"] as const,
-    deploy: ["namespace", "build", "alchemy", "check"] as const,
-    destroy: ["alchemy", "repos"] as const,
-  })[kind].map((name) => ({ name, status: "pending", lines: 0, tail: [] }));
+const stepsOf = (kind: RunKind, domain = false): Step[] =>
+  (
+    ({
+      plan: ["namespace", "build", "alchemy"],
+      deploy: ["namespace", "build", "alchemy", "check"],
+      // a destroy deletes the domain's wildcard record last (runs.ts `DNS_FORGET`)
+      destroy: domain ? ["alchemy", "repos", "dns"] : ["alchemy", "repos"],
+    }) satisfies Record<RunKind, RunStep[]>
+  )[kind].map((name) => ({ name, status: "pending" as const, lines: 0, tail: [] }));
 
 /** `reached` runs; every step before it succeeded. A step the run's kind does not list from the
  *  start (the image copy, which only a toolchain with an image source makes) joins the list at its

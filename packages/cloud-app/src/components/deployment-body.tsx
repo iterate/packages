@@ -8,8 +8,10 @@ import type { RunKind, RunStep } from "@iterate-com/cloud/records";
 import {
   installStatusOf,
   installStepsOf,
+  nextStepsOf,
   runStepsOf,
   type DeploymentView,
+  type NextSteps,
 } from "@iterate-com/cloud/views";
 import { ErrorMessage } from "@iterate-com/ui/components/standalone-page";
 import { Badge } from "@iterate-com/ui/components/ui/badge";
@@ -32,6 +34,7 @@ export type DeploymentActions = {
   requestRun(kind: RunKind): Promise<unknown>;
   readOutput(requestOffset: number, step: RunStep): Promise<{ lines: string[] }>;
   signInPassword(): Promise<string | null>;
+  proveAgain(): Promise<unknown>;
 };
 
 type Run = NonNullable<DeploymentView["run"]>;
@@ -79,7 +82,12 @@ export function DeploymentBody({
       {error ? <ErrorMessage>{error}</ErrorMessage> : null}
       {hasRun ? (
         <>
-          {state.url && record ? (
+          {state.url && record && state.config && signInOf(state.config) === "iterate" ? (
+            <>
+              {state.proof ? <ProofCard proof={state.proof} actions={actions} act={act} /> : null}
+              <NextStepsCards steps={nextStepsOf(record, state.url, state.config.urls.dash)} />
+            </>
+          ) : state.url && record ? (
             <RunningCard
               url={state.url}
               email={record.owner.email}
@@ -172,6 +180,180 @@ function RunningCard({
         {signIn === "password" ? <PasswordRow email={email} actions={actions} act={act} /> : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** The end of the wizard: what the person can do with their iterate, each a link or a command. */
+function NextStepsCards({ steps }: { steps: NextSteps }) {
+  const link = (href: string, label: string, size: "lg" | "default" = "default") => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={buttonVariants({ size, className: "w-fit max-w-full" })}
+    >
+      <span className="truncate">{label}</span>
+      <ArrowUpRight data-icon="inline-end" />
+    </a>
+  );
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card className="md:col-span-2">
+        <CardHeader>
+          <CardTitle>Your iterate is running</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {link(steps.dash, steps.project ? `Open ${steps.project}` : "Open the Dash", "lg")}
+          {steps.site ? (
+            <a
+              href={steps.site}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({ variant: "outline", size: "lg" })}
+            >
+              <span className="truncate">{new URL(steps.site).host}</span>
+              <ArrowUpRight data-icon="inline-end" />
+            </a>
+          ) : null}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Talk to your agent</CardTitle>
+        </CardHeader>
+        <CardContent>{link(steps.agents, "Open Agents")}</CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>MCP</CardTitle>
+          <CardDescription>Sign in when your client asks.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <Command text={steps.mcp} />
+          {steps.mcpCommands.map((command) => (
+            <Command key={command} text={command} />
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>CLI and your computer</CardTitle>
+          <CardDescription>
+            The last command shares this computer with your agent until Ctrl-C.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {steps.cliCommands.map((command) => (
+            <Command key={command} text={command} />
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Where it runs</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2 font-readme text-sm">
+          <Command text={steps.worker} />
+          <a className="w-fit underline" href={steps.cloudflare} target="_blank" rel="noreferrer">
+            The Worker in Cloudflare
+          </a>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+const PROOF_LABELS: Record<NonNullable<DeploymentView["proof"]>["steps"][number]["name"], string> =
+  {
+    project: "Your first project",
+    agent: "Your agent answers",
+    mcp: "MCP asks clients to sign in",
+    domain: "Your domain serves the project",
+  };
+
+/** What the Cloud set up and proved after the install (packages/cloud prove.ts), live. */
+function ProofCard({
+  proof,
+  actions,
+  act,
+}: {
+  proof: NonNullable<DeploymentView["proof"]>;
+  actions: DeploymentActions;
+  act: Act;
+}) {
+  const busy = proof.status === "requested" || proof.status === "running";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          {busy
+            ? "Setting up and checking"
+            : proof.status === "succeeded"
+              ? "Everything works"
+              : "A check failed"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 font-readme text-sm">
+        <ul className="flex flex-col gap-2">
+          {proof.steps.map((step) => (
+            <li
+              key={step.name}
+              data-proof={step.name}
+              data-status={step.status}
+              className="flex gap-2"
+            >
+              <span className="w-5 shrink-0">
+                {step.status === "running" ? (
+                  <Spinner />
+                ) : step.status === "succeeded" ? (
+                  "✓"
+                ) : step.status === "failed" ? (
+                  "✗"
+                ) : (
+                  "·"
+                )}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span>{PROOF_LABELS[step.name]}</span>
+                {step.detail ? (
+                  <span className="break-words text-xs text-muted-foreground">{step.detail}</span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+          {busy && proof.steps.length === 0 ? <Spinner /> : null}
+        </ul>
+        {proof.status === "failed" ? (
+          <Button variant="outline" className="w-fit" onClick={() => act(actions.proveAgain())}>
+            Check again
+          </Button>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** A command or address, with a copy button. */
+function Command({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-start gap-2">
+      <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-xs break-all">
+        {text}
+      </code>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+          void navigator.clipboard?.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+        }
+      >
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
   );
 }
 

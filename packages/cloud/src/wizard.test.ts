@@ -1,10 +1,14 @@
 import { expect, test, vi } from "vitest";
 import { Wizard, type Draft, type PersonView, type WizardDeps } from "./wizard.ts";
 
-test("the first deployment: connect, come back, choose the account, name it, review, install", async () => {
+test("the first deployment: how it runs, connect, come back, choose the account, ready, name it, its project and hostname, review, install", async () => {
   const { wizard, deps } = start("");
   wizard.update(person());
-  expect(wizard.view()).toMatchObject({ step: "connect", last: null });
+  expect(wizard.view()).toMatchObject({ step: "how" });
+  wizard.chooseHow("hosted");
+  expect(wizard.view()).toMatchObject({ step: "how" });
+  wizard.chooseHow("cloudflare");
+  expect(wizard.view()).toMatchObject({ step: "connect", again: false, last: null });
   await wizard.connect();
   expect(deps.navigate).toHaveBeenCalledWith("https://os.example/.secrets/oauth/start/abc");
 
@@ -19,6 +23,12 @@ test("the first deployment: connect, come back, choose the account, name it, rev
   });
 
   back.wizard.choose({ connection: "aaaabbbbcccc", account: work, cloudflareUser: null });
+  expect(back.wizard.view()).toMatchObject({ step: "ready", checking: true });
+  await flush();
+  expect(back.deps.checkAccount).toHaveBeenCalledWith({
+    connection: "aaaabbbbcccc",
+    accountId: work.id,
+  });
   expect(back.wizard.view()).toMatchObject({ step: "name", value: "iterate" });
   back.wizard.type("Not A Name");
   await back.wizard.submitName();
@@ -40,9 +50,35 @@ test("the first deployment: connect, come back, choose the account, name it, rev
 
   back.wizard.type("my-iterate");
   await back.wizard.submitName();
+  expect(back.wizard.view()).toMatchObject({ step: "project", value: "home" });
+  back.wizard.type("Home Page");
+  back.wizard.submitProject();
+  expect(back.wizard.view()).toMatchObject({
+    step: "project",
+    error: expect.stringContaining("lowercase"),
+  });
+  back.wizard.type("garden");
+  back.wizard.submitProject();
+  expect(back.wizard.view()).toMatchObject({ step: "domain", zones: null });
+  await flush();
+  expect(back.wizard.view()).toMatchObject({ step: "domain", zones: [zone], zoneId: zone.id });
+  back.deps.checkHostname.mockResolvedValueOnce({
+    status: "taken",
+    message:
+      "iterate takes every name under example.com, and www.example.com already serves something.",
+  });
+  await back.wizard.submitDomain();
+  expect(back.wizard.view()).toMatchObject({
+    step: "domain",
+    error: expect.stringContaining("www.example.com"),
+  });
+  await back.wizard.submitDomain();
+  const domain = { hostname: "example.com", zone };
   expect(back.wizard.view()).toMatchObject({
     step: "review",
     name: "my-iterate",
+    project: "garden",
+    domain,
     choice: { account: work },
   });
   await back.wizard.install();
@@ -51,20 +87,24 @@ test("the first deployment: connect, come back, choose the account, name it, rev
     connection: "aaaabbbbcccc",
     accountId: work.id,
     name: "my-iterate",
+    project: "garden",
+    domain,
   });
   expect(back.deps.navigate).toHaveBeenLastCalledWith("/deployments/dep_aaaabbbbccccdddd");
   // the next visit to /new is a new deployment, through the same connection
   expect(back.deps.storage.read()).toEqual({ connection: "aaaabbbbcccc" });
 });
 
-test("a closed tab comes back to the step it left", () => {
+test("a closed tab comes back to the step it left", async () => {
   const storage = memory({
+    how: "cloudflare",
     connection: "aaaabbbbcccc",
     accountId: personal.id,
     name: "my-iterate",
   });
   const { wizard } = start("", storage);
   wizard.update(person([connected("aaaabbbbcccc", [personal, work])]));
+  await flush();
   expect(wizard.view()).toMatchObject({
     step: "name",
     value: "my-iterate",
@@ -79,13 +119,22 @@ test("a connect that came back unfinished says so, and a lost answer to Install 
   expect(wizard.view()).toMatchObject({ step: "connect", last: { status: "pending" } });
 
   const storage = memory({
+    how: "cloudflare",
     connection: "aaaabbbbcccc",
     accountId: personal.id,
     name: "my-iterate",
+    zoneId: "",
   });
   const retry = start("", storage);
   retry.wizard.update(person([connected("aaaabbbbcccc", [personal])]));
+  await flush();
   await retry.wizard.submitName();
+  retry.wizard.submitProject();
+  await flush();
+  // workers.dev alone, as the draft chose
+  expect(retry.wizard.view()).toMatchObject({ step: "domain", zoneId: "" });
+  await retry.wizard.submitDomain();
+  expect(retry.wizard.view()).toMatchObject({ step: "review", domain: null, project: "home" });
   retry.deps.create.mockRejectedValueOnce(new Error("socket closed"));
   await retry.wizard.install();
   expect(retry.wizard.view()).toMatchObject({ step: "review", error: "socket closed" });
@@ -110,9 +159,11 @@ test("back from Cloudflare, the live state lands before the connect is settled: 
   // the settlement answers before its live state lands: the connect still reads pending
   settled();
   await settling;
+  await flush();
   expect(wizard.view()).toMatchObject({ step: "name", choice: { account: work } });
   // then the settled connection arrives, and the wizard takes its account
   wizard.update(person([older, connected("aaaabbbbcccc", [personal])]));
+  await flush();
   expect(wizard.view()).toMatchObject({
     step: "name",
     choice: { connection: "aaaabbbbcccc", account: personal },
@@ -125,9 +176,41 @@ test("a connect whose settlement fails says so, even when an older connected acc
   deps.settle.mockRejectedValueOnce(new Error("Cloudflare listed no accounts: HTTP 500"));
   wizard.update(person([connected("ddddccccbbbb", [work])]));
   await wizard.settleReturn();
+  await flush();
   expect(wizard.view()).toMatchObject({ step: "name", choice: { account: work } });
   expect(wizard.returnError()).toBe("Cloudflare listed no accounts: HTTP 500");
 });
+
+test("an account that is not ready says what it lacks, and goes on once Cloudflare says it is", async () => {
+  const { wizard, deps } = start("", memory({ how: "cloudflare" }));
+  deps.checkAccount.mockResolvedValueOnce({
+    workersPaid: false,
+    r2: false,
+    containers: null,
+    message: "Subscribe to Workers Paid: https://dash.cloudflare.com/x/workers/plans",
+  });
+  wizard.update(person([connected("aaaabbbbcccc", [personal])]));
+  await flush();
+  expect(wizard.view()).toMatchObject({
+    step: "ready",
+    checking: false,
+    readiness: { workersPaid: false },
+  });
+  wizard.continueReady();
+  expect(wizard.view()).toMatchObject({ step: "ready" });
+  await wizard.checkAccount();
+  expect(wizard.view()).toMatchObject({ step: "name" });
+});
+
+test("a connection made before the wizard asked for the plan and DNS is asked again", () => {
+  const { wizard } = start("", memory({ how: "cloudflare" }));
+  wizard.update(
+    person([{ ...connected("aaaabbbbcccc", [personal]), scopes: ["workers-scripts.write"] }]),
+  );
+  expect(wizard.view()).toMatchObject({ step: "connect", again: true });
+});
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function start(search: string, storage = memory({})) {
   let requests = 0;
@@ -136,6 +219,17 @@ function start(search: string, storage = memory({})) {
     settle: vi.fn<WizardDeps["settle"]>(async () => undefined),
     create: vi.fn<WizardDeps["create"]>(async () => ({ id: "dep_aaaabbbbccccdddd" })),
     checkName: vi.fn<WizardDeps["checkName"]>(async () => ({ status: "free", message: "free" })),
+    checkAccount: vi.fn<WizardDeps["checkAccount"]>(async () => ({
+      workersPaid: true,
+      r2: true,
+      containers: true,
+      message: null,
+    })),
+    listZones: vi.fn<WizardDeps["listZones"]>(async () => [zone]),
+    checkHostname: vi.fn<WizardDeps["checkHostname"]>(async () => ({
+      status: "free",
+      message: "free",
+    })),
     navigate: vi.fn(),
     storage,
     search,
@@ -170,9 +264,10 @@ const connected = (
   startedAt: "2026-11-06T12:00:00.000Z",
   cloudflareUser: "ada@example.test",
   accounts,
-  scopes: [],
+  scopes: ["workers-scripts.write billing.read dns.write"],
   error: null,
   settledAt: "2026-11-06T12:01:00.000Z",
 });
 const personal = { id: "11111111111111111111111111111111", name: "Ada" };
 const work = { id: "33333333bbbbbbbbbbbbbbbbbbbbbbbb", name: "Work" };
+const zone = { id: "a".repeat(32), name: "example.com" };

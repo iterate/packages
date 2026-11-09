@@ -61,6 +61,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "capnweb": "catalog:",
     "iterate": "workspace:*",
     "tsdown": "catalog:",
     "typescript": "catalog:",
