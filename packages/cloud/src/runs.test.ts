@@ -134,9 +134,11 @@ test("a chosen domain is the deployment's, in Jeeves's shape: the platform at it
   });
   // projects other than the first stay paths on the platform: no ingress wildcard, no certificate
   expect(config.urls).not.toHaveProperty("ingressRouting");
-  expect(configFileOf(config, "/work/core/core/os")).toContain(
-    "projectWildcard: cloud.urls.projectWildcard",
-  );
+  const file = configFileOf(config, "/work/core/core/os");
+  expect(file).toContain("projectWildcard: cloud.urls.projectWildcard");
+  // the domain is the first project's own hostname: its address, and one label under it a routing slug
+  expect(file).toContain("projectHostnames: [");
+  expect(file).toContain("hostname: cloud.urls.projectWildcard.hostname");
   const deploy = runScriptOf(owner, "deploy", 42, image, step);
   expect(deploy.indexOf("== step dns")).toBeGreaterThan(deploy.indexOf("== step namespace"));
   expect(deploy.indexOf("== step dns")).toBeLessThan(deploy.indexOf("== step alchemy"));

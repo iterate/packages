@@ -114,7 +114,25 @@ export default {
   urls: {
     ...base.urls,
     ...(cloud.urls?.dash ? { dash: cloud.urls.dash } : {}),
-    ...(cloud.urls?.os ? { os: cloud.urls.os, projectWildcard: cloud.urls.projectWildcard } : {}),
+    // the domain is the first project's own hostname (core/os urls.projectHostnames): its address
+    // in the Dash and itx.url, and <routingSlug>.<domain> its routing slugs. The wildcard stays
+    // for the domain's mail (core/os integrations/email.ts) and every name the hostname leaves.
+    ...(cloud.urls?.os
+      ? {
+          os: cloud.urls.os,
+          projectWildcard: cloud.urls.projectWildcard,
+          ...(cloud.urls.projectWildcard
+            ? {
+                projectHostnames: [
+                  {
+                    hostname: cloud.urls.projectWildcard.hostname,
+                    project: cloud.urls.projectWildcard.project,
+                  },
+                ],
+              }
+            : {}),
+        }
+      : {}),
   },
 } satisfies IterateConfigInput;
 `;
