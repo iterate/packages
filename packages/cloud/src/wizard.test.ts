@@ -264,7 +264,9 @@ const connected = (
   startedAt: "2026-11-06T12:00:00.000Z",
   cloudflareUser: "ada@example.test",
   accounts,
-  scopes: ["workers-scripts.write billing.read dns.write"],
+  scopes: [
+    "workers-scripts.write billing.read dns.write zone-settings.write email-routing-rule.write",
+  ],
   error: null,
   settledAt: "2026-11-06T12:01:00.000Z",
 });

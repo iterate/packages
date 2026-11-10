@@ -80,12 +80,17 @@ export const AccountReadiness = z.object({
 });
 export type AccountReadiness = z.infer<typeof AccountReadiness>;
 
-/** The scope the wizard needs beyond a deploy's: the domain's wildcard record (`dns.write`). A
+/** The scopes the wizard needs beyond a deploy's: the domain's wildcard record (`dns.write`), and its
+ *  mail turned on (runs.ts `EMAIL_STEP`: `zone-settings.write`, `email-routing-rule.write`). A
  *  connection made before lacks it and is asked again. Cloudflare's OAuth catalog has no billing
  *  scope (its consent answers `invalid_scope` to `billing.read`, tried 2026-11-09), so the plan is
  *  read where a token may (an API token) and otherwise inferred from Containers, which need Workers
  *  Paid (cloudflare.ts `readinessOf`). */
-export const WIZARD_SCOPES = ["dns.write"] as const;
+export const WIZARD_SCOPES = [
+  "dns.write",
+  "zone-settings.write",
+  "email-routing-rule.write",
+] as const;
 
 // ── the person ──────────────────────────────────────────────────────────────────────────────────
 

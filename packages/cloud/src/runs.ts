@@ -380,7 +380,7 @@ pnpm build || { echo "__EXIT__:1"; exit 1; }
 }echo "== step alchemy"
 ${alchemy}
 code=$?
-${kind === "deploy" ? CHECK_STEP(record) : ""}${kind === "destroy" ? REPOS_STEP(record) : ""}${kind === "destroy" && record.domain ? DNS_FORGET(record.domain) : ""}echo "__EXIT__:$code"
+${kind === "deploy" ? CHECK_STEP(record) : ""}${kind === "deploy" && record.domain ? EMAIL_STEP(record, record.domain) : ""}${kind === "destroy" ? REPOS_STEP(record) : ""}${kind === "destroy" && record.domain ? DNS_FORGET(record.domain) : ""}${kind === "destroy" && record.domain ? EMAIL_FORGET(record.domain) : ""}echo "__EXIT__:$code"
 `;
 }
 
@@ -399,6 +399,48 @@ for name in "${domain.hostname}" "*.${domain.hostname}"; do
   elif [ -n "$found" ]; then echo "$name has a record"
   else echo "dns: Cloudflare did not list $name's records"; echo "__EXIT__:1"; exit 1; fi
 done
+`;
+
+/** After a deploy that succeeded, on a domain that is its zone's apex: the domain's mail is the
+ *  first project's, both ways (core/os integrations/email.ts, `urls.projectWildcard`). Email Routing
+ *  is turned on for the apex (`{}`: a name is only for a subdomain), which adds and locks its MX and
+ *  SPF records; its catch-all sends every address to
+ *  the Worker's `email()` handler; and the domain is onboarded to Email Sending, which adds the
+ *  `cf-bounce` and DKIM records `itx.email.send` needs (2040: onboarded already). Each is idempotent and none fails the
+ *  deploy: the platform works without mail, and the run says what Cloudflare refused (a zone with
+ *  other MX records refuses Email Routing). Scopes: `zone-settings.write`,
+ *  `email-routing-rule.write`, `email-sending.write`.
+ *  https://developers.cloudflare.com/api/resources/email_routing/ */
+const EMAIL_STEP = (
+  record: DeploymentRecord,
+  domain: NonNullable<DeploymentRecord["domain"]>,
+) => `if [ "$code" = 0 ]; then
+  echo "== step email"
+  ${
+    domain.hostname !== domain.zone.name
+      ? `echo "email: ${domain.hostname} is under the zone ${domain.zone.name}; set its mail up by hand (Email Routing on a subdomain)"`
+      : `zone="https://api.cloudflare.com/client/v4/zones/${domain.zone.id}"
+  auth="Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN"
+  answer=$(curl -s -X POST "$zone/email/routing/dns" -H "$auth" -H "content-type: application/json" --data '{}')
+  case "$answer" in *'"success":true'*) echo "email: routing on for ${domain.hostname}";; *) echo "email: turning routing on answered $answer";; esac
+  answer=$(curl -s -X PUT "$zone/email/routing/rules/catch_all" -H "$auth" -H "content-type: application/json" --data '{"name":"iterate","enabled":true,"matchers":[{"type":"all"}],"actions":[{"type":"worker","value":["${record.name}"]}]}')
+  case "$answer" in *'"success":true'*) echo "email: every address on ${domain.hostname} goes to ${record.name}";; *) echo "email: the catch-all answered $answer";; esac
+  answer=$(curl -s -X POST "$zone/email/sending/subdomains" -H "$auth" -H "content-type: application/json" --data '{"name":"${domain.hostname}"}')
+  case "$answer" in *'"success":true'*|*'"code":2040'*) echo "email: sending on for ${domain.hostname}";; *) echo "email: turning sending on answered $answer";; esac`
+  }
+fi
+`;
+
+/** After a destroy that succeeded: the domain's catch-all no longer names the Worker, which is
+ *  gone. Email Routing, its records and Email Sending stay: they are the zone's, and harmless. */
+const EMAIL_FORGET = (domain: NonNullable<DeploymentRecord["domain"]>) =>
+  domain.hostname !== domain.zone.name
+    ? ""
+    : `if [ "$code" = 0 ]; then
+  echo "== step email"
+  answer=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${domain.zone.id}/email/routing/rules/catch_all" -H "Authorization: Bearer $ITERATE__CLOUDFLARE__API_TOKEN" -H "content-type: application/json" --data '{"name":"iterate","enabled":false,"matchers":[{"type":"all"}],"actions":[{"type":"drop"}]}')
+  case "$answer" in *'"success":true'*) echo "email: the catch-all is off";; *) echo "email: the catch-all answered $answer";; esac
+fi
 `;
 
 /** After a destroy that succeeded: the domain's two records the install made go, the person's

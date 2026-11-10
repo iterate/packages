@@ -146,11 +146,27 @@ test("a chosen domain is the deployment's, in Jeeves's shape: the platform at it
   expect(deploy.indexOf('address="https://iterate.example.com"')).toBeGreaterThan(
     deploy.indexOf("== step check"),
   );
+  // the domain's mail is the first project's: routing on, the catch-all to the Worker, sending on
+  expect(deploy.indexOf("== step email")).toBeGreaterThan(deploy.indexOf("== step check"));
+  expect(deploy).toContain("/email/routing/dns");
+  expect(deploy).toContain(`"actions":[{"type":"worker","value":["${owner.name}"]}]`);
+  expect(deploy).toContain("/email/sending/subdomains");
+  expect(runScriptOf(record, "deploy", 42, image, step)).not.toContain("== step email");
+  expect(
+    runScriptOf(
+      { ...owner, domain: { ...domain, hostname: "app.example.com" } },
+      "deploy",
+      42,
+      image,
+      step,
+    ),
+  ).not.toContain("/email/routing/dns");
   expect(runScriptOf(owner, "plan", 42, image, step)).not.toContain("== step dns");
   // a destroy deletes the wildcard last, and only one of the install's own shape
   const destroy = runScriptOf(owner, "destroy", 43, image, step);
   expect(destroy.lastIndexOf("== step dns")).toBeGreaterThan(destroy.indexOf("== step repos"));
   expect(destroy).toContain("?name=$name&type=AAAA&content=100::");
+  expect(destroy).toContain('"actions":[{"type":"drop"}]');
   expect(runScriptOf(record, "deploy", 42, image, step)).not.toContain("== step dns");
   expect(JSON.stringify(mintConfig({ ...owner, domain: null }, PLATFORM))).not.toMatch(
     /projectWildcard/,
