@@ -25,6 +25,8 @@ import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 import { AgentsHome } from "../../components/agents-home.tsx";
 import { AgentsNav } from "../../components/agents-nav.tsx";
+import type { AgentRow } from "../../lib/agent-summary.ts";
+import { claudeCodeInspectors, claudeCodeRenderers } from "../../lib/claude-code-renderers.tsx";
 import { useAgentRows } from "../../lib/use-agent-rows.ts";
 
 // The project's agents in the sidebar, and beside them one agent's chat (`AgentChat`, whose file
@@ -117,7 +119,7 @@ function AgentsPage() {
           key={`${project}${agent}`}
           project={project}
           path={agent}
-          kind={agents.find((row) => row.path === agent)?.kind ?? null}
+          row={agents.find((row) => row.path === agent)}
         />
       ) : installed ? (
         <AgentsHome
@@ -218,12 +220,14 @@ function useAgentContext(
 function AgentConversation({
   project,
   path,
-  kind,
+  row,
 }: {
   project: string;
   path: string;
-  kind: string | null;
+  /** Its catalog row, until that arrives `undefined`. */
+  row: AgentRow | undefined;
 }) {
+  const kind = row?.kind;
   const { api } = Route.useRouteContext();
   const routeSearch = Route.useSearch();
   const search: AgentChatState =
@@ -271,6 +275,9 @@ function AgentConversation({
           : undefined
       }
       signedUrl={signedUrl}
+      listing={row}
+      renderers={claudeCodeRenderers}
+      inspectors={claudeCodeInspectors}
     />
   );
 }

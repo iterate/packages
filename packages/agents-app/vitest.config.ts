@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     reporters: vitestReporters,
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     restoreMocks: true,
     unstubGlobals: true,
     unstubEnvs: true,

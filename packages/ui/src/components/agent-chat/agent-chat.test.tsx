@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// The chat's status strip when the agent's live state is not there to read: it says so, and the
-// log alone then decides when a turn is over, instead of waiting on "Connecting…" for good.
+// The chat's status strip when the agent's live state is not there to read: it says what the
+// catalog heard from the agent, or else that it cannot tell, and the log alone then decides when a
+// turn is over, instead of waiting on "Connecting…" for good.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -16,7 +17,9 @@ Object.assign(globalThis, {
   },
 });
 
-test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: string }>([
+test.for<
+  Pick<Context, "processors" | "liveState"> & { name: string; listing?: Listing; status: string }
+>([
   {
     name: "the processors table has not loaded yet",
     processors: { rows: [], loaded: false },
@@ -34,6 +37,27 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
     processors: { rows: [], loaded: true },
     liveState: {},
     status: "Live state unavailable",
+  },
+  {
+    name: "an agent iterate does not run is working, by the catalog",
+    processors: { rows: [], loaded: true },
+    liveState: {},
+    listing: { status: "working", activity: "fix the flaky test" },
+    status: "Working · fix the flaky test",
+  },
+  {
+    name: "an agent iterate does not run is waiting on a person, by the catalog",
+    processors: { rows: [], loaded: true },
+    liveState: {},
+    listing: { status: "waiting", activity: "Claude needs your permission to use Bash" },
+    status: "Waiting · Claude needs your permission to use Bash",
+  },
+  {
+    name: "an agent iterate does not run has ended, by the catalog",
+    processors: { rows: [], loaded: true },
+    liveState: {},
+    listing: { status: "ended", activity: null },
+    status: "Ended",
   },
   {
     name: "the agent facet's own subscription failed",
@@ -84,8 +108,8 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
     },
     status: "Reading the script's result",
   },
-])("the strip when $name: $status", async ({ processors, liveState, status }) => {
-  using chat = await mount({ processors, liveState });
+])("the strip when $name: $status", async ({ processors, liveState, listing, status }) => {
+  using chat = await mount({ processors, liveState }, listing);
   expect(chat.status()).toBe(status);
 });
 
@@ -132,11 +156,14 @@ test("a request the agent facet has not reported yet still shows as running: a p
 });
 
 type Context = ComponentProps<typeof AgentChat>["context"];
+type Listing = NonNullable<ComponentProps<typeof AgentChat>["listing"]>;
 
-/** The chat mounted in the document over an empty log; disposing unmounts it and clears the page. */
+/** The chat mounted in the document over an empty log, with the catalog's row if given; disposing
+ *  unmounts it and clears the page. */
 async function mount(
   context: Pick<Context, "processors" | "liveState"> &
     Partial<Pick<Context, "events" | "head" | "older">>,
+  listing?: Listing,
 ) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () =>
@@ -155,6 +182,7 @@ async function mount(
         onMessage={async () => {}}
         onAppend={async () => {}}
         signedUrl={async () => ""}
+        listing={listing}
       />,
     ),
   );

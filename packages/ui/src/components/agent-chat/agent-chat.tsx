@@ -82,6 +82,7 @@ export function AgentChat({
   onMessage,
   onAppend,
   signedUrl,
+  listing,
   itemFooter,
   renderers,
   inspectors,
@@ -105,6 +106,10 @@ export function AgentChat({
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** A signed download URL for a file under the agent's path: `stub.files.get(path).url()`. */
   signedUrl: SignedUrl;
+  /** What the project's catalog last heard from the agent (iterate/agents catalog.ts), or
+   *  `undefined` before its row arrives. The strip says it for an agent iterate does not run (a
+   *  coding session, say), which has no facet of its own to read. */
+  listing: Listing | undefined;
   /** A row of the page's own under a feed item, such as what the page recorded about a message
    *  (`item.offset` is the offset of the event that carried it). */
   itemFooter?: (item: AgentUiItem) => ReactNode;
@@ -139,6 +144,7 @@ export function AgentChat({
     <div className="flex min-h-0 flex-1 flex-col">
       <ChatStrip
         turn={turn}
+        listing={listing}
         feedState={feed.state}
         view={state.view}
         eventCount={fold.events.length}
@@ -243,12 +249,30 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
   };
 }
 
+/** The catalog's word on an agent: its status (`working`, `idle`, `waiting`, `ended`) and one line
+ *  on what it is doing now. */
+type Listing = { status: string | null; activity: string | null };
+
+const LISTED_STATUS: Record<string, { text: string; tone: "live" | "amber" | "muted" }> = {
+  working: { text: "Working", tone: "live" },
+  waiting: { text: "Waiting", tone: "amber" },
+  idle: { text: "Idle", tone: "muted" },
+  ended: { text: "Ended", tone: "muted" },
+};
+
 /** What the strip says the agent is doing. A script still running is the context's, read from the
- *  log: the feed's running code step. */
+ *  log: the feed's running code step. Without the agent facet, the catalog's row says it. */
 function chatStatus(
   { facet, liveUnavailable }: ReturnType<typeof agentTurnOf>,
+  listing: Listing | undefined,
   feedState: AgentUiState,
 ) {
+  const listed = listing?.status && LISTED_STATUS[listing.status];
+  if (!facet && listed)
+    return {
+      text: listing.activity ? `${listed.text} · ${listing.activity}` : listed.text,
+      tone: listed.tone,
+    };
   if (!facet)
     return {
       text: liveUnavailable ? "Live state unavailable" : "Connecting…",
@@ -272,6 +296,7 @@ function chatStatus(
 /** The agent's live status, and Chat | Events. */
 function ChatStrip({
   turn,
+  listing,
   feedState,
   view,
   eventCount,
@@ -279,13 +304,14 @@ function ChatStrip({
   onViewChange,
 }: {
   turn: ReturnType<typeof agentTurnOf>;
+  listing: Listing | undefined;
   feedState: AgentUiState;
   view: AgentChatState["view"];
   eventCount: number;
   wholeLogHeld: boolean;
   onViewChange: (view: AgentChatState["view"]) => void;
 }) {
-  const status = chatStatus(turn, feedState);
+  const status = chatStatus(turn, listing, feedState);
   return (
     <div className="flex shrink-0 items-center gap-3 px-4 py-1">
       <span
