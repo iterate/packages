@@ -4,7 +4,7 @@ import { HtmlPreview } from "./html-preview.tsx";
 import { MarkdownPreview } from "./markdown-preview.tsx";
 import { RepoCodeEditor } from "./repo-code-editor.tsx";
 import { isPreviewablePath, repoFileKind, type RepoFileLanguage } from "./repo-file-kinds.ts";
-import { readRepoFile, useRead, type RepoProject } from "./repo-client.ts";
+import { readRepoFile, useRead, type RepoMind } from "./repo-client.ts";
 import { effectiveEntry, type FileChange, type FileEntry } from "./staged-changes.ts";
 import { Button } from "#/components/ui/button.tsx";
 
@@ -40,7 +40,7 @@ type FileStatus = "added" | "deleted" | "modified";
  * readonly Index view of what is staged. Files the editor cannot show (images, archives) say so.
  */
 export function RepoEditorPane({
-  project,
+  mind,
   repoPath,
   path,
   headCommitOid,
@@ -49,7 +49,7 @@ export function RepoEditorPane({
   view,
   handlers,
 }: {
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   path: string;
   headCommitOid: string | null;
@@ -64,9 +64,9 @@ export function RepoEditorPane({
   const headRead = useRead(
     async () =>
       kind.kind === "text" && headHasPath
-        ? await readRepoFile(project, repoPath, path, headCommitOid || undefined)
+        ? await readRepoFile(mind, repoPath, path, headCommitOid || undefined)
         : undefined,
-    [project, repoPath, path, headCommitOid, headHasPath, kind.kind],
+    [mind, repoPath, path, headCommitOid, headHasPath, kind.kind],
   );
   const entry = change && effectiveEntry(change);
   const status: FileStatus | undefined = entry && (headHasPath ? "modified" : "added");

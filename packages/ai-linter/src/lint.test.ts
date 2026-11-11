@@ -88,7 +88,7 @@ test("globs: ** spans directories, * and ? stay in one segment, braces alternate
 
 test("a rule applies to a path a positive glob matches and no ! glob does", () => {
   const rule = parseRule("r.md", RULE_FILE);
-  expect(ruleApplies(rule, "core/os/src/worker.ts")).toBe(true);
+  expect(ruleApplies(rule, "core/mind-worker/src/worker.ts")).toBe(true);
   expect(ruleApplies(rule, "core/os/src/worker.test.ts")).toBe(false);
   expect(ruleApplies(rule, "core/os/e2e/client.ts")).toBe(false);
   expect(ruleApplies(rule, "README.md")).toBe(false);

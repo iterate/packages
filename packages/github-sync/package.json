@@ -1,7 +1,7 @@
 {
   "name": "@iterate-com/github-sync",
   "version": "0.1.0",
-  "description": "Keeps a project's config repo and its GitHub repository one history: GitHub's pushes are pulled in, the project's commits are pushed out",
+  "description": "Keeps a mind's config repo and its GitHub repository one history: GitHub's pushes are pulled in, the mind's commits are pushed out",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

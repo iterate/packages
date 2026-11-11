@@ -1,6 +1,6 @@
-// standalone-app.ts — A FIRST-PARTY APP AS A WORKER OF ITS OWN, hosted apart from any project
+// standalone-app.ts — A FIRST-PARTY APP AS A WORKER OF ITS OWN, hosted apart from any mind
 // (tasks/project-stack.md, "Headless Workers"): no envs.ts entry, no Doppler, no issuer, no default
-// project and no PostHog. A person opens it, types a project's address, and signs in there. Each
+// mind and no PostHog. A person opens it, types a mind's address, and signs in there. Each
 // app's `scripts/standalone.ts` runs `runStandaloneDeploy`, and its `vite.config.ts` builds
 // `standaloneWorkerConfig` when `ITERATE_STANDALONE_WORKER` names the Worker. The Worker is on
 // `https://<worker-name>.<account subdomain>.workers.dev`, its only hostname, and binds the gate's
@@ -28,7 +28,7 @@ export function standaloneWorkerConfig(appRoot: URL, name: string) {
     name,
     main: "src/server.ts",
     compatibility_date: COMPATIBILITY_DATE,
-    // strictly public: the gate's fetches (discovery, the token endpoint, the project's API) go
+    // strictly public: the gate's fetches (discovery, the token endpoint, the mind's API) go
     // out over the internet, as a browser's would
     compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
     durable_objects: { bindings: [{ name: "BROWSER_SESSION", class_name: "BrowserSession" }] },

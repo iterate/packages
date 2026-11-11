@@ -46,7 +46,7 @@ export interface FlakeRecord {
 export interface RetriedTestTelemetry {
   fullName: string;
   /**
-   * The bare test title, without describe/project/file prefixes. Records key
+   * The bare test title, without describe/mind/file prefixes. Records key
    * on it when available so that wrapping a surfaced unknown flake with
    * createFlake — which records `args[0]`, the bare title — migrates the SAME
    * dashboard row instead of opening a second one.

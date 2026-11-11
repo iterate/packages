@@ -8,13 +8,13 @@ export function getRouter() {
     routeTree,
     // Restore scroll position on back/forward like a regular MPA would:
     // https://tanstack.com/router/latest/docs/framework/react/guide/scroll-restoration
-    // …EXCEPT on the agent chat pages (/projects/<address>). Restoration records every scrolled
+    // …EXCEPT on the agent chat pages (/minds/<address>). Restoration records every scrolled
     // element by CSS path and re-applies the saved position on render — on a chat-style feed that
     // races the feed's own open-at-latest end pin (the shared Conversation's StickToBottom) and
     // can strand the viewport mid-history. Chat feeds open at the newest message, always (there is
     // no per-element opt-out, so the whole location opts out; nothing else on those pages needs
     // restoring).
-    scrollRestoration: ({ location }) => !location.pathname.startsWith("/projects/"),
+    scrollRestoration: ({ location }) => !location.pathname.startsWith("/minds/"),
   });
 }
 declare module "@tanstack/react-router" {

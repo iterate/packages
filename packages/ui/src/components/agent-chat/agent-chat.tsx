@@ -19,7 +19,7 @@
 //     error={connectError}
 //     state={search}
 //     onStateChange={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
-//     onMessage={({ message, files }) => project.agents.get(path).message({ message, files })}
+//     onMessage={({ message, files }) => mind.agents.get(path).message({ message, files })}
 //     onAppend={(events) => agent.append(...events)}
 //     signedUrl={async (file) => (await agent.files.get(file).url()).url}
 //   />
@@ -89,7 +89,7 @@ export function AgentChat({
   state: AgentChatState;
   /** A patch to the state; an `undefined` value drops the key. */
   onStateChange: (patch: Partial<AgentChatState>) => void;
-  /** Say something to the agent: the project's `itx.agents.get(path).message(…)`. */
+  /** Say something to the agent: the mind's `itx.agents.get(path).message(…)`. */
   onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
   /** Append to the agent's context (`(events) => stub.append(...events)`): the composer's raw mode,
    *  the interrupt, and the Events tab's composer. The events are as a person wrote them, and the
@@ -377,7 +377,7 @@ function ChatEmpty({
         <EmptyTitle>Nothing said yet</EmptyTitle>
         <EmptyDescription>
           Say something below. The agent answers with prose, or with a script it runs against the
-          project.
+          mind.
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

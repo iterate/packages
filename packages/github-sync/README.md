@@ -1,18 +1,18 @@
 # @iterate-com/github-sync
 
-Keeps a project's config repo and its GitHub repository one history: the same commits on two
+Keeps a mind's config repo and its GitHub repository one history: the same commits on two
 remotes. A push to the GitHub repository's `main` makes the repo pull it (which publishes the
-project), and a commit to the repo (an agent's `commitFiles`, the Dash) is pushed to GitHub. Both
+mind), and a commit to the repo (an agent's `commitFiles`, the Dash) is pushed to GitHub. Both
 are the platform's fast-forward-only `pull()` / `push()`, so binary files come along too. When the
 two mains have diverged, `github-sync/synced` records `not-fast-forward` and nothing moves until a
-person chooses in the Dash (the project's Config repo: replace iterate's with GitHub's, or push
-iterate's). Userspace: a project installs this package; the platform ships none of it.
+person chooses in the Dash (the mind's Config repo: replace iterate's with GitHub's, or push
+iterate's). Userspace: a mind installs this package; the platform ships none of it.
 
 ## Install
 
 The repo must be linked to its GitHub repository first (the Dash's Config repo sets its origin),
 through a GitHub connection whose installation reaches it (Dash → Integrations → Connect GitHub).
-Then a project installs the sync from a folder of its config repo:
+Then a mind installs the sync from a folder of its config repo:
 
 ```text
 github-sync/package.json   { "main": "index.ts", "dependencies": { "@iterate-com/github-sync": "https://pkg.pr.new/iterate/private/@iterate-com/github-sync@<sha>" } }
@@ -26,7 +26,7 @@ From a clone of the config repo whose root `package.json` lists the package (so 
 it):
 
 ```sh
-iterate repl --project <slug>
+iterate repl --mind <slug>
 itx> const { installGithubSync } = await import("@iterate-com/github-sync/install")
 itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({ dir: "github-sync" }))
 ```
@@ -34,24 +34,24 @@ itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({
 `installGithubSync(itx, source, { repo, connection, log })`:
 
 - `repo`: the repo to sync, `/repos/config` by default. Its origin names the GitHub repository.
-- `connection`: the GitHub connection whose webhooks carry the pushes, by default the project's one
+- `connection`: the GitHub connection whose webhooks carry the pushes, by default the mind's one
   connection to the origin's owner. A push is the platform's `github/webhook-received` on that
   connection's log, `/integrations/github/<connection>`.
 - `log`: instead of a connection, the stream a package lands the pushes on. iterategrations
-  `github/` records each delivery of the project's own App as `github/delivery-received` on
+  `github/` records each delivery of the mind's own App as `github/delivery-received` on
   `/integrations/own-github/<installation id>`, the same payload, so
   `{ log: "/integrations/own-github/<installation id>" }` syncs through that App; the repo's origin
   then names that installation's secret, `/secrets/own-github-<installation id>`.
 
 ### Through iterate Cloud's GitHub App
 
-A project whose stack names an iterate Cloud (`cloud: { origin }`) needs no App of its own. A
+A mind whose stack names an iterate Cloud (`cloud: { origin }`) needs no App of its own. A
 member connects the Cloud's App once, and the Cloud mints the installation's token and delivers its
 pushes, signed by the Cloud's key:
 
 ```sh
 itx> (await itx.secrets.beginOAuth("/secrets/github", { client: { cloud: "github", accounts: ["acme"] } })).authorizationUrl
-# open it and approve: the project is connected to the App's installation on acme, the repository's
+# open it and approve: the mind is connected to the App's installation on acme, the repository's
 # account, and to no other. Where the App is not installed there yet, pass `install: true` instead:
 # the member installs it on GitHub's page, and that installation is connected.
 itx> const { installGithubSync, linkThroughCloud } = await import("@iterate-com/github-sync/install")
@@ -72,6 +72,6 @@ markers.
 | -------------------------- | --------------------------------------------------------------------- |
 | `src/contract.ts`          | When it pulls and when it pushes, and its facts                       |
 | `src/processor.ts`         | `GithubSyncProcessor`: a push to origin's main pulls, a commit pushes |
-| `src/durable-object.ts`    | `GithubSyncDurableObject`, the class a project's folder re-exports    |
+| `src/durable-object.ts`    | `GithubSyncDurableObject`, the class a mind's folder re-exports       |
 | `src/github-repository.ts` | Which GitHub repository an origin names                               |
 | `src/install.ts`           | `githubSyncFolder` and `installGithubSync`: the folder and its mount  |

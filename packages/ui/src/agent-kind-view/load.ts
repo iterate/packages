@@ -37,7 +37,7 @@ export async function importAgentKind(source: string, name: string): Promise<Age
 export async function browserModuleOf(source: string, name: string): Promise<string> {
   let code: string;
   try {
-    // the platform's worker loader's own call: core/os src/context/module-resolution.ts `stripTypes`
+    // the platform's worker loader's own call: core/mind-worker/src/context/module-resolution.ts `stripTypes`
     code = transform(source, {
       transforms: ["typescript"],
       disableESTransforms: true,

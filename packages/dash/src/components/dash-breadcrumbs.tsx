@@ -1,4 +1,4 @@
-// The path in the shell's header: the project's address, then the page when it names itself
+// The path in the shell's header: the mind's address, then the page when it names itself
 // (› Contexts, › Repos). The address hides on narrow screens when a page follows it.
 import { Link } from "@tanstack/react-router";
 import {
@@ -11,11 +11,11 @@ import {
 } from "@iterate-com/ui/components/ui/breadcrumb";
 
 export function DashBreadcrumbs({
-  project,
+  mind,
   page,
 }: {
-  /** the project's address */
-  project: string;
+  /** the mind's address */
+  mind: string;
   /** the label a page names itself with (`staticData: { page }`) */
   page?: string;
 }) {
@@ -27,9 +27,9 @@ export function DashBreadcrumbs({
             <BreadcrumbItem className="hidden md:inline-flex">
               <BreadcrumbLink
                 className="font-mono"
-                render={<Link to="/projects/$project" params={{ project }} />}
+                render={<Link to="/minds/$mind" params={{ mind }} />}
               >
-                {project}
+                {mind}
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator className="hidden md:inline-flex" />
@@ -39,7 +39,7 @@ export function DashBreadcrumbs({
           </>
         ) : (
           <BreadcrumbItem>
-            <BreadcrumbPage className="font-mono">{project}</BreadcrumbPage>
+            <BreadcrumbPage className="font-mono">{mind}</BreadcrumbPage>
           </BreadcrumbItem>
         )}
       </BreadcrumbList>

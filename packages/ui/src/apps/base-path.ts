@@ -1,19 +1,19 @@
 // base-path.ts — THE PATH A PROXIED APP IS SERVED UNDER in the browser (packages/notes; iterate/docs' Docs app has a copy). A
-// project's config worker (the app's config-worker.ts) proxies it: on a host of its own under subdomains ingress
-// (`notes--<project>.<base>`) the base path is "", and under paths ingress it is
-// `/projects/<project>/<routingSlug>`. There the platform's edge strips that prefix from the URL the app sees and
-// says it in `x-iterate-base-path` (iterate/project-ingress), while the browser's URLs keep it. So
+// mind's config worker (the app's config-worker.ts) proxies it: on a host of its own under subdomains ingress
+// (`notes--<mind>.<base>`) the base path is "", and under paths ingress it is
+// `/minds/<mind>/<routingSlug>`. There the platform's edge strips that prefix from the URL the app sees and
+// says it in `x-iterate-base-path` (iterate/mind-ingress), while the browser's URLs keep it. So
 // every path the page names carries it — its links, its assets (the app's server.ts `transformAssets`), its
 // server functions (the app's start.ts) — and the router drops it on the way in (`basePathRewrite`). The
 // browser adapter's `/.auth/*` and `/api` stay root paths: the host's, which the platform answers
-// (core/os/src/worker.ts); under paths they are its own, on the origin the page shares with it.
+// (core/mind-worker/src/worker.ts); under paths they are its own, on the origin the page shares with it.
 //
 // A dev server behind `iterate tunnel` under paths starts under the tunnel's base path (README):
 // Vite's `base`, which its module URLs and its HMR socket carry. The page's base path takes the
 // build's place in every URL the build names (`underBasePath`), and the URL the tunnel hands over,
 // base path on, is served as the edge's is (`withoutBuildBasePath`). A deployed build's base is `/`.
 import type { LocationRewrite } from "@tanstack/react-router";
-import { ITERATE_BASE_PATH_HEADER } from "iterate/project-ingress";
+import { ITERATE_BASE_PATH_HEADER } from "iterate/mind-ingress";
 
 /** The build's base path: Vite's `base` without its trailing slash, "" but on a dev server
  *  started under a tunnel's base path. */

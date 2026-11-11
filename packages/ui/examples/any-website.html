@@ -1,6 +1,6 @@
 <!--
   A no-build page on any website (GitHub Pages, jsfiddle, a file on S3) that signs in with iterate and
-  shows one of your project's contexts live (packages/ui/AGENTS.md "Signing in"). Everything it takes
+  shows one of your mind's contexts live (packages/ui/AGENTS.md "Signing in"). Everything it takes
   is in this file: copy it and change it. The page is its own OAuth client of iterate's; the token it
   gets opens iterate's API. In a frame (jsfiddle's result pane) the sign-in opens in a new window and
   ends on callback.iterate.com, where the person copies it to paste back here.
@@ -144,8 +144,8 @@
     error: "",
     signIn: null,
     session: null,
-    projects: [],
-    projectId: "",
+    minds: [],
+    mindId: "",
     path: "/",
     view: {},
   };
@@ -175,13 +175,13 @@
     try {
       const session = await sessionWith(await tokenFor(address, signIn));
       write("sessionStorage", "iterate-sign-in", null);
-      const projects = await session.api.projects.list();
+      const minds = await session.api.minds.list();
       update({
         busy: false,
         signIn: null,
         session,
-        projects,
-        projectId: projects.length ? projects[0].id : "",
+        minds,
+        mindId: minds.length ? minds[0].id : "",
       });
     } catch (error) {
       update({ busy: false, error: error.message });
@@ -190,7 +190,7 @@
 
   function Start({ error }) {
     return html`<div class="m-auto flex max-w-md flex-col gap-3 p-4 text-center text-sm">
-      <strong>See one of your iterate projects, live</strong>
+      <strong>See one of your iterate minds, live</strong>
       <${Button} onClick=${start}>Sign in with iterate<//>
       ${error ? html`<p class="text-destructive" role="alert">${error}</p>` : null}
     </div>`;
@@ -224,17 +224,14 @@
     </div>`;
   }
 
-  function Viewer({ api, projectId, path, view }) {
-    const project = useContextStub(() => api.projects.get(projectId), [api, projectId]);
-    const shown = useContextStub(project.stub ? () => project.stub.cd(path) : null, [
-      project.stub,
-      path,
-    ]);
+  function Viewer({ api, mindId, path, view }) {
+    const mind = useContextStub(() => api.minds.get(mindId), [api, mindId]);
+    const shown = useContextStub(mind.stub ? () => mind.stub.cd(path) : null, [mind.stub, path]);
     const context = useIterateContext(shown.stub);
     return html`<${ContextView}
       title=${path}
       context=${context}
-      error=${project.error || shown.error}
+      error=${mind.error || shown.error}
       state=${view}
       onStateChange=${(patch) => update({ view: { ...store.view, ...patch } })}
       onAppend=${shown.stub ? (events) => shown.stub.append(...events) : undefined}
@@ -250,7 +247,7 @@
       event.preventDefault();
       const form = new FormData(event.currentTarget);
       update({
-        projectId: String(form.get("project")),
+        mindId: String(form.get("mind")),
         path: String(form.get("path") || "/").trim() || "/",
         view: {},
       });
@@ -261,12 +258,12 @@
           >${s.session.info.principal.email || s.session.info.principal.actor}</span
         >
         <select
-          name="project"
-          aria-label="Project"
-          defaultValue=${s.projectId}
+          name="mind"
+          aria-label="Mind"
+          defaultValue=${s.mindId}
           class="h-8 rounded-lg border px-2"
         >
-          ${s.projects.map((project) => html`<option key=${project.id} value=${project.id}>${project.slug}</option>`)}
+          ${s.minds.map((mind) => html`<option key=${mind.id} value=${mind.id}>${mind.slug}</option>`)}
         </select>
         <${Input}
           name="path"
@@ -277,15 +274,15 @@
         <${Button} type="submit" size="sm">Open<//>
       </form>
       ${
-        s.projectId
+        s.mindId
           ? html`<${Viewer}
-              key=${s.projectId + s.path}
+              key=${s.mindId + s.path}
               api=${s.session.api}
-              projectId=${s.projectId}
+              mindId=${s.mindId}
               path=${s.path}
               view=${s.view}
             />`
-          : html`<p class="m-auto text-sm text-muted-foreground">You have no projects yet.</p>`
+          : html`<p class="m-auto text-sm text-muted-foreground">You have no minds yet.</p>`
       }
     `;
   }

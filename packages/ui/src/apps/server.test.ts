@@ -33,9 +33,9 @@ test.for([
   },
   {
     name: "every other path is a page",
-    path: "/projects/p1",
+    path: "/minds/p1",
     owns: "/.auth/login",
-    expected: "page /projects/p1",
+    expected: "page /minds/p1",
   },
   {
     name: "a signed-out landing is the landing page",

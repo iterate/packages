@@ -95,7 +95,7 @@ export function MessageBubble({
   );
 }
 
-/** The message box: words and attachments go to `onMessage` (the view's prop, the project's
+/** The message box: words and attachments go to `onMessage` (the view's prop, the mind's
  *  `itx.agents.get(path).message(…)`), and with `onAppend` a raw mode appends events as written. */
 export function Composer({
   onMessage,

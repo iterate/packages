@@ -1,10 +1,10 @@
-// ai-linter/install.ts — how a project installs the linter: from a folder of its config repo that pins
+// ai-linter/install.ts — how a mind installs the linter: from a folder of its config repo that pins
 // this package (`aiLinterFolder`), as voice installs (@iterate-com/voice/install).
 // `installAiLinter` mounts it on the log of the GitHub connection that reaches the repository, which
 // only a session may do (README.md). Nothing here is the runtime.
 import type { IterateContextApi } from "iterate/api";
 
-/** The source a project installs the linter from, by file: `version` is what package.json pins (a
+/** The source a mind installs the linter from, by file: `version` is what package.json pins (a
  *  pkg.pr.new URL, or an npm range once the package is on npm). */
 export function aiLinterFolder(version: string): Record<string, string> {
   return {
@@ -15,7 +15,7 @@ export function aiLinterFolder(version: string): Record<string, string> {
 
 /** Mount the linter from its source (`aiLinterFolder`, as `repo.modules({ dir })` answers it) for the
  *  pull requests of `repository` (`owner/name`), against its `rules` folder (default `rules`), the
- *  LLM being `model` (default run.ts's), through `connection`: by default the project's one GitHub
+ *  LLM being `model` (default run.ts's), through `connection`: by default the mind's one GitHub
  *  connection to the repository's owner. Each install appends its choices as the latest
  *  `ai-linter/installed`; the same source again changes nothing else, and a new source is an
  *  upgrade. */
@@ -25,7 +25,7 @@ export async function installAiLinter(
   options: { repository: string; rules?: string; model?: string; connection?: string },
 ): Promise<{ repository: string; connection: string }> {
   const { path } = await itx.whoami();
-  if (path !== "/") throw new Error("Install the AI linter at the project root");
+  if (path !== "/") throw new Error("Install the AI linter at the mind root");
   const { repository, rules, model } = options;
   const owner = /^([^/\s]+)\/[^/\s]+$/.exec(repository)?.[1];
   if (!owner) throw new Error(`${repository} is not a GitHub repository's owner/name`);
@@ -59,9 +59,9 @@ export async function installAiLinter(
   return { repository, connection };
 }
 
-/** The project's connections, as its root's `project` facet records them (core/os
+/** The mind's connections, as its root's `mind` facet records them (core/os
  *  src/integrations/contract.ts `IntegrationConnectionRow`). */
-type ProjectIntegrations = {
+type MindIntegrations = {
   snapshot(): Promise<{
     state: {
       integrations: Record<string, { provider: string; connection: string; account: string }>;
@@ -69,9 +69,9 @@ type ProjectIntegrations = {
   }>;
 };
 
-/** The project's one GitHub connection to `owner` (a login's case does not matter to GitHub). */
+/** The mind's one GitHub connection to `owner` (a login's case does not matter to GitHub). */
 async function githubConnectionTo(itx: Pick<IterateContextApi, "facets">, owner: string) {
-  const { state } = await itx.facets.get<ProjectIntegrations>("project").snapshot();
+  const { state } = await itx.facets.get<MindIntegrations>("mind").snapshot();
   const rows = Object.values(state.integrations).filter(
     (row) => row.provider === "github" && row.account.toLowerCase() === owner.toLowerCase(),
   );

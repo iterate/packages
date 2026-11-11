@@ -13,7 +13,7 @@ test("the linter's folder names its main module in package.json", () => {
 });
 
 test("the linter mounts on the connection to the repository's owner, lent the root's egress and model, with its choices", async () => {
-  const root = project({ connections: ["c1"] });
+  const root = mind({ connections: ["c1"] });
   expect(await installAiLinter(root, aiLinterFolder(version), { repository: "Acme/app" })).toEqual({
     repository: "Acme/app",
     connection: "c1",
@@ -44,7 +44,7 @@ test("the linter mounts on the connection to the repository's owner, lent the ro
 });
 
 test("a rules folder, a model and a connection named by the install; rows it has already are not written again", async () => {
-  const root = project({
+  const root = mind({
     connections: ["c1", "c2"],
     rules: { "itx.fetch": "itx.builtins.cd('/').fetch" },
   });
@@ -88,17 +88,17 @@ test.for([
     /found 2: name one with \{ connection \}/,
   ],
 ] as const)("%s is refused, and nothing is installed", async ([, repository, input, error]) => {
-  const root = project(input);
+  const root = mind(input);
   await expect(installAiLinter(root, aiLinterFolder(version), { repository })).rejects.toThrow(
     error,
   );
   expect(Object.keys(root.contexts)).toEqual([]);
 });
 
-/** A project root as installing calls it: its GitHub connections to `acme` (`c1` by default), the
+/** A mind root as installing calls it: its GitHub connections to `acme` (`c1` by default), the
  *  rows the connections' logs already have, and each context `cd` reaches, recording what is
  *  appended and enabled. */
-function project(input: { connections?: readonly string[]; rules?: Record<string, string> }) {
+function mind(input: { connections?: readonly string[]; rules?: Record<string, string> }) {
   const contexts: Record<string, ReturnType<typeof context>> = {};
   const integrations = Object.fromEntries(
     (input.connections || ["c1"]).map((connection) => [

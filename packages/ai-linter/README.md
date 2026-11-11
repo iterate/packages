@@ -4,7 +4,7 @@ Lints a GitHub repository's pull requests against the repository's own rules fol
 an open, non-draft pull request, against the rules at the pull request's base. Findings on added
 lines become one COMMENT review from the GitHub connection's App (`iterate[bot]` for iterate's) with
 inline comments, and every head gets the "Iterate GitHub AI linter" Check Run: success, or neutral
-with findings or with a part that did not run. Never blocking. Userspace: a project installs this
+with findings or with a part that did not run. Never blocking. Userspace: a mind installs this
 package; the platform ships none of it. iterate's
 [`rules/README.md`](https://github.com/iterate/iterate/blob/3202ce387/rules/README.md) (the public
 archive's copy, from 2026-10-02) documents the rule format, and `src/fixtures/rules/` holds six
@@ -23,11 +23,11 @@ GitHub lists without its name, the review) takes nothing else with it: what the 
 published, the Check Run lists what did not run at its top, and a head delivered again (readied,
 reopened) is linted again. The LLM's answers are kept in the processor's storage until the head's
 outcome is on the log, so a lint the platform restarts (a deploy) does not pay for them twice. Every
-model call names the project, so the AI Gateway's per-project cap bounds what the linter spends.
+model call names the mind, so the AI Gateway's per-mind cap bounds what the linter spends.
 
 ## Install
 
-The project needs a GitHub connection whose installation reaches the repository (Dash →
+The mind needs a GitHub connection whose installation reaches the repository (Dash →
 Integrations → Connect GitHub). It installs the linter from a folder of its config repo:
 
 ```text
@@ -41,7 +41,7 @@ and model, which only a person's or the operator's session may write, never a co
 `npm install` gets it):
 
 ```sh
-iterate repl --project <slug>
+iterate repl --mind <slug>
 itx> const { installAiLinter } = await import("@iterate-com/ai-linter/install")
 itx> const source = await itx.repos.get("/repos/config").modules({ dir: "ai-linter" })
 itx> await installAiLinter(itx, source, { repository: "acme/app" })
@@ -52,7 +52,7 @@ itx> await installAiLinter(itx, source, { repository: "acme/app" })
 - `repository`: the GitHub repository whose pull requests it lints, `owner/name`.
 - `rules`: its rules folder, `rules` by default.
 - `model`: the LLM, `openai/gpt-6-astra` by default.
-- `connection`: by default the project's one GitHub connection to the repository's owner.
+- `connection`: by default the mind's one GitHub connection to the repository's owner.
 
 It enables the `ai-linter` processor on `/integrations/github/<connection>` and appends
 `ai-linter/installed` with those choices; the latest marker's hold, and what came before the first
@@ -65,6 +65,6 @@ is never linted. To upgrade, pin a newer build and install again.
 | `src/run.ts`            | One lint of one head, its I/O handed in; publishes what it has                |
 | `src/lint.ts`           | The pure half: rules, globs, patches, suppressions, the prompt, the Check Run |
 | `src/jev.ts`            | The Jev engine's pure half: selectors, requests, bands, excerpts              |
-| `src/durable-object.ts` | `AiLinterDurableObject`, the class a project's folder re-exports              |
+| `src/durable-object.ts` | `AiLinterDurableObject`, the class a mind's folder re-exports                 |
 | `src/install.ts`        | `aiLinterFolder` and `installAiLinter`: the folder and its mount              |
 | `src/fixtures/`         | The Jev lint experiment's labelled cases and the rules they were measured on  |

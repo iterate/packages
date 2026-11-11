@@ -1,4 +1,4 @@
-// github-sync/contract.ts — THE GITHUB SYNC: a project's repo (`/repos/config` unless the install
+// github-sync/contract.ts — THE GITHUB SYNC: a mind's repo (`/repos/config` unless the install
 // names another) and its origin on GitHub are ONE history on two remotes, and the platform's `pull()`
 // and `push()` move the same commits both ways (same oids, fast-forward only). processor.ts only says
 // when:
@@ -7,13 +7,13 @@
 //   on /                                  a commit to the repo     → repo.push()
 //
 // A push arrives as the platform's `github/webhook-received` (iterate's App, routed to the
-// connection) or as a package's `github/delivery-received` (a project's own App, posted to a page
-// of the project's: iterategrations `github/`, or a receiver of the project's own), the same
+// connection) or as a package's `github/delivery-received` (a mind's own App, posted to a page
+// of the mind's: iterategrations `github/`, or a receiver of the mind's own), the same
 // payload either way: `{ delivery: { id, name }, installationId, body }`.
 //
 // What one side just received is already there when the other side's event arrives, so that call
 // answers up-to-date and nothing loops. Diverged mains are the outcome `not-fast-forward`: a person
-// chooses in the Dash (the project's Config repo: replace with GitHub's, or push iterate's). Every
+// chooses in the Dash (the mind's Config repo: replace with GitHub's, or push iterate's). Every
 // call's outcome is a `github-sync/synced` fact on the log that saw its trigger. `github-sync/installed`
 // (install.ts appends it to both logs) names the repo; the history before it is never synced.
 import { z } from "zod";

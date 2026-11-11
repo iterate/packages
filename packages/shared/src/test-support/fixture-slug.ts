@@ -1,13 +1,13 @@
 /**
- * The naming convention for disposable test fixtures (projects, orgs) minted
+ * The naming convention for disposable test fixtures (minds, orgs) minted
  * by the Playwright suite's fixtures (test/helpers/forged-session.ts):
  * `<prefix>-<base36 timestamp>-<uuid slice>`.
  *
- * Project slugs become DNS labels (`<slug>.localhost`, a project host), so
+ * Mind slugs become DNS labels (`<slug>.localhost`, a mind host), so
  * the result is lowercased, double dashes are collapsed, and callers that
  * take arbitrary prefixes should pass `maxPrefixLength` to stay under label
  * length limits. The timestamp keeps leaked fixtures attributable/sortable:
- * there is no `projects.remove` on itx yet, so disposal is a no-op and stages
+ * there is no `minds.remove` on itx yet, so disposal is a no-op and stages
  * accumulate fixtures until reset.
  */
 export function uniqueFixtureSlug(prefix: string, opts?: { maxPrefixLength?: number }): string {

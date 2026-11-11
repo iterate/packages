@@ -1,8 +1,8 @@
 // The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
-// project switcher in its header, the app's own navigation in its body, the collapse button and the
+// mind switcher in its header, the app's own navigation in its body, the collapse button and the
 // account menu in its footer, the rail) and the page
 // beside it under a header row that carries the phone's sidebar trigger, a page's own row
-// (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the projects
+// (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the minds
 // and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
 // hands over hrefs and its current location, nothing from TanStack comes in here.
 import {
@@ -41,7 +41,7 @@ import {
   type AppPaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import { useConnectedProjects } from "./connected-projects.ts";
+import { useConnectedMinds } from "./connected-minds.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -72,7 +72,7 @@ import {
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { resetPosthog } from "#/components/posthog.tsx";
 
-/** Where the switcher's "Connect another project" goes: every app's connect page
+/** Where the switcher's "Connect another mind" goes: every app's connect page
  *  (iterate/app-server `CONNECT_PAGE_PATH`). */
 const CONNECT_PAGE = "/connect";
 
@@ -86,8 +86,8 @@ const subscribeToNothing = () => () => {};
  *  default, open, until the page hydrates. */
 export function AppShell({
   app,
-  project,
-  projectHref,
+  mind,
+  mindHref,
   onNavigate,
   switcher,
   nav,
@@ -102,18 +102,18 @@ export function AppShell({
 }: {
   /** the app's name, on top of the switcher: "Agents", "Notes", "Voice" */
   app: string;
-  /** the project the page shows, by its address; the switcher lists the others this browser is
-   *  connected to (`useConnectedProjects`) */
-  project: string | null;
-  /** where the app shows a project (`/projects/<address>` by convention) — a same-origin href;
+  /** the mind the page shows, by its address; the switcher lists the others this browser is
+   *  connected to (`useConnectedMinds`) */
+  mind: string | null;
+  /** where the app shows a mind (`/minds/<address>` by convention) — a same-origin href;
    *  switching is a full navigation unless
    *  `onNavigate` takes it (an app with a client router prevents the default and navigates itself).
    *  Only a plain left click is handed over: a modified or middle click keeps the anchor's own
    *  behaviour (a new tab). */
-  projectHref: (address: string) => string;
+  mindHref: (address: string) => string;
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  /** what heads the sidebar instead of the project switcher, for an app that is not about one
-   *  project (the Cloud: a person and their deployments) — `AppShellBrand` is the plain one */
+  /** what heads the sidebar instead of the mind switcher, for an app that is not about one
+   *  mind (the Cloud: a person and their deployments) — `AppShellBrand` is the plain one */
   switcher?: ReactNode;
   /** the app's own navigation, its `SidebarGroup`s */
   nav?: ReactNode;
@@ -129,31 +129,31 @@ export function AppShell({
   /** what sits beside the phone's sidebar trigger in the header row; without it, a desktop shows
    *  the row only while a page puts its own in it (`AppShellPageHeader`) */
   header?: ReactNode;
-  /** who the app is signed in as, when it knows; null when the app is signed in to `project` but
-   *  does not know as whom (the menu then names the project). "Sign out" posts to the gate's
-   *  `/.auth/logout?project=<address>`, which ends that project's sign-in alone. Undefined while the
+  /** who the app is signed in as, when it knows; null when the app is signed in to `mind` but
+   *  does not know as whom (the menu then names the mind). "Sign out" posts to the gate's
+   *  `/.auth/logout?mind=<address>`, which ends that mind's sign-in alone. Undefined while the
    *  app is still signing in: a placeholder of the menu's height holds its place. False when nobody
    *  is signed in and the page shows all the same: no menu. */
   account?: Principal | null | false;
   /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s; an app with
-   *  no project brings its own Sign out here */
+   *  no mind brings its own Sign out here */
   accountActions?: ReactNode;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
   children: ReactNode;
 }) {
-  const connected = useConnectedProjects();
-  // the switcher's and the palette's list: every connected project, the shown one too while the
+  const connected = useConnectedMinds();
+  // the switcher's and the palette's list: every connected mind, the shown one too while the
   // gate has not answered, by address
-  const projects = useMemo(
+  const minds = useMemo(
     () =>
       [
         ...new Set([
-          ...(project ? [project] : []),
-          ...(connected?.projects.map((item) => item.address) || []),
+          ...(mind ? [mind] : []),
+          ...(connected?.minds.map((item) => item.address) || []),
         ]),
       ].sort(),
-    [connected, project],
+    [connected, mind],
   );
   const defaultOpen = useSyncExternalStore(
     subscribeToNothing,
@@ -185,25 +185,25 @@ export function AppShell({
       <Sidebar collapsible="icon">
         <SidebarHeader>
           {switcher ?? (
-            <ProjectSwitcher
+            <MindSwitcher
               app={app}
-              projects={projects}
-              project={project}
-              projectHref={projectHref}
+              minds={minds}
+              mind={mind}
+              mindHref={mindHref}
               onNavigate={onNavigate}
             />
           )}
           {commandPalette && searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
         </SidebarHeader>
-        {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the projects alone */}
+        {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the minds alone */}
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>
         <SidebarFooter>
           <CollapseButton />
           {/* oxlint-disable-next-line iterate/simple-truthiness-check -- `account` has three states: undefined is still signing in, null is signed in as someone the app cannot name */}
           {account === false ? null : account !== undefined ? (
             <AccountMenu
-              name={account?.email || account?.actor || project || app}
-              project={project}
+              name={account?.email || account?.actor || mind || app}
+              mind={mind}
               actions={accountActions}
             />
           ) : (
@@ -249,9 +249,9 @@ export function AppShell({
           nav={palette}
           entries={paletteEntries || []}
           onClose={() => setPalette(null)}
-          projects={projects}
-          project={project}
-          projectHref={projectHref}
+          minds={minds}
+          mind={mind}
+          mindHref={mindHref}
           onNavigate={onNavigate}
         />
       ) : null}
@@ -271,7 +271,7 @@ const PageSlotsContext = createContext<{
  *  the row the shell has anyway, between the phone's sidebar trigger and the page's ⋯. The row gets
  *  a rule under it while a page has one, and a desktop shows it then even when the app gave the
  *  shell no `header`. */
-/** The sidebar's head for an app with no project switcher: the logo, the app's name, and a line
+/** The sidebar's head for an app with no mind switcher: the logo, the app's name, and a line
  *  under it (whom the app serves, or what it is about). */
 export function AppShellBrand({ app, line }: { app: string; line?: string | null }) {
   return (
@@ -357,7 +357,7 @@ export function SidebarRowSkeleton({ className }: { className?: string }) {
 
 /** Dismiss the mobile sidebar (a Sheet) when the page navigates — shadcn's Sidebar exposes
  *  `setOpenMobile` and does not do this itself. The whole href counts, not the pathname: the apps
- *  navigate by search string (`/agents?project=…&agent=…`). Only on an actual change, never on
+ *  navigate by search string (`/agents?mind=…&agent=…`). Only on an actual change, never on
  *  mount: the Sheet remounts its children when opened. */
 function CloseMobileSidebarOnNavigate({ locationKey }: { locationKey: string }) {
   const { setOpenMobile } = useSidebar();
@@ -404,19 +404,19 @@ function SidebarNav({
   );
 }
 
-/** The project the page shows, and a menu of the projects this browser is connected to, by
- *  address, ending with "Connect another project": the app's connect page. */
-function ProjectSwitcher({
+/** The mind the page shows, and a menu of the minds this browser is connected to, by
+ *  address, ending with "Connect another mind": the app's connect page. */
+function MindSwitcher({
   app,
-  projects,
-  project,
-  projectHref,
+  minds,
+  mind,
+  mindHref,
   onNavigate,
 }: {
   app: string;
-  projects: string[];
-  project: string | null;
-  projectHref: (address: string) => string;
+  minds: string[];
+  mind: string | null;
+  mindHref: (address: string) => string;
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const { isMobile } = useSidebar();
@@ -436,7 +436,7 @@ function ProjectSwitcher({
               <SidebarMenuButton
                 size="lg"
                 className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
-                aria-label="Switch project"
+                aria-label="Switch mind"
               >
                 <span className="flex aspect-square size-8 items-center justify-center rounded-md bg-black">
                   <IterateLogo alt="" className="size-6" />
@@ -444,7 +444,7 @@ function ProjectSwitcher({
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{app}</span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {project || "(select project)"}
+                    {mind || "(select mind)"}
                   </span>
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
@@ -457,18 +457,18 @@ function ProjectSwitcher({
             sideOffset={4}
             className="min-w-60 rounded-lg"
           >
-            {projects.length > 0 ? (
+            {minds.length > 0 ? (
               <DropdownMenuGroup>
-                {projects.map((address) => (
+                {minds.map((address) => (
                   <DropdownMenuItem
                     key={address}
                     className="gap-2 p-2"
                     render={
                       <a
-                        href={projectHref(address)}
+                        href={mindHref(address)}
                         aria-label={`Switch to ${address}`}
-                        aria-current={address === project ? "page" : undefined}
-                        onClick={navigate(projectHref(address))}
+                        aria-current={address === mind ? "page" : undefined}
+                        onClick={navigate(mindHref(address))}
                       />
                     }
                   >
@@ -476,19 +476,19 @@ function ProjectSwitcher({
                       {address.slice(0, 1)}
                     </span>
                     <span className="truncate">{address}</span>
-                    {address === project ? <CheckIcon className="ml-auto" /> : null}
+                    {address === mind ? <CheckIcon className="ml-auto" /> : null}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>
             ) : null}
-            {projects.length > 0 ? <DropdownMenuSeparator /> : null}
+            {minds.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuGroup>
               <DropdownMenuItem
                 className="gap-2 p-2"
                 render={
                   <a
                     href={CONNECT_PAGE}
-                    aria-label="Connect another project"
+                    aria-label="Connect another mind"
                     onClick={navigate(CONNECT_PAGE)}
                   />
                 }
@@ -496,7 +496,7 @@ function ProjectSwitcher({
                 <span className="flex size-6 items-center justify-center rounded-md border text-muted-foreground">
                   <PlusIcon className="size-3.5" />
                 </span>
-                <span>Connect another project</span>
+                <span>Connect another mind</span>
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
@@ -543,16 +543,16 @@ function CollapseButton() {
   );
 }
 
-/** Who the app is signed in as, or the project when it does not know, and Sign out: a POST to the
- *  gate's `/.auth/logout?project=<address>`, which ends this browser's sign-in to that project
+/** Who the app is signed in as, or the mind when it does not know, and Sign out: a POST to the
+ *  gate's `/.auth/logout?mind=<address>`, which ends this browser's sign-in to that mind
  *  alone. */
 function AccountMenu({
   name,
-  project,
+  mind,
   actions,
 }: {
   name: string;
-  project: string | null;
+  mind: string | null;
   actions?: ReactNode;
 }) {
   const { isMobile } = useSidebar();
@@ -574,8 +574,8 @@ function AccountMenu({
                 </Avatar>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left group-data-[collapsible=icon]:hidden">
                   <span className="truncate text-sm font-medium">{name}</span>
-                  {project && project !== name ? (
-                    <span className="truncate text-xs text-muted-foreground">{project}</span>
+                  {mind && mind !== name ? (
+                    <span className="truncate text-xs text-muted-foreground">{mind}</span>
                   ) : null}
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
@@ -593,7 +593,7 @@ function AccountMenu({
               <DropdownMenuLabel className="truncate font-normal">{name}</DropdownMenuLabel>
               {actions}
             </DropdownMenuGroup>
-            {project ? (
+            {mind ? (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
@@ -604,7 +604,7 @@ function AccountMenu({
                     }}
                   >
                     <LogOutIcon />
-                    <span className="truncate">Sign out of {project}</span>
+                    <span className="truncate">Sign out of {mind}</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </>
@@ -613,11 +613,11 @@ function AccountMenu({
         </DropdownMenu>
       </SidebarMenuItem>
       {/* the POST, outside the menu items so nothing but an item's click submits it */}
-      {project ? (
+      {mind ? (
         <form
           ref={logout}
           method="post"
-          action={`/.auth/logout?${new URLSearchParams({ project })}`}
+          action={`/.auth/logout?${new URLSearchParams({ mind })}`}
           hidden
         />
       ) : null}

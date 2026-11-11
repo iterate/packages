@@ -4,7 +4,6 @@ import {
   TEST_TELEMETRY_ARTIFACT_SCHEMA_VERSION,
   ciTelemetrySourceFromEnvironment,
   normalizeTestTelemetryError,
-  testTelemetryArtifactId,
   testTelemetryContextFromEnvironment,
   writeTestTelemetryArtifact,
   writeTestTelemetryFailureSentinel,
@@ -67,12 +66,9 @@ export class RetryTelemetryReporter {
       suite: "unit",
       workspace: this.workspace,
     });
-    this.artifactId = testTelemetryArtifactId(
-      "vitest",
-      this.workspace,
-      process.pid,
-      this.runStartedAtMs,
-    );
+    this.artifactId = ["vitest", this.workspace, process.pid, this.runStartedAtMs]
+      .filter((part) => part !== "")
+      .join(":");
     this.ci = ciTelemetrySourceFromEnvironment(
       process.env,
       `local-vitest-${process.pid}-${this.runStartedAtMs}`,
@@ -104,7 +100,7 @@ export class RetryTelemetryReporter {
         title: test.fullName,
         file: relative(process.env.GITHUB_WORKSPACE || process.cwd(), test.module.moduleId),
         line: test.location?.line || 0,
-        project: this.workspace + (test.project.name ? ` / ${test.project.name}` : ""),
+        mind: this.workspace + (test.project.name ? ` / ${test.project.name}` : ""),
         retry: 0,
       })}`,
     );

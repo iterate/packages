@@ -1,4 +1,4 @@
-// standalone.ts — THE AGENTS APP AS A WORKER OF ITS OWN, hosted apart from any project
+// standalone.ts — THE AGENTS APP AS A WORKER OF ITS OWN, hosted apart from any mind
 // (@iterate-com/shared/standalone-app says what that Worker is):
 //
 //   CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… pnpm deploy:standalone [worker-name]

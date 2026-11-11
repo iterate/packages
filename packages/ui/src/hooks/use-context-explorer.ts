@@ -1,9 +1,9 @@
-// A context explorer's wiring, the one every explorer page (dash's project contexts, admin's
-// project and global explorers) shares: the URL's tail as a context path, a root context held for
+// A context explorer's wiring, the one every explorer page (dash's mind contexts, admin's
+// mind and global explorers) shares: the URL's tail as a context path, a root context held for
 // the page's life and the context shown as a `cd` from it, and the links the tree
 // (`context-view/context-tree.tsx`) and the path (`context-view/context-path.tsx`) use, through
 // the app's router. Where the tree's paths come from and how the page lays out stay the app's;
-// `useRegistryPaths` is a project's, from its registry.
+// `useRegistryPaths` is a mind's, from its registry.
 import { useMemo, type DependencyList } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { z } from "zod";
@@ -18,10 +18,10 @@ export function contextPathOf(splat: string | undefined) {
   return resolveContextPath("/", splat || "");
 }
 
-/** A held context, as a project's root hands it (`itx.cd(path)`). */
+/** A held context, as a mind's root hands it (`itx.cd(path)`). */
 type ContextStub = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
 
-/** The explorer at `base` (`/global`, `/projects/<slug>/contexts`) showing the splat's path: the
+/** The explorer at `base` (`/global`, `/minds/<slug>/contexts`) showing the splat's path: the
  *  root `openRoot` opens is held while `deps` stand (a registry or an announcement log is its live
  *  state), and the context shown is released and re-opened as the path changes. A path opens
  *  afresh through the router: the view's search (filter, inspected event) was the last path's. */
@@ -33,7 +33,7 @@ export function useContextExplorer({
 }: {
   base: string;
   splat: string | undefined;
-  /** Null while the root can't be named yet (an unknown project): nothing opens. */
+  /** Null while the root can't be named yet (an unknown mind): nothing opens. */
   openRoot: (() => PromiseLike<ContextStub>) | null;
   deps: DependencyList;
 }) {
@@ -68,12 +68,12 @@ export function useContextExplorer({
   };
 }
 
-/** Every path a project's context registry holds: the `project` facet's `contexts` on the
- *  project's root, live (core/os/src/project/contract.ts), keyed by path. */
+/** Every path a mind's context registry holds: the `mind` facet's `contexts` on the
+ *  mind's root, live (core/mind-worker/src/mind/contract.ts), keyed by path. */
 export function useRegistryPaths(root: ContextStub | undefined) {
-  const { value } = useFacetLiveState(root, "project");
+  const { value } = useFacetLiveState(root, "mind");
   return useMemo(() => Object.keys(Registry.safeParse(value).data?.contexts || {}), [value]);
 }
 
-/** The one field of the `project` facet's state an explorer reads: the registry's paths, as keys. */
+/** The one field of the `mind` facet's state an explorer reads: the registry's paths, as keys. */
 const Registry = z.looseObject({ contexts: z.record(z.string(), z.unknown()).optional() });

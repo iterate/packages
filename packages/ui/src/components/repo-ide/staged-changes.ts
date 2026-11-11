@@ -154,12 +154,8 @@ function entriesEqual(left: FileEntry, right: FileEntry): boolean {
  */
 const stores = new Map<string, WorkingTreeStore>();
 
-export function workingTreeStore(input: {
-  projectId: string;
-  repoPath: string;
-  commitOid: string;
-}) {
-  const repoPrefix = `repo-ide-working-tree:${input.projectId}:${input.repoPath}:`;
+export function workingTreeStore(input: { mindId: string; repoPath: string; commitOid: string }) {
+  const repoPrefix = `repo-ide-working-tree:${input.mindId}:${input.repoPath}:`;
   const key = `${repoPrefix}${input.commitOid}`;
   const existing = stores.get(key);
   if (existing) return existing;

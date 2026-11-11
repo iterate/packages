@@ -16,7 +16,7 @@ import { githubRepositoryOf } from "./github-repository.ts";
 type GithubSyncState = ProcessorState<typeof GithubSyncContract>;
 
 /** The two forms a GitHub delivery takes on a connection's log (contract.ts): the platform's, for
- *  iterate's App, and a package's, for the project's own App. */
+ *  iterate's App, and a package's, for the mind's own App. */
 const PUSH_EVENT_TYPES = new Set([
   "events.iterate.com/github/webhook-received",
   "github/delivery-received",

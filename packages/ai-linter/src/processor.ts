@@ -131,9 +131,9 @@ export class AiLinterProcessor extends StreamProcessor<AiLinterState> {
             await storage.put(`${remembered}${key}`, value);
             return value;
           },
-          projectId: async () => {
+          mindId: async () => {
             using itx = getItx();
-            return (await itx.whoami()).projectId;
+            return (await itx.whoami()).mindId;
           },
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         });
@@ -153,7 +153,7 @@ export class AiLinterProcessor extends StreamProcessor<AiLinterState> {
   }
 }
 
-/** A model through the project's Workers AI binding. `Ai.run`'s types list Workers AI's own models;
+/** A model through the mind's Workers AI binding. `Ai.run`'s types list Workers AI's own models;
  *  a partner model (the Responses API) and Jev take their own inputs, so the call is untyped here. */
 const runModel = (itx: IterateContextApi, model: string, input: unknown, gateway: Gateway) =>
   (itx.ai as unknown as { run: (...args: unknown[]) => Promise<unknown> }).run(model, input, {

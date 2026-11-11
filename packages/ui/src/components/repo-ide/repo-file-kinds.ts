@@ -74,7 +74,7 @@ export function repoFileKind(path: string): RepoFileKind {
   if (BINARY_EXTENSIONS.has(extension)) return { kind: "binary" };
   if (isJsoncByConvention(path, basename)) return { kind: "text", language: "jsonc" };
   // everything else opens as text: unknown extensions (Dockerfile, .env, .gitignore, .toml) are
-  // overwhelmingly text in project repos
+  // overwhelmingly text in mind repos
   return { kind: "text", language: TEXT_LANGUAGES[extension] || "text" };
 }
 

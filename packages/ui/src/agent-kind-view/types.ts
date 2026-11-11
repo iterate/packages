@@ -1,5 +1,5 @@
 // AN AGENT KIND's view (iterate/agents/kinds `AgentKind` says what a kind is). A kind file's default
-// export `satisfies AgentKind` from here, which is that one with `view` typed: the project worker
+// export `satisfies AgentKind` from here, which is that one with `view` typed: the mind worker
 // imports the file (`makeAgentKind`) and runs `processEvent`; the Agents app's sandboxed frame loads
 // the same source for `view` (frame.ts), its server-only imports stubbed (load.ts).
 //
@@ -11,7 +11,7 @@
 //   } satisfies AgentKind;
 //
 // Types only: nothing here runs.
-// Self-contained (React, react-query and iterate's types only), so a project's config repo, a test
+// Self-contained (React, react-query and iterate's types only), so a mind's config repo, a test
 // program or a package without JSX can name them.
 import type { ComponentType } from "react";
 import type { useMutation, useQuery } from "@tanstack/react-query";

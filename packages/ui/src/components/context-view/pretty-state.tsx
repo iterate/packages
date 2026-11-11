@@ -123,7 +123,7 @@ export function CorePrettyState({ state }: { state: unknown }) {
   const paused = isRecord(state.paused) ? { reason: scalarText(state.paused.reason) } : undefined;
   const facts: [string, unknown][] = [
     ["path", state.path],
-    ["project", state.projectId],
+    ["mind", state.mindId],
     ["created", state.createdAt],
     ["incarnation", state.incarnation],
     ["ingress", state.ingressTarget ? printExpression(state.ingressTarget) : undefined],

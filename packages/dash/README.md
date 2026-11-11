@@ -1,20 +1,20 @@
 # Dash
 
-The app a person uses to see and change what one project holds. A person points it at a project
+The app a person uses to see and change what one mind holds. A person points it at a mind
 by its address (`/connect`, the standard page of `@iterate-com/ui`), and may be connected to
-several, each with its own sign-in at that project's issuer (`iterate/app-server`). `/` goes to the
-project used last.
+several, each with its own sign-in at that mind's issuer (`iterate/app-server`). `/` goes to the
+mind used last.
 
-Every page is about one project, at `/projects/<address>/…`, and reads the project's root context
-`itx` through the app's gate (`createIterateClient({ project })`):
+Every page is about one mind, at `/minds/<address>/…`, and reads the mind's root context
+`itx` through the app's gate (`createIterateClient({ mind })`):
 
-- the overview: the project's creation while it runs, its site, and its config repo's git remote;
-- contexts: any context's log, live, beside the project's context tree;
+- the overview: the mind's creation while it runs, its site, and its config repo's git remote;
+- contexts: any context's log, live, beside the mind's context tree;
 - repos: the list, and `/repos/<name>`, the `RepoIde` of `@iterate-com/ui`;
-- analytics (`itx.telemetry`), secrets (`itx.secrets`) and integrations (what the project's
-  packages register on `/integrations`): each says so in one line while the project does not serve
+- analytics (`itx.telemetry`), secrets (`itx.secrets`) and integrations (what the mind's
+  packages register on `/integrations`): each says so in one line while the mind does not serve
   its root (`src/lib/served.ts`);
-- MCP: how to connect a coding agent to the project's MCP server.
+- MCP: how to connect a coding agent to the mind's MCP server.
 
 The app holds no credentials and no state of its own beyond the gate's browser sessions.
 

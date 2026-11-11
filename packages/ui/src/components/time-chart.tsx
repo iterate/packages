@@ -1,5 +1,5 @@
 // time-chart.tsx — telemetry over time, charted with TanStack Charts: the admin app's /telemetry
-// panels and the dash's project Analytics page. One component, so both read alike.
+// panels and the dash's mind Analytics page. One component, so both read alike.
 import { colorLegend, colorLegendItems, defineChart, lineY, rect } from "@tanstack/charts";
 import { Chart } from "@tanstack/charts/react";
 import { scaleLinear } from "@tanstack/charts/scales/linear";

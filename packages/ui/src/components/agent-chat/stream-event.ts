@@ -13,7 +13,7 @@ export type StreamEventSource = {
      *  stamps it): how a script request is tied back to the assistant item that wrote it. */
     whileProcessing?: { offset: number; type: string };
   };
-  /** Who appended it, and the project host whose page held their session, if one did. */
+  /** Who appended it, and the mind host whose page held their session, if one did. */
   principal?: { actor: string; email?: string };
   via?: { appPage: string };
   /** Who code wrote it for: a script's run, or a person's call into a facet (an agent's
@@ -27,7 +27,7 @@ export type StreamEventSource = {
 
 /** Who said a message, as the platform stamped its event, for a small label: the person, " (a
  *  script)" when their script wrote it, and the page they came through. None when the event names
- *  nobody: the project's own code, mail, another agent. */
+ *  nobody: the mind's own code, mail, another agent. */
 export function saidByOf(source: StreamEventSource | undefined): string | undefined {
   const who = source?.principal ? { ...source, principal: source.principal } : source?.onBehalfOf;
   if (!who) return undefined;

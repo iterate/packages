@@ -14,7 +14,7 @@ export function getRouter() {
       <DefaultNotFoundComponent
         action={
           <Link to="/" className={buttonVariants({ variant: "outline" })}>
-            Back to your project
+            Back to your mind
           </Link>
         }
       />
@@ -25,7 +25,7 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: ReturnType<typeof getRouter>;
   }
-  /** A project's page names itself for the shell's breadcrumb (`staticData: { page }`). */
+  /** A mind's page names itself for the shell's breadcrumb (`staticData: { page }`). */
   interface StaticDataRouteOption {
     page?: string;
   }

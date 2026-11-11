@@ -10,10 +10,10 @@ facet, not a platform built-in. This folder is the web app and the tests that dr
 - `scripts/` — the voice call and device tools.
 - Its e2e and Workers tests live outside the app: `test/vitest/agents/` and `test/vitest/agents-workers/`.
 
-A project's config repo installs the app ([core/lib/src/agents/README.md](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#install);
-core/configs/default does). This app installs nothing: on a project without `itx.agents` it says so
+A mind's config repo installs the app ([core/lib/src/agents/README.md](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#install);
+core/configs/default does). This app installs nothing: on a mind without `itx.agents` it says so
 and links to the config repo. `itx.agents.create(path)` installs an agent at that context;
-`get(path).message(text)` sends a message. The project owns its data.
+`get(path).message(text)` sends a message. The mind owns its data.
 
 The sidebar reads the catalog on `/agents`, which lists every context under `/agents`: an agent is
 any of them, iterate's own or not ([what an agent is](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#what-an-agent-is)).
@@ -29,7 +29,7 @@ holds more than its creator. An agent's scripts are not narrowed separately from
 reaches `itx.ai`, `itx.files` and its own log through the same rows.
 
 The agents upgrade with the platform: a deploy restarts them on their next call, with their grants
-and history kept. A project whose config still pins the retired npm package `@iterate-com/agents`
+and history kept. A mind whose config still pins the retired npm package `@iterate-com/agents`
 keeps running that build until its `agents.ts` re-exports `iterate/agents` instead.
 
 `pnpm test` runs app unit tests. From the repository root, integration tests run with:

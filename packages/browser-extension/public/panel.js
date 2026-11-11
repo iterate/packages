@@ -1,7 +1,7 @@
 // panel.js — the whole extension, after packages/spa/public/app.js: a sign-in through Chrome's identity
 // window, then ONE WebSocket to the platform's /api opened bare, the credential presented IN the
-// `authenticate` call, and this Chrome lent to the project's root context as `itx.chrome` — a live
-// RpcTarget (open a page, raw CDP on the tabs the project may drive) that the project's agents and
+// `authenticate` call, and this Chrome lent to the mind's root context as `itx.chrome` — a live
+// RpcTarget (open a page, raw CDP on the tabs the mind may drive) that the mind's agents and
 // workers call back into while the panel is open. capnweb.js (the package's own browser bundle) and
 // oauth.js (the SPA's) are copied beside this file by the build (README).
 import { newWebSocketRpcSession, RpcTarget } from "./capnweb.js";
@@ -35,19 +35,19 @@ const oauth = oauthClient({
   },
 });
 
-// ── What this Chrome lends: an RpcTarget (capnweb passes it by reference, so a call on the project's
-// root context runs HERE). The project drives the tabs it opened and the tabs the person lent it,
+// ── What this Chrome lends: an RpcTarget (capnweb passes it by reference, so a call on the mind's
+// root context runs HERE). The mind drives the tabs it opened and the tabs the person lent it,
 // over raw CDP, commands only: the wire stays a wire, and the browser's FACTS — a tab attached,
 // navigated, detached — go to the root stream as ephemeral events.
 
-/** The tabs the project may drive — opened by it, or lent by the person — each with whether the
+/** The tabs the mind may drive — opened by it, or lent by the person — each with whether the
  *  debugger is attached and, while it is being attached, that promise (so overlapping first calls
  *  share one attach). */
 const tabs = new Map();
 const grant = (tabId) =>
   tabs.get(tabId) ?? tabs.set(tabId, { attached: false, attaching: null }).get(tabId);
 
-/** Let every tab go: on sign-out, and when the panel moves to another project. An attach still in
+/** Let every tab go: on sign-out, and when the panel moves to another mind. An attach still in
  *  flight settles first, so it cannot leave the debugger on a tab nobody tracks any more. */
 async function releaseTabs() {
   for (const [tabId, known] of tabs) {
@@ -60,10 +60,10 @@ async function releaseTabs() {
 let report = () => {};
 const fact = (type, payload) => report({ type, ephemeral: true, payload });
 
-/** Attach the debugger to a tab the project may drive (once; Chrome shows its bar on the tab). */
+/** Attach the debugger to a tab the mind may drive (once; Chrome shows its bar on the tab). */
 async function attach(tabId) {
   const known = tabs.get(tabId);
-  if (!known) throw new Error(`Tab ${tabId} is not one this project opened or was lent.`);
+  if (!known) throw new Error(`Tab ${tabId} is not one this mind opened or was lent.`);
   if (known.attached) return;
   known.attaching ??= (async () => {
     await chrome.debugger.attach({ tabId }, "1.3");
@@ -91,7 +91,7 @@ chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
 });
 
 class ChromeBrowser extends RpcTarget {
-  /** The tabs the project may drive, still open: how an agent finds a tab the person lent. The
+  /** The tabs the mind may drive, still open: how an agent finds a tab the person lent. The
    *  `chrome/attached` event says the same, but only while the root context stays awake. */
   async tabs() {
     // The debugger's target list, not chrome.tabs: it carries each tab's URL and title without the
@@ -102,7 +102,7 @@ class ChromeBrowser extends RpcTarget {
       .map(({ tabId, url, title }) => ({ tabId, url, title, attached: tabs.get(tabId).attached }));
   }
 
-  /** Open an http(s) page in a new active tab the project may drive; answers once the page has
+  /** Open an http(s) page in a new active tab the mind may drive; answers once the page has
    *  loaded (or after ten seconds) with the tab's id and URL. */
   async openPage(input) {
     if (!input || typeof input.url !== "string") throw new Error("openPage() takes { url }.");
@@ -125,7 +125,7 @@ class ChromeBrowser extends RpcTarget {
     return { tabId: tab.id, url: target.href };
   }
 
-  /** One CDP command on a tab the project may drive (attached on first use): the command's result,
+  /** One CDP command on a tab the mind may drive (attached on first use): the command's result,
    *  e.g. `cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })`. */
   async cdp(tabId, method, params) {
     await attach(tabId);
@@ -140,10 +140,10 @@ class ChromeBrowser extends RpcTarget {
 
 // ── The panel.
 
-/** Which platform and which project — remembered across panel openings. */
+/** Which platform and which mind — remembered across panel openings. */
 async function settings() {
-  const stored = await chrome.storage.local.get(["issuer", "project"]);
-  return { issuer: stored.issuer || "https://os.iterate.com", project: stored.project || "" };
+  const stored = await chrome.storage.local.get(["issuer", "mind"]);
+  return { issuer: stored.issuer || "https://os.iterate.com", mind: stored.mind || "" };
 }
 
 /** An element the page holds, by id and kind — the templates below always render it. */
@@ -171,7 +171,7 @@ function fail(into, error) {
 let generation = 0;
 let live = null;
 let liveApi = null;
-let connectedProject = "";
+let connectedMind = "";
 
 async function signedOut(issuer) {
   generation += 1;
@@ -179,8 +179,8 @@ async function signedOut(issuer) {
   live = null;
   app.innerHTML = `
     <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
-    <p class="muted">Sign in at an iterate platform and pick a project: this Chrome becomes that
-    project's <code>itx.chrome</code>.</p>
+    <p class="muted">Sign in at an iterate platform and pick a mind: this Chrome becomes that
+    mind's <code>itx.chrome</code>.</p>
     <label>Platform <input id="issuer" value="${escape(issuer)}" spellcheck="false" /></label>
     <p><button id="login">Sign in with Iterate</button></p>`;
   const input = element("issuer", HTMLInputElement);
@@ -196,15 +196,15 @@ async function signedOut(issuer) {
 }
 
 async function signedIn(session) {
-  const { project } = await settings();
+  const { mind } = await settings();
   app.innerHTML = `
     <header>
       <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
       <button id="logout" class="secondary">Sign out</button>
     </header>
     <p class="muted">Signed in at <code>${escape(session.issuer)}</code>.</p>
-    <label>Project
-      <input id="project" value="${escape(project)}" placeholder="slug or prj_… id" spellcheck="false" />
+    <label>Mind
+      <input id="mind" value="${escape(mind)}" placeholder="slug or mind_… id" spellcheck="false" />
     </label>
     <section id="connection"></section>`;
   element("logout", HTMLButtonElement).onclick = async () => {
@@ -218,32 +218,32 @@ async function signedIn(session) {
     await oauth.signOut();
     await signedOut(session.issuer);
   };
-  const input = element("project", HTMLInputElement);
+  const input = element("mind", HTMLInputElement);
   input.onchange = async () => {
     const chosen = input.value.trim();
-    // A change event that names the connected project again (Enter, then a click elsewhere) must
+    // A change event that names the connected mind again (Enter, then a click elsewhere) must
     // not tear the live lend down to make the same one.
-    if (chosen === connectedProject) return;
-    await chrome.storage.local.set({ project: chosen });
+    if (chosen === connectedMind) return;
+    await chrome.storage.local.set({ mind: chosen });
     await connect(session, chosen);
   };
-  await connect(session, project);
+  await connect(session, mind);
 }
 
 /** One socket, one lend. When the platform closes the socket (the hour-old access token expired,
  *  the grant ended) the panel connects again — a fresh token is a fresh socket, and the lend goes
  *  with the socket, so it is made again too. */
-async function connect(session, project) {
+async function connect(session, mind) {
   const mine = ++generation;
   live?.[Symbol.dispose]();
   live = null;
   liveApi = null;
-  // Another project must not inherit this one's tabs (a reconnect to the same project keeps them).
-  if (project !== connectedProject) await releaseTabs();
-  connectedProject = project;
+  // Another mind must not inherit this one's tabs (a reconnect to the same mind keeps them).
+  if (mind !== connectedMind) await releaseTabs();
+  connectedMind = mind;
   const view = element("connection", HTMLElement);
-  view.innerHTML = project ? `<p class="muted">Connecting…</p>` : "";
-  if (!project) return;
+  view.innerHTML = mind ? `<p class="muted">Connecting…</p>` : "";
+  if (!mind) return;
 
   const socket = new WebSocket(`${session.issuer.replace(/^http/, "ws")}/api`);
   const iterate = newWebSocketRpcSession(socket);
@@ -253,9 +253,9 @@ async function connect(session, project) {
     // capnweb answers `authenticate` with a pipelined stub of the session: the calls below ride the
     // same round trip as the token.
     const api = iterate.authenticate({ type: "bearer", token });
-    const itx = await api.projects.get(project);
-    // The lend is a rewrite rule of THIS context — the project's root, `/` — so a caller in another
-    // context of the project (an agent's script runs in its own) spells it `itx.cd('/').chrome`.
+    const itx = await api.minds.get(mind);
+    // The lend is a rewrite rule of THIS context — the mind's root, `/` — so a caller in another
+    // context of the mind (an agent's script runs in its own) spells it `itx.cd('/').chrome`.
     const [info, whoami] = await Promise.all([
       api.info(),
       itx.whoami(),
@@ -264,16 +264,16 @@ async function connect(session, project) {
     if (mine !== generation) return;
     liveApi = api;
     report = (event) => itx.append(event).catch(console.error);
-    const proofUrl = `https://example.com/?iterate-chrome-proof=${encodeURIComponent(whoami.projectId)}`;
+    const proofUrl = `https://example.com/?iterate-chrome-proof=${encodeURIComponent(whoami.mindId)}`;
     view.innerHTML = `
       <p>Connected as <strong>${escape(info.principal.email || info.principal.actor)}</strong>,
-      project <code>${escape(whoami.projectId)}</code>.</p>
+      mind <code>${escape(whoami.mindId)}</code>.</p>
       <div class="capability">
         <div class="status"><span>Chrome capability</span><span>lent as <code>itx.chrome</code></span></div>
-        <p><button id="prove">Open a page through the project</button>
+        <p><button id="prove">Open a page through the mind</button>
           <button id="lend" class="secondary">Lend the current tab</button></p>
         <p id="proof-result" class="muted"></p>
-        <p class="muted">Or post this to one of the project's agents:</p>
+        <p class="muted">Or post this to one of the mind's agents:</p>
         <p class="prompt">Call itx.cd('/').chrome.openPage({ url: "${escape(proofUrl)}" }), then
           itx.cd('/').chrome.cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })
           on the tabId it returned, and report the title.</p>
@@ -295,7 +295,7 @@ async function connect(session, project) {
             { expression: "document.title", returnByValue: true },
           ],
         ]);
-        result.textContent = `The project opened tab ${opened.tabId} and read its title: ${JSON.stringify(evaluated.result.value)}`;
+        result.textContent = `The mind opened tab ${opened.tabId} and read its title: ${JSON.stringify(evaluated.result.value)}`;
       } catch (error) {
         result.textContent = "";
         fail(result, error);
@@ -307,7 +307,7 @@ async function connect(session, project) {
       grant(tab.id);
       try {
         await attach(tab.id);
-        result.textContent = `Tab ${tab.id} is lent: the project may drive it with cdp(${tab.id}, …).`;
+        result.textContent = `Tab ${tab.id} is lent: the mind may drive it with cdp(${tab.id}, …).`;
       } catch (error) {
         result.textContent = "";
         fail(result, error);
@@ -317,14 +317,14 @@ async function connect(session, project) {
     if (mine !== generation) return;
     view.innerHTML = `<p><button id="retry" class="secondary">Retry</button></p>`;
     fail(view, error);
-    element("retry", HTMLButtonElement).onclick = () => connect(session, project);
+    element("retry", HTMLButtonElement).onclick = () => connect(session, mind);
     return;
   }
   socket.addEventListener("close", () => {
     if (mine !== generation) return;
     view.innerHTML = `<p class="muted">The connection closed; connecting again…</p>`;
     setTimeout(() => {
-      if (mine === generation) void connect(session, project);
+      if (mine === generation) void connect(session, mind);
     }, 2_000);
   });
   // THE HEARTBEAT, iterate's own (core/lib/src/client/heartbeat.ts says why): `whoami()` every
@@ -341,7 +341,7 @@ async function connect(session, project) {
     if (answered || mine !== generation) return;
     clearInterval(beat);
     view.innerHTML = `<p class="muted">The connection stopped answering; connecting again…</p>`;
-    void connect(session, project);
+    void connect(session, mind);
   }, 30_000);
 }
 

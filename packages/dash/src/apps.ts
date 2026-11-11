@@ -1,7 +1,7 @@
 import type { StartAppConfig } from "@iterate-com/shared/start-app-config";
 
-/** The first-party apps the dash links to from a project — each its own worker on its own origin,
- *  serving a project at `/projects/<address>`. Their origins are this deployment's
+/** The first-party apps the dash links to from a mind — each its own worker on its own origin,
+ *  serving a mind at `/minds/<address>`. Their origins are this deployment's
  *  (`appDirectory`): a standalone Dash names none, and links to none. */
 const APPS = [
   { id: "agents", name: "Agents" },

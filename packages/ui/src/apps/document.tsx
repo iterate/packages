@@ -4,7 +4,7 @@ import { EnvironmentHeadContent } from "#/components/environment-head-content.ts
 
 /** Every app's root route component: the document, with the app's providers around its pages.
  *  `icon` is the app's icon file in production. `basePath` is the path the page is served under
- *  when a project proxies it (packages/ui/src/apps/base-path.ts): the icon goes under it, and the browser's
+ *  when a mind proxies it (packages/ui/src/apps/base-path.ts): the icon goes under it, and the browser's
  *  router reads it from `<html data-base-path>` before it starts. */
 export function AppDocument(props: {
   icon: string;

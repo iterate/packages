@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Iterate",
-  "description": "Lend this Chrome to an iterate project as itx.chrome.",
+  "description": "Lend this Chrome to an iterate mind as itx.chrome.",
   "version": "0.3.2",
   "minimum_chrome_version": "114",
   "key": "<CHROME_EXTENSION_KEY: scripts/build.ts sets it, or leaves the key out>",

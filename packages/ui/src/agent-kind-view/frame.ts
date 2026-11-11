@@ -1,6 +1,6 @@
 // THE FRAME a kind's chat view runs in: a sandboxed iframe with an opaque origin and none of the
 // page's cookies (host.ts makes it). View code comes from a config repo any member, or any
-// member's agent, can commit to; in the page itself it would run as the viewer, in every project
+// member's agent, can commit to; in the page itself it would run as the viewer, in every mind
 // they belong to. Here it holds only what the host hands over for one agent.
 //
 // `startAgentKindViewFrame()` is the frame's whole script: it says it is ready, takes the host's hello

@@ -1,6 +1,6 @@
 import { ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import type { RepoLogEntry } from "iterate/api";
-import { readChangedFiles, useRead, type RepoProject } from "./repo-client.ts";
+import { readChangedFiles, useRead, type RepoMind } from "./repo-client.ts";
 
 /** A moment as `2026-09-30 15:39 UTC`: the same on the server and in the browser, whatever the
  *  reader's locale. */
@@ -29,7 +29,7 @@ function timeAgo(timestamp: number) {
 export function CommitHistoryPanel({
   commits,
   refreshing,
-  project,
+  mind,
   repoPath,
   expandedOid,
   selectedPath,
@@ -39,7 +39,7 @@ export function CommitHistoryPanel({
   commits: RepoLogEntry[];
   /** A newer read of the commits is in flight: the list shown is the one before it. */
   refreshing: boolean;
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   /** The commit whose row is expanded (URL-owned view state). */
   expandedOid: string | undefined;
@@ -95,7 +95,7 @@ export function CommitHistoryPanel({
               {expanded ? (
                 <ExpandedCommit
                   commit={commit}
-                  project={project}
+                  mind={mind}
                   repoPath={repoPath}
                   selectedPath={selectedPath}
                   onOpenFile={onOpenFile}
@@ -112,21 +112,21 @@ export function CommitHistoryPanel({
 /** The expanded commit: its full message, author, and the files it changed. */
 function ExpandedCommit({
   commit,
-  project,
+  mind,
   repoPath,
   selectedPath,
   onOpenFile,
 }: {
   commit: RepoLogEntry;
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   selectedPath: string | undefined;
   onOpenFile: (path: string) => void;
 }) {
   // a commit's diff against its parent never changes, so it is read once per expansion
   const files = useRead(
-    () => readChangedFiles(project, repoPath, commit),
-    [project, repoPath, commit.oid],
+    () => readChangedFiles(mind, repoPath, commit),
+    [mind, repoPath, commit.oid],
   );
   const parent = commit.parents[0];
   return (

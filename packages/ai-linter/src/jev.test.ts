@@ -232,7 +232,7 @@ test("each candidate is one Jev request, byte for byte the request the experimen
 });
 
 test("Jev's answer: p for the one question, and the tokens it read", () => {
-  // what the project's Workers AI binding answers (prd, 2026-09-27)
+  // what the mind's Workers AI binding answers (prd, 2026-09-27)
   const binding = {
     state: "Completed",
     result: {

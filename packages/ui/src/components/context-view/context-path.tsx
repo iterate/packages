@@ -1,7 +1,7 @@
 // A context's path, once, each segment a link up: `/ repos / config`, the last segment the page's
 // own. The link target is the caller's (`ContextPathLinks`): the UI kit knows no routes, so an app
 // says what URL a path opens and, with a client router, takes the plain click itself — the way
-// AppShell's `projectHref` and `onNavigate` work.
+// AppShell's `mindHref` and `onNavigate` work.
 import { useContext, type ReactNode } from "react";
 import { cn } from "cn";
 import { ContextPathLinksContext, type ContextPathLinks } from "./context-path-links.ts";

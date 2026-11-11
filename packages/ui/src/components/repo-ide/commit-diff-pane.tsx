@@ -1,7 +1,7 @@
 import { EmptyPane, ErrorPane, FileChrome } from "./file-chrome.tsx";
 import { RepoCodeEditor } from "./repo-code-editor.tsx";
 import { repoFileKind } from "./repo-file-kinds.ts";
-import { readRepoFile, useRead, type RepoProject } from "./repo-client.ts";
+import { readRepoFile, useRead, type RepoMind } from "./repo-client.ts";
 
 /**
  * Readonly diff of one file in one commit against that commit's first parent: what opens when a
@@ -9,12 +9,12 @@ import { readRepoFile, useRead, type RepoProject } from "./repo-client.ts";
  * lock icon, no chunk controls, no input.
  */
 export function CommitDiffPane({
-  project,
+  mind,
   repoPath,
   path,
   commit,
 }: {
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   path: string;
   commit: { oid: string; parents: string[] };
@@ -25,11 +25,11 @@ export function CommitDiffPane({
     if (kind.kind !== "text") return null;
     const [before, after] = await Promise.all([
       // the content before the commit: none for a root commit
-      !parentOid ? undefined : readRepoFile(project, repoPath, path, parentOid),
-      readRepoFile(project, repoPath, path, commit.oid),
+      !parentOid ? undefined : readRepoFile(mind, repoPath, path, parentOid),
+      readRepoFile(mind, repoPath, path, commit.oid),
     ]);
     return { before, after };
-  }, [project, repoPath, path, commit.oid, parentOid, kind.kind]);
+  }, [mind, repoPath, path, commit.oid, parentOid, kind.kind]);
 
   const suffix = `(${commit.oid.slice(0, 7)})`;
   if (kind.kind !== "text") {

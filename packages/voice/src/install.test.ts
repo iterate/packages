@@ -5,12 +5,12 @@ import { ensureVoiceAgent, installVoice, upgradeVoice, voiceVersion } from "./in
 const name = "@iterate-com/voice";
 const older = "https://pkg.pr.new/iterate/private/@iterate-com/voice@abc1234";
 const newer = "https://pkg.pr.new/iterate/private/@iterate-com/voice@def5678";
-const UPDATED = "events.iterate.com/project/worker-updated";
-const FAILED = "events.iterate.com/project/worker-update-failed";
+const UPDATED = "events.iterate.com/mind/worker-updated";
+const FAILED = "events.iterate.com/mind/worker-update-failed";
 const RULE = "events.iterate.com/itx/rewrite-rule-configured";
 
 test("installVoice stores the screen font and writes the itx.voice rule to voice.ts of the published config, with no cache key", async () => {
-  const root = project();
+  const root = mind();
   await installVoice(root);
   expect(root.kv.values["voice/screen-font.css"]).toContain("Iterate Pixel");
   expect(root.append.mock).toMatchObject({
@@ -29,31 +29,31 @@ test("installVoice stores the screen font and writes the itx.voice rule to voice
   });
 });
 
-test("a project whose config installed voice and that has a key is ready at once: nothing is stored or waited for", async () => {
-  const root = project({ voice: true });
+test("a mind whose config installed voice and that has a key is ready at once: nothing is stored or waited for", async () => {
+  const root = mind({ voice: true });
   expect(await ensureVoiceAgent(root, "unused")).toBe("ready");
   expect(root.secrets.set).not.toHaveBeenCalled();
   expect(root.waitForEvent).not.toHaveBeenCalled();
   expect(root.voice.health).toHaveBeenCalledOnce();
 });
 
-test("a key given to a project without one is stored, pinned to OpenAI, before the service is asked", async () => {
-  const root = project({ voice: true, key: false });
+test("a key given to a mind without one is stored, pinned to OpenAI, before the service is asked", async () => {
+  const root = mind({ voice: true, key: false });
   expect(await ensureVoiceAgent(root, " sk-test ")).toBe("ready");
   expect(root.secrets.set).toHaveBeenCalledWith("/secrets/openai", "sk-test", {
     urls: ["https://api.openai.com"],
   });
 });
 
-test("a project without an OpenAI key and none given is asked for one, and nothing is stored", async () => {
-  const root = project({ voice: true, key: false });
+test("a mind without an OpenAI key and none given is asked for one, and nothing is stored", async () => {
+  const root = mind({ voice: true, key: false });
   expect(await ensureVoiceAgent(root)).toBe("needs-openai-key");
   expect(root.secrets.set).not.toHaveBeenCalled();
   expect(root.voice.health).not.toHaveBeenCalled();
 });
 
-test("a project created a moment ago is waited for until its config repo's init case installs voice: its rule as the root stores it, past another rule and another commit's refusal", async () => {
-  const root = project();
+test("a mind created a moment ago is waited for until its config repo's init case installs voice: its rule as the root stores it, past another rule and another commit's refusal", async () => {
+  const root = mind();
   root.land(RULE, { match: ["itx", "agents"], target: ["itx", "facets", ["get", "agents"]] });
   root.land(FAILED, { commitOid: "before-seed", error: "an older commit's refusal" });
   const ready = ensureVoiceAgent(root);
@@ -64,8 +64,8 @@ test("a project created a moment ago is waited for until its config repo's init 
   expect(root.voice.health).toHaveBeenCalledOnce();
 });
 
-test("a project whose config repo is created but not yet seeded is waited for, not refused", async () => {
-  const root = project();
+test("a mind whose config repo is created but not yet seeded is waited for, not refused", async () => {
+  const root = mind();
   root.repos.get("/repos/config").tip = async () => null;
   const ready = ensureVoiceAgent(root);
   await vi.waitFor(() => expect(root.waitForEvent).toHaveBeenCalledTimes(1));
@@ -74,7 +74,7 @@ test("a project whose config repo is created but not yet seeded is waited for, n
 });
 
 test("a voice rule the root no longer holds is not installed: readiness waits for the one init writes again", async () => {
-  const root = project();
+  const root = mind();
   root.land(RULE, { match: ["itx", "voice"], target: ["itx", "workers", ["get", published]] });
   root.land(RULE, { match: ["itx", "voice"], target: null });
   const ready = ensureVoiceAgent(root);
@@ -85,15 +85,15 @@ test("a voice rule the root no longer holds is not installed: readiness waits fo
 });
 
 test("a config whose commit that pins voice was refused is refused at once, saying why", async () => {
-  const root = project();
+  const root = mind();
   root.land(FAILED, { commitOid: "seed", error: "voice.ts imports ./missing.ts" });
   await expect(ensureVoiceAgent(root)).rejects.toThrow(
-    "The project's config (commit seed) was not published, so it installs no voice: voice.ts imports ./missing.ts",
+    "The mind's config (commit seed) was not published, so it installs no voice: voice.ts imports ./missing.ts",
   );
 });
 
-test("a project whose config repo is not created yet is waited for, not refused", async () => {
-  const root = project({ seeded: false });
+test("a mind whose config repo is not created yet is waited for, not refused", async () => {
+  const root = mind({ seeded: false });
   root.land(RULE, { match: ["itx", "voice"], target: ["itx", "workers", ["get", published]] });
   expect(await ensureVoiceAgent(root)).toBe("ready");
 });
@@ -104,7 +104,7 @@ test.for([
     pin: false,
     answer: undefined,
     error:
-      "This project's config repo does not install voice: its package.json lists no @iterate-com/voice",
+      "This mind's config repo does not install voice: its package.json lists no @iterate-com/voice",
   },
   {
     name: "voice does not arrive within a minute",
@@ -113,17 +113,17 @@ test.for([
     error: "Voice was not installed within a minute",
   },
   {
-    name: "the project's creation failed",
+    name: "the mind's creation failed",
     pin: true,
     answer: async () => ({
-      type: "events.iterate.com/project/create-failed",
+      type: "events.iterate.com/mind/create-failed",
       offset: 2,
       payload: { error: "no template" },
     }),
-    error: "The project's creation failed, so its config repo installs no voice: no template",
+    error: "The mind's creation failed, so its config repo installs no voice: no template",
   },
 ])("$name: refused", async ({ pin, answer, error }) => {
-  const root = project({ pin, key: false });
+  const root = mind({ pin, key: false });
   if (answer) root.waitForEvent.mockImplementation(answer as never);
   await expect(ensureVoiceAgent(root, "a key")).rejects.toThrow(error);
   expect(root.secrets.set).toHaveBeenCalledTimes(pin ? 1 : 0);
@@ -131,7 +131,7 @@ test.for([
 });
 
 test("readiness has one deadline: rules that are not voice's, however many arrive, end in a refusal after a minute", async () => {
-  const root = project();
+  const root = mind();
   vi.useFakeTimers({ toFake: ["Date"] });
   onTestFinished(() => void vi.useRealTimers());
   root.waitForEvent.mockImplementation(async ({ afterOffset = 0 }) => {
@@ -156,14 +156,14 @@ test.for([
   ["another package's pin is not this one", manifest({ dependencies: { hono: "^4" } }), undefined],
   ["a config without a package.json pins none", null, undefined],
 ] as const)("the voice version: %s", async ([, packageJson, version]) => {
-  const root = project();
+  const root = mind();
   if (packageJson) root.trees.seed!["package.json"] = packageJson;
   else delete root.trees.seed!["package.json"];
   expect(await voiceVersion(root)).toBe(version);
 });
 
-test("the voice version is the build the project runs: the published commit's pin, never one the tip pins while its publication is owed or after it was refused", async () => {
-  const root = project();
+test("the voice version is the build the mind runs: the published commit's pin, never one the tip pins while its publication is owed or after it was refused", async () => {
+  const root = mind();
   const upgrade = upgradeVoice(root, newer);
   await vi.waitFor(() => expect(root.commits).toHaveLength(1));
   expect(await voiceVersion(root)).toBe(older);
@@ -172,7 +172,7 @@ test("the voice version is the build the project runs: the published commit's pi
   expect(await voiceVersion(root)).toBe(older);
   root.land(UPDATED, { commitOid: "commit-1" });
   expect(await voiceVersion(root)).toBe(newer);
-  expect(await voiceVersion(project({ published: null }))).toBeUndefined();
+  expect(await voiceVersion(mind({ published: null }))).toBeUndefined();
 });
 
 test.for([
@@ -185,7 +185,7 @@ test.for([
 ])(
   "an upgrade commits the pin on the tip it read, keeping the rest of package.json, and waits once for that commit's outcome: $name",
   async ({ outcome, error }) => {
-    const root = project();
+    const root = mind();
     root.trees.seed!["package.json"] = manifest({
       private: true,
       dependencies: { [name]: older, hono: "^4" },
@@ -214,7 +214,7 @@ test.for([
 );
 
 test("the platform's give-up for now (`unavailable`) is no outcome: an upgrade waits past it for the publication the platform still owes", async () => {
-  const root = project();
+  const root = mind();
   vi.useFakeTimers({ toFake: ["Date"] });
   onTestFinished(() => void vi.useRealTimers());
   const upgrade = upgradeVoice(root, newer);
@@ -228,7 +228,7 @@ test("the platform's give-up for now (`unavailable`) is no outcome: an upgrade w
   expect(second?.timeoutMs).toBeLessThanOrEqual(60_000);
 });
 
-/** Where every rule and row of voice names its code: `voice.ts` of the project's published config
+/** Where every rule and row of voice names its code: `voice.ts` of the mind's published config
  *  (it restarts by that module's bundle, not a key). */
 const published = { mainModule: "voice.ts", source: ["itx", ["cd", "/"], "config"] };
 
@@ -237,13 +237,13 @@ function manifest(json: object) {
   return `${JSON.stringify(json, null, 2)}\n`;
 }
 
-/** A project root over an in-memory config repo whose `seed` pins `older` (none unless `pin`), and
+/** A mind root over an in-memory config repo whose `seed` pins `older` (none unless `pin`), and
  *  which runs `published`; its commits land as the platform's do (`parent` must be the tip), and
  *  unless `seeded` it is not created yet. It has `/secrets/openai` unless `key` is false and the
  *  `itx.voice` rule when `voice`. Events on `/` land by hand (`land`), as the stream's filter
- *  answers them; a publication moves the commit the project runs, as the project's
+ *  answers them; a publication moves the commit the mind runs, as the mind's
  *  reduce does. */
-function project({
+function mind({
   voice = false,
   key = true,
   pin = true,
@@ -348,7 +348,7 @@ function project({
       }),
     },
     append: vi.fn(async (..._events: object[]) => []),
-    voice: { health: vi.fn().mockResolvedValue({ ok: true, projectId: "prj_voice" }) },
+    voice: { health: vi.fn().mockResolvedValue({ ok: true, mindId: "mind_voice" }) },
   };
   // The fake implements only the calls installing and upgrading make; typed once as what they take,
   // it keeps its mocks and in-memory records for the assertions.

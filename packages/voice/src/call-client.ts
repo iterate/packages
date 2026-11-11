@@ -5,7 +5,7 @@
 // come while the link is slow wait, and go together in the next free append, one event each. A
 // `keepalive` every 20 s says the caller is still there through a quiet stretch, and hanging up appends
 // `call-ended`. The subscription routes each frame and fact to its call by activation. A client whose
-// link to the project can drop (a phone bridge under `iterate provide`) carries its device to the
+// link to the mind can drop (a phone bridge under `iterate provide`) carries its device to the
 // new link with `moveTo`.
 // packages/agents-app/scripts/voice-call.ts runs it from Node with WAV files; Kit's firmware speaks
 // the same calls in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
@@ -172,12 +172,12 @@ export type VoiceDevice<Context> = {
     onSpeakerFrame(frame: VoiceCallSpeakerFrame): void;
     onFact(fact: VoiceCallFact): void;
   }): VoiceCall;
-  /** The link the device rode on is gone (`iterate provide` reconnected): carry it to `project`,
+  /** The link the device rode on is gone (`iterate provide` reconnected): carry it to `mind`,
    *  the new link's root. Calls in progress send their frames and keepalives there; a new
    *  subscription starts, and the log after the last fact delivered is read, so a `call-ended` or a
    *  transcript that landed in the gap still arrives. The answer's audio from the gap is lost: it is
    *  ephemeral. */
-  moveTo(project: { cd(path: string): Context }): Promise<void>;
+  moveTo(mind: { cd(path: string): Context }): Promise<void>;
   /** End the subscription; a call in progress is not hung up. */
   close(): void;
 };
@@ -188,20 +188,20 @@ type CallRoute = {
   fact(fact: VoiceCallFact): void;
 };
 
-/** Provision `client` on `project` (a root whose `itx.voice` is installed) and subscribe to its
+/** Provision `client` on `mind` (a root whose `itx.voice` is installed) and subscribe to its
  *  relay's context. `client` names the device: a Kit board's `itx.clients` name, or the
  *  installation id a browser or the CLI keeps. Resolves once both have answered. */
 export async function connectVoiceDevice<
   Context extends Pick<IterateContextApi, "subscribe" | "append" | "appendOffsets" | "readEvents">,
 >(
-  project: { voice: Pick<VoiceApi, "ensureVoiceDevice">; cd(path: string): Context },
+  mind: { voice: Pick<VoiceApi, "ensureVoiceDevice">; cd(path: string): Context },
   options: { client: string; screen?: string },
 ): Promise<VoiceDevice<Context>> {
-  const { path, agentPath } = await project.voice.ensureVoiceDevice({
+  const { path, agentPath } = await mind.voice.ensureVoiceDevice({
     client: options.client,
     screen: options.screen,
   });
-  let itx = project.cd(path);
+  let itx = mind.cd(path);
   const calls = new Map<string, CallRoute>();
   /** The offset of the last durable event delivered: a moved device reads the log after it. An
    *  ephemeral event's offset is not counted: a new incarnation of the context numbers its next

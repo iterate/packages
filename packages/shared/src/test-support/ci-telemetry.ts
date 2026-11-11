@@ -166,10 +166,6 @@ export function resolveTestTelemetryArtifactPath(
   return repositoryRoot ? resolve(repositoryRoot, path) : path;
 }
 
-export function testTelemetryArtifactId(...parts: Array<string | number | undefined>) {
-  return parts.filter((part) => part !== undefined && part !== "").join(":");
-}
-
 export function testTelemetryContextFromEnvironment(
   framework: TestTelemetryContext["framework"],
   defaults: Omit<TestTelemetryContext, "framework">,

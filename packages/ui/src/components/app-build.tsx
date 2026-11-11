@@ -26,10 +26,10 @@ export function AppBuild({
 }: {
   /** the app's name, which titles the section: "Agents", "Voice" */
   app: string;
-  /** the version the project runs: its published config's pin, which a refused upgrade leaves */
+  /** the version the mind runs: its published config's pin, which a refused upgrade leaves */
   installed: string;
   check: (installed: string) => Promise<BuildStanding>;
-  /** Upgrades the project to `version` and reloads the page's data; throws what failed. */
+  /** Upgrades the mind to `version` and reloads the page's data; throws what failed. */
   upgrade: (version: string) => Promise<void>;
 }) {
   const [checked, setChecked] = useState<Checked>();
@@ -127,7 +127,7 @@ function Standing({
     case "own":
       return (
         <p className="break-all">
-          The project's own build, <code>{standing.installed}</code>, which it upgrades itself.
+          The mind's own build, <code>{standing.installed}</code>, which it upgrades itself.
         </p>
       );
     case "newest":

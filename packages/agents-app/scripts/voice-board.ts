@@ -1,6 +1,6 @@
 // scripts/voice-board.ts — prove a physical board end to end on the platform, out loud, through real air.
 //
-// The board holds its own session to the worker and lent its capabilities on the project root
+// The board holds its own session to the worker and lent its capabilities on the mind root
 // (`itx.clients.<device_name>`, underscores for anything that is not an identifier character). This
 // script asks it to start a call (a remote press), watches the device's relay context for what the
 // provider heard and said in that call (its activation), speaks the prompt out of this Mac's speaker so the board's
@@ -8,7 +8,7 @@
 // the call became active (and how long that took), microphone frames left the device, an answer
 // reached its speaker, and the provider transcribed the words and the board answered them.
 //
-//   PROJECT=example.com \
+//   MIND=example.com \
 //   node scripts/voice-board.ts --device home_assistant_voice_preview_edition \
 //     --prompt "Hello there. Please reply with the single word banana." --expect banana
 //
@@ -38,8 +38,8 @@ const Health = z.looseObject({
 });
 
 /** Proves a physical board end to end on the platform, out loud, through real air: a remote press,
- *  the prompt spoken out of this Mac's speaker, the transcripts checked. PROJECT (env) names the
- *  project, default prj-voice. */
+ *  the prompt spoken out of this Mac's speaker, the transcripts checked. MIND (env) names the
+ *  mind, default prj-voice. */
 export default async function voiceBoard(
   options: {
     /** The device's `itx.clients.` name. */

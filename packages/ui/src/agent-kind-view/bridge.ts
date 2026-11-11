@@ -9,7 +9,7 @@
 //                 then the verbs: message,
 //                 append, fileUrl, setState, loadOlder. Each acts on the one agent the host shows;
 //                 the host never hands over its context stub, whose `invoke` and `cd` reach the
-//                 whole project.
+//                 whole mind.
 import type { AgentChatState } from "../components/agent-chat/agent-chat-search.ts";
 import type { ContextViewSource } from "../components/context-view/context-view.tsx";
 import type { AgentKindNewAgent, AgentKindViewProps } from "./types.ts";

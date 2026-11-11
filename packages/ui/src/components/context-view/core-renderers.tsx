@@ -81,7 +81,7 @@ export const coreEventRenderers: EventRenderers = {
   "events.iterate.com/itx/created": () => quiet("The context was born"),
   "events.iterate.com/itx/woken": (e) => {
     const p = record(e.payload);
-    // what began the chain that woke it: `<ISO> with <origin> ~<nonce>` (core/os/src/cause.ts)
+    // what began the chain that woke it: `<ISO> with <origin> ~<nonce>` (core/itx/src/cause.ts)
     const began = e.source?.cause?.chain.match(/ with (.*) ~[a-z0-9]+$/)?.[1];
     // the context's Durable Object started again (an eviction, a deploy): the info colour
     return (

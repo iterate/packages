@@ -1,4 +1,4 @@
-// The dash's own navigation inside the shared shell (`AppShell`, packages/ui): the project's
+// The dash's own navigation inside the shared shell (`AppShell`, packages/ui): the mind's
 // overview, contexts (any context's log, live), repos (the repo IDE), analytics, MCP, secrets, the
 // requests that wait for approval, integrations, its site, and the other first-party apps this
 // deployment names, opened on it.
@@ -21,34 +21,34 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@iterate-com/ui/components/ui/sidebar";
-import { projectSiteOf } from "../lib/origins.ts";
+import { mindSiteOf } from "../lib/origins.ts";
 
 /** The root loader's: the directory of apps this deployment has (apps.ts `appDirectory`), empty for
  *  a standalone Dash. */
 const root = getRouteApi("__root__");
 
-const PROJECT_PAGES = [
-  { to: "/projects/$project", label: "Overview", icon: LayoutDashboard },
-  { to: "/projects/$project/contexts/$", label: "Contexts", icon: Waypoints },
-  { to: "/projects/$project/repos", label: "Repos", icon: FolderGit2 },
-  { to: "/projects/$project/analytics", label: "Analytics", icon: ChartLine },
-  { to: "/projects/$project/mcp", label: "MCP", icon: Plug },
-  { to: "/projects/$project/secrets", label: "Secrets", icon: LockKeyhole },
-  { to: "/projects/$project/approvals", label: "Approvals", icon: ShieldCheck },
-  { to: "/projects/$project/integrations", label: "Integrations", icon: Blocks },
+const MIND_PAGES = [
+  { to: "/minds/$mind", label: "Overview", icon: LayoutDashboard },
+  { to: "/minds/$mind/contexts/$", label: "Contexts", icon: Waypoints },
+  { to: "/minds/$mind/repos", label: "Repos", icon: FolderGit2 },
+  { to: "/minds/$mind/analytics", label: "Analytics", icon: ChartLine },
+  { to: "/minds/$mind/mcp", label: "MCP", icon: Plug },
+  { to: "/minds/$mind/secrets", label: "Secrets", icon: LockKeyhole },
+  { to: "/minds/$mind/approvals", label: "Approvals", icon: ShieldCheck },
+  { to: "/minds/$mind/integrations", label: "Integrations", icon: Blocks },
 ] as const;
 
-/** The project's pages, its own site, and the first-party apps opened on it: every app serves
- *  `/projects/<address>`, and its own gate signs the browser in to the project there. */
-export function ProjectNav({ project }: { project: string }) {
+/** The mind's pages, its own site, and the first-party apps opened on it: every app serves
+ *  `/minds/<address>`, and its own gate signs the browser in to the mind there. */
+export function MindNav({ mind }: { mind: string }) {
   const matchRoute = useMatchRoute();
   const { apps } = root.useLoaderData();
-  const site = projectSiteOf(project);
+  const site = mindSiteOf(mind);
   return (
     <SidebarGroup>
       <SidebarGroupContent>
         <SidebarMenu>
-          {PROJECT_PAGES.map(({ to, label, icon: Icon }) => (
+          {MIND_PAGES.map(({ to, label, icon: Icon }) => (
             <SidebarMenuItem key={to}>
               <SidebarMenuButton
                 tooltip={label}
@@ -58,12 +58,11 @@ export function ProjectNav({ project }: { project: string }) {
                 isActive={Boolean(
                   matchRoute({
                     to,
-                    params: { project },
-                    fuzzy:
-                      to === "/projects/$project/contexts/$" || to === "/projects/$project/repos",
+                    params: { mind },
+                    fuzzy: to === "/minds/$mind/contexts/$" || to === "/minds/$mind/repos",
                   }),
                 )}
-                render={<Link to={to} params={{ project }} />}
+                render={<Link to={to} params={{ mind }} />}
               >
                 <Icon />
                 <span>{label}</span>
@@ -72,25 +71,25 @@ export function ProjectNav({ project }: { project: string }) {
           ))}
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip={project}
+              tooltip={mind}
               render={
-                <a href={site} target="_blank" rel="noreferrer" aria-label={`Open ${project}`} />
+                <a href={site} target="_blank" rel="noreferrer" aria-label={`Open ${mind}`} />
               }
             >
               <ExternalLink />
-              <span>Project site</span>
+              <span>Mind site</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           {apps.map((app) => (
             <SidebarMenuItem key={app.url}>
               <SidebarMenuButton
-                tooltip={`${app.name} for ${project}`}
+                tooltip={`${app.name} for ${mind}`}
                 render={
                   <a
-                    href={`${app.url}/projects/${project}`}
+                    href={`${app.url}/minds/${mind}`}
                     target="_blank"
                     rel="noreferrer"
-                    aria-label={`${app.name} for ${project}`}
+                    aria-label={`${app.name} for ${mind}`}
                   />
                 }
               >

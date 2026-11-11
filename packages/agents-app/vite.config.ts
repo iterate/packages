@@ -9,7 +9,7 @@ import { routeTreeStyle } from "../../scripts/lib/start-app.ts";
 import { agents } from "./scripts/app.ts";
 import { agentKindViewFrame } from "./scripts/agent-kind-view-frame.ts";
 
-// A Worker of its own, hosted apart from any project (@iterate-com/shared/standalone-app), when
+// A Worker of its own, hosted apart from any mind (@iterate-com/shared/standalone-app), when
 // `ITERATE_STANDALONE_WORKER` names it; else an envs.ts environment (scripts/lib/start-app.ts).
 const standalone = process.env[STANDALONE_WORKER_ENV];
 

@@ -448,7 +448,7 @@ test("live frames and the silence in a gap between them reach the provider throu
   ]);
 });
 
-test("a project's liveModel, liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
+test("a mind's liveModel, liveVoice and liveInstructions shape the session start, and with none the default stands", async () => {
   expect((await liveCall()).sessionStart()).toMatchObject({
     session: {
       model: "gpt-live-1",
@@ -508,7 +508,7 @@ async function liveCall(
     },
   };
   const processor = new VoiceAgentProcessor({
-    projectContext: async () => JSON.stringify({ projectId: "prj_test", path: RELAY_PATH }),
+    mindContext: async () => JSON.stringify({ mindId: "mind_test", path: RELAY_PATH }),
     liveModel: () => hooks.liveModel,
     liveVoice: () => hooks.liveVoice,
     liveInstructions: () => hooks.liveInstructions,

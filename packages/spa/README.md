@@ -9,7 +9,7 @@ access token IN the `authenticate` call — capnweb's own pattern:
 ```js
 const iterate = newWebSocketRpcSession(new WebSocket("wss://os.iterate.com/api"));
 const api = iterate.authenticate({ type: "bearer", token });
-const projects = await api.projects.list(); // pipelined with the token's round trip
+const minds = await api.minds.list(); // pipelined with the token's round trip
 ```
 
 capnweb comes from a CDN through a native import map (`@iterate-com/capnweb`). Tokens live in

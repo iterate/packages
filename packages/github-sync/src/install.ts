@@ -1,11 +1,11 @@
-// github-sync/install.ts — how a project installs the sync: from a folder of its config repo that
+// github-sync/install.ts — how a mind installs the sync: from a folder of its config repo that
 // pins this package (`githubSyncFolder`), as voice installs (@iterate-com/voice/install).
 // `installGithubSync` mounts it on the two logs whose events trigger it, which only a session may do
 // (README.md). Nothing here is the runtime.
 import type { IterateContextApi } from "iterate/api";
 import { githubRepositoryOf } from "./github-repository.ts";
 
-/** The source a project installs the sync from, by file: `version` is what package.json pins (a
+/** The source a mind installs the sync from, by file: `version` is what package.json pins (a
  *  pkg.pr.new URL, or an npm range once the package is on npm). */
 export function githubSyncFolder(version: string): Record<string, string> {
   return {
@@ -17,8 +17,8 @@ export function githubSyncFolder(version: string): Record<string, string> {
 /** Mount the sync from its source (`githubSyncFolder`, as `repo.modules({ dir })` answers it) for
  *  `repo` (default `/repos/config`), whose origin must be its GitHub repository (the Dash's Config
  *  repo links it), on the log the pushes arrive on: `log`, a package's stream (iterategrations
- *  github/ records the project's own App's deliveries on `/integrations/own-github/<installation
- *  id>`), or else the log of `connection`, by default the project's one GitHub connection to the
+ *  github/ records the mind's own App's deliveries on `/integrations/own-github/<installation
+ *  id>`), or else the log of `connection`, by default the mind's one GitHub connection to the
  *  repository's owner. Installing the same source again changes nothing but a new marker; a new
  *  source is an upgrade. */
 export async function installGithubSync(
@@ -27,7 +27,7 @@ export async function installGithubSync(
   options: { repo?: string; connection?: string; log?: string } = {},
 ): Promise<{ repo: string; repository: string; log: string }> {
   const { path } = await itx.whoami();
-  if (path !== "/") throw new Error("Install the GitHub sync at the project root");
+  if (path !== "/") throw new Error("Install the GitHub sync at the mind root");
   const repo = options.repo || "/repos/config";
   const repository = githubRepositoryOf(await itx.repos.get(repo).origin());
   if (!repository)
@@ -74,7 +74,7 @@ export async function installGithubSync(
 
 /** LINK `repo` TO A GITHUB REPOSITORY THROUGH ITERATE CLOUD'S APP (internal-packages/cloud-clients): the
  *  App is iterate's and its key stays at the Cloud, which mints the installation's token for a
- *  project that connected the installation. `connection` is the secret a member connected with
+ *  mind that connected the installation. `connection` is the secret a member connected with
  *  `itx.secrets.beginOAuth(path, { client: { cloud: client, accounts: [<the repository's owner>] } })`
  *  (or with `install: true`, where the App is not installed there yet), by default
  *  `/secrets/<client>`. This finds the App's installation on the repository's owner, makes that
@@ -151,9 +151,9 @@ export async function linkThroughCloud(
   };
 }
 
-/** The project's connections, as its root's `project` facet records them (core/os
+/** The mind's connections, as its root's `mind` facet records them (core/os
  *  src/integrations/contract.ts `IntegrationConnectionRow`). */
-type ProjectIntegrations = {
+type MindIntegrations = {
   snapshot(): Promise<{
     state: {
       integrations: Record<string, { provider: string; connection: string; account: string }>;
@@ -161,9 +161,9 @@ type ProjectIntegrations = {
   }>;
 };
 
-/** The project's one GitHub connection to `owner` (a login's case does not matter to GitHub). */
+/** The mind's one GitHub connection to `owner` (a login's case does not matter to GitHub). */
 async function githubConnectionTo(itx: Pick<IterateContextApi, "facets">, owner: string) {
-  const { state } = await itx.facets.get<ProjectIntegrations>("project").snapshot();
+  const { state } = await itx.facets.get<MindIntegrations>("mind").snapshot();
   const rows = Object.values(state.integrations).filter(
     (row) => row.provider === "github" && row.account.toLowerCase() === owner.toLowerCase(),
   );

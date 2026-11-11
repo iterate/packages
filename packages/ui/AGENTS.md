@@ -193,8 +193,8 @@ and uses it too:
 - **Path-shaped URLs only.** A `?query` URL can't be prefix-mapped: the browser drops the query
   when it resolves a subpath against it.
 - **Live data**: `live` is the SDK's browser client built in, so its hooks use this React. A page
-  reaches a project by [signing in](#signing-in).
-- **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` project) serves this checkout's
+  reaches a mind by [signing in](#signing-in).
+- **The spec** (`test/playwright/ui/no-build-page.spec.ts`, the `ui` mind) serves this checkout's
   build from its folder and holds the shape: one React, nothing React-related from esm.sh,
   CodeMirror only once an inspector opens, a source file's code block drawn with its grammar, and
   react-query through `?external=react,react-dom`.
@@ -226,36 +226,36 @@ same context in ContextView, from one `useIterateContext`.
 - **The library's styles are its own.** Give it the stylesheet's variables for colours
   (`var(--border)`, `var(--muted-foreground)`) and it matches our components.
 - **For telemetry over time we have a chart**: `components/time-chart`, which Dash's Analytics
-  page uses. A page reads a project's telemetry as SQL, where the deployment has a warehouse (prd
+  page uses. A page reads a mind's telemetry as SQL, where the deployment has a warehouse (prd
   and previews; not `pnpm dev`), and rows trail their events:
-  `await api.projects.get(id).telemetry.query(sql, { hours: 48 })`.
+  `await api.minds.get(id).telemetry.query(sql, { hours: 48 })`.
 - **The spec** (`test/playwright/ui/third-party-library.spec.ts`) commits the example to a fresh
-  project, appends an event in ContextView and sees the chart count it, with no React from esm.sh.
+  mind, appends an event in ContextView and sees the chart count it, with no React from esm.sh.
 
 ### Signing in
 
-A page reads and changes a project as the person viewing it. How it signs them in depends on where
+A page reads and changes a mind as the person viewing it. How it signs them in depends on where
 it is served:
 
-| Served from                                                          | Signs in with                                                                                                                                       | Example                         |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| The project's own host (`<slug>--<project>.iterate.app`), its worker | The host's session: the worker answers `this.auth.require(request)`, the page calls `createIterateClient().authenticate(location.href)`             | `examples/project-host-page.ts` |
-| Any other website (GitHub Pages, jsfiddle, a file on S3)             | Its own OAuth, written in the page: it registers as a client, sends the person to iterate with PKCE, and opens `/api` with the token                | `examples/any-website.html`     |
-| A Claude artifact                                                    | The viewer's iterate connector (the artifact's CSP blocks iterate itself): the `mcp` capability's `callTool("iterate", "run", { project, script })` | None: it runs only on claude.ai |
+| Served from                                                    | Signs in with                                                                                                                                    | Example                         |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| The mind's own host (`<slug>--<mind>.iterate.app`), its worker | The host's session: the worker answers `this.auth.require(request)`, the page calls `createIterateClient().authenticate(location.href)`          | `examples/mind-host-page.ts`    |
+| Any other website (GitHub Pages, jsfiddle, a file on S3)       | Its own OAuth, written in the page: it registers as a client, sends the person to iterate with PKCE, and opens `/api` with the token             | `examples/any-website.html`     |
+| A Claude artifact                                              | The viewer's iterate connector (the artifact's CSP blocks iterate itself): the `mcp` capability's `callTool("iterate", "run", { mind, script })` | None: it runs only on claude.ai |
 
-An agent building a page for its project serves it from the project's host: no sign-in UI, and the
-worker can write what it knows (the project, its contexts) into the page. On the host and on any
-website the page ends with `api`, the person's own, so `useContextStub(() => api.projects.get(id))`
-is their project.
+An agent building a page for its mind serves it from the mind's host: no sign-in UI, and the
+worker can write what it knows (the mind, its contexts) into the page. On the host and on any
+website the page ends with `api`, the person's own, so `useContextStub(() => api.minds.get(id))`
+is their mind.
 
-On the project's host, a route in worker.ts's `fetch`:
+On the mind's host, a route in worker.ts's `fetch`:
 
 ```ts
 if (routingSlug === "contexts") {
   const denied = this.auth.require(request);
   if (denied) return denied;
   using itx = this.getItx();
-  return await projectHostPage(itx); // awaited: `using` releases itx when the function returns
+  return await mindHostPage(itx); // awaited: `using` releases itx when the function returns
 }
 ```
 
@@ -287,11 +287,11 @@ const api = newWebSocketRpcSession("wss://os.iterate.com/api").authenticate({
 - **In an artifact**, ui loads from `https://cdn.jsdelivr.net/npm/@iterate-com/ui@<version>/dist/`
   (its CSP allows that CDN, not esm.sh; the files end `.mjs`) with `styles.css` inlined, and
   declares `{ "mcp": { "servers": [{ "server": "iterate", "tools": ["run"] }] } }`. Then
-  `(await window.claude.use("mcp")).callTool("iterate", "run", { project, script }, { cache: false })`
+  `(await window.claude.use("mcp")).callTool("iterate", "run", { mind, script }, { cache: false })`
   runs `script` (`async (itx) => …`) as the viewer and answers `{ payload: { result } }`. Nothing
   is live: the page reads again to refresh.
-- **The spec** (`test/playwright/ui/sign-in.spec.ts`) commits the project-host example to a fresh
-  project, on the route its own header comment gives, and opens it, and serves the any-website
+- **The spec** (`test/playwright/ui/sign-in.spec.ts`) commits the mind-host example to a fresh
+  mind, on the route its own header comment gives, and opens it, and serves the any-website
   example twice: on its own, and as jsfiddle would
   (an editor with that header, the page in a sandboxed frame from another origin, and a stand-in
   for callback.iterate.com, which is on prd and not this repo's to test).
@@ -378,9 +378,9 @@ Everything else here is our own code.
 
 ## The repo IDE
 
-`src/components/repo-ide/` is a small IDE over one of a project's repos: a file tree, an editable
+`src/components/repo-ide/` is a small IDE over one of a mind's repos: a file tree, an editable
 CodeMirror buffer with a diff against the last commit, staging, commit and history. Dash's
-`/projects/<slug>/repos/<name>` is the first host; any app that holds the project's root context can
+`/minds/<slug>/repos/<name>` is the first host; any app that holds the mind's root context can
 mount it the same way:
 
 ```tsx
@@ -388,11 +388,11 @@ import { RepoIde } from "@iterate-com/ui/components/repo-ide/repo-ide";
 import { RepoIdeSearch } from "@iterate-com/ui/components/repo-ide/repo-ide-search";
 
 // route: `validateSearch: RepoIdeSearch`, so the open file, the diff and the sidebar are the URL
-const context = useContextStub(() => api.projects.get(project.id), [api, project.id]);
+const context = useContextStub(() => api.minds.get(mind.id), [api, mind.id]);
 // in a flex row with `min-h-0 flex-1`; the IDE fills it
 <RepoIde
-  project={context.stub}
-  projectId={project.id}
+  mind={context.stub}
+  mindId={mind.id}
   repoPath="/repos/config"
   author={{ name: email, email }}
   search={search}
@@ -400,8 +400,8 @@ const context = useContextStub(() => api.projects.get(project.id), [api, project
 />;
 ```
 
-- **The host owns** the project stub, the route and the shell; the IDE owns everything inside its
-  box. It imports no SDK at runtime (`project` is typed from `iterate/app`), no router, and nothing
+- **The host owns** the mind stub, the route and the shell; the IDE owns everything inside its
+  box. It imports no SDK at runtime (`mind` is typed from `iterate/app`), no router, and nothing
   from an app. Its view state is the `search` prop, so a host without a router keeps it in state.
 - **Parts that stand alone**: `repo-file-tree` (pierre, with git-status marks and a right-click
   menu), `repo-code-editor` (one file: language, gutter marks, inline diff), `markdown-preview` and
@@ -414,7 +414,7 @@ const context = useContextStub(() => api.projects.get(project.id), [api, project
   a dynamic `import()` in `codemirror.ts`), so a page that never shows a file never pays for it. In
   a TanStack Start file route import `RepoIde` statically: the route's component is already its own
   chunk, prefetched on link hover, and a `lazy()` inside it only starts the download after the
-  project opens. A host without route code splitting wraps it in `lazy()` itself.
+  mind opens. A host without route code splitting wraps it in `lazy()` itself.
 - **Markdown preview** renders through streamdown, whose classes Tailwind finds only if the app's
   stylesheet scans it: `@source "../node_modules/streamdown/dist/*.js";` (dash's `styles.css`).
 - **Text only**: the repo's reads and commits carry text, so images and archives show a notice.
@@ -516,7 +516,7 @@ npx react-doctor@latest --yes src/components/virtual-log/*.tsx src/components/vi
 ## The Agents app's parts
 
 What the Agents app draws around the chat, for the hosted app (`packages/agents-app`) and for a
-project's own no-build page (`apps/agents/` in a config repo) alike:
+mind's own no-build page (`apps/agents/` in a config repo) alike:
 
 - `components/agents-nav`: the sidebar's body, with pins kept in the browser.
 - `components/agents-home`: the home page, whose composer starts an agent.
@@ -531,14 +531,14 @@ router gives so that a plain click is a route change.
 
 `src/components/agent-chat/` is one agent's conversation: its chat with a composer, its events
 (`ContextView`), and the traces of its LLM requests and script runs. The Agents app's
-`/projects/<slug>` is the first host; any page that holds the agent's context mounts it the same way:
+`/minds/<slug>` is the first host; any page that holds the agent's context mounts it the same way:
 
 ```tsx
 import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
 
 // route: `validateSearch: AgentChatState`, so the tab and the open trace are the URL
-const agent = useContextStub(() => project.cd(path), [project, path]);
+const agent = useContextStub(() => mind.cd(path), [mind, path]);
 const log = useIterateContext(agent.stub, AgentChat.contextOptions);
 // in a flex column with a bounded height; the chat fills it
 <AgentChat
@@ -548,7 +548,7 @@ const log = useIterateContext(agent.stub, AgentChat.contextOptions);
   state={search}
   onStateChange={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
   onMessage={async ({ message, files }) => {
-    await project.agents.get(path).message({ message, files });
+    await mind.agents.get(path).message({ message, files });
   }}
   onAppend={agent.stub ? (events) => agent.stub.append(...events) : undefined}
   signedUrl={async (file) => (await agent.stub.files.get(file).url()).url}
@@ -574,7 +574,7 @@ const log = useIterateContext(agent.stub, AgentChat.contextOptions);
   has them. Inputs that start a turn stay bubbles.
 - **A row of the page's own** goes under a feed item: `itemFooter={(item) => …}`. `renderers` and
   `inspectors` name the page's own event types in the Events tab, over the agent's.
-- **For the project's own people**: it shows the raw log, scripts and traces, and its composer
+- **For the mind's own people**: it shows the raw log, scripts and traces, and its composer
   appends raw events.
 - **Toasts**: the copy buttons call sonner's `toast`, so the page renders this package's `Toaster` once
   (`AppProviders` does in the apps).
@@ -583,9 +583,9 @@ const log = useIterateContext(agent.stub, AgentChat.contextOptions);
   installs the item from the registry copies those lines, or its tokens appear without it.
 - **Tests** sit beside the files: the reducer's (`agent-ui-reducer.test.ts`) and the log's
   (`agent-events.test.ts`). `.agents/skills/fix-stream` says which a broken chat adds a row to.
-- **A page to copy**: `examples/agent-chat-page.ts`, a member's page on a project's own host. Its
+- **A page to copy**: `examples/agent-chat-page.ts`, a member's page on a mind's own host. Its
   `itemFooter` puts a link under each thing a person said, which opens that event in the Events tab.
-- **The spec** (`test/playwright/ui/agent-chat.spec.ts`) commits the example to a fresh project,
+- **The spec** (`test/playwright/ui/agent-chat.spec.ts`) commits the example to a fresh mind,
   lends the agent a scripted model, and drives the chat: a message, the answer, its trace, the
   page's own row.
 

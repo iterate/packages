@@ -1,5 +1,0 @@
-.box.json
-.token*
-node_modules
-# its lockfile holds integrity hashes, which a public copy may not (lint public-copies.test.ts)
-bun.lock

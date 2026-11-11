@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LastProjectRedirect } from "@iterate-com/ui/components/last-project-redirect";
+import { LastMindRedirect } from "@iterate-com/ui/components/last-mind-redirect";
 
-// the project this browser used last, or the connect page when it is connected to none
-export const Route = createFileRoute("/")({ component: LastProjectRedirect });
+// the mind this browser used last, or the connect page when it is connected to none
+export const Route = createFileRoute("/")({ component: LastMindRedirect });

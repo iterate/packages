@@ -4,7 +4,7 @@
  * The policy (evidence and rationale: docs/testing.md#retries-and-timeouts):
  *
  * 1. Retries live in exactly ONE layer: the individual test — the smallest
- *    unit that owns its state (every test provisions its own project). One
+ *    unit that owns its state (every test provisions its own mind). One
  *    retry in CI, zero locally.
  * 2. Everything above a test is a watchdog: it fails, it never retries.
  *    Re-running is the outer edge's job (Depot re-run / next push).
@@ -101,13 +101,13 @@ export const UNIT_ROW_WARN_EXEMPTIONS: Record<string, string> = {
     "waits the facet push watchdog's real 60 s window",
   "a live session rides out a deploy's Durable Object reset, and a control-plane read that gave up, during its re-check":
     "waits the grant's real 30 s re-check",
-  "a socket holding no project re-checks its grant every thirty seconds and reads no membership":
+  "a socket holding no mind re-checks its grant every thirty seconds and reads no membership":
     "waits the grant's real 30 s re-check",
   "a live session loses held capabilities after membership within 60 seconds":
     "waits the grant's real 30 s re-check",
   "a live session loses held capabilities after revoked within 60 seconds":
     "waits the grant's real 30 s re-check",
-  "a personal access token is the person's one bearer at /api, at /mcp and on a covered project's host; an uncovered project is refused at /api and /mcp, and on its host the request arrives anonymous; the account keeps its hash; revoked, it is refused at once and every connection it holds open closes: its /api socket, a project host's WebSocket and a streamed body":
+  "a personal access token is the person's one bearer at /api, at /mcp and on a covered mind's host; an uncovered mind is refused at /api and /mcp, and on its host the request arrives anonymous; the account keeps its hash; revoked, it is refused at once and every connection it holds open closes: its /api socket, a mind host's WebSocket and a streamed body":
     "waits the key's real 30 s re-checks after its revocation",
   "NO PIN ARMS AN ALARM: a facet owes nothing (a loaded one arms only the in-memory unclaimed-facet sweep), a borrowed stub arms nothing — the stub is returned by a TIMER 30 s after its last use, and a call after that borrows it again":
     "waits the borrowed stub's real 30 s release timer",

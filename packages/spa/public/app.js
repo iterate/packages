@@ -56,30 +56,30 @@ async function signedIn() {
   const socket = new WebSocket(`${issuer.replace(/^http/, "ws")}/api`);
   const iterate = newWebSocketRpcSession(socket);
   const api = iterate.authenticate({ type: "bearer", token });
-  const [info, projects] = await Promise.all([api.info(), api.projects.list()]);
+  const [info, minds] = await Promise.all([api.info(), api.minds.list()]);
   app.innerHTML = `
     <h1>Hello, ${escape(info.principal.email || info.principal.actor)}</h1>
     <p class="muted">Signed in from <code>${escape(location.origin)}</code>, connected to
     <code>${escape(issuer)}/api</code> over one WebSocket; the token went in the
     <code>authenticate</code> call.</p>
-    <h2>Your projects</h2>
-    <ul id="projects">${projects
+    <h2>Your minds</h2>
+    <ul id="minds">${minds
       .map(
-        (project) => `<li><code>${escape(project.id)}</code>
-          <button data-project="${escape(project.id)}" data-action="whoami">whoami</button>
-          <button data-project="${escape(project.id)}" data-action="count">count +1</button>
-          <span data-result="${escape(project.id)}" class="muted"></span></li>`,
+        (mind) => `<li><code>${escape(mind.id)}</code>
+          <button data-mind="${escape(mind.id)}" data-action="whoami">whoami</button>
+          <button data-mind="${escape(mind.id)}" data-action="count">count +1</button>
+          <span data-result="${escape(mind.id)}" class="muted"></span></li>`,
       )
       .join("")}</ul>
-    ${projects.length ? "" : '<p class="muted">No projects reach this session yet.</p>'}
+    ${minds.length ? "" : '<p class="muted">No minds reach this session yet.</p>'}
     <p><button id="logout">Sign out</button></p>`;
-  document.getElementById("projects").onclick = async (event) => {
-    const button = event.target.closest("button[data-project]");
+  document.getElementById("minds").onclick = async (event) => {
+    const button = event.target.closest("button[data-mind]");
     if (!button) return;
-    const { project, action } = button.dataset;
-    const result = app.querySelector(`[data-result="${CSS.escape(project)}"]`);
+    const { mind, action } = button.dataset;
+    const result = app.querySelector(`[data-result="${CSS.escape(mind)}"]`);
     try {
-      using itx = await api.projects.get(project);
+      using itx = await api.minds.get(mind);
       if (action === "whoami") {
         result.textContent = JSON.stringify(await itx.whoami());
       } else {

@@ -158,10 +158,10 @@ test("sentenceText walks strings, numbers, arrays and elements' children", () =>
   expect(
     sentenceText(
       <>
-        Approved <strong>Claude Code</strong> for {1} project{["(s)", null, false]}
+        Approved <strong>Claude Code</strong> for {1} mind{["(s)", null, false]}
       </>,
     ),
-  ).toBe("Approved Claude Code for 1 project(s)");
+  ).toBe("Approved Claude Code for 1 mind(s)");
 });
 
 test("whoBefore: carries the last named actor over housekeeping, starts afresh at a day mark", () => {

@@ -1,4 +1,4 @@
-// The Approvals page's fold of a secret's log (core/secrets src/secret/contract.ts facts): the
+// The Approvals page's fold of a secret's log (core/secrets-worker src/secret/contract.ts facts): the
 // requests that wait, the decisions and the rule. An event whose payload does not parse is left out.
 import { z } from "zod";
 
@@ -144,7 +144,7 @@ export function approvalsOf(secret: string, events: LogEvent[], now: number): Se
   };
 }
 
-export function projectApprovalsOf(logs: { secret: string; events: LogEvent[] }[], now: number) {
+export function mindApprovalsOf(logs: { secret: string; events: LogEvent[] }[], now: number) {
   const folded = logs.map((log) => approvalsOf(log.secret, log.events, now));
   return {
     waiting: folded.flatMap((secret) => secret.waiting).sort(newestRequestFirst),

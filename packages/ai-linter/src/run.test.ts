@@ -491,7 +491,7 @@ function io(options: {
       calls.llm++;
       return (options.llm || llmAnswers)(input);
     },
-    projectId: async () => "prj_test",
+    mindId: async () => "mind_test",
     sleep: async () => {},
   };
   return { lintIo, calls };

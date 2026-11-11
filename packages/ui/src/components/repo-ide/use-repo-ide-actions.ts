@@ -7,7 +7,7 @@ import { discardRepoFile } from "./repo-file-discard.ts";
 import { repoFileKind } from "./repo-file-kinds.ts";
 import type { RepoTreeActions } from "./repo-file-tree.tsx";
 import type { RepoIdeSearch } from "./repo-ide-search.ts";
-import { readRepoFile, type RepoFiles, type RepoProject } from "./repo-client.ts";
+import { readRepoFile, type RepoFiles, type RepoMind } from "./repo-client.ts";
 import {
   commitPlan,
   effectiveEntry,
@@ -17,8 +17,8 @@ import {
 } from "./staged-changes.ts";
 
 export function useRepoIdeActions({
-  project,
-  projectId,
+  mind,
+  mindId,
   repoPath,
   author,
   files,
@@ -28,8 +28,8 @@ export function useRepoIdeActions({
   selectedPath,
   onSearchChange,
 }: {
-  project: RepoProject;
-  projectId: string;
+  mind: RepoMind;
+  mindId: string;
   repoPath: string;
   author: { name: string; email: string } | undefined;
   files: RepoFiles;
@@ -51,7 +51,7 @@ export function useRepoIdeActions({
     const current = effectiveEntry(changes.get(path) ?? {});
     if (current && current.type !== "delete") return current;
     if (repoFileKind(path).kind !== "text") throw new Error(`"${path}" is not a text file.`);
-    const content = await readRepoFile(project, repoPath, path, files.commitOid || undefined);
+    const content = await readRepoFile(mind, repoPath, path, files.commitOid || undefined);
     // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is no such file, "" an empty one
     if (content === undefined) throw new Error(`Repo file does not exist: "${path}".`);
     return { type: "write", content };
@@ -134,7 +134,7 @@ export function useRepoIdeActions({
     setCommitting(true);
     try {
       const plan = commitPlan(changes);
-      using repo = project.repos.get(repoPath);
+      using repo = mind.repos.get(repoPath);
       const result = await repo.commitFiles({
         message,
         changes: plan.fileChanges,
@@ -148,7 +148,7 @@ export function useRepoIdeActions({
       // oid's store, and an earlier migration would blank the working tree it shows.
       await reload();
       store.migrateTo(
-        workingTreeStore({ projectId, repoPath, commitOid: result.commitOid || "unborn" }),
+        workingTreeStore({ mindId, repoPath, commitOid: result.commitOid || "unborn" }),
       );
       onCommitted();
       toast.success(

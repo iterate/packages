@@ -1,4 +1,4 @@
-// screen-font.ts — the screen font's CSS as install.ts stores it in project KV: assets/pixel-font.css
+// screen-font.ts — the screen font's CSS as install.ts stores it in mind KV: assets/pixel-font.css
 // with assets/press-start-2p-ascii.woff2 embedded as a data URL, so a rendering script needs no font
 // request (screen-font.test.ts keeps the two in step with the assets).
 const pressStart2pAsciiWoff2 =

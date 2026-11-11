@@ -31,7 +31,7 @@ test("forwards every other SDK request to ingest without application cookies or 
       "content-type": "application/json",
       host: "os.iterate.com",
       origin: "https://os.iterate.com",
-      referer: "https://os.iterate.com/projects/test?token=secret",
+      referer: "https://os.iterate.com/minds/test?token=secret",
     },
     body: '{"snapshot":true}',
   });
@@ -43,7 +43,7 @@ test("forwards every other SDK request to ingest without application cookies or 
   const headers = new Headers(init!.headers);
   expect(headers.get("cookie")).toBeNull();
   expect(headers.get("origin")).toBe("https://os.iterate.com");
-  expect(headers.get("referer")).toBe("https://os.iterate.com/projects/test?token=secret");
+  expect(headers.get("referer")).toBe("https://os.iterate.com/minds/test?token=secret");
   expect(headers.get("authorization")).toBeNull();
   expect(headers.get("host")).toBeNull();
   expect(headers.get("x-forwarded-for")).toBe("203.0.113.7");

@@ -1,4 +1,4 @@
-// What ⌘K in the AppShell offers, and how typing narrows it: the projects the shell's switcher
+// What ⌘K in the AppShell offers, and how typing narrows it: the minds the shell's switcher
 // lists, and the sidebar's own navigation — read off the rendered sidebar when the palette opens, so
 // an app declares its pages once (its `nav`) and the palette offers exactly what the sidebar shows.
 // No React here: the filter is a pure function, the reader takes a DOM element.
@@ -10,10 +10,10 @@ export type PaletteEntry = {
   label: string;
   /** the heading the row is listed under */
   group: string;
-  /** what the label belongs to (a project's organization, a sub-page's parent) — shown after the
+  /** what the label belongs to (a mind's organization, a sub-page's parent) — shown after the
    *  label, and searched with it */
   detail: string | undefined;
-  /** the page on screen, or the project it belongs to */
+  /** the page on screen, or the mind it belongs to */
   active: boolean;
 };
 
@@ -116,14 +116,14 @@ function textBlocks(element: Element | null | undefined) {
   return [...blocks.values()].map((text) => text.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
-/** The sidebar's items less those that are only a link to a project — the dash's organization tree
- *  lists each project by its slug, and the project's own row already offers it. A page at a
- *  project's URL under its own label (the dash's "Overview" is `/projects/<slug>`) stays.
- *  `projects` carry absolute hrefs, as the reader's do. */
-export function withoutProjectLinks(
+/** The sidebar's items less those that are only a link to a mind — the dash's organization tree
+ *  lists each mind by its slug, and the mind's own row already offers it. A page at a
+ *  mind's URL under its own label (the dash's "Overview" is `/minds/<slug>`) stays.
+ *  `minds` carry absolute hrefs, as the reader's do. */
+export function withoutMindLinks(
   nav: SidebarNavItem[],
-  projects: { label: string; href: string }[],
+  minds: { label: string; href: string }[],
 ): SidebarNavItem[] {
-  const links = new Set(projects.map((project) => `${project.label} ${project.href}`));
+  const links = new Set(minds.map((mind) => `${mind.label} ${mind.href}`));
   return nav.filter((item) => !links.has(`${item.label} ${item.href}`));
 }

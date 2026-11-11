@@ -11,16 +11,16 @@
 import { Route as rootRouteImport } from "./routes/__root.tsx";
 import { Route as IndexRouteImport } from "./routes/index.tsx";
 import { Route as ConnectRouteImport } from "./routes/connect.tsx";
-import { Route as ProjectsProjectRouteRouteImport } from "./routes/projects/$project/route.tsx";
-import { Route as ProjectsProjectIndexRouteImport } from "./routes/projects/$project/index.tsx";
-import { Route as ProjectsProjectAnalyticsRouteImport } from "./routes/projects/$project/analytics.tsx";
-import { Route as ProjectsProjectApprovalsRouteImport } from "./routes/projects/$project/approvals.tsx";
-import { Route as ProjectsProjectIntegrationsRouteImport } from "./routes/projects/$project/integrations.tsx";
-import { Route as ProjectsProjectMcpRouteImport } from "./routes/projects/$project/mcp.tsx";
-import { Route as ProjectsProjectSecretsRouteImport } from "./routes/projects/$project/secrets.tsx";
-import { Route as ProjectsProjectContextsSplatRouteImport } from "./routes/projects/$project/contexts.$.tsx";
-import { Route as ProjectsProjectReposIndexRouteImport } from "./routes/projects/$project/repos.index.tsx";
-import { Route as ProjectsProjectReposSplatRouteImport } from "./routes/projects/$project/repos.$.tsx";
+import { Route as MindsMindRouteRouteImport } from "./routes/minds/$mind/route.tsx";
+import { Route as MindsMindIndexRouteImport } from "./routes/minds/$mind/index.tsx";
+import { Route as MindsMindAnalyticsRouteImport } from "./routes/minds/$mind/analytics.tsx";
+import { Route as MindsMindApprovalsRouteImport } from "./routes/minds/$mind/approvals.tsx";
+import { Route as MindsMindIntegrationsRouteImport } from "./routes/minds/$mind/integrations.tsx";
+import { Route as MindsMindMcpRouteImport } from "./routes/minds/$mind/mcp.tsx";
+import { Route as MindsMindSecretsRouteImport } from "./routes/minds/$mind/secrets.tsx";
+import { Route as MindsMindContextsSplatRouteImport } from "./routes/minds/$mind/contexts.$.tsx";
+import { Route as MindsMindReposIndexRouteImport } from "./routes/minds/$mind/repos.index.tsx";
+import { Route as MindsMindReposSplatRouteImport } from "./routes/minds/$mind/repos.$.tsx";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -32,153 +32,147 @@ const ConnectRoute = ConnectRouteImport.update({
   path: "/connect",
   getParentRoute: () => rootRouteImport,
 } as any);
-const ProjectsProjectRouteRoute = ProjectsProjectRouteRouteImport.update({
-  id: "/projects/$project",
-  path: "/projects/$project",
+const MindsMindRouteRoute = MindsMindRouteRouteImport.update({
+  id: "/minds/$mind",
+  path: "/minds/$mind",
   getParentRoute: () => rootRouteImport,
 } as any);
-const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
+const MindsMindIndexRoute = MindsMindIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => ProjectsProjectRouteRoute,
+  getParentRoute: () => MindsMindRouteRoute,
 } as any);
-const ProjectsProjectAnalyticsRoute =
-  ProjectsProjectAnalyticsRouteImport.update({
-    id: "/analytics",
-    path: "/analytics",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
-const ProjectsProjectApprovalsRoute =
-  ProjectsProjectApprovalsRouteImport.update({
-    id: "/approvals",
-    path: "/approvals",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
-const ProjectsProjectIntegrationsRoute =
-  ProjectsProjectIntegrationsRouteImport.update({
-    id: "/integrations",
-    path: "/integrations",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
-const ProjectsProjectMcpRoute = ProjectsProjectMcpRouteImport.update({
+const MindsMindAnalyticsRoute = MindsMindAnalyticsRouteImport.update({
+  id: "/analytics",
+  path: "/analytics",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
+const MindsMindApprovalsRoute = MindsMindApprovalsRouteImport.update({
+  id: "/approvals",
+  path: "/approvals",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
+const MindsMindIntegrationsRoute = MindsMindIntegrationsRouteImport.update({
+  id: "/integrations",
+  path: "/integrations",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
+const MindsMindMcpRoute = MindsMindMcpRouteImport.update({
   id: "/mcp",
   path: "/mcp",
-  getParentRoute: () => ProjectsProjectRouteRoute,
+  getParentRoute: () => MindsMindRouteRoute,
 } as any);
-const ProjectsProjectSecretsRoute = ProjectsProjectSecretsRouteImport.update({
+const MindsMindSecretsRoute = MindsMindSecretsRouteImport.update({
   id: "/secrets",
   path: "/secrets",
-  getParentRoute: () => ProjectsProjectRouteRoute,
+  getParentRoute: () => MindsMindRouteRoute,
 } as any);
-const ProjectsProjectContextsSplatRoute =
-  ProjectsProjectContextsSplatRouteImport.update({
-    id: "/contexts/$",
-    path: "/contexts/$",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
-const ProjectsProjectReposIndexRoute =
-  ProjectsProjectReposIndexRouteImport.update({
-    id: "/repos/",
-    path: "/repos/",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
-const ProjectsProjectReposSplatRoute =
-  ProjectsProjectReposSplatRouteImport.update({
-    id: "/repos/$",
-    path: "/repos/$",
-    getParentRoute: () => ProjectsProjectRouteRoute,
-  } as any);
+const MindsMindContextsSplatRoute = MindsMindContextsSplatRouteImport.update({
+  id: "/contexts/$",
+  path: "/contexts/$",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
+const MindsMindReposIndexRoute = MindsMindReposIndexRouteImport.update({
+  id: "/repos/",
+  path: "/repos/",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
+const MindsMindReposSplatRoute = MindsMindReposSplatRouteImport.update({
+  id: "/repos/$",
+  path: "/repos/$",
+  getParentRoute: () => MindsMindRouteRoute,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project": typeof ProjectsProjectRouteRouteWithChildren;
-  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
-  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
-  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
-  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
-  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
-  "/projects/$project/": typeof ProjectsProjectIndexRoute;
-  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
-  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
-  "/projects/$project/repos/": typeof ProjectsProjectReposIndexRoute;
+  "/minds/$mind": typeof MindsMindRouteRouteWithChildren;
+  "/minds/$mind/analytics": typeof MindsMindAnalyticsRoute;
+  "/minds/$mind/approvals": typeof MindsMindApprovalsRoute;
+  "/minds/$mind/integrations": typeof MindsMindIntegrationsRoute;
+  "/minds/$mind/mcp": typeof MindsMindMcpRoute;
+  "/minds/$mind/secrets": typeof MindsMindSecretsRoute;
+  "/minds/$mind/": typeof MindsMindIndexRoute;
+  "/minds/$mind/contexts/$": typeof MindsMindContextsSplatRoute;
+  "/minds/$mind/repos/$": typeof MindsMindReposSplatRoute;
+  "/minds/$mind/repos/": typeof MindsMindReposIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
-  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
-  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
-  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
-  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
-  "/projects/$project": typeof ProjectsProjectIndexRoute;
-  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
-  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
-  "/projects/$project/repos": typeof ProjectsProjectReposIndexRoute;
+  "/minds/$mind/analytics": typeof MindsMindAnalyticsRoute;
+  "/minds/$mind/approvals": typeof MindsMindApprovalsRoute;
+  "/minds/$mind/integrations": typeof MindsMindIntegrationsRoute;
+  "/minds/$mind/mcp": typeof MindsMindMcpRoute;
+  "/minds/$mind/secrets": typeof MindsMindSecretsRoute;
+  "/minds/$mind": typeof MindsMindIndexRoute;
+  "/minds/$mind/contexts/$": typeof MindsMindContextsSplatRoute;
+  "/minds/$mind/repos/$": typeof MindsMindReposSplatRoute;
+  "/minds/$mind/repos": typeof MindsMindReposIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project": typeof ProjectsProjectRouteRouteWithChildren;
-  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
-  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
-  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
-  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
-  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
-  "/projects/$project/": typeof ProjectsProjectIndexRoute;
-  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
-  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
-  "/projects/$project/repos/": typeof ProjectsProjectReposIndexRoute;
+  "/minds/$mind": typeof MindsMindRouteRouteWithChildren;
+  "/minds/$mind/analytics": typeof MindsMindAnalyticsRoute;
+  "/minds/$mind/approvals": typeof MindsMindApprovalsRoute;
+  "/minds/$mind/integrations": typeof MindsMindIntegrationsRoute;
+  "/minds/$mind/mcp": typeof MindsMindMcpRoute;
+  "/minds/$mind/secrets": typeof MindsMindSecretsRoute;
+  "/minds/$mind/": typeof MindsMindIndexRoute;
+  "/minds/$mind/contexts/$": typeof MindsMindContextsSplatRoute;
+  "/minds/$mind/repos/$": typeof MindsMindReposSplatRoute;
+  "/minds/$mind/repos/": typeof MindsMindReposIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | "/"
     | "/connect"
-    | "/projects/$project"
-    | "/projects/$project/analytics"
-    | "/projects/$project/approvals"
-    | "/projects/$project/integrations"
-    | "/projects/$project/mcp"
-    | "/projects/$project/secrets"
-    | "/projects/$project/"
-    | "/projects/$project/contexts/$"
-    | "/projects/$project/repos/$"
-    | "/projects/$project/repos/";
+    | "/minds/$mind"
+    | "/minds/$mind/analytics"
+    | "/minds/$mind/approvals"
+    | "/minds/$mind/integrations"
+    | "/minds/$mind/mcp"
+    | "/minds/$mind/secrets"
+    | "/minds/$mind/"
+    | "/minds/$mind/contexts/$"
+    | "/minds/$mind/repos/$"
+    | "/minds/$mind/repos/";
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
     | "/connect"
-    | "/projects/$project/analytics"
-    | "/projects/$project/approvals"
-    | "/projects/$project/integrations"
-    | "/projects/$project/mcp"
-    | "/projects/$project/secrets"
-    | "/projects/$project"
-    | "/projects/$project/contexts/$"
-    | "/projects/$project/repos/$"
-    | "/projects/$project/repos";
+    | "/minds/$mind/analytics"
+    | "/minds/$mind/approvals"
+    | "/minds/$mind/integrations"
+    | "/minds/$mind/mcp"
+    | "/minds/$mind/secrets"
+    | "/minds/$mind"
+    | "/minds/$mind/contexts/$"
+    | "/minds/$mind/repos/$"
+    | "/minds/$mind/repos";
   id:
     | "__root__"
     | "/"
     | "/connect"
-    | "/projects/$project"
-    | "/projects/$project/analytics"
-    | "/projects/$project/approvals"
-    | "/projects/$project/integrations"
-    | "/projects/$project/mcp"
-    | "/projects/$project/secrets"
-    | "/projects/$project/"
-    | "/projects/$project/contexts/$"
-    | "/projects/$project/repos/$"
-    | "/projects/$project/repos/";
+    | "/minds/$mind"
+    | "/minds/$mind/analytics"
+    | "/minds/$mind/approvals"
+    | "/minds/$mind/integrations"
+    | "/minds/$mind/mcp"
+    | "/minds/$mind/secrets"
+    | "/minds/$mind/"
+    | "/minds/$mind/contexts/$"
+    | "/minds/$mind/repos/$"
+    | "/minds/$mind/repos/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   ConnectRoute: typeof ConnectRoute;
-  ProjectsProjectRouteRoute: typeof ProjectsProjectRouteRouteWithChildren;
+  MindsMindRouteRoute: typeof MindsMindRouteRouteWithChildren;
 }
 
 declare module "@tanstack/react-router" {
@@ -197,110 +191,111 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof ConnectRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/projects/$project": {
-      id: "/projects/$project";
-      path: "/projects/$project";
-      fullPath: "/projects/$project";
-      preLoaderRoute: typeof ProjectsProjectRouteRouteImport;
+    "/minds/$mind": {
+      id: "/minds/$mind";
+      path: "/minds/$mind";
+      fullPath: "/minds/$mind";
+      preLoaderRoute: typeof MindsMindRouteRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/projects/$project/": {
-      id: "/projects/$project/";
+    "/minds/$mind/": {
+      id: "/minds/$mind/";
       path: "/";
-      fullPath: "/projects/$project/";
-      preLoaderRoute: typeof ProjectsProjectIndexRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/";
+      preLoaderRoute: typeof MindsMindIndexRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/analytics": {
-      id: "/projects/$project/analytics";
+    "/minds/$mind/analytics": {
+      id: "/minds/$mind/analytics";
       path: "/analytics";
-      fullPath: "/projects/$project/analytics";
-      preLoaderRoute: typeof ProjectsProjectAnalyticsRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/analytics";
+      preLoaderRoute: typeof MindsMindAnalyticsRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/approvals": {
-      id: "/projects/$project/approvals";
+    "/minds/$mind/approvals": {
+      id: "/minds/$mind/approvals";
       path: "/approvals";
-      fullPath: "/projects/$project/approvals";
-      preLoaderRoute: typeof ProjectsProjectApprovalsRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/approvals";
+      preLoaderRoute: typeof MindsMindApprovalsRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/integrations": {
-      id: "/projects/$project/integrations";
+    "/minds/$mind/integrations": {
+      id: "/minds/$mind/integrations";
       path: "/integrations";
-      fullPath: "/projects/$project/integrations";
-      preLoaderRoute: typeof ProjectsProjectIntegrationsRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/integrations";
+      preLoaderRoute: typeof MindsMindIntegrationsRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/mcp": {
-      id: "/projects/$project/mcp";
+    "/minds/$mind/mcp": {
+      id: "/minds/$mind/mcp";
       path: "/mcp";
-      fullPath: "/projects/$project/mcp";
-      preLoaderRoute: typeof ProjectsProjectMcpRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/mcp";
+      preLoaderRoute: typeof MindsMindMcpRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/secrets": {
-      id: "/projects/$project/secrets";
+    "/minds/$mind/secrets": {
+      id: "/minds/$mind/secrets";
       path: "/secrets";
-      fullPath: "/projects/$project/secrets";
-      preLoaderRoute: typeof ProjectsProjectSecretsRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/secrets";
+      preLoaderRoute: typeof MindsMindSecretsRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/contexts/$": {
-      id: "/projects/$project/contexts/$";
+    "/minds/$mind/contexts/$": {
+      id: "/minds/$mind/contexts/$";
       path: "/contexts/$";
-      fullPath: "/projects/$project/contexts/$";
-      preLoaderRoute: typeof ProjectsProjectContextsSplatRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/contexts/$";
+      preLoaderRoute: typeof MindsMindContextsSplatRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/repos/": {
-      id: "/projects/$project/repos/";
+    "/minds/$mind/repos/": {
+      id: "/minds/$mind/repos/";
       path: "/repos";
-      fullPath: "/projects/$project/repos/";
-      preLoaderRoute: typeof ProjectsProjectReposIndexRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/repos/";
+      preLoaderRoute: typeof MindsMindReposIndexRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
-    "/projects/$project/repos/$": {
-      id: "/projects/$project/repos/$";
+    "/minds/$mind/repos/$": {
+      id: "/minds/$mind/repos/$";
       path: "/repos/$";
-      fullPath: "/projects/$project/repos/$";
-      preLoaderRoute: typeof ProjectsProjectReposSplatRouteImport;
-      parentRoute: typeof ProjectsProjectRouteRoute;
+      fullPath: "/minds/$mind/repos/$";
+      preLoaderRoute: typeof MindsMindReposSplatRouteImport;
+      parentRoute: typeof MindsMindRouteRoute;
     };
   }
 }
 
-interface ProjectsProjectRouteRouteChildren {
-  ProjectsProjectAnalyticsRoute: typeof ProjectsProjectAnalyticsRoute;
-  ProjectsProjectApprovalsRoute: typeof ProjectsProjectApprovalsRoute;
-  ProjectsProjectIntegrationsRoute: typeof ProjectsProjectIntegrationsRoute;
-  ProjectsProjectMcpRoute: typeof ProjectsProjectMcpRoute;
-  ProjectsProjectSecretsRoute: typeof ProjectsProjectSecretsRoute;
-  ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute;
-  ProjectsProjectContextsSplatRoute: typeof ProjectsProjectContextsSplatRoute;
-  ProjectsProjectReposSplatRoute: typeof ProjectsProjectReposSplatRoute;
-  ProjectsProjectReposIndexRoute: typeof ProjectsProjectReposIndexRoute;
+interface MindsMindRouteRouteChildren {
+  MindsMindAnalyticsRoute: typeof MindsMindAnalyticsRoute;
+  MindsMindApprovalsRoute: typeof MindsMindApprovalsRoute;
+  MindsMindIntegrationsRoute: typeof MindsMindIntegrationsRoute;
+  MindsMindMcpRoute: typeof MindsMindMcpRoute;
+  MindsMindSecretsRoute: typeof MindsMindSecretsRoute;
+  MindsMindIndexRoute: typeof MindsMindIndexRoute;
+  MindsMindContextsSplatRoute: typeof MindsMindContextsSplatRoute;
+  MindsMindReposSplatRoute: typeof MindsMindReposSplatRoute;
+  MindsMindReposIndexRoute: typeof MindsMindReposIndexRoute;
 }
 
-const ProjectsProjectRouteRouteChildren: ProjectsProjectRouteRouteChildren = {
-  ProjectsProjectAnalyticsRoute: ProjectsProjectAnalyticsRoute,
-  ProjectsProjectApprovalsRoute: ProjectsProjectApprovalsRoute,
-  ProjectsProjectIntegrationsRoute: ProjectsProjectIntegrationsRoute,
-  ProjectsProjectMcpRoute: ProjectsProjectMcpRoute,
-  ProjectsProjectSecretsRoute: ProjectsProjectSecretsRoute,
-  ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
-  ProjectsProjectContextsSplatRoute: ProjectsProjectContextsSplatRoute,
-  ProjectsProjectReposSplatRoute: ProjectsProjectReposSplatRoute,
-  ProjectsProjectReposIndexRoute: ProjectsProjectReposIndexRoute,
+const MindsMindRouteRouteChildren: MindsMindRouteRouteChildren = {
+  MindsMindAnalyticsRoute: MindsMindAnalyticsRoute,
+  MindsMindApprovalsRoute: MindsMindApprovalsRoute,
+  MindsMindIntegrationsRoute: MindsMindIntegrationsRoute,
+  MindsMindMcpRoute: MindsMindMcpRoute,
+  MindsMindSecretsRoute: MindsMindSecretsRoute,
+  MindsMindIndexRoute: MindsMindIndexRoute,
+  MindsMindContextsSplatRoute: MindsMindContextsSplatRoute,
+  MindsMindReposSplatRoute: MindsMindReposSplatRoute,
+  MindsMindReposIndexRoute: MindsMindReposIndexRoute,
 };
 
-const ProjectsProjectRouteRouteWithChildren =
-  ProjectsProjectRouteRoute._addFileChildren(ProjectsProjectRouteRouteChildren);
+const MindsMindRouteRouteWithChildren = MindsMindRouteRoute._addFileChildren(
+  MindsMindRouteRouteChildren,
+);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConnectRoute: ConnectRoute,
-  ProjectsProjectRouteRoute: ProjectsProjectRouteRouteWithChildren,
+  MindsMindRouteRoute: MindsMindRouteRouteWithChildren,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

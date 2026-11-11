@@ -10,7 +10,7 @@
  * subscription and a parent link of its own). Two, because a context's birth restarts what it
  * runs, and an agent's cold build must never sit in front of the relay's dial. The press is then
  * the device's ONE append to the relay's context, `call-started`, with nothing created on it. The
- * device carries no source or class name: the relay is `voice.ts`'s class of the project's
+ * device carries no source or class name: the relay is `voice.ts`'s class of the mind's
  * published config, the module this worker is (install.ts `voiceAgentFacetSpec`).
  */
 import type { AgentsRootApi } from "iterate/agents";
@@ -50,8 +50,8 @@ async function shortDigest(text: string): Promise<string> {
 export default class VoiceWorker extends IterateConfigEntrypoint implements VoiceApi {
   async health() {
     using itx = this.getItx();
-    const { projectId } = await itx.whoami();
-    return { ok: true as const, projectId };
+    const { mindId } = await itx.whoami();
+    return { ok: true as const, mindId };
   }
 
   /** Render to the resolution and pixel format advertised by the target. */

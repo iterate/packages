@@ -103,8 +103,8 @@ const LIVE_DELEGATION_POLICY = [
   "",
   "Delegation policy:",
   "Backend tools:",
-  "- This project’s standard Agent processor: it can read and change the",
-  "  project, look things up, run scripts, and end this call after saying goodbye.",
+  "- This mind’s standard Agent processor: it can read and change the",
+  "  mind, look things up, run scripts, and end this call after saying goodbye.",
   "Ending the call:",
   "- Always request a NEW client delegation when the user asks to end or hang up,",
   "  or when the conversation is clearly over, even after earlier backend work completed.",
@@ -523,7 +523,7 @@ const freshDial = (activation: string, agentPath: string): Dial => ({
 
 /** What the host injects; every wait and every clock in this file comes from here. */
 type VoiceAgentDeps = {
-  projectContext: () => Promise<string>;
+  mindContext: () => Promise<string>;
   nowAtFacetMs(): number;
   /** The only way this processor waits, injected so tests can use a fake clock. */
   sleep(ms: number): Promise<void>;
@@ -531,16 +531,16 @@ type VoiceAgentDeps = {
   /** Hand words to the device's agent through the agents app
    *  (`itx.agents.get(path).message(words)`), answered with the `message-received` it appended. */
   messageAgent(path: string, words: string): Promise<{ offset: number }>;
-  /** The project's live model, read when the session is prepared: the facet class's `liveModel`. */
+  /** The mind's live model, read when the session is prepared: the facet class's `liveModel`. */
   liveModel?: () => string | undefined;
-  /** The project's voice for the live model, read when the session is prepared: the facet class's `liveVoice`. */
+  /** The mind's voice for the live model, read when the session is prepared: the facet class's `liveVoice`. */
   liveVoice?: () => string | undefined;
-  /** The project's instructions for the live model, read when the session is prepared: the facet class's `liveInstructions`. */
+  /** The mind's instructions for the live model, read when the session is prepared: the facet class's `liveInstructions`. */
   liveInstructions?: () => LiveInstructions | undefined;
 };
 
-/** What a project's `liveInstructions` answers: the instructions the live model gets, from the
- *  device's agent path and the default (the delegation policy and the project). */
+/** What a mind's `liveInstructions` answers: the instructions the live model gets, from the
+ *  device's agent path and the default (the delegation policy and the mind). */
 export type LiveInstructions = (call: {
   path: string;
   instructions: string;
@@ -1054,13 +1054,13 @@ export class VoiceAgentProcessor extends StreamProcessor<
   }
 
   /** The session every call of this incarnation starts with, built once: the model, the voice and
-   *  the instructions, the default or what the project's `liveInstructions` makes of them. */
+   *  the instructions, the default or what the mind's `liveInstructions` makes of them. */
   #prepareSession(agentPath: string): Promise<Record<string, unknown>> {
     if (this.#session) return this.#session;
     const session = (async () => {
       const instructions =
         LIVE_DELEGATION_POLICY +
-        `\nCURRENT PROJECT: ${await this.deps.projectContext()}. Ingress refers to this project website.`;
+        `\nCURRENT MIND: ${await this.deps.mindContext()}. Ingress refers to this mind website.`;
       const hook = this.deps.liveInstructions?.();
       return {
         model: this.deps.liveModel?.() ?? LIVE.model,
@@ -1610,8 +1610,8 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
   static liveInstructions: LiveInstructions | undefined;
 
   /** `itx.whoami()`, read once per incarnation: the session every call starts with names the
-   *  project. */
-  #whoami?: { projectId: string; path: string };
+   *  mind. */
+  #whoami?: { mindId: string; path: string };
   async #identity() {
     if (this.#whoami) return this.#whoami;
     using itx = this.getItx();
@@ -1624,7 +1624,7 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
      * keeps alive. */
     sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     dialProvider: dialProviderSocket,
-    projectContext: async () => JSON.stringify(await this.#identity()),
+    mindContext: async () => JSON.stringify(await this.#identity()),
     liveModel: () => VoiceAgentDurableObject.liveModel,
     liveVoice: () => VoiceAgentDurableObject.liveVoice,
     liveInstructions: () => VoiceAgentDurableObject.liveInstructions,
@@ -1632,7 +1632,7 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
       // `itx.agents` is the collection of the context that provisioned the device, which this
       // context reaches through the parent link provisioning wrote (worker.ts
       // `ensureVoiceDevice`); the scope's own type names no installed app. For a device the
-      // project provisioned it is the root's, so the agent reads the words as a person's.
+      // mind provisioned it is the root's, so the agent reads the words as a person's.
       using itx = this.getItx() as IterateContextApiWith<"agents"> & Disposable;
       return await itx.agents.get(path).message(words);
     },

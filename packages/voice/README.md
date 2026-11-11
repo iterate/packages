@@ -1,13 +1,13 @@
 # @iterate-com/voice
 
-GPT-Live voice calls for a project's devices. Each device has two contexts, made when it connects
+GPT-Live voice calls for a mind's devices. Each device has two contexts, made when it connects
 and kept: its relay, `/voice/<device>`, which runs this package's relay facet and holds the live
 model, and its agent, `/agents/voice/<device>`, an agent of the agents app (`iterate/agents`,
 created through `itx.agents`) that answers every call the device makes and remembers them. Each
 request the live model delegates goes to the agent as a message through the agents app
 (`itx.agents.get(path).message(words)`), and the agent's answer goes back to the live model to
 speak. A press is ONE append to the relay's context, `call-started { activation }`: nothing is
-created on it, and the relay dials in the batch that carries it. Userspace: a project installs this
+created on it, and the relay dials in the batch that carries it. Userspace: a mind installs this
 package; the platform ships none of it.
 
 Two contexts, not one, because a context's birth restarts what it runs: an agent's cold build must
@@ -15,7 +15,7 @@ never sit in front of the relay's dial.
 
 ## Install
 
-A project's config repo depends on the package, re-exports its service and relay class from
+A mind's config repo depends on the package, re-exports its service and relay class from
 `voice.ts`, and installs voice from its init case beside the agents app, which every device's agent
 runs on (configs/voice does all of it):
 
@@ -29,22 +29,22 @@ import { installAgents } from "iterate/agents/install";
 import { installVoice } from "@iterate-com/voice/install";
 
 // in processEvent, the init case
-case "events.iterate.com/project/worker-updated":
+case "events.iterate.com/mind/worker-updated":
   await installAgents(itx);
   await installVoice(itx);
 ```
 
 `installVoice` stores the screen font and writes the `itx.voice` rule to `voice.ts`'s default
 export (`{ mainModule: "voice.ts", source: itx.cd('/').config }`), and each device's relay facet
-is that module's class (`voiceAgentFacetSpec`), so nothing is copied into the project: a commit that
+is that module's class (`voiceAgentFacetSpec`), so nothing is copied into the mind: a commit that
 changes what `voice.ts` bundles, such as a new pin, is the relay's code from its next event, and one
 that only changes the website leaves the relay running. A commit that changes `voice.ts` ends every
 call in progress: its relay restarts on the new build and the call ends as interrupted. The OpenAI
 key (the live model's) is needed only once a call starts: `ensureVoiceAgent`, which Kit's Prepare
-runs, stores it when the project has none, waits for `itx.voice` and asks it
-for `health()`, and refuses a project whose config installs no voice or whose publication was
+runs, stores it when the mind has none, waits for `itx.voice` and asks it
+for `health()`, and refuses a mind whose config installs no voice or whose publication was
 refused, saying why. An upgrade commits a newer pin (`upgradeVoice`) and waits for that commit's publication, throwing why it was refused;
-`voiceVersion` reads the build the project runs, the pin of its published commit, which a refused
+`voiceVersion` reads the build the mind runs, the pin of its published commit, which a refused
 upgrade leaves where it was. A device's calls are the same either way, so no Kit board needs a
 reflash for an upgrade.
 
@@ -74,7 +74,7 @@ that asked, so a device holds no more than it does.
   prepares the live model's session before the first press. A second row copies each press to the
   agent's context as `agent/warm-up-requested`.
 
-The backend is the project's normal agent: its system prompt, capability tree and `run` tool. Keep
+The backend is the mind's normal agent: its system prompt, capability tree and `run` tool. Keep
 tool examples in the agents app's prompt; do not maintain a separate voice API description. Each
 hand-over carries the words said since the one before (`Person:` and `Voice:` lines), and the first
 of each call starts with `New call.`, so the agent's own conversation holds every call on the device
@@ -114,7 +114,7 @@ name the call.
 
 The live model hands over within seconds of the press, so the press also readies the agent, on the
 row above and never in the dial's way: its context wakes, it reads its instructions, opens its socket
-if it has one (a project's own `llm.apiKeys`) and has the provider cache its prompt with one ping
+if it has one (a mind's own `llm.apiKeys`) and has the provider cache its prompt with one ping
 (`iterate/agents`, Warming up), which its log shows as `agent/cache-kept-warm`. A first hand-over
 that comes while the ping runs is answered at once, beside it. Facts the relay writes:
 
@@ -134,17 +134,17 @@ The call client counts the rest on the device's own clock: `pressToAcceptedMs` a
 | `src/worker.ts`                              | The voice service at `itx.voice`: `ensureVoiceDevice`, `setImage`, `health`.                                                                                                                                                                                                                                                                                                                                                              |
 | `src/install.ts`                             | `installVoice`, the init case's; `ensureVoiceAgent`, the key and the wait Kit and voice.iterate.com run in the browser, preserving existing services and secrets; `voiceVersion` and `upgradeVoice`, the running build and its upgrade.                                                                                                                                                                                                   |
 | `src/screen-font.ts`                         | The screen font's CSS with its font embedded (`assets/`), stored at `voice/screen-font.css`.                                                                                                                                                                                                                                                                                                                                              |
-| `src/call-client.ts`                         | `connectVoiceDevice(project, { client, screen? })` (`@iterate-com/voice/call`): a device as a client makes its calls — provisioning and one subscription, then `call()`, the press, `mic-frame` appends, `speak` (`words-given`), the keepalive, the 5 s opening deadline and `call-ended`; `moveTo` carries the device to a new link after a reconnect. voice.iterate.com, `voice-call.ts` and the phone bridges run it.                 |
+| `src/call-client.ts`                         | `connectVoiceDevice(mind, { client, screen? })` (`@iterate-com/voice/call`): a device as a client makes its calls — provisioning and one subscription, then `call()`, the press, `mic-frame` appends, `speak` (`words-given`), the keepalive, the 5 s opening deadline and `call-ended`; `moveTo` carries the device to a new link after a reconnect. voice.iterate.com, `voice-call.ts` and the phone bridges run it.                    |
 | `packages/agents-app/scripts/voice-call.ts`  | One conversation from Node through the call client (`--device`): a WAV in, the answer's WAV out, the press timeline printed.                                                                                                                                                                                                                                                                                                              |
 | `packages/agents-app/scripts/voice-board.ts` | The physical HAVPE proof: remote press, the prompt spoken through the air, transcripts checked.                                                                                                                                                                                                                                                                                                                                           |
 
 A device's calls are `readEvents` on its relay's context, and what its agent did on the agent's,
 through the CLI:
-`pnpm exec iterate itx run --project <slug> --eval 'return (await itx.cd("/voice/<device>").readEvents(0, 500)).events'`.
+`pnpm exec iterate itx run --mind <slug> --eval 'return (await itx.cd("/voice/<device>").readEvents(0, 500)).events'`.
 
 ## Your own model, voice and instructions
 
-A project sets the live model, its voice and its instructions from its `voice.ts`, on the relay's
+A mind sets the live model, its voice and its instructions from its `voice.ts`, on the relay's
 class. Each is read when the relay prepares its session, once per build, so a commit changes the
 next call:
 
@@ -160,13 +160,13 @@ VoiceAgentDurableObject.liveInstructions = ({ path, instructions }) =>
   `You are Jeeves, the family's chief of staff. ${instructions}`; // path: the device's agent
 ```
 
-`instructions` is the default: the delegation policy and the project. Return it changed or
+`instructions` is the default: the delegation policy and the mind. Return it changed or
 whole.
 
 ## The device's calls on the wire
 
 ```ts
-const root = session.authenticate(credentials).projects.get("prj-voice");
+const root = session.authenticate(credentials).minds.get("prj-voice");
 // when the device connects: provisioning, then one subscription for every call
 const { path } = await root.voice.ensureVoiceDevice({
   client: "home_assistant_voice_preview_edition",
@@ -210,18 +210,18 @@ parent link gives it.
 
 ## Install, run, prove
 
-Run these commands from `packages/agents-app`. The project's config installs both apps.
+Run these commands from `packages/agents-app`. The mind's config installs both apps.
 
 ```bash
 export WORKER_BASE_URL=https://os.iterate.com
 # a personal access token for prj-voice (core/os/docs/credentials.md): the Dash's Sessions page, or
-# `pnpm exec iterate --config prd tokens create --name voice-scripts --project prj-voice`
+# `pnpm exec iterate --config prd tokens create --name voice-scripts --mind prj-voice`
 export ITERATE_BEARER_TOKEN=itk_…
 export OPENAI_API_KEY=$(doppler secrets get OPENAI_API_KEY --project os --config prd --plain)
-# First prepare the project at https://k.iterate.com
+# First prepare the mind at https://k.iterate.com
 say -o ask.wav --data-format LEI16@16000 --channels=1 "What is two plus two?"
-PROJECT=prj-voice node scripts/voice-call.ts --utterance ask.wav --out answer.wav --device cli-laptop
-PROJECT=prj-voice node scripts/voice-board.ts --device home_assistant_voice_preview_edition --expect banana
+MIND=prj-voice node scripts/voice-call.ts --utterance ask.wav --out answer.wav --device cli-laptop
+MIND=prj-voice node scripts/voice-board.ts --device home_assistant_voice_preview_edition --expect banana
 ```
 
 `--expect` is a case-insensitive regular expression tested against the spoken transcript; models

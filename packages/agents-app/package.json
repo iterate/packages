@@ -20,7 +20,6 @@
     "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
-    "capnweb": "catalog:",
     "iterate": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:",

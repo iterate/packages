@@ -33,7 +33,7 @@ test.for([
     synced: { repo: "/repos/config", pull: { status: "fast-forwarded" } },
   },
   {
-    when: "a push a project's own App delivered to a page of the project's pulls too",
+    when: "a push a mind's own App delivered to a page of the mind's pulls too",
     event: pushTo("acme/config", "refs/heads/main", "github/delivery-received"),
     calls: ["pull /repos/config"],
     synced: { repo: "/repos/config", pull: { status: "fast-forwarded" } },

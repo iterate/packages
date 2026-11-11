@@ -10,7 +10,7 @@ import { SidebarProvider } from "./ui/sidebar.tsx";
 test("the sidebar links New agent to the home page and each agent to its chat", () => {
   const html = renderToStaticMarkup(
     <SidebarProvider>
-      <AgentsNav project="example.com" agents={agents()} agent={undefined} agentHref={agentHref} />
+      <AgentsNav mind="example.com" agents={agents()} agent={undefined} agentHref={agentHref} />
     </SidebarProvider>,
   );
   expect(hrefs(html)).toEqual(["./", "?agent=%2Fagents%2Fweb%2Fone"]);

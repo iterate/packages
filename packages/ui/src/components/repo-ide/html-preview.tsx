@@ -10,7 +10,7 @@
  * subresource requests from learning the dashboard URL.
  *
  * Why scripts at all: interactive previews are half the point of an html
- * renderer. Repos are project-scoped, so the author isn't necessarily the
+ * renderer. Repos are mind-scoped, so the author isn't necessarily the
  * viewer — a collaborator's (or agent's) committed HTML runs in YOUR browser
  * when you click Preview. The opaque origin contains that, and the accepted
  * residual risk is the one every script-enabled HTML preview accepts (VS Code

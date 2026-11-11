@@ -247,13 +247,13 @@ function storageFixture() {
   const previous = (globalThis as any).localStorage;
   (globalThis as any).localStorage = fake;
 
-  const repo = { projectId: `prj_${crypto.randomUUID().slice(0, 8)}`, repoPath: "/repos/x" };
+  const repo = { mindId: `mind_${crypto.randomUUID().slice(0, 8)}`, repoPath: "/repos/x" };
   return {
-    prefix: `repo-ide-working-tree:${repo.projectId}:${repo.repoPath}:`,
+    prefix: `repo-ide-working-tree:${repo.mindId}:${repo.repoPath}:`,
     store: (commitOid: string) => workingTreeStore({ ...repo, commitOid }),
     seed(commitOid: string, entries: Array<[string, unknown]>) {
       backing.set(
-        `repo-ide-working-tree:${repo.projectId}:${repo.repoPath}:${commitOid}`,
+        `repo-ide-working-tree:${repo.mindId}:${repo.repoPath}:${commitOid}`,
         JSON.stringify(entries),
       );
     },

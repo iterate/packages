@@ -138,7 +138,7 @@
     {
       "name": "agent-summary",
       "type": "registry:lib",
-      "description": "The rows of a project's agents, from the catalog's live state: which to list, in what order, and what to call each.",
+      "description": "The rows of a mind's agents, from the catalog's live state: which to list, in what order, and what to call each.",
       "dependencies": [
         "zod"
       ],
@@ -231,7 +231,7 @@
     {
       "name": "app-shell",
       "type": "registry:component",
-      "description": "The client apps' shell: the sidebar with the project switcher, the app's pages, the account menu and the platform the app is connected to, and ⌘K over the projects and pages.",
+      "description": "The client apps' shell: the sidebar with the mind switcher, the app's pages, the account menu and the platform the app is connected to, and ⌘K over the minds and pages.",
       "dependencies": [
         "cmdk",
         "cn",
@@ -265,15 +265,15 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/connected-projects.ts",
+          "path": "src/components/connected-minds.ts",
           "type": "registry:component"
         }
       ]
     },
     {
-      "name": "connect-project",
+      "name": "connect-mind",
       "type": "registry:component",
-      "description": "The page that points an app at a project by its address.",
+      "description": "The page that points an app at a mind by its address.",
       "dependencies": [
         "zod"
       ],
@@ -285,7 +285,7 @@
       ],
       "files": [
         {
-          "path": "src/components/connect-project.tsx",
+          "path": "src/components/connect-mind.tsx",
           "type": "registry:component"
         }
       ]
@@ -612,9 +612,9 @@
       ]
     },
     {
-      "name": "last-project-redirect",
+      "name": "last-mind-redirect",
       "type": "registry:component",
-      "description": "/ in an app that shows one project at a time: the project used last, or the connect page.",
+      "description": "/ in an app that shows one mind at a time: the mind used last, or the connect page.",
       "dependencies": [
         "@tanstack/react-router"
       ],
@@ -624,7 +624,7 @@
       ],
       "files": [
         {
-          "path": "src/components/last-project-redirect.tsx",
+          "path": "src/components/last-mind-redirect.tsx",
           "type": "registry:component"
         }
       ]
@@ -705,9 +705,9 @@
       ]
     },
     {
-      "name": "project-app-shell",
+      "name": "mind-app-shell",
       "type": "registry:component",
-      "description": "The app shell for a page inside one project, with its breadcrumb, and the frame it shows while the page loads.",
+      "description": "The app shell for a page inside one mind, with its breadcrumb, and the frame it shows while the page loads.",
       "dependencies": [
         "@tanstack/react-router",
         "iterate"
@@ -718,7 +718,7 @@
       ],
       "files": [
         {
-          "path": "src/components/project-app-shell.tsx",
+          "path": "src/components/mind-app-shell.tsx",
           "type": "registry:component"
         }
       ]
@@ -726,7 +726,7 @@
     {
       "name": "repo-ide",
       "type": "registry:component",
-      "description": "A small IDE over one of a project's repos: file tree, editor, diff, staging, commit and history.",
+      "description": "A small IDE over one of a mind's repos: file tree, editor, diff, staging, commit and history.",
       "dependencies": [
         "@codemirror/lang-css",
         "@codemirror/lang-html",
@@ -915,7 +915,7 @@
     {
       "name": "time-chart",
       "type": "registry:component",
-      "description": "Telemetry over time, charted with TanStack Charts: the admin app's /telemetry panels and the dash's project Analytics page.",
+      "description": "Telemetry over time, charted with TanStack Charts: the admin app's /telemetry panels and the dash's mind Analytics page.",
       "dependencies": [
         "@tanstack/charts"
       ],

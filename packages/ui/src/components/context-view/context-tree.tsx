@@ -1,4 +1,4 @@
-// The context tree: every context an app knows (a project's registry, the global namespace's
+// The context tree: every context an app knows (a mind's registry, the global namespace's
 // announced children) as an indented tree, `/` first, the one shown marked — the explorer's
 // navigation. One input over it, "Filter or go to a path": typing
 // narrows the tree to the paths that contain it; Enter opens the one match, else the path typed,
@@ -111,7 +111,7 @@ export function ContextTree({
 const TREE_ROW_HEIGHT = 26;
 const TREE_ROW = "flex h-[26px] min-w-0 items-center rounded-md pr-2 whitespace-nowrap";
 
-/** The paths as a virtual list: a project's contexts grow with every call and every agent, and only
+/** The paths as a virtual list: a mind's contexts grow with every call and every agent, and only
  *  the rows in view are in the DOM. */
 function TreeList({
   rows,

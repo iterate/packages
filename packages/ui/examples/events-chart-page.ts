@@ -3,7 +3,7 @@
 // above the same context in ContextView, iterate's own viewer. One live read feeds both, so an event
 // appended in the viewer raises a bar. recharts comes from esm.sh with `?external=react,react-dom`,
 // which leaves its `react` imports for the import map, so it uses the React @iterate-com/ui brings.
-// Copy this file into a project's config repo beside worker.ts, and route a slug to it in `fetch`:
+// Copy this file into a mind's config repo beside worker.ts, and route a slug to it in `fetch`:
 //
 //   if (routingSlug === "activity") {
 //     const denied = this.auth.require(request);
@@ -12,25 +12,25 @@
 //     return await eventsChartPage(itx); // awaited: `using` releases itx when the function returns
 //   }
 //
-// It is then `activity--<project>.iterate.app` (or `/projects/<project>/activity/` where projects
-// are paths). test/playwright/ui/third-party-library.spec.ts commits it to a fresh project and opens
+// It is then `activity--<mind>.iterate.app` (or `/minds/<mind>/activity/` where minds
+// are paths). test/playwright/ui/third-party-library.spec.ts commits it to a fresh mind and opens
 // it. A page you keep pins an exact version of @iterate-com/ui in place of `@main`.
 
-/** The page, with what only the worker knows written into it: which project this host is, and its
- *  contexts (the `project` facet's registry), for the path box. */
+/** The page, with what only the worker knows written into it: which mind this host is, and its
+ *  contexts (the `mind` facet's registry), for the path box. */
 export async function eventsChartPage(itx: {
-  whoami(): Promise<{ projectId: string; projectSlug: string }>;
-  facets: { get(name: "project"): { snapshot(): Promise<{ state: { contexts?: object } }> } };
+  whoami(): Promise<{ mindId: string; mindSlug: string }>;
+  facets: { get(name: "mind"): { snapshot(): Promise<{ state: { contexts?: object } }> } };
 }) {
-  const { projectId, projectSlug } = await itx.whoami();
-  const { state } = await itx.facets.get("project").snapshot();
-  const project = {
-    id: projectId,
-    slug: projectSlug,
+  const { mindId, mindSlug } = await itx.whoami();
+  const { state } = await itx.facets.get("mind").snapshot();
+  const mind = {
+    id: mindId,
+    slug: mindSlug,
     paths: ["/", ...Object.keys(state.contexts || {}).sort()],
   };
   // JSON inside a script element, `<` escaped so no value can close the element
-  const data = JSON.stringify(project).replaceAll("<", "\\u003c");
+  const data = JSON.stringify(mind).replaceAll("<", "\\u003c");
   return new Response(
     `<!doctype html>
 <html lang="en">
@@ -51,7 +51,7 @@ export async function eventsChartPage(itx: {
       }
     </script>
     <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@main/styles.css" />
-    <script type="application/json" id="project">${data}</script>
+    <script type="application/json" id="mind">${data}</script>
   </head>
   <body>
     <div id="root"><p class="p-4 text-sm text-muted-foreground">Connecting…</p></div>
@@ -64,8 +64,8 @@ export async function eventsChartPage(itx: {
       import { createIterateClient, useContextStub, useIterateContext } from "@iterate-com/ui/live";
       import { Bar, BarChart, CartesianGrid, Legend, Rectangle, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-      // what the worker knows and the page doesn't: which project this host is, and its contexts
-      const project = JSON.parse(document.getElementById("project").textContent);
+      // what the worker knows and the page doesn't: which mind this host is, and its contexts
+      const mind = JSON.parse(document.getElementById("mind").textContent);
       // the session this host's sign-in set (the worker only serves a signed-in member)
       const { api, info } = await createIterateClient().authenticate(location.href);
 
@@ -153,7 +153,7 @@ export async function eventsChartPage(itx: {
       function Context({ path }) {
         // the view's own state: the open inspector, the search, the filters
         const [state, setState] = useState({});
-        const root = useContextStub(() => api.projects.get(project.id), []);
+        const root = useContextStub(() => api.minds.get(mind.id), []);
         const shown = useContextStub(root.stub ? () => root.stub.cd(path) : null, [root.stub, path]);
         // ONE live read of the context, for recharts' chart and for iterate's viewer
         const context = useIterateContext(shown.stub);
@@ -185,11 +185,11 @@ export async function eventsChartPage(itx: {
         // browser back here, to sign in again.
         return html\`<main class="mx-auto flex max-w-4xl flex-col gap-4 p-4">
           <header class="flex flex-wrap items-center gap-3 text-sm">
-            <span class="font-medium">\${project.slug}</span>
+            <span class="font-medium">\${mind.slug}</span>
             <span class="text-muted-foreground">as \${info.principal.email || info.principal.actor}</span>
             <form class="ml-auto flex items-center gap-2" onSubmit=\${open}>
               <\${Input} name="path" list="paths" defaultValue=\${path} aria-label="Context" className="h-8 w-64 font-mono" />
-              <datalist id="paths">\${project.paths.map((option) => html\`<option key=\${option} value=\${option} />\`)}</datalist>
+              <datalist id="paths">\${mind.paths.map((option) => html\`<option key=\${option} value=\${option} />\`)}</datalist>
               <\${Button} type="submit" size="sm">Open<//>
             </form>
             <form method="post" action="/.auth/logout">

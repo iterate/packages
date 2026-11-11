@@ -15,7 +15,7 @@ test("the sync's folder names its main module in package.json", () => {
 });
 
 test("the sync mounts on the connection to the origin's owner and on the root, each with its marker", async () => {
-  const root = project({ origin });
+  const root = mind({ origin });
   expect(await installGithubSync(root, githubSyncFolder(version))).toEqual({
     repo: "/repos/config",
     repository: "Acme/config",
@@ -55,7 +55,7 @@ test("the sync mounts on the connection to the origin's owner and on the root, e
 });
 
 test("another repo, and a connection named by the install", async () => {
-  const root = project({ origin });
+  const root = mind({ origin });
   await installGithubSync(root, githubSyncFolder(version), {
     repo: "/repos/site",
     connection: "c9",
@@ -68,7 +68,7 @@ test("another repo, and a connection named by the install", async () => {
 });
 
 test("a package's log named by the install: the sync mounts there, and no connection is looked up", async () => {
-  const root = project({ origin, connections: [] });
+  const root = mind({ origin, connections: [] });
   expect(
     await installGithubSync(root, githubSyncFolder(version), {
       log: "/integrations/own-github/4242",
@@ -105,7 +105,7 @@ test.for([
     /expected one GitHub connection to Acme, found 2: name one with \{ connection \}/,
   ],
 ] as const)("%s is refused, and nothing is installed", async ([, input, error]) => {
-  const root = project(input);
+  const root = mind(input);
   await expect(installGithubSync(root, githubSyncFolder(version))).rejects.toThrow(error);
   expect(root.processors.enable).not.toHaveBeenCalled();
   expect(Object.keys(root.contexts)).toEqual([]);
@@ -161,9 +161,9 @@ test("a repo links to its GitHub repository through iterate Cloud's App: the ins
   );
 });
 
-/** A project root as installing calls it: its repo's origin, its GitHub connections (to `acme` by
+/** A mind root as installing calls it: its repo's origin, its GitHub connections (to `acme` by
  *  default one, `c1`), and each context `cd` reaches, recording what is appended and enabled. */
-function project(input: { origin: string | null; connections?: readonly string[] }) {
+function mind(input: { origin: string | null; connections?: readonly string[] }) {
   const contexts: Record<string, ReturnType<typeof context>> = {};
   const originsRead: string[] = [];
   const integrations = Object.fromEntries(

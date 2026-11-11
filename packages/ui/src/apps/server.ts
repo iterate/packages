@@ -30,15 +30,15 @@ type AppServer = {
       clientName?: string;
     }
   | {
-      /** Served only under a project's hosts, which a config worker fetches it through to (Notes):
-       *  the platform answers those hosts' `/.auth/*` and `/api` itself (core/os/src/worker.ts), so
+      /** Served only under a mind's hosts, which a config worker fetches it through to (Notes):
+       *  the platform answers those hosts' `/.auth/*` and `/api` itself (core/mind-worker/src/worker.ts), so
        *  the app has no sign-in gate and no OAuth client of its own. */
       proxied: true;
     }
 );
 
-/** The app's own origin signs a person in to each project they connect it to (`appAuth`) and
- *  proxies the authenticated `/api?project=<address>`. A `proxied` app skips that gate.
+/** The app's own origin signs a person in to each mind they connect it to (`appAuth`) and
+ *  proxies the authenticated `/api?mind=<address>`. A `proxied` app skips that gate.
  *  Everything else is TanStack Start's: the built assets, then `pages`. */
 export function appServerEntry(
   pages: { fetch(request: Request): Promise<Response> | Response },

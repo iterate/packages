@@ -1,8 +1,0 @@
-{
-  "name": "bun-box",
-  "type": "module",
-  "dependencies": {
-    "capnweb": "npm:@iterate-com/capnweb@0.13.0",
-    "zod": "4.6.5"
-  }
-}

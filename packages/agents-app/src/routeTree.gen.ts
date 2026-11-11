@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from "./routes/__root.tsx";
 import { Route as IndexRouteImport } from "./routes/index.tsx";
 import { Route as ConnectRouteImport } from "./routes/connect.tsx";
-import { Route as ProjectsProjectRouteImport } from "./routes/projects.$project.tsx";
+import { Route as MindsMindRouteImport } from "./routes/minds.$mind.tsx";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -23,40 +23,40 @@ const ConnectRoute = ConnectRouteImport.update({
   path: "/connect",
   getParentRoute: () => rootRouteImport,
 } as any);
-const ProjectsProjectRoute = ProjectsProjectRouteImport.update({
-  id: "/projects/$project",
-  path: "/projects/$project",
+const MindsMindRoute = MindsMindRouteImport.update({
+  id: "/minds/$mind",
+  path: "/minds/$mind",
   getParentRoute: () => rootRouteImport,
 } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project": typeof ProjectsProjectRoute;
+  "/minds/$mind": typeof MindsMindRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project": typeof ProjectsProjectRoute;
+  "/minds/$mind": typeof MindsMindRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/connect": typeof ConnectRoute;
-  "/projects/$project": typeof ProjectsProjectRoute;
+  "/minds/$mind": typeof MindsMindRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/connect" | "/projects/$project";
+  fullPaths: "/" | "/connect" | "/minds/$mind";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/connect" | "/projects/$project";
-  id: "__root__" | "/" | "/connect" | "/projects/$project";
+  to: "/" | "/connect" | "/minds/$mind";
+  id: "__root__" | "/" | "/connect" | "/minds/$mind";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   ConnectRoute: typeof ConnectRoute;
-  ProjectsProjectRoute: typeof ProjectsProjectRoute;
+  MindsMindRoute: typeof MindsMindRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -75,11 +75,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof ConnectRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/projects/$project": {
-      id: "/projects/$project";
-      path: "/projects/$project";
-      fullPath: "/projects/$project";
-      preLoaderRoute: typeof ProjectsProjectRouteImport;
+    "/minds/$mind": {
+      id: "/minds/$mind";
+      path: "/minds/$mind";
+      fullPath: "/minds/$mind";
+      preLoaderRoute: typeof MindsMindRouteImport;
       parentRoute: typeof rootRouteImport;
     };
   }
@@ -88,7 +88,7 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConnectRoute: ConnectRoute,
-  ProjectsProjectRoute: ProjectsProjectRoute,
+  MindsMindRoute: MindsMindRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -7,8 +7,7 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { expect, test, vi } from "vitest";
 
-// oxlint-disable-next-line import-js/no-restricted-paths -- the fake `itx`'s append refuses what the platform's app wall refuses: a fake borrowing the real policy, never runtime code crossing the line
-import { admitLoadedCodeRow } from "../../../core/os/src/context/itx-expression-rewriting.ts";
+import { admitLoadedCodeRow } from "../../../core/itx/src/context/itx-expression-rewriting.ts";
 
 // Whichever row runs first pays for bundling the worker with esbuild (`loadVoiceWorker()`), which
 // used to run under the hook budget; every row gets that budget.

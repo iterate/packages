@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { approvalsOf, projectApprovalsOf, WAIT_MS, type LogEvent } from "./approvals.ts";
+import { approvalsOf, mindApprovalsOf, WAIT_MS, type LogEvent } from "./approvals.ts";
 
 test("a request with no decision waits, and says what it is", () => {
   expect(approvalsOf(SECRET, [requested("d1", minutesAgo(5))], NOW)).toMatchObject({
@@ -100,8 +100,8 @@ test("the rule is the last one set: set, tightened, removed", () => {
   expect(approvalsOf(SECRET, [set, tightened, removed], NOW)).toMatchObject({ rule: null });
 });
 
-test("the project's lists merge every secret's, newest first", () => {
-  const folded = projectApprovalsOf(
+test("the mind's lists merge every secret's, newest first", () => {
+  const folded = mindApprovalsOf(
     [
       { secret: "/secrets/a", events: [requested("a1", minutesAgo(10))] },
       { secret: "/secrets/b", events: [requested("b1", minutesAgo(2))] },

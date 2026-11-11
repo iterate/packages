@@ -1,22 +1,20 @@
 // scripts/voice-call.ts — ONE voice conversation from Node, the shape the ESP32 HAVPE has: a warm
 // authenticated capnweb session and a provisioned device, then "press the button = one append".
 // The call itself is `@iterate-com/voice/call`'s client (provisioning, the subscription, the press,
-// the microphone appends, the keepalive, the terminal — prepare the project at
+// the microphone appends, the keepalive, the terminal — prepare the mind at
 // https://k.iterate.com); this script feeds it microphone frames from a 16 kHz mono PCM16 WAV (or
 // one silent frame, with `--say`'s words typed into the call),
 // writes what came back to a WAV and prints the timeline from the press.
 //
-//   PROJECT=example.com node scripts/voice-call.ts --utterance ask.wav --out answer.wav
+//   MIND=example.com node scripts/voice-call.ts --utterance ask.wav --out answer.wav
 //   node scripts/voice-call.ts --say "Say exactly: ready." --device cli-laptop
 //
-// PROJECT is the project's address. Sign in to it once with `iterate login <address>`
+// MIND is the mind's address. Sign in to it once with `iterate login <address>`
 // (./client.ts).
 import type {} from "iterate/agents";
 import type {} from "@iterate-com/voice";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connectVoiceDevice } from "@iterate-com/voice/call";
-import type { RpcPromise } from "capnweb";
-import type { IterateContextApiWith } from "iterate/api";
 import { createCli } from "trpc-cli";
 import { connect } from "./client.ts";
 
@@ -74,7 +72,7 @@ function wavFromPcm(pcm: Uint8Array): Uint8Array {
 }
 
 /** ONE voice conversation on a provisioned device through the call client; prints the timeline
- *  from the press. PROJECT (env) is the project's address. */
+ *  from the press. MIND (env) is the mind's address. */
 export default async function voiceCall(
   options: {
     /** A 16 kHz mono PCM16 WAV to send as microphone frames. */
@@ -92,7 +90,7 @@ export default async function voiceCall(
   } = {},
 ): Promise<void> {
   // the address ./client.ts connected to, named in the report
-  const PROJECT = process.env.PROJECT || "";
+  const MIND = process.env.MIND || "";
   const UTTERANCE = options.utterance;
   const SAY = options.say;
   const OUT = options.out || `/tmp/voice-call-${Date.now().toString(36)}.wav`;
@@ -100,15 +98,15 @@ export default async function voiceCall(
   if (!UTTERANCE && !SAY) throw new Error("pass --utterance <wav> or --say <text>");
   const micPcm = UTTERANCE ? pcmFromWav(UTTERANCE) : Buffer.alloc(FRAME_MS * BYTES_PER_MS);
 
-  // ONE warm authenticated session and the project root — what a connected device holds.
+  // ONE warm authenticated session and the mind root — what a connected device holds.
   const warm0 = now();
   using connection = await connect();
-  // The project's config installs voice beside the agents app (https://k.iterate.com prepares
-  // both), so its root has `voice` and `agents`: the assertion iterate/api's `IterateContextApiWith`
-  // documents for a root that knows its apps are there.
-  const root = connection.itx as unknown as RpcPromise<IterateContextApiWith<"voice" | "agents">>;
-  await root.whoami();
-  console.log(`session + project root ready in ${now() - warm0}ms`);
+  // The mind's config installs voice beside the agents app (https://k.iterate.com prepares
+  // both), so its root has `voice` and `agents`. The type is voice's own: @iterate-com/voice is
+  // still built on core/os's SDK (core/os-sdk), which is where it adds `voice` to a root.
+  const root = connection.itx as unknown as Parameters<typeof connectVoiceDevice>[0];
+  await connection.itx.whoami();
+  console.log(`session + mind root ready in ${now() - warm0}ms`);
   // What a device does when it connects: provisioning and the one subscription, never on a press.
   const provisioned0 = now();
   const device = await connectVoiceDevice(root, { client: options.device || "cli" });
@@ -205,7 +203,7 @@ export default async function voiceCall(
   console.log(
     JSON.stringify(
       {
-        project: PROJECT,
+        mind: MIND,
         path: device.path,
         agentPath: device.agentPath,
         activation: call.activation,

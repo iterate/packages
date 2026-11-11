@@ -107,10 +107,10 @@ polling for new ones.
 - Components are `@iterate-com/ui/components/<name>`: `context-view/context-view`,
   `repo-ide/repo-ide`, `code-block`, and shadcn's (`ui/card`, `ui/table`, …).
 
-### Your project's data
+### Your mind's data
 
-`@iterate-com/ui/live` reads a project live, as the person viewing the page. On the project's own
-host (`<slug>--<project>.iterate.app`, served by its worker) the page uses the host's session. On
+`@iterate-com/ui/live` reads a mind live, as the person viewing the page. On the mind's own
+host (`<slug>--<mind>.iterate.app`, served by its worker) the page uses the host's session. On
 any other website the page signs in with iterate itself: a page to copy does it, jsfiddle included.
 Both, and how a Claude artifact reaches iterate instead:
 [Signing in](https://github.com/iterate/packages/blob/main/packages/ui/AGENTS.md#signing-in).

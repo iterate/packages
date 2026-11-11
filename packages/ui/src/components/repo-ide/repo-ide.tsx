@@ -12,7 +12,7 @@ import {
   useRepoLog,
   type Read,
   type RepoFiles,
-  type RepoProject,
+  type RepoMind,
 } from "./repo-client.ts";
 import {
   useWorkingTree,
@@ -32,16 +32,16 @@ import { useRepoIdeActions } from "./use-repo-ide-actions.ts";
  * with a router keeps it in the URL and every view is a link; any host can hold it in state.
  */
 export function RepoIde({
-  project,
-  projectId,
+  mind,
+  mindId,
   repoPath,
   author,
   search,
   onSearchChange,
 }: {
-  /** The project's root context, as the signed-in app holds it. */
-  project: RepoProject;
-  projectId: string;
+  /** The mind's root context, as the signed-in app holds it. */
+  mind: RepoMind;
+  mindId: string;
   /** `/repos/<name>` */
   repoPath: string;
   /** The commit's author: the person signed in; none leaves the repo's own default. */
@@ -49,13 +49,13 @@ export function RepoIde({
   search: RepoIdeSearch;
   onSearchChange: (patch: Partial<RepoIdeSearch>) => void;
 }) {
-  const { state, reload } = useRepoFiles(project, repoPath);
+  const { state, reload } = useRepoFiles(mind, repoPath);
   if (state.status === "failed") return <ErrorPane message={state.message} />;
   if (state.status === "pending") return <EmptyPane label="Loading repo…" spinner />;
   return (
     <LoadedRepoIde
-      project={project}
-      projectId={projectId}
+      mind={mind}
+      mindId={mindId}
       repoPath={repoPath}
       author={author}
       files={state.value}
@@ -67,8 +67,8 @@ export function RepoIde({
 }
 
 function LoadedRepoIde({
-  project,
-  projectId,
+  mind,
+  mindId,
   repoPath,
   author,
   files,
@@ -76,8 +76,8 @@ function LoadedRepoIde({
   search,
   onSearchChange,
 }: {
-  project: RepoProject;
-  projectId: string;
+  mind: RepoMind;
+  mindId: string;
   repoPath: string;
   author: { name: string; email: string } | undefined;
   files: RepoFiles;
@@ -86,11 +86,11 @@ function LoadedRepoIde({
   onSearchChange: (patch: Partial<RepoIdeSearch>) => void;
 }) {
   // a repo with no commit yet keys its working tree under "unborn"
-  const store = workingTreeStore({ projectId, repoPath, commitOid: files.commitOid || "unborn" });
+  const store = workingTreeStore({ mindId, repoPath, commitOid: files.commitOid || "unborn" });
   const changes = useWorkingTree(store);
   const ide = useRepoIdeActions({
-    project,
-    projectId,
+    mind,
+    mindId,
     repoPath,
     author,
     files,
@@ -100,7 +100,7 @@ function LoadedRepoIde({
     selectedPath: search.file,
     onSearchChange,
   });
-  const commits = useRepoLog(project, repoPath, Boolean(search.history), files.commitOid);
+  const commits = useRepoLog(mind, repoPath, Boolean(search.history), files.commitOid);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-row">
       <RepoIdeActivityStrip
@@ -110,7 +110,7 @@ function LoadedRepoIde({
       />
       <div className="flex min-h-0 w-72 shrink-0 flex-col border-r">
         <RepoIdeSidebar
-          project={project}
+          mind={mind}
           repoPath={repoPath}
           files={files}
           commits={commits}
@@ -123,7 +123,7 @@ function LoadedRepoIde({
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <RepoIdeMain
-          project={project}
+          mind={mind}
           repoPath={repoPath}
           files={files}
           commits={commits}
@@ -143,7 +143,7 @@ type Store = ReturnType<typeof workingTreeStore>;
 
 /** The sidebar the activity strip chose: the file tree, Source control, or History. */
 function RepoIdeSidebar({
-  project,
+  mind,
   repoPath,
   files,
   commits,
@@ -153,7 +153,7 @@ function RepoIdeSidebar({
   search,
   onSearchChange,
 }: {
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   files: RepoFiles;
   commits: Read<RepoLogEntry[]>;
@@ -175,7 +175,7 @@ function RepoIdeSidebar({
       <CommitHistoryPanel
         commits={commits.value}
         refreshing={commits.refreshing}
-        project={project}
+        mind={mind}
         repoPath={repoPath}
         expandedOid={search.commit}
         selectedPath={search.file}
@@ -229,7 +229,7 @@ function RepoIdeSidebar({
 
 /** The open file: the editor, or in History the commit's diff of it. */
 function RepoIdeMain({
-  project,
+  mind,
   repoPath,
   files,
   commits,
@@ -239,7 +239,7 @@ function RepoIdeMain({
   search,
   onSearchChange,
 }: {
-  project: RepoProject;
+  mind: RepoMind;
   repoPath: string;
   files: RepoFiles;
   commits: Read<RepoLogEntry[]>;
@@ -258,7 +258,7 @@ function RepoIdeMain({
     return (
       <CommitDiffPane
         key={`${path}:${expandedCommit.oid}`}
-        project={project}
+        mind={mind}
         repoPath={repoPath}
         path={path}
         commit={expandedCommit}
@@ -285,7 +285,7 @@ function RepoIdeMain({
   return (
     <RepoEditorPane
       key={path}
-      project={project}
+      mind={mind}
       repoPath={repoPath}
       path={path}
       headCommitOid={files.commitOid}

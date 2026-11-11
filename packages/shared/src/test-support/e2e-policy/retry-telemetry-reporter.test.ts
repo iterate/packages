@@ -211,11 +211,11 @@ test("prints the e2e rows that ran past the row budget's warning", async () => {
   vi.stubEnv("TEST_TELEMETRY_SUITE", "vitest");
   vi.stubEnv("FLAKE_RECORD_DIR", undefined);
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  const row = (name: string, project: string, duration: number, tags: string[] = []) => ({
+  const row = (name: string, mind: string, duration: number, tags: string[] = []) => ({
     fullName: name,
     name,
     tags,
-    project: { name: project },
+    project: { name: mind },
     diagnostic: () => ({ retryCount: 0, flaky: false, duration, startTime: 2_000 }),
     result: () => ({ state: "passed", errors: [] }),
   });

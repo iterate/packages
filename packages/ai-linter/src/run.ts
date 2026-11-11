@@ -1,5 +1,5 @@
 // ai-linter/run.ts — one lint of one pull request head, its I/O handed in: GitHub's REST API through
-// the project's egress, the models through its Workers AI binding, the project's id and a clock.
+// the mind's egress, the models through its Workers AI binding, the mind's id and a clock.
 // processor.ts queues the heads and hands this the real I/O; run.test.ts hands it fakes.
 //
 // A rule is decided by one of two engines (lint.ts `Rule`). The LLM reads the diff with every LLM
@@ -15,8 +15,8 @@
 // is delivered again. A lint that fails before it has anything to publish (the pull request, its
 // files or the rules folder unreadable) posts a Check Run saying so.
 //
-// Every model call names the project, so the gateway's per-project cap bounds what the linter spends
-// and it never uses up the budget every project's agents share.
+// Every model call names the mind, so the gateway's per-mind cap bounds what the linter spends
+// and it never uses up the budget every mind's agents share.
 import { z } from "zod";
 import {
   CHECK_NAME,
@@ -88,11 +88,11 @@ export type Job = {
  *  unsure units. */
 export type LintConfig = { rules: string; model: string };
 
-/** The AI Gateway every model call goes through, and what it logs: the project, whose daily cap
+/** The AI Gateway every model call goes through, and what it logs: the mind, whose daily cap
  *  bounds the linter, the app and the pull request head. */
 export type Gateway = {
   id: string;
-  metadata: { projectId: string; app: string; pullRequest: string };
+  metadata: { mindId: string; app: string; pullRequest: string };
 };
 
 /** The lint's I/O. `fetch` answers the status and the whole body, read before the call returns.
@@ -103,7 +103,7 @@ export type LintIo = {
   fetch(request: Request): Promise<{ status: number; text: string }>;
   model(model: string, input: unknown, options: { gateway: Gateway }): Promise<unknown>;
   remember<T>(key: string, compute: () => Promise<T>): Promise<T>;
-  projectId(): Promise<unknown>;
+  mindId(): Promise<unknown>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -277,17 +277,17 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
     );
     return new Map(read.filter((entry): entry is [string, string] => entry[1] !== null));
   };
-  // The project names the spend, so the gateway's per-project cap bounds the linter and it never
-  // uses up the budget every project's agents share. Without it the cap does not apply, so no
+  // The mind names the spend, so the gateway's per-mind cap bounds the linter and it never
+  // uses up the budget every mind's agents share. Without it the cap does not apply, so no
   // model is called.
-  const projectId = await io.projectId();
-  if (typeof projectId !== "string" || !projectId)
+  const mindId = await io.mindId();
+  if (typeof mindId !== "string" || !mindId)
     throw new Error(
-      "this context names no project, so the AI Gateway's per-project cap could not bound the lint",
+      "this context names no mind, so the AI Gateway's per-mind cap could not bound the lint",
     );
   const gateway: Gateway = {
     id: "default",
-    metadata: { projectId, app: "ai-linter", pullRequest: job.key },
+    metadata: { mindId, app: "ai-linter", pullRequest: job.key },
   };
   const usage = { llmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0 };
   // Each LLM request's answer is remembered by the request, so a lint run again after a restart
@@ -727,7 +727,7 @@ class GithubError extends Error {
 type GithubApi = ReturnType<typeof githubApi>;
 
 /** GitHub's REST API as the connection's installation: the token is a `getSecret` placeholder that
- *  the project's egress replaces, so it never enters this isolate. `raw` answers the file's text. */
+ *  the mind's egress replaces, so it never enters this isolate. `raw` answers the file's text. */
 function githubApi(io: LintIo, connection: string) {
   return async (method: string, path: string, body?: unknown, accept?: "raw"): Promise<any> => {
     // A GET that met a server error or a lost connection is tried twice more; anything else once.

@@ -1,4 +1,4 @@
-// ⌘K in the AppShell: one dialog to switch project or jump to any page the sidebar offers, by
+// ⌘K in the AppShell: one dialog to switch mind or jump to any page the sidebar offers, by
 // typing. The rows and the filter are app-shell-palette-entries.ts; this is the dialog, the
 // shortcut and the buttons that open it (the sidebar's "Search" row, and the header's on a phone,
 // where the sidebar is a sheet).
@@ -15,7 +15,7 @@ import { Command as CommandPrimitive } from "cmdk";
 import { CheckIcon, SearchIcon } from "lucide-react";
 import {
   filterPaletteEntries,
-  withoutProjectLinks,
+  withoutMindLinks,
   type AppPaletteEntry,
   type PaletteEntry,
   type SidebarNavItem,
@@ -40,7 +40,7 @@ import {
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "#/components/ui/sidebar.tsx";
 
 type PaletteRow =
-  | (PaletteEntry & { kind: "project"; href: string })
+  | (PaletteEntry & { kind: "mind"; href: string })
   | (PaletteEntry & { kind: "nav"; element: HTMLElement })
   | (PaletteEntry & { kind: "app"; onSelect: () => void });
 
@@ -106,7 +106,7 @@ export function PaletteHeaderButton({ onOpen }: { onOpen: () => void }) {
 }
 
 /** The dialog. `nav` is the sidebar's navigation as it read when the palette opened, null while
- *  closed. A project row is a real link to `projectHref(project)` — a plain click (or Enter) goes
+ *  closed. A mind row is a real link to `mindHref(mind)` — a plain click (or Enter) goes
  *  through `onNavigate` when the app has a client router, a modified or middle click opens a tab —
  *  a nav row clicks the sidebar's own element, and an entry the app handed over runs its
  *  `onSelect`. */
@@ -114,18 +114,18 @@ export function AppShellPalette({
   nav,
   entries,
   onClose,
-  projects,
-  project,
-  projectHref,
+  minds,
+  mind,
+  mindHref,
   onNavigate,
 }: {
   nav: SidebarNavItem[] | null;
   entries: AppPaletteEntry[];
   onClose: () => void;
-  /** the connected projects, by address */
-  projects: string[];
-  project: string | null;
-  projectHref: (address: string) => string;
+  /** the connected minds, by address */
+  minds: string[];
+  mind: string | null;
+  mindHref: (address: string) => string;
   onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   return (
@@ -142,16 +142,16 @@ export function AppShellPalette({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Search</DialogTitle>
-          <DialogDescription>Switch project or go to a page</DialogDescription>
+          <DialogDescription>Switch mind or go to a page</DialogDescription>
         </DialogHeader>
         {nav ? (
           <PaletteBody
             nav={nav}
             entries={entries}
             onClose={onClose}
-            projects={projects}
-            project={project}
-            projectHref={projectHref}
+            minds={minds}
+            mind={mind}
+            mindHref={mindHref}
             onNavigate={onNavigate}
           />
         ) : null}
@@ -165,36 +165,36 @@ function PaletteBody({
   nav,
   entries,
   onClose,
-  projects,
-  project,
-  projectHref,
+  minds,
+  mind,
+  mindHref,
   onNavigate,
 }: {
   nav: SidebarNavItem[];
   entries: AppPaletteEntry[];
   onClose: () => void;
-  /** the connected projects, by address */
-  projects: string[];
-  project: string | null;
-  projectHref: (address: string) => string;
+  /** the connected minds, by address */
+  minds: string[];
+  mind: string | null;
+  mindHref: (address: string) => string;
   onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   const [query, setQuery] = useState("");
   const links = useRef(new Map<string, HTMLAnchorElement>());
-  const projectRows = projects.map((address): PaletteRow => ({
-    kind: "project",
-    id: `project:${address}`,
+  const mindRows = minds.map((address): PaletteRow => ({
+    kind: "mind",
+    id: `mind:${address}`,
     label: address,
-    group: "Projects",
+    group: "Minds",
     detail: undefined,
-    active: address === project,
-    href: projectHref(address),
+    active: address === mind,
+    href: mindHref(address),
   }));
-  const navRows = withoutProjectLinks(
+  const navRows = withoutMindLinks(
     nav,
-    projects.map((address) => ({
+    minds.map((address) => ({
       label: address,
-      href: new URL(projectHref(address), location.href).href,
+      href: new URL(mindHref(address), location.href).href,
     })),
   ).map(({ element, label, group, detail, active }, index): PaletteRow => ({
     kind: "nav",
@@ -210,7 +210,7 @@ function PaletteBody({
     id: `app:${index}`,
     ...entry,
   }));
-  const groups = filterPaletteEntries([...navRows, ...appRows, ...projectRows], query);
+  const groups = filterPaletteEntries([...navRows, ...appRows, ...mindRows], query);
   return (
     <Command shouldFilter={false} loop className="p-0">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -218,8 +218,8 @@ function PaletteBody({
         <CommandPrimitive.Input
           data-slot="command-input"
           className="flex h-8 w-full min-w-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
-          placeholder="Search projects and pages…"
-          aria-label="Search projects and pages"
+          placeholder="Search minds and pages…"
+          aria-label="Search minds and pages"
           value={query}
           onValueChange={setQuery}
         />
@@ -238,7 +238,7 @@ function PaletteBody({
                 value={row.id}
                 className="rounded-none px-3 py-2 in-data-[slot=dialog-content]:rounded-none!"
                 onSelect={() => {
-                  if (row.kind === "project") {
+                  if (row.kind === "mind") {
                     links.current.get(row.id)?.click();
                     return;
                   }
@@ -251,7 +251,7 @@ function PaletteBody({
                   row.element.click();
                 }}
               >
-                {row.kind === "project" ? (
+                {row.kind === "mind" ? (
                   <a
                     ref={(link) => {
                       if (link) links.current.set(row.id, link);

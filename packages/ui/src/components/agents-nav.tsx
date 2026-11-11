@@ -1,8 +1,8 @@
-// The Agents app's sidebar body (the frame around it is AppShell): "New agent" and the project's
+// The Agents app's sidebar body (the frame around it is AppShell): "New agent" and the mind's
 // agents at the top (sub-agents are not listed), most recently active first. Each shows its name or
 // the first thing a person said to it, with its path beneath, an icon for what runs it and a dot
 // for what it is doing (lib/agent-summary.ts). Pinned agents sit in their own list above, pins kept
-// per project in this browser. It imports no router: a row is a link to `agentHref(path)`, and a
+// per mind in this browser. It imports no router: a row is a link to `agentHref(path)`, and a
 // plain left click on it is `onOpen`'s when the page has one.
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { BotIcon, BoxIcon, PinIcon, SquarePenIcon, SquareTerminalIcon } from "lucide-react";
@@ -56,16 +56,16 @@ export function AgentLink({
 }
 
 export function AgentsNav({
-  project,
+  mind,
   agents,
   agent,
   installed = true,
   agentHref,
   onOpen,
 }: {
-  /** the project's address: pins are kept under it */
-  project: string;
-  /** whether the project has `itx.agents`: without it there is nothing to create an agent with */
+  /** the mind's address: pins are kept under it */
+  mind: string;
+  /** whether the mind has `itx.agents`: without it there is nothing to create an agent with */
   installed?: boolean;
   agents: AgentRow[];
   /** the open agent; none on the home page */
@@ -74,7 +74,7 @@ export function AgentsNav({
   /** A page with a client router navigates here; without it a row is a plain link. */
   onOpen?: OpenAgent;
 }) {
-  const { pinned, togglePinned } = usePinnedAgents(project);
+  const { pinned, togglePinned } = usePinnedAgents(mind);
   const ordered = useMemo(() => orderAgents(topLevelAgents(agents), pinned), [agents, pinned]);
   const renderRow = (row: AgentRow) => (
     <AgentsNavRow
@@ -211,47 +211,47 @@ function StatusDot({ status }: { status: AgentStatus }) {
 }
 
 // ── pins ──
-// The agents this person pinned, per project, in this browser's localStorage: a viewer's
-// convenience, never the project's data. Read after mount (a server render has no storage); storage
+// The agents this person pinned, per mind, in this browser's localStorage: a viewer's
+// convenience, never the mind's data. Read after mount (a server render has no storage); storage
 // that throws (a private window, blocked site data) leaves pins in memory only.
 
 const Pins = z.array(z.string());
 const NONE: ReadonlySet<string> = new Set();
 
-function storageKey(project: string) {
-  return `iterate-agents:pinned:${project}`;
+function storageKey(mind: string) {
+  return `iterate-agents:pinned:${mind}`;
 }
 
-function readPins(project: string): Set<string> {
+function readPins(mind: string): Set<string> {
   try {
-    const parsed = Pins.safeParse(JSON.parse(localStorage.getItem(storageKey(project)) ?? "[]"));
+    const parsed = Pins.safeParse(JSON.parse(localStorage.getItem(storageKey(mind)) ?? "[]"));
     return new Set(parsed.success ? parsed.data : []);
   } catch {
     return new Set();
   }
 }
 
-function usePinnedAgents(project: string): {
+function usePinnedAgents(mind: string): {
   pinned: ReadonlySet<string>;
   togglePinned: (path: string) => void;
 } {
-  const [held, setHeld] = useState<{ project: string; pinned: ReadonlySet<string> }>();
-  useEffect(() => setHeld({ project, pinned: readPins(project) }), [project]);
+  const [held, setHeld] = useState<{ mind: string; pinned: ReadonlySet<string> }>();
+  useEffect(() => setHeld({ mind, pinned: readPins(mind) }), [mind]);
   const togglePinned = useCallback(
     (path: string) => {
-      const next = new Set(held?.project === project ? held.pinned : readPins(project));
+      const next = new Set(held?.mind === mind ? held.pinned : readPins(mind));
       if (!next.delete(path)) next.add(path);
       try {
-        localStorage.setItem(storageKey(project), JSON.stringify([...next]));
+        localStorage.setItem(storageKey(mind), JSON.stringify([...next]));
       } catch {
         // storage refused: the pin holds for this page's life
       }
-      setHeld({ project, pinned: next });
+      setHeld({ mind, pinned: next });
     },
-    [held, project],
+    [held, mind],
   );
   return {
-    pinned: held?.project === project ? held.pinned : NONE,
+    pinned: held?.mind === mind ? held.pinned : NONE,
     togglePinned,
   };
 }

@@ -1,7 +1,7 @@
 {
   "name": "@iterate-com/voice",
   "version": "0.1.0",
-  "description": "Voice for Iterate projects: GPT-Live calls for each device, answered by the device's agent",
+  "description": "Voice for Iterate minds: GPT-Live calls for each device, answered by the device's agent",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

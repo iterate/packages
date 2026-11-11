@@ -1,4 +1,4 @@
-// The one layout of the dash's list pages — projects, organizations: the title row with the page's
+// The one layout of the dash's list pages — minds, organizations: the title row with the page's
 // action, then the table (packages/ui `Table`) in its frame, or the empty line when there are no
 // rows. Both pages are this, so they read alike.
 import type { ReactNode } from "react";
