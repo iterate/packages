@@ -214,17 +214,25 @@ export function AgentKindViewFrame({
   });
 }
 
+/** WHETHER THE FRAME CARRIES A `<style>` OF THE PAGE. Not one that CodeMirror made: an editor
+ *  writes its themes into its document as rules for class names it generates by counting
+ *  (`.ͼ1`, `.ͼ2`, …). The frame's own editors count from one again, for other rules, so the
+ *  page's rules would land on the wrong classes there: a composer in a fixed-width font with the
+ *  editor's default dotted focus ring. The frame's editors write their own. */
+export const frameCarriesStyle = (text: string) => !text.includes("\u037c");
+
 /** The frame's page: the host page's own stylesheets (its theme and every class iterate's parts
  *  use), a root that fills it, and the frame's script. */
 function frameDocument(frameScript: string): string {
   // a server render has no document: the frame is the browser's
   if (!globalThis.document) return "";
   const styles = [...document.querySelectorAll<HTMLElement>('link[rel="stylesheet"], style')]
-    .map((element) =>
-      element instanceof HTMLLinkElement
-        ? `<link rel="stylesheet" href="${attribute(element.href)}">`
-        : `<style>${element.textContent || ""}</style>`,
-    )
+    .flatMap((element) => {
+      if (element instanceof HTMLLinkElement)
+        return [`<link rel="stylesheet" href="${attribute(element.href)}">`];
+      const text = element.textContent || "";
+      return frameCarriesStyle(text) ? [`<style>${text}</style>`] : [];
+    })
     .join("\n");
   return `<!doctype html>
 <html class="${attribute(document.documentElement.className)}">
