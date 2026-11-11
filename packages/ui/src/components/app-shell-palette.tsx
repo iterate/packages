@@ -57,14 +57,15 @@ function useShortcutLabel() {
 }
 
 /** ⌘K (Ctrl+K off a Mac) anywhere on the page toggles the palette — in a text field too, as the
- *  sidebar's ⌘B does. */
-export function usePaletteShortcut(toggle: () => void) {
+ *  sidebar's ⌘B does. Null: the app has no palette, and the keys stay the browser's. */
+export function usePaletteShortcut(toggle: (() => void) | null) {
   useEffect(() => {
+    if (!toggle) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.altKey || event.shiftKey) return;
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
       event.preventDefault();
-      toggle();
+      toggle?.();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

@@ -92,6 +92,7 @@ export function AppShell({
   switcher,
   nav,
   paletteEntries,
+  commandPalette = true,
   searchRow = true,
   header,
   account,
@@ -119,6 +120,9 @@ export function AppShell({
   /** rows for ⌘K beside what it reads off `nav`: what the sidebar shows in a way it can't read
    *  (a file tree in its own shadow DOM) */
   paletteEntries?: AppPaletteEntry[];
+  /** ⌘K, the sidebar's "Search" row and the phone's Search button; false for an app with nothing
+   *  to search (the Cloud's installer: one page, no navigation) */
+  commandPalette?: boolean;
   /** the sidebar's "Search" row above `nav`; without it, ⌘K and the phone's header button still
    *  open the palette */
   searchRow?: boolean;
@@ -128,9 +132,11 @@ export function AppShell({
   /** who the app is signed in as, when it knows; null when the app is signed in to `project` but
    *  does not know as whom (the menu then names the project). "Sign out" posts to the gate's
    *  `/.auth/logout?project=<address>`, which ends that project's sign-in alone. Undefined while the
-   *  app is still signing in: a placeholder of the menu's height holds its place. */
-  account?: Principal | null;
-  /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s */
+   *  app is still signing in: a placeholder of the menu's height holds its place. False when nobody
+   *  is signed in and the page shows all the same: no menu. */
+  account?: Principal | null | false;
+  /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s; an app with
+   *  no project brings its own Sign out here */
   accountActions?: ReactNode;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
@@ -162,9 +168,11 @@ export function AppShell({
   // (`AppShellPageMenu`) go
   const [pageHeaderSlot, setPageHeaderSlot] = useState<HTMLElement | null>(null);
   const [pageMenuSlot, setPageMenuSlot] = useState<HTMLElement | null>(null);
-  usePaletteShortcut(
-    useCallback(() => setPalette((open) => (open ? null : readSidebarNav(navRef.current))), []),
+  const togglePalette = useCallback(
+    () => setPalette((open) => (open ? null : readSidebarNav(navRef.current))),
+    [],
   );
+  usePaletteShortcut(commandPalette ? togglePalette : null);
   useHeightOfWhatIsVisible();
   const pageSlots = useMemo(
     () => ({ header: pageHeaderSlot, menu: pageMenuSlot, openPalette, appHeader: header }),
@@ -185,14 +193,14 @@ export function AppShell({
               onNavigate={onNavigate}
             />
           )}
-          {searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
+          {commandPalette && searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
         </SidebarHeader>
         {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the projects alone */}
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>
         <SidebarFooter>
           <CollapseButton />
           {/* oxlint-disable-next-line iterate/simple-truthiness-check -- `account` has three states: undefined is still signing in, null is signed in as someone the app cannot name */}
-          {account !== undefined ? (
+          {account === false ? null : account !== undefined ? (
             <AccountMenu
               name={account?.email || account?.actor || project || app}
               project={project}
@@ -226,7 +234,7 @@ export function AppShell({
               !header && "md:hidden",
             )}
           >
-            <PaletteHeaderButton onOpen={openPalette} />
+            {commandPalette ? <PaletteHeaderButton onOpen={openPalette} /> : null}
             {header}
           </div>
           <div ref={setPageHeaderSlot} className="flex min-w-0 flex-1 items-center empty:hidden" />
@@ -236,15 +244,17 @@ export function AppShell({
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
         </PageSlotsContext>
       </SidebarInset>
-      <AppShellPalette
-        nav={palette}
-        entries={paletteEntries || []}
-        onClose={() => setPalette(null)}
-        projects={projects}
-        project={project}
-        projectHref={projectHref}
-        onNavigate={onNavigate}
-      />
+      {commandPalette ? (
+        <AppShellPalette
+          nav={palette}
+          entries={paletteEntries || []}
+          onClose={() => setPalette(null)}
+          projects={projects}
+          project={project}
+          projectHref={projectHref}
+          onNavigate={onNavigate}
+        />
+      ) : null}
     </SidebarProvider>
   );
 }
