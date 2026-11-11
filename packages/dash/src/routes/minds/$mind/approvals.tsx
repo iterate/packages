@@ -19,6 +19,7 @@ import { Identifier } from "../../../components/identifier.tsx";
 import { NotServedYet } from "../../../components/not-served-yet.tsx";
 import { mindApprovalsOf, type HeldRequest } from "../../../lib/approvals.ts";
 import { askWaitingApprovals, readMindApprovals } from "../../../lib/approvals-read.ts";
+import type { HeldAct } from "../../../lib/held-acts.ts";
 
 export const Route = createFileRoute("/minds/$mind/approvals")({
   loader: async ({ context }) => {
@@ -48,11 +49,17 @@ function MindApprovals() {
   return <Approvals {...data} />;
 }
 
-function Approvals({ waiting, approved, decided, rules }: ReturnType<typeof mindApprovalsOf>) {
+function Approvals({
+  waiting,
+  approved,
+  decided,
+  rules,
+  acts,
+}: ReturnType<typeof mindApprovalsOf> & { acts: HeldAct[] }) {
   const { mind } = Route.useRouteContext();
   const router = useRouter();
   const approvalsPage = `${platformOriginOf(mind)}/secrets/approvals`;
-  const live = waiting.length > 0 || approved.length > 0;
+  const live = waiting.length > 0 || approved.length > 0 || acts.length > 0;
 
   useEffect(() => {
     if (!live) return;
@@ -69,6 +76,60 @@ function Approvals({ waiting, approved, decided, rules }: ReturnType<typeof mind
           on the mind's own address, because your passkey or security key only signs there.
         </p>
       </div>
+
+      {/* a mail or a call of a verb that a rule holds: shown only while one waits */}
+      {acts.length > 0 ? (
+        <Part
+          id="approvals-acts"
+          title="Mail and calls that wait"
+          headings={["What", "Kind", "Since", "From", "Action"]}
+          empty={false}
+        >
+          {acts.map((act) => (
+            <TableRow key={act.digest} data-held-act={act.digest}>
+              <TableCell className="max-w-md align-top whitespace-normal">
+                {act.summary}
+                <p className="mt-1 font-mono text-2xs text-muted-foreground">
+                  Act {act.digest.slice(0, 12)}
+                </p>
+              </TableCell>
+              <TableCell className="align-top">
+                <Identifier value={act.act} />
+              </TableCell>
+              <TableCell className="align-top text-muted-foreground">
+                {timeOf(act.heldAt)}
+              </TableCell>
+              <TableCell className="align-top">
+                {act.from ? (
+                  <>
+                    <span className="font-mono text-xs wrap-anywhere">{act.from}</span>
+                    <p className="text-2xs text-muted-foreground">as the platform claims</p>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="align-top">
+                <Button
+                  size="sm"
+                  render={
+                    <a
+                      href={approvalsPage}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Review and approve: ${act.summary}`}
+                    />
+                  }
+                  nativeButton={false}
+                >
+                  Review and approve
+                  <ExternalLink data-icon="inline-end" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </Part>
+      ) : null}
 
       <Part
         id="approvals-waiting"

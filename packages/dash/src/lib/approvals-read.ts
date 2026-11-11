@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from "react";
 import type { AuthenticatedApp } from "iterate/app";
 import { mindApprovalsOf, type LogEvent } from "./approvals.ts";
+import { heldActsOf } from "./held-acts.ts";
 import { servesRoot } from "./served.ts";
 
 type Read = AuthenticatedApp["read"];
@@ -23,18 +24,28 @@ async function logOf(read: Read, path: string): Promise<LogEvent[]> {
   }
 }
 
-/** The mind's approvals, from its secrets' logs. `served: false` for a mind with no vault yet. */
+/** The mind's approvals: the requests that wait by their secret, from the secrets' logs, and the
+ *  mails and calls that wait in the gate, from `/approvals`. `served: false` for a mind with no
+ *  vault yet. */
 export async function readMindApprovals(read: Read) {
   // the list is read only once the root is known to be there
   if (!(await servesRoot(read, "secrets"))) return { served: false as const };
-  const secrets = await read((itx) => itx.secrets.list());
+  const [secrets, gate] = await Promise.all([
+    read((itx) => itx.secrets.list()),
+    // a mind from before the gate has no such context: nothing waits there
+    logOf(read, "/approvals").catch((): LogEvent[] => []),
+  ]);
   const logs = await Promise.all(
     secrets.map(async (secret) => ({
       secret: secret.path,
       events: await logOf(read, secret.path),
     })),
   );
-  return { served: true as const, ...mindApprovalsOf(logs, Date.now()) };
+  return {
+    served: true as const,
+    ...mindApprovalsOf(logs, Date.now()),
+    acts: heldActsOf(gate),
+  };
 }
 
 /** How often the shell asks again while its tab is in front. */
@@ -52,7 +63,7 @@ async function ask(mind: string) {
   // a read that fails keeps the last count: the next one says
   const answer = await readMindApprovals(read).catch(() => null);
   if (!answer) return;
-  const count = answer.served ? answer.waiting.length : 0;
+  const count = answer.served ? answer.waiting.length + answer.acts.length : 0;
   if (counts.get(mind) === count) return;
   counts.set(mind, count);
   for (const changed of listeners.get(mind) || []) changed();
