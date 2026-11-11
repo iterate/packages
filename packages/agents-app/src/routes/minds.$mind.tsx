@@ -103,6 +103,10 @@ export const Route = createFileRoute("/minds/$mind")({
     });
     return { catalog, principal };
   },
+  // the tab says which mind, and which agent when one is open (its path is its name)
+  head: ({ params, match }) => ({
+    meta: [{ title: [match.search.agent, params.mind, "Agents"].filter(Boolean).join(" · ") }],
+  }),
   pendingComponent: () => <MindAppFrame app="Agents" />,
   component: AgentsPage,
 });
