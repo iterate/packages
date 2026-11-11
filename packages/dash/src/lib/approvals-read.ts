@@ -41,10 +41,11 @@ export async function readMindApprovals(read: Read) {
       events: await logOf(read, secret.path),
     })),
   );
+  const now = Date.now();
   return {
     served: true as const,
-    ...mindApprovalsOf(logs, Date.now()),
-    acts: heldActsOf(gate),
+    ...mindApprovalsOf(logs, now),
+    acts: heldActsOf(gate, now),
   };
 }
 

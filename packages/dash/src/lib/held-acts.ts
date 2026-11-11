@@ -20,8 +20,11 @@ const fieldsOf = (event: LogEvent) =>
   new Map<string, unknown>(Object.entries(Object(event.payload)));
 const textOf = (value: unknown) => (typeof value === "string" ? value : "");
 
-/** The acts that still wait, newest first: held, and neither approved, rejected nor run out. */
-export function heldActsOf(events: LogEvent[]): HeldAct[] {
+/** The acts that still wait at `now`, newest first: held, not answered by a member, and not older
+ *  than the gate keeps a held act (a day; it then drops the act with no fact). The gate's
+ *  `hold-expired` fact is NOT an end: it says that the act's caller stopped waiting, after five
+ *  minutes, and a member can still approve the act, which the mind then does. */
+export function heldActsOf(events: LogEvent[], now: number): HeldAct[] {
   const waiting = new Map<string, HeldAct>();
   for (const event of events) {
     const fields = fieldsOf(event);
@@ -42,8 +45,10 @@ export function heldActsOf(events: LogEvent[]): HeldAct[] {
       // one signed statement can answer several acts
       const digests = fields.get("digests");
       for (const digest of Array.isArray(digests) ? digests : []) waiting.delete(textOf(digest));
-    } else if (event.type === "events.iterate.com/approval/hold-expired")
-      waiting.delete(textOf(fields.get("digest")));
+    }
   }
-  return [...waiting.values()].sort((a, b) => Date.parse(b.heldAt) - Date.parse(a.heldAt));
+  const day = 24 * 60 * 60_000;
+  return [...waiting.values()]
+    .filter((act) => Date.parse(act.heldAt) + day > now)
+    .sort((a, b) => Date.parse(b.heldAt) - Date.parse(a.heldAt));
 }

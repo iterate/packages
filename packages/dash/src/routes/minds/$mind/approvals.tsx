@@ -114,7 +114,8 @@ function Approvals({
                   size="sm"
                   render={
                     <a
-                      href={approvalsPage}
+                      // the mind's page ticks the one row that its link names
+                      href={`${approvalsPage}?digest=${encodeURIComponent(act.digest)}`}
                       target="_blank"
                       rel="noreferrer"
                       aria-label={`Review and approve: ${act.summary}`}
