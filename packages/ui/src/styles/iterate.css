@@ -5,8 +5,8 @@
      @import "@iterate-com/ui/iterate.css";
 
    The published dist/styles.css (no-build pages) and the registry's items do not, so a page outside
-   this repo keeps shadcn's neutral look unless it asks for this one. The issuer's pages (core/os)
-   have their own, all monospace: iterate/theme.css. tasks/complete/2026-10-14-ubuntu-font.md and
+   this repo keeps shadcn's neutral look unless it asks for this one. The issuer's pages have their
+   own, all monospace: iterate/theme.css. tasks/complete/2026-10-14-ubuntu-font.md and
    tasks/design-system.md have the decisions. */
 
 /* Ubuntu (https://design.ubuntu.com/font), self-hosted: Vite copies the files beside the built

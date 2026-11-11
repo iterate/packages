@@ -214,7 +214,7 @@ Run these commands from `packages/agents-app`. The mind's config installs both a
 
 ```bash
 export WORKER_BASE_URL=https://os.iterate.com
-# a personal access token for prj-voice (core/os/docs/credentials.md): the Dash's Sessions page, or
+# a personal access token for prj-voice: the Dash's Sessions page, or
 # `pnpm exec iterate --config prd tokens create --name voice-scripts --mind prj-voice`
 export ITERATE_BEARER_TOKEN=itk_…
 export OPENAI_API_KEY=$(doppler secrets get OPENAI_API_KEY --project os --config prd --plain)

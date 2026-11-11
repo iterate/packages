@@ -1,6 +1,6 @@
 # Agents
 
-Agents is an optional app. `core/os` supplies contexts, streams, workers, facets, model access
+Agents is an optional app. The mind Worker (`core/mind-worker`) supplies contexts, streams, workers, facets, model access
 and storage; the agents runtime is `iterate/agents` (core/lib/src/agents: the catalog, lifecycle
 and model loop), which the platform ships, and voice is `@iterate-com/voice` (packages/voice),
 which runs on it. `itx.agents` is a durable rewrite to the installed collection
@@ -32,12 +32,7 @@ The agents upgrade with the platform: a deploy restarts them on their next call,
 and history kept. A mind whose config still pins the retired npm package `@iterate-com/agents`
 keeps running that build until its `agents.ts` re-exports `iterate/agents` instead.
 
-`pnpm test` runs app unit tests. From the repository root, integration tests run with:
-
-```sh
-pnpm --dir test exec vitest run --configLoader runner --project e2e vitest/agents
-pnpm --dir core/os exec vitest run --configLoader runner --project workers ../agents/__workers-tests__
-```
+`pnpm test` runs app unit tests.
 
 See [packages/voice/README.md](../../packages/voice/README.md) for voice setup. Run voice tools from this package:
 `pnpm voice:call`, `pnpm voice:board`. Kit’s Prepare device flow installs voice.

@@ -321,7 +321,7 @@ let voiceWorker: Promise<any> | undefined;
  * once per file on first use.
  */
 function loadVoiceWorker(): Promise<any> {
-  // The SDK's own itx-scope.ts, found as core/os/scripts/build.ts finds loaded-worker.ts.
+  // The SDK's own itx-scope.ts, found as core/mind-worker/scripts/build.ts finds loaded-worker.ts.
   const itxScopeModule = join(
     dirname(createRequire(import.meta.url).resolve("iterate/sdk")),
     "itx-scope.ts",

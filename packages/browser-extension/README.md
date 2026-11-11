@@ -9,7 +9,7 @@ runs it and zips `dist/` for its downloads page.
 - `public/manifest.json` — MV3; `debugger`, `identity`, `sidePanel`, `storage`; no host permissions.
 - `public/background.js` — the service worker: makes the toolbar button open the panel, from
   install on.
-- `public/icon-{16,32,48,128}.png` — the platform's logo, `core/os/public/iterate-logo.svg`, as
+- `public/icon-{16,32,48,128}.png` — the iterate logo, as
   PNGs (Chrome takes no SVG icons). Flat in `public/`: the SPA's zip packs only top-level files.
 - `public/index.html` — the panel page (its styles inline).
 - `public/panel.js` — everything else: the sign-in through Chrome's identity window (a public
@@ -23,7 +23,7 @@ runs it and zips `dist/` for its downloads page.
 - `dist/oauth.js` — the SPA's OAuth client, `packages/spa/public/oauth.js`, copied by the build: one
   client for both.
 - `dist/capnweb.js` — capnweb's browser bundle, copied from `node_modules` by the build: the
-  catalog's version, the one the platform (core/os) speaks. Chrome loads no remote code from an
+  catalog's version, the one the platform speaks. Chrome loads no remote code from an
   extension, so this is the one thing the SPA's CDN import map cannot give us.
 
 **Which tabs.** The mind drives the tabs it opened through `openPage` and the tabs the person
@@ -60,8 +60,7 @@ pages open in a Chrome identity window; tick the mind — then enter the mind's 
 `mind_…` id and click **Open a page through the mind**: the panel calls `itx.chrome.openPage`
 and then `itx.chrome.cdp(tabId, "Runtime.evaluate", …)` through the platform, which calls back into
 the panel, which opens the tab and reads its title.
-After editing a file, build again and click **Reload** on the extension's card. Against a local
-OS (`pnpm --dir core/os dev`), enter `http://localhost:8788` as the platform before signing in.
+After editing a file, build again and click **Reload** on the extension's card.
 Unpacked extensions do not update automatically: the downloads page says how to update one.
 
 To package locally: `pnpm --filter @iterate-com/spa build` writes the ZIP to `packages/spa/dist/assets/downloads/`.

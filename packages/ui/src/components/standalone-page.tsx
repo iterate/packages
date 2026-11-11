@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "cn";
 
 /** The frame of a page outside any app's shell, such as the Dash's secret collection link. It is the
- *  issuer's (core/os `StandalonePage`), so the page reads as the sign-in pages and www.iterate.com
+ *  issuer's (core/lib `standalonePage`), so the page reads as the sign-in pages and www.iterate.com
  *  do: one centred column, its content left-aligned, with nothing drawn around it. The space above
  *  and below is padding: a margin would collapse through `body` and push its `min-h-svh` down the
  *  page, so a page shorter than the window would scroll. */

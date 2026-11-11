@@ -2,8 +2,8 @@
 // config repo for its `view`. The file is the worker's too, so it may import server-only packages
 // (an AI SDK, `iterate/agents/install`) for its `processEvent`. Here:
 //
-// 1. its types are stripped by the same sucrase call the platform's worker loader makes (core/os
-//    `stripTypes` in context/module-resolution.ts), so a file that loads there loads here;
+// 1. its types are stripped by the same sucrase call the platform's worker loader makes (core/mind-worker
+//    `stripTypes` in src/context/module-resolution.ts), so a file that loads there loads here;
 // 2. every static import becomes a `const` destructured from a SERVER-ONLY MODULE: one poisoned
 //    value per export. Reading an export is fine (an unused import, or one used only inside
 //    `processEvent`, costs nothing); using one (a property, a call, `new`) throws, naming it:

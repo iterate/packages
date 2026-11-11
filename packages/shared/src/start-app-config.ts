@@ -1,5 +1,5 @@
 // start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
-// admin and voice, TanStack Start apps that are each an OAuth client of core/os and nothing
+// admin and voice, TanStack Start apps that are each an OAuth client of the platform and nothing
 // else — but notes, which a mind's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
 // as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps a copy of this file.
 //
@@ -22,7 +22,7 @@ import { dnsName, optionalOrigin, parseAppConfigVars } from "iterate/app-config"
 export const StartAppConfig = z.object({
   urls: z
     .object({
-      /** THE PLATFORM this app signs in against (core/os): the default issuer, and `/api` on it the
+      /** THE PLATFORM this app signs in against: the default issuer, and `/api` on it the
        *  resource. Blank for an app hosted apart from any mind, which a person points at a
        *  mind by its address (packages/agents-app/scripts/standalone.ts). */
       os: optionalOrigin,

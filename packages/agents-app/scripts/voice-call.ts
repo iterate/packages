@@ -102,8 +102,8 @@ export default async function voiceCall(
   const warm0 = now();
   using connection = await connect();
   // The mind's config installs voice beside the agents app (https://k.iterate.com prepares
-  // both), so its root has `voice` and `agents`. The type is voice's own: @iterate-com/voice is
-  // still built on core/os's SDK (core/os-sdk), which is where it adds `voice` to a root.
+  // both), so its root has `voice` and `agents`. The type is voice's own: @iterate-com/voice
+  // declares the root it adds `voice` to.
   const root = connection.itx as unknown as Parameters<typeof connectVoiceDevice>[0];
   await connection.itx.whoami();
   console.log(`session + mind root ready in ${now() - warm0}ms`);

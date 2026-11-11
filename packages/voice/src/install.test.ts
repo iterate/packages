@@ -259,7 +259,7 @@ function mind({
   const values: Record<string, string> = {};
   let tip = "seed";
   let publishedCommit = published;
-  // every verb of a repo whose certificate has not landed refuses (core/os entity-lifecycle.ts)
+  // every verb of a repo whose certificate has not landed refuses (core/mind-worker src/mind/entity-lifecycle.ts)
   const notCreated = () =>
     codedError(
       "NOT_CREATED",

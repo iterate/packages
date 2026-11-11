@@ -9,8 +9,8 @@ export type StreamEventSource = {
   processor?: {
     slug: string;
     version: string;
-    /** The event the processor was handling when it appended this one (the core/os processor engine
-     *  stamps it): how a script request is tied back to the assistant item that wrote it. */
+    /** The event the processor was handling when it appended this one (the processor engine,
+     *  core/lib src/stream/processor.ts, stamps it): how a script request is tied back to the assistant item that wrote it. */
     whileProcessing?: { offset: number; type: string };
   };
   /** Who appended it, and the mind host whose page held their session, if one did. */

@@ -1,8 +1,8 @@
 import { defineConfig } from "tsdown";
 
 // One neutral ES module per export. `iterate` (`iterate/agents` included), `zod` and
-// `cloudflare:workers` stay imports: a loaded worker binds them to the platform's own modules (core/os
-// context/module-resolution.ts), and `pako` loads as this package's dependency. The Markdown the
+// `cloudflare:workers` stay imports: a loaded worker binds them to the platform's own modules (core/mind-worker
+// src/context/module-resolution.ts), and `pako` loads as this package's dependency. The Markdown the
 // worker sends is inlined.
 export default defineConfig({
   entry: { index: "src/index.ts", install: "src/install.ts", call: "src/call-client.ts" },
