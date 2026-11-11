@@ -4,6 +4,7 @@
 // in, or to the connect page. Every page below reads `itx`, `read` and `mind` from this route's
 // context. Until the browser has signed in, and in the server's HTML, the route shows `Frame`: the
 // same shell, drawn from the URL alone.
+import { useEffect } from "react";
 import {
   createFileRoute,
   Outlet,
@@ -19,6 +20,7 @@ import { DropdownMenuGroup, DropdownMenuLabel } from "@iterate-com/ui/components
 import { DashBreadcrumbs } from "../../../components/dash-breadcrumbs.tsx";
 import { MindNav } from "../../../components/dash-nav.tsx";
 import { Identifier } from "../../../components/identifier.tsx";
+import { titleWithCount, useWaitingApprovals } from "../../../lib/approvals-read.ts";
 
 /** One client per mind this page has shown, so switching back keeps its connection. */
 const clients = new Map<string, IterateClient>();
@@ -77,12 +79,33 @@ function Frame() {
   );
 }
 
+/** The count of what waits, before the tab's title. The router writes the title on each
+ *  navigation, after which the count is put back: a watch on the head, for as long as the mind is
+ *  shown. */
+function useCountInTitle(count: number) {
+  useEffect(() => {
+    const write = () => {
+      const wanted = titleWithCount(document.title, count);
+      if (document.title !== wanted) document.title = wanted;
+    };
+    write();
+    const watch = new MutationObserver(write);
+    watch.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => {
+      watch.disconnect();
+      document.title = titleWithCount(document.title, 0);
+    };
+  }, [count]);
+}
+
 function Shell() {
-  const { mind } = Route.useRouteContext();
+  const { mind, read } = Route.useRouteContext();
   const { principal } = Route.useLoaderData();
   const router = useRouter();
   const href = useRouterState({ select: (state) => state.location.href });
   const page = usePageLabel();
+  const waiting = useWaitingApprovals(mind, read);
+  useCountInTitle(waiting);
   return (
     <AppShell
       app="Dash"
@@ -94,7 +117,7 @@ function Shell() {
         event.preventDefault();
         void router.navigate({ href: to });
       }}
-      nav={<MindNav mind={mind} />}
+      nav={<MindNav mind={mind} waiting={waiting} />}
       searchRow={false}
       header={<DashBreadcrumbs mind={mind} page={page} />}
       // the menu names the mind when its API says nobody

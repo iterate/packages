@@ -4,7 +4,6 @@
 import { useEffect, type ReactNode } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
-import type { AuthenticatedApp } from "iterate/app";
 import { platformOriginOf } from "iterate/mind-api";
 import { Badge } from "@iterate-com/ui/components/ui/badge";
 import { Button } from "@iterate-com/ui/components/ui/button";
@@ -18,41 +17,20 @@ import {
 } from "@iterate-com/ui/components/ui/table";
 import { Identifier } from "../../../components/identifier.tsx";
 import { NotServedYet } from "../../../components/not-served-yet.tsx";
-import { mindApprovalsOf, type HeldRequest, type LogEvent } from "../../../lib/approvals.ts";
-import { servesRoot } from "../../../lib/served.ts";
+import { mindApprovalsOf, type HeldRequest } from "../../../lib/approvals.ts";
+import { askWaitingApprovals, readMindApprovals } from "../../../lib/approvals-read.ts";
 
 export const Route = createFileRoute("/minds/$mind/approvals")({
-  // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- the list is read only once the root is known to be there
   loader: async ({ context }) => {
-    if (!(await servesRoot(context.read, "secrets"))) return { served: false as const };
-    const secrets = await context.read((itx) => itx.secrets.list());
-    const logs = await Promise.all(
-      secrets.map(async (secret) => ({
-        secret: secret.path,
-        events: await logOf(context.read, secret.path),
-      })),
-    );
-    return { served: true as const, ...mindApprovalsOf(logs, Date.now()) };
+    const approvals = await readMindApprovals(context.read);
+    // the shell's count follows what this page just read
+    askWaitingApprovals(context.mind);
+    return approvals;
   },
   staticData: { page: "Approvals" },
   head: ({ params }) => ({ meta: [{ title: `Approvals · ${params.mind} · Dash` }] }),
   component: MindApprovals,
 });
-
-/** One read per page, so each answer is plain data. */
-async function logOf(read: AuthenticatedApp["read"], path: string): Promise<LogEvent[]> {
-  const events: LogEvent[] = [];
-  let after = 0;
-  for (;;) {
-    const page = await read(async (itx) => {
-      using context = itx.cd(path);
-      return await context.readEvents(after, 1000);
-    });
-    events.push(...page.events);
-    if (page.atHead || page.scannedThroughOffset <= after) return events;
-    after = page.scannedThroughOffset;
-  }
-}
 
 /** In UTC, so the server and the browser render the same text. */
 const TIME = new Intl.DateTimeFormat("en-GB", {
