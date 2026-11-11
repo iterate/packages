@@ -34,6 +34,7 @@ export function SourceCodeBlock({ language, reindent, code, ...props }: SourceCo
 
 /** `code` with each line indented as the grammar says (two spaces a level). The code as given when
  *  the parse does not finish within its deadline. */
+// react-doctor-disable-next-line react-doctor/only-export-components -- it must live in the one module that imports the grammars (the comment on SourceCodeBlock says why), and its test imports it
 export function reindentSource(code: string, language: keyof typeof languages): string {
   const created = EditorState.create({ doc: code, extensions: languages[language] });
   if (!ensureSyntaxTree(created, created.doc.length, 5_000)) return code;

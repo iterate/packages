@@ -23,7 +23,7 @@ import {
 
 /** A browser-created agent lives at `/agents/<folder>/<moment>`: an iterate agent's folder is
  *  `web`, another kind's its name. An agent is its path; there is no separate name. */
-export function newAgentPath(folder: string, date: Date) {
+function newAgentPath(folder: string, date: Date) {
   const slug = date
     .toISOString()
     .toLowerCase()

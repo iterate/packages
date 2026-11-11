@@ -242,6 +242,7 @@ export function themeAppliedProblems(input: { item: ReturnType<typeof themeItem>
         continue;
       }
       for (const line of Object.keys(body))
+        // react-doctor-disable-next-line react-doctor/js-set-map-lookups -- a substring of the rule's text, not a lookup in an array
         if (!baseRules.get(selector)?.includes(line)) problems.push(`${selector} lacks ${line}`);
     }
   }

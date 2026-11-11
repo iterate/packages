@@ -31,9 +31,8 @@ export function StreamLink(target: StreamTarget) {
   );
 }
 
-/** Where "Stream ↗" goes, for a page that also puts it somewhere other than beside its path (a
- *  phone's ⋯ menu): null when there's no dash to go to. */
-export function streamHref({ dashOrigin, platformOrigin, mind, path }: StreamTarget) {
+/** Where "Stream ↗" goes: null when there's no dash to go to. */
+function streamHref({ dashOrigin, platformOrigin, mind, path }: StreamTarget) {
   if (!dashOrigin) return null;
   const next = `/minds/${mind}/contexts${path.split("/").map(encodeURIComponent).join("/")}`;
   return `${dashOrigin}/.auth/connect?${new URLSearchParams({ issuer: platformOrigin, next })}`;

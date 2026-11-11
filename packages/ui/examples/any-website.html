@@ -65,8 +65,10 @@
   async function newSignIn() {
     const verifier = random(32);
     const state = random(16);
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-    const client = await clientId();
+    const [digest, client] = await Promise.all([
+      crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
+      clientId(),
+    ]);
     const url = new URL("/oauth2/auth", ISSUER);
     url.search = new URLSearchParams({
       response_type: "code",
@@ -163,7 +165,7 @@
       write("sessionStorage", "iterate-sign-in", JSON.stringify(signIn));
       if (!framed) return location.assign(signIn.url);
       // a browser may refuse a window this long after the click: the page links the address too
-      window.open(signIn.url, "_blank");
+      window.open(signIn.url, "_blank", "noopener");
       update({ busy: false, signIn });
     } catch (error) {
       update({ busy: false, error: error.message });

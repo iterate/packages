@@ -20,8 +20,10 @@ export async function mindHostPage(itx: {
   whoami(): Promise<{ mindId: string; mindSlug: string }>;
   facets: { get(name: "mind"): { snapshot(): Promise<{ state: { contexts?: object } }> } };
 }) {
-  const { mindId, mindSlug } = await itx.whoami();
-  const { state } = await itx.facets.get("mind").snapshot();
+  const [{ mindId, mindSlug }, { state }] = await Promise.all([
+    itx.whoami(),
+    itx.facets.get("mind").snapshot(),
+  ]);
   const mind = {
     id: mindId,
     slug: mindSlug,
