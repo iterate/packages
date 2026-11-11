@@ -68,6 +68,7 @@
       "./components/last-mind-redirect": "./dist/components/last-mind-redirect.mjs",
       "./components/log-in-with-iterate": "./dist/components/log-in-with-iterate.mjs",
       "./components/mind-app-shell": "./dist/components/mind-app-shell.mjs",
+      "./components/mode-toggle": "./dist/components/mode-toggle.mjs",
       "./components/not-recorded": "./dist/components/not-recorded.mjs",
       "./components/posthog": "./dist/components/posthog.mjs",
       "./components/repo-ide/repo-ide": "./dist/components/repo-ide/repo-ide.mjs",

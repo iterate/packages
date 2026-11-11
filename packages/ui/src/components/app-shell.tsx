@@ -43,6 +43,7 @@ import {
 } from "./app-shell-palette-entries.ts";
 import { useConnectedMinds } from "./connected-minds.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
+import { ThemeMenuItems, ThemeProvider } from "#/components/mode-toggle.tsx";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -179,83 +180,89 @@ export function AppShell({
     [pageHeaderSlot, pageMenuSlot, openPalette, header],
   );
   return (
-    <SidebarProvider defaultOpen={defaultOpen} className="h-(--app-height,100svh) min-h-0">
-      {/* outside <Sidebar>: on a phone its children live in a Sheet that remounts when opened */}
-      <CloseMobileSidebarOnNavigate locationKey={locationKey} />
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          {switcher ?? (
-            <MindSwitcher
-              app={app}
-              minds={minds}
-              mind={mind}
-              mindHref={mindHref}
-              onNavigate={onNavigate}
-            />
-          )}
-          {commandPalette && searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
-        </SidebarHeader>
-        {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the minds alone */}
-        <SidebarNav navRef={navRef}>{nav}</SidebarNav>
-        <SidebarFooter>
-          <CollapseButton />
-          {/* oxlint-disable-next-line iterate/simple-truthiness-check -- `account` has three states: undefined is still signing in, null is signed in as someone the app cannot name */}
-          {account === false ? null : account !== undefined ? (
-            <AccountMenu
-              name={account?.email || account?.actor || mind || app}
-              mind={mind}
-              actions={accountActions}
-            />
-          ) : (
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarRowSkeleton className="h-12" />
-              </SidebarMenuItem>
-            </SidebarMenu>
-          )}
-        </SidebarFooter>
-        <SidebarRail />
-      </Sidebar>
-      <SidebarInset className="min-w-0 overflow-hidden">
-        <header
-          className={cn(
-            "group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1",
-            // a page's own row is a toolbar: even padding, a rule under it
-            "has-[[data-page-header]]:border-b has-[[data-page-header]]:py-1.5",
-            // the trigger, Search and the ⋯ are a phone's: on a desktop the row would be empty
-            !header && "md:hidden md:has-[[data-page-header]]:flex",
-          )}
-        >
-          <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
-          {/* in a page's menu instead on a phone, while it has one */}
-          <div
+    // the app's theme, unless the app has its own provider above this one
+    <ThemeProvider>
+      <SidebarProvider defaultOpen={defaultOpen} className="h-(--app-height,100svh) min-h-0">
+        {/* outside <Sidebar>: on a phone its children live in a Sheet that remounts when opened */}
+        <CloseMobileSidebarOnNavigate locationKey={locationKey} />
+        <Sidebar collapsible="icon">
+          <SidebarHeader>
+            {switcher ?? (
+              <MindSwitcher
+                app={app}
+                minds={minds}
+                mind={mind}
+                mindHref={mindHref}
+                onNavigate={onNavigate}
+              />
+            )}
+            {commandPalette && searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
+          </SidebarHeader>
+          {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the minds alone */}
+          <SidebarNav navRef={navRef}>{nav}</SidebarNav>
+          <SidebarFooter>
+            <CollapseButton />
+            {/* oxlint-disable-next-line iterate/simple-truthiness-check -- `account` has three states: undefined is still signing in, null is signed in as someone the app cannot name */}
+            {account === false ? null : account !== undefined ? (
+              <AccountMenu
+                name={account?.email || account?.actor || mind || app}
+                mind={mind}
+                actions={accountActions}
+              />
+            ) : (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarRowSkeleton className="h-12" />
+                </SidebarMenuItem>
+              </SidebarMenu>
+            )}
+          </SidebarFooter>
+          <SidebarRail />
+        </Sidebar>
+        <SidebarInset className="min-w-0 overflow-hidden">
+          <header
             className={cn(
-              "flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden",
-              !header && "md:hidden",
+              "group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1",
+              // a page's own row is a toolbar: even padding, a rule under it
+              "has-[[data-page-header]]:border-b has-[[data-page-header]]:py-1.5",
+              // the trigger, Search and the ⋯ are a phone's: on a desktop the row would be empty
+              !header && "md:hidden md:has-[[data-page-header]]:flex",
             )}
           >
-            {commandPalette ? <PaletteHeaderButton onOpen={openPalette} /> : null}
-            {header}
-          </div>
-          <div ref={setPageHeaderSlot} className="flex min-w-0 flex-1 items-center empty:hidden" />
-          <div ref={setPageMenuSlot} className="ml-auto flex items-center md:hidden" />
-        </header>
-        <PageSlotsContext value={pageSlots}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
-        </PageSlotsContext>
-      </SidebarInset>
-      {commandPalette ? (
-        <AppShellPalette
-          nav={palette}
-          entries={paletteEntries || []}
-          onClose={() => setPalette(null)}
-          minds={minds}
-          mind={mind}
-          mindHref={mindHref}
-          onNavigate={onNavigate}
-        />
-      ) : null}
-    </SidebarProvider>
+            <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
+            {/* in a page's menu instead on a phone, while it has one */}
+            <div
+              className={cn(
+                "flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden",
+                !header && "md:hidden",
+              )}
+            >
+              {commandPalette ? <PaletteHeaderButton onOpen={openPalette} /> : null}
+              {header}
+            </div>
+            <div
+              ref={setPageHeaderSlot}
+              className="flex min-w-0 flex-1 items-center empty:hidden"
+            />
+            <div ref={setPageMenuSlot} className="ml-auto flex items-center md:hidden" />
+          </header>
+          <PageSlotsContext value={pageSlots}>
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+          </PageSlotsContext>
+        </SidebarInset>
+        {commandPalette ? (
+          <AppShellPalette
+            nav={palette}
+            entries={paletteEntries || []}
+            onClose={() => setPalette(null)}
+            minds={minds}
+            mind={mind}
+            mindHref={mindHref}
+            onNavigate={onNavigate}
+          />
+        ) : null}
+      </SidebarProvider>
+    </ThemeProvider>
   );
 }
 
@@ -593,6 +600,8 @@ function AccountMenu({
               <DropdownMenuLabel className="truncate font-normal">{name}</DropdownMenuLabel>
               {actions}
             </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <ThemeMenuItems />
             {mind ? (
               <>
                 <DropdownMenuSeparator />

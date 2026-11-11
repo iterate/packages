@@ -47,10 +47,11 @@ which is why they live in `src/components/ui/`. Files of one item import each ot
   `font-readme` generates nothing without the look, so a component here that carries it is plain
   on a neutral page.
 
-Each look is light or dark as the OS is, and changes with it on an open page. Our tokens give both
-values as `light-dark(light, dark)`, so a registry item carries them as one; globals.css keys
-shadcn's dark palette on `prefers-color-scheme`. CodeMirror follows through
-`src/lib/codemirror-theme.ts`.
+Each look is light or dark by shadcn's class `dark` on `<html>`, which `ThemeProvider`
+(`src/components/mode-toggle.tsx`) sets from the person's choice: light, dark, or as the system is
+(the default). Our tokens give both values as `light-dark(light, dark)`, so a registry item
+carries them as one; globals.css has shadcn's dark palette under `.dark`. CodeMirror follows the
+class through `src/lib/codemirror-theme.ts`.
 
 **No app in this repo loads the look** since 2026-11-11: the Dash, the Agents app and the default
 config's page are shadcn as it comes, its neutral palette, light or dark as the system is (Jonas:
@@ -314,8 +315,8 @@ native-select, separator and spinner) in `core/os/src/components/ui/`, written t
 - **Customise at the call site or in a wrapper** of our own, never in the file: a `className`, a
   prop, or a component here that renders the vendored one. The table below shows where each earlier
   local change went.
-- **Keep the `dark:` classes.** Don't strip them. `dark:` is Tailwind's default, the OS's setting,
-  which also picks the palettes' dark values.
+- **Keep the `dark:` classes.** Don't strip them. `dark:` follows the class `dark` on `<html>`
+  (globals.css), which also picks the palettes' dark values.
 - **`cn` comes from the `cn` package** (shadcn's replacement for clsx + tailwind-merge), which the
   CLI's components import directly. Our own files import it the same way. `components.json`'s
   `aliases.utils` is `cn` itself, so the CLI rewrites a registry item's `@/lib/utils` import (the

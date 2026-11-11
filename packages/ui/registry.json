@@ -246,6 +246,7 @@
         "dialog",
         "dropdown-menu",
         "iterate/packages/iterate-logo",
+        "iterate/packages/mode-toggle",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
         "sidebar",
@@ -660,6 +661,25 @@
       "files": [
         {
           "path": "src/components/log-in-with-iterate.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "mode-toggle",
+      "type": "registry:component",
+      "description": "Light, dark or as the system is: shadcn's mode toggle, the same three choices as menu items, the provider that sets the class on <html>, and the inline script for a page that draws before React.",
+      "dependencies": [
+        "lucide-react",
+        "next-themes"
+      ],
+      "registryDependencies": [
+        "button",
+        "dropdown-menu"
+      ],
+      "files": [
+        {
+          "path": "src/components/mode-toggle.tsx",
           "type": "registry:component"
         }
       ]

@@ -1,7 +1,7 @@
 import type { Compartment, Extension } from "@codemirror/state";
 import type { ViewPlugin } from "@codemirror/view";
 
-/** VS Code's light or dark theme, as the OS's setting is. A change swaps it in the open editor
+/** VS Code's light or dark theme, as the page's theme is. A change swaps it in the open editor
  *  (a compartment), which keeps the text, the selection and the undo history.
  *
  *  Takes the editor's own CodeMirror rather than importing it: on esm.sh each module that uses
@@ -12,15 +12,20 @@ export function systemCodeMirrorTheme(codemirror: {
   vsCodeLight: Extension;
   vsCodeDark: Extension;
 }): Extension {
-  const dark = window.matchMedia("(prefers-color-scheme: dark)");
+  // The page's theme is the class `dark` on <html> (components/mode-toggle.tsx): the person's
+  // choice, or the system's setting while the choice is "system".
+  const root = document.documentElement;
   const theme = new codemirror.Compartment();
-  const current = () => (dark.matches ? codemirror.vsCodeDark : codemirror.vsCodeLight);
+  const current = () =>
+    root.classList.contains("dark") ? codemirror.vsCodeDark : codemirror.vsCodeLight;
   return [
     theme.of(current()),
     codemirror.ViewPlugin.define((view) => {
-      const swap = () => view.dispatch({ effects: theme.reconfigure(current()) });
-      dark.addEventListener("change", swap);
-      return { destroy: () => dark.removeEventListener("change", swap) };
+      const watch = new MutationObserver(() =>
+        view.dispatch({ effects: theme.reconfigure(current()) }),
+      );
+      watch.observe(root, { attributes: true, attributeFilter: ["class"] });
+      return { destroy: () => watch.disconnect() };
     }),
   ];
 }

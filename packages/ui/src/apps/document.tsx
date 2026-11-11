@@ -16,7 +16,9 @@ export function AppDocument(props: {
   const hydrated = useHydrated();
   const basePath = props.basePath || "";
   return (
-    <html lang="en" data-base-path={basePath || undefined}>
+    // The theme's class is on <html> before React hydrates (next-themes's own script puts it
+    // there), so the server's markup, which has none, must not be held against it.
+    <html lang="en" data-base-path={basePath || undefined} suppressHydrationWarning>
       <head>
         <EnvironmentHeadContent productionIcon={`${basePath}${props.icon}`} />
       </head>
