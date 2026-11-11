@@ -63,7 +63,12 @@ function Approvals({
 
   useEffect(() => {
     if (!live) return;
-    const timer = setInterval(() => void router.invalidate(), 5000);
+    // this page's own loader alone: with no filter, each tick would also run the root's loader (a
+    // call to the app's Worker) and the mind route's, which nothing here changes
+    const timer = setInterval(
+      () => void router.invalidate({ filter: (match) => match.routeId === Route.id }),
+      5000,
+    );
     return () => clearInterval(timer);
   }, [live, router]);
 

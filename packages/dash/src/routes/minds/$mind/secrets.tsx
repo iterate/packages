@@ -119,7 +119,7 @@ function Secrets({ secrets }: { secrets: SecretCatalogEntry[] }) {
     try {
       await itx.secrets.delete(secretPath);
       setStatus(`${secretPath} is deleted.`);
-      await router.invalidate({ sync: true });
+      await router.invalidate({ sync: true, filter: (match) => match.routeId === Route.id });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -275,7 +275,10 @@ function Secrets({ secrets }: { secrets: SecretCatalogEntry[] }) {
             onDone={async (message) => {
               setError(null);
               setStatus(message);
-              await router.invalidate({ sync: true });
+              await router.invalidate({
+                sync: true,
+                filter: (match) => match.routeId === Route.id,
+              });
               await closeSheet();
             }}
           />
