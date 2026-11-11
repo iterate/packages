@@ -57,7 +57,7 @@ test("records the first failed attempt when a retry passes", async () => {
   await new RetryTelemetryReporter().onTestRunEnd([testModule]);
 
   // The retried-pass also produced an unknown-flake record, keyed on the
-  // BARE test name (what a later createFlake wrap would record) with the
+  // BARE test name (what a later createFailing wrap would record) with the
   // failed attempt's error as the sample.
   const flakeRecords = readdirSync(flakeRecordDir).flatMap((recordFile) =>
     readFileSync(join(flakeRecordDir, recordFile), "utf8")

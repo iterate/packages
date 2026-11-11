@@ -59,7 +59,7 @@ test.for([
     name: "a failure Playwright expected",
     telemetry: { passedAfterRetry: false, state: "failed", outcome: "expected" },
   },
-  // createFlake / createFailing register in the runner's expected-fail mode: their outcomes,
+  // createFailing registers in the runner's expected-fail mode: their outcomes,
   // retried or failed, must never masquerade as unknown flakes.
   { name: "an expected-fail retried pass", telemetry: { expectedState: "failed" } },
   {

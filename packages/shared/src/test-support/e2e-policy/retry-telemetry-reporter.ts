@@ -168,9 +168,9 @@ export class RetryTelemetryReporter {
       }
       // A plain test that failed, whether a retry then passed or not, is an
       // unclassified flake: record it for the test-health dashboard, error
-      // sample included, so it can be adopted into createFlake (see
+      // sample included, so it can be adopted into createFailing (see
       // flake-record.ts). The bare test name keys the record so a later
-      // createFlake wrap keeps the same row.
+      // createFailing wrap keeps the same row.
       for (const telemetryRecord of tests) {
         const unknownFlake = unknownFlakeRecordFromTelemetry(telemetryRecord);
         if (unknownFlake) await appendFlakeRecord(unknownFlake);

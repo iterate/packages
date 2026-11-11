@@ -4,7 +4,6 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 export const TEST_TELEMETRY_ARTIFACT_SCHEMA_VERSION = 3;
-export const TEST_TELEMETRY_INCOMPLETE_ERROR_NAME = "TestTelemetryIncompleteError";
 const Timestamp = z.iso.datetime({ offset: true });
 const RunStatus = z.enum(["passed", "failed", "skipped", "timedout", "interrupted", "cancelled"]);
 
@@ -25,10 +24,10 @@ const TestTelemetryContext = z.object({
  *  the health job's real-model rows read. */
 const TestTelemetryRecord = z.object({
   fullName: z.string(),
-  /** Bare title, shared with createFlake/createFailing records. */
+  /** Bare title, shared with createFailing records. */
   leafName: z.string().optional(),
   moduleId: z.string(),
-  /** `failed` for a createFlake/createFailing registration (the runner's expected-fail mode). */
+  /** `failed` for a createFailing registration (the runner's expected-fail mode). */
   expectedState: z.string().optional(),
   /** Playwright's verdict against `expectedState`; vitest has none. */
   outcome: z.string().optional(),
@@ -74,7 +73,7 @@ export const TestTelemetryArtifact = z.object({
     durationMs: z.number().nonnegative(),
     error: TestTelemetryError.optional(),
     // Errors no one test owns (an import, a suite hook, an unhandled rejection): failure evidence
-    // too. Only the sentinel's TEST_TELEMETRY_INCOMPLETE_ERROR_NAME means the runner never finished.
+    // too. Only the sentinel's error name `TestTelemetryIncompleteError` means the runner never finished.
     collectionErrors: z.array(z.string()),
   }),
   tests: z.array(TestTelemetryRecord),
@@ -146,7 +145,7 @@ export function writeTestTelemetryFailureSentinel(
         startedAt: input.startedAt,
         finishedAt: input.startedAt,
         durationMs: 0,
-        error: { name: TEST_TELEMETRY_INCOMPLETE_ERROR_NAME, message },
+        error: { name: "TestTelemetryIncompleteError", message },
         collectionErrors: [message],
       },
       tests: [],

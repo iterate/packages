@@ -4,10 +4,7 @@
  * evidence folder in R2, and read from there by the flake dashboard
  * (docs/testing.md#flakes-and-pinned-failures).
  *
- * Three producers write records:
- * - `createFlake` (./flake-test.ts): kind "flake" — pass / flake-fail /
- *   unexpected-error. The deliberate canary tests are just createFlake tests
- *   whose names contain "flake sentinel"; the dashboard groups them by name.
+ * Two producers write records:
  * - `createFailing` (./failing-test.ts): kind "failing" — pinned-fail (the
  *   pin held) / unexpected-pass (the bug looks fixed) / unexpected-error.
  * - The telemetry reporters (vitest's RetryTelemetryReporter, the
@@ -15,7 +12,7 @@
  *   retried-pass when it failed and then passed on retry, unexpected-error
  *   when it failed every attempt — carrying the first failed attempt's error
  *   text. That record is the adoption funnel: the dashboard shows the error
- *   samples a person or agent turns into a createFlake pattern, and a CI
+ *   samples a person or agent turns into a fix or a pin, and a CI
  *   retry can no longer be the only place a failure was ever written down.
  */
 export interface FlakeRecord {
@@ -39,7 +36,7 @@ export interface FlakeRecord {
 /**
  * The telemetry shape both reporters already produce, reduced to the fields
  * this module reads. `expectedState === "passed"` is what excludes
- * createFlake/createFailing registrations — those run in the runner's
+ * createFailing registrations — those run in the runner's
  * expected-fail mode, so their retried outcomes must never masquerade as
  * unknown flakes.
  */
@@ -47,9 +44,9 @@ export interface RetriedTestTelemetry {
   fullName: string;
   /**
    * The bare test title, without describe/mind/file prefixes. Records key
-   * on it when available so that wrapping a surfaced unknown flake with
-   * createFlake — which records `args[0]`, the bare title — migrates the SAME
-   * dashboard row instead of opening a second one.
+   * on it when available so that wrapping a surfaced unknown failure with
+   * createFailing — which records `args[0]`, the bare title — migrates the
+   * SAME dashboard row instead of opening a second one.
    */
   leafName?: string;
   expectedState?: string;

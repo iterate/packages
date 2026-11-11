@@ -113,7 +113,7 @@ export function createFailing<TestFn extends (...args: any[]) => any>(
         ]).finally(() => clearTimeout(timer));
       };
 
-      // Same telemetry channel as createFlake (see ./flake-record.ts): the
+      // The test-health telemetry channel (see ./flake-record.ts): the
       // dashboard's Failures section folds these — pinned-fail means the pin
       // held, unexpected-pass means the bug looks fixed.
       const record = async (result: FlakeRecord["outcome"], error?: unknown): Promise<void> => {
@@ -181,7 +181,7 @@ export function createFailing<TestFn extends (...args: any[]) => any>(
     // source when the runner looks.
     Object.defineProperty(wrapped, "toString", { value: () => body.toString() });
     if ("fails" in test) {
-      // vitest: pin per-test retry to zero, same as createFlake — a
+      // vitest: pin per-test retry to zero — a
       // suite-level `retry` re-runs the body on the rethrown pinned failure
       // (the retry fires before the `.fails` inversion), which would execute
       // and record every pin twice per run. The cast states vitest's
@@ -193,8 +193,7 @@ export function createFailing<TestFn extends (...args: any[]) => any>(
       return failer(args[0], { ...callerOptions, retry: 0, timeout: timeoutMs + 1000 }, wrapped);
     }
     // playwright-like: pin retries structurally via an anonymous describe
-    // scope — same reasoning (and same cast) as createFlake, see
-    // ./flake-test.ts.
+    // scope, for the same reason.
     const playwrightLike = test as unknown as {
       describe: ((body: () => void) => void) & {
         configure: (options: { retries: number }) => void;

@@ -5,10 +5,9 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { E2E_CI_RETRY_DELAY_MS } from "./e2e-policy/budgets.ts";
 import { expectFailure, createFailing } from "./failing-test.ts";
 
-// The wrapper through vitest's REAL expected-fail machinery is proven by the
-// child-process fixture in ./flake-test-fixture (the createFailing case): a
-// live registration here would run under the CI suite's FLAKE_RECORD_DIR and
-// leak a synthetic pin row onto the real test-health dashboard.
+// No live registration here: it would run under the CI suite's
+// FLAKE_RECORD_DIR and leak a synthetic pin row onto the real test-health
+// dashboard. The tests drive the wrapper through fake runners instead.
 
 test("registration lands on the runner's own expected-fail variant", async () => {
   // Scoped record dir: the body executions below would otherwise write
@@ -80,7 +79,7 @@ test("a playwright-shaped test object registers through .fail", async () => {
   });
   createFailing(fakePlaywright, /pinned/)("name", async () => {});
   expect(registered).toHaveLength(1);
-  // Same zero-retry describe pin as createFlake — see that test for why.
+  // A zero-retry describe scope: a runner retry would run and record the pin twice.
   expect(configured).toEqual([{ retries: 0 }]);
 });
 
@@ -241,7 +240,7 @@ test("expectFailure: success throws with delete-the-wrapper instructions", async
   );
 });
 
-// Same shape as flake-test.test.ts's fixture: point FLAKE_RECORD_DIR at a
+// Point FLAKE_RECORD_DIR at a
 // scratch dir for the test's lifetime so synthetic outcomes never leak into
 // real telemetry, and read back what was written.
 function scopedFlakeRecordDir() {
