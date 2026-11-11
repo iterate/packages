@@ -17,6 +17,7 @@
     "@iterate-com/shared": "workspace:*",
     "@iterate-com/ui": "workspace:*",
     "@iterate-com/voice": "workspace:*",
+    "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "capnweb": "catalog:",

@@ -1,0 +1,99 @@
+// AN AGENT KIND's view (iterate/agents/kinds `AgentKind` says what a kind is). A kind file's default
+// export `satisfies AgentKind` from here, which is that one with `view` typed: the project worker
+// imports the file (`makeAgentKind`) and runs `processEvent`; the Agents app's sandboxed frame loads
+// the same source for `view` (frame.ts), its server-only imports stubbed (load.ts).
+//
+//   import type { AgentKind } from "@iterate-com/ui/agent-kind-view";
+//
+//   export default {
+//     kind: "echo",
+//     view: ({ html, useMemo, ui }) => (props) => html`<${ui.AgentShell} ...${props} />`,
+//   } satisfies AgentKind;
+//
+// Types only: nothing here runs.
+// Self-contained (React, react-query and iterate's types only), so a project's config repo, a test
+// program or a package without JSX can name them.
+import type { ComponentType } from "react";
+import type { useMutation, useQuery } from "@tanstack/react-query";
+import type { AgentKind as SdkAgentKind } from "iterate/agents/kinds";
+
+/** One event of the agent's log, as the view reads it. */
+export type AgentKindViewEvent = {
+  type: string;
+  offset: number;
+  createdAt: string;
+  payload?: any;
+  path?: string;
+  ephemeral?: boolean;
+  source?: Record<string, unknown>;
+};
+
+/** The chat's state (agent-chat-search.ts `AgentChatState`): the page's URL search. `view:
+ *  "events"` is the Events tab, and `event` the offset its inspector shows. */
+export type AgentKindViewState = {
+  view?: "chat" | "events";
+  event?: number;
+  [key: string]: unknown;
+};
+
+/** What a view is handed: AgentChat's props. Authority over the agent reaches it only through
+ *  these, scoped to this one agent. */
+export type AgentKindViewProps = {
+  /** The agent's path. */
+  path: string;
+  /** The agent's log, live: every durable event, and the kind's `ephemeralEvents`. */
+  context: {
+    events: readonly AgentKindViewEvent[];
+    caughtUp: boolean;
+    error?: string;
+    older?: { loadOlder(): void; loading: boolean; exhausted: boolean };
+    head?: number;
+    processors: { rows: readonly any[]; loaded: boolean; error?: string };
+    presence: { actors: readonly any[]; rpcStubs: readonly string[] };
+    liveState: Record<string, any>;
+  };
+  /** The host's own failure (opening the agent's context). */
+  error: string | undefined;
+  /** The chat's state, which is the page's URL: the tab, the Events tab's choices. */
+  state: AgentKindViewState;
+  onStateChange: (patch: Partial<AgentKindViewState>) => void;
+  /** Say something to the agent: `itx.agents.get(path).message(…)`. */
+  onMessage: (input: {
+    message: string;
+    files: { contentType: string; filename: string; data: string }[];
+  }) => Promise<void>;
+  /** Append events to the agent's context, as a person wrote them. */
+  onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
+  /** A signed download URL for a file under the agent's path. */
+  signedUrl: (path: string) => Promise<string>;
+};
+
+/** iterate's components a view builds with (agent-chat/chat-parts.tsx and agent-shell.tsx say
+ *  what each takes; `AgentChat` takes a view's own props). */
+export type AgentKindViewUi = Record<
+  | "AgentShell"
+  | "AgentChat"
+  | "Feed"
+  | "MessageBubble"
+  | "Composer"
+  | "Markdown"
+  | "Badge"
+  | "Button"
+  | "Spinner",
+  ComponentType<any>
+>;
+
+/** What `view` builds with. `html` is htm over React's createElement: the worker strips a kind
+ *  file's types and nothing else, so there is no JSX. No `useState`, no `useEffect`: what a view
+ *  holds is derived (`useMemo`) or is the server's (`useQuery`, `useMutation`). */
+export type AgentKindViewKit = {
+  html: (strings: TemplateStringsArray, ...values: unknown[]) => any;
+  useMemo: <T>(factory: () => T, deps: readonly unknown[]) => T;
+  useQuery: typeof useQuery;
+  useMutation: typeof useMutation;
+  ui: AgentKindViewUi;
+};
+
+/** A kind of agent whose view is a React component: iterate/agents/kinds' `AgentKind` (`kind`,
+ *  `processEvent`, `ephemeralEvents`), with the chat filled in. */
+export type AgentKind = SdkAgentKind<(kit: AgentKindViewKit) => ComponentType<AgentKindViewProps>>;

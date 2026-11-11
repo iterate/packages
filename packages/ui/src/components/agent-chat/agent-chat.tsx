@@ -1,6 +1,7 @@
-// THE AGENT CHAT: one agent's conversation, for any page that holds the agent's context. An agent
-// is a conversation on its own path (`/agents/...`), and everything it does is an event there. This
-// is a window onto that log: a strip (the agent's live status, Chat | Events), the CHAT (the
+// THE AGENT CHAT: an iterate agent's conversation, for any page that holds the agent's context: the
+// view `agent-kinds/iterate.ts` names (agent-kind-view/), on the shell every kind shares (agent-shell.tsx).
+// An agent is a conversation on its own path (`/agents/...`), and everything it does is an event
+// there. This is a window onto that log: a strip (the agent's live status, Chat | Events), the CHAT (the
 // agent-UI reducer's items: messages, and the activities that open into rounds of script + result)
 // over a composer, the EVENTS (the raw log, `ContextView`), and the TRACES (one right-edge sheet:
 // an LLM request or a script run). It fills its parent, a flex column with a bounded height.
@@ -30,11 +31,9 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { CircleIcon } from "lucide-react";
 import { z } from "zod";
-import { cn } from "cn";
 import type { AgentChatState } from "./agent-chat-search.ts";
-import { agentEventInspectors, agentEventRenderers } from "./agent-event-renderers.tsx";
+import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
 import {
   initialAgentUiState,
@@ -49,16 +48,11 @@ import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import type { StreamEvent } from "./stream-event.ts";
-import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
-import type {
-  EventInspectors,
-  EventRenderers,
-  LiveStateView,
-} from "#/components/context-view/types.tsx";
+import type { LiveStateView } from "#/components/context-view/types.tsx";
 import { RIGHT_EDGE_CLOSED } from "#/components/context-view/context-view-search.ts";
-import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
+import type { ContextViewSource } from "#/components/context-view/context-view.tsx";
 import {
   heldShare,
   OLDER_EXHAUSTED,
@@ -82,10 +76,7 @@ export function AgentChat({
   onMessage,
   onAppend,
   signedUrl,
-  listing,
   itemFooter,
-  renderers,
-  inspectors,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -106,17 +97,9 @@ export function AgentChat({
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** A signed download URL for a file under the agent's path: `stub.files.get(path).url()`. */
   signedUrl: SignedUrl;
-  /** What the project's catalog last heard from the agent (iterate/agents catalog.ts), or
-   *  `undefined` before its row arrives. The strip says it for an agent iterate does not run (a
-   *  coding session, say), which has no facet of its own to read. */
-  listing: Listing | undefined;
   /** A row of the page's own under a feed item, such as what the page recorded about a message
    *  (`item.offset` is the offset of the event that carried it). */
   itemFooter?: (item: AgentUiItem) => ReactNode;
-  /** The page's sentences for its own event types in the Events tab, over the agent's. */
-  renderers?: EventRenderers;
-  /** The page's inspector bodies for its own event types, over the agent's. */
-  inspectors?: EventInspectors;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -139,62 +122,48 @@ export function AgentChat({
     context.caughtUp && !older.exhausted && feed.items.length === 0 && !feed.state.live;
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
-  const error = hostError || context.error;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ChatStrip
-        turn={turn}
-        listing={listing}
-        feedState={feed.state}
-        view={state.view}
-        eventCount={fold.events.length}
-        wholeLogHeld={older.exhausted}
-        onViewChange={(view) => onStateChange({ view })}
-      />
-      {error ? (
-        <p data-type="error" className="px-4 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      {state.view === "events" ? (
-        <EventsTab
-          path={path}
-          context={context}
-          error={hostError}
-          renderers={renderers}
-          inspectors={inspectors}
-          onAppend={onAppend}
-          state={state}
-          onStateChange={onStateChange}
-        />
-      ) : (
-        <ChatTab
-          feed={feed}
+    <AgentShell
+      path={path}
+      context={context}
+      error={hostError}
+      state={state}
+      onStateChange={onStateChange}
+      onAppend={onAppend}
+      status={chatStatus(turn, feed.state)}
+      closeSheet={TRACES_CLOSED}
+      sheet={
+        <InspectorSheet
           events={fold.events}
-          older={older}
-          logShare={logShare}
-          caughtUp={context.caughtUp}
-          readingForFirstRow={readingForFirstRow}
-          toggled={toggled}
-          onToggle={onToggle}
-          inspect={inspect}
-          signedUrl={signedUrl}
-          itemFooter={itemFooter}
-          draft={draft}
-          onMessage={onMessage}
-          onAppend={onAppend}
+          live={feed.state.live}
+          inspected={inspected}
+          readProgress={readingForTrace ? logShare : undefined}
+          onInspect={onInspect}
         />
-      )}
-      <InspectorSheet
+      }
+    >
+      <ChatTab
+        feed={feed}
         events={fold.events}
-        live={feed.state.live}
-        inspected={inspected}
-        readProgress={readingForTrace ? logShare : undefined}
-        onInspect={onInspect}
+        older={older}
+        logShare={logShare}
+        caughtUp={context.caughtUp}
+        readingForFirstRow={readingForFirstRow}
+        toggled={toggled}
+        onToggle={onToggle}
+        inspect={inspect}
+        signedUrl={signedUrl}
+        itemFooter={itemFooter}
+        draft={draft}
+        onMessage={onMessage}
+        onAppend={onAppend}
       />
-    </div>
+    </AgentShell>
   );
 }
+
+/** The patch that closes the chat's traces. */
+const TRACES_CLOSED: Partial<AgentChatState> = { llmRequest: undefined, scriptRun: undefined };
 
 /** What a host passes `useIterateContext` for a chat. `consumes`: every durable event (the Events
  *  tab is the whole log) and, named, since a wildcard never matches an ephemeral, the streamed chunk
@@ -249,34 +218,17 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
   };
 }
 
-/** The catalog's word on an agent: its status (`working`, `idle`, `waiting`, `ended`) and one line
- *  on what it is doing now. */
-type Listing = { status: string | null; activity: string | null };
-
-const LISTED_STATUS: Record<string, { text: string; tone: "live" | "amber" | "muted" }> = {
-  working: { text: "Working", tone: "live" },
-  waiting: { text: "Waiting", tone: "amber" },
-  idle: { text: "Idle", tone: "muted" },
-  ended: { text: "Ended", tone: "muted" },
-};
-
 /** What the strip says the agent is doing. A script still running is the context's, read from the
- *  log: the feed's running code step. Without the agent facet, the catalog's row says it. */
+ *  log: the feed's running code step. */
 function chatStatus(
-  { facet, liveUnavailable }: ReturnType<typeof agentTurnOf>,
-  listing: Listing | undefined,
+  { facet, liveUnavailable, detail }: ReturnType<typeof agentTurnOf>,
   feedState: AgentUiState,
-) {
-  const listed = listing?.status && LISTED_STATUS[listing.status];
-  if (!facet && listed)
-    return {
-      text: listing.activity ? `${listed.text} · ${listing.activity}` : listed.text,
-      tone: listed.tone,
-    };
+): AgentShellStatus {
   if (!facet)
     return {
       text: liveUnavailable ? "Live state unavailable" : "Connecting…",
       tone: "muted" as const,
+      detail,
     };
   if (facet.paused) return { text: `Paused — ${facet.paused.reason}`, tone: "amber" as const };
   const { live, summaryActivity } = feedState;
@@ -291,115 +243,6 @@ function chatStatus(
   if (facet.awaitingRun) return { text: "About to run a script", tone: "live" as const };
   if (facet.unnotedRun) return { text: "Reading the script's result", tone: "live" as const };
   return { text: "Idle", tone: "muted" as const };
-}
-
-/** The agent's live status, and Chat | Events. */
-function ChatStrip({
-  turn,
-  listing,
-  feedState,
-  view,
-  eventCount,
-  wholeLogHeld,
-  onViewChange,
-}: {
-  turn: ReturnType<typeof agentTurnOf>;
-  listing: Listing | undefined;
-  feedState: AgentUiState;
-  view: AgentChatState["view"];
-  eventCount: number;
-  wholeLogHeld: boolean;
-  onViewChange: (view: AgentChatState["view"]) => void;
-}) {
-  const status = chatStatus(turn, listing, feedState);
-  return (
-    <div className="flex shrink-0 items-center gap-3 px-4 py-1">
-      <span
-        className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
-        title={turn.detail}
-        data-status={status.tone}
-      >
-        <CircleIcon
-          className={cn(
-            "size-2 shrink-0",
-            status.tone === "live" && "animate-pulse fill-success text-success",
-            status.tone === "amber" && "fill-warning text-warning",
-            status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
-          )}
-        />
-        <span className="truncate">{status.text}</span>
-      </span>
-      <Tabs
-        value={view || "chat"}
-        onValueChange={(value) => onViewChange(value === "chat" ? undefined : "events")}
-        className="ml-auto"
-      >
-        <TabsList className="h-8 pointer-coarse:h-10">
-          <TabsTrigger value="chat" className="text-xs">
-            Chat
-          </TabsTrigger>
-          <TabsTrigger value="events" className="text-xs">
-            Events
-            <span className="font-mono text-2xs text-muted-foreground/70">
-              {eventCount}
-              {wholeLogHeld ? "" : "+"}
-            </span>
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-    </div>
-  );
-}
-
-/** The raw log, with the agent's sentences and inspector bodies under the page's own. */
-function EventsTab({
-  path,
-  context,
-  error,
-  renderers,
-  inspectors,
-  onAppend,
-  state,
-  onStateChange,
-}: {
-  path: string;
-  context: AgentChatContext;
-  error: string | undefined;
-  renderers: EventRenderers | undefined;
-  inspectors: EventInspectors | undefined;
-  onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
-  state: AgentChatState;
-  onStateChange: (patch: Partial<AgentChatState>) => void;
-}) {
-  const allRenderers = useMemo(() => ({ ...agentEventRenderers, ...renderers }), [renderers]);
-  const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ContextView
-        // the view scrolls its own feed: it fills the tab
-        className="min-h-0 w-full flex-1 py-2"
-        columnClassName="mx-auto w-full max-w-3xl px-4 md:px-6"
-        title={<span className="font-mono text-xs">{path}</span>}
-        context={context}
-        error={error}
-        renderers={allRenderers}
-        inspectors={allInspectors}
-        onAppend={onAppend}
-        state={state}
-        onStateChange={(patch) =>
-          onStateChange({
-            // one right edge: the view's inspector or sheet opening closes the chat's traces
-            ...((patch.event !== undefined || patch.processors) && {
-              llmRequest: undefined,
-              scriptRun: undefined,
-            }),
-            ...patch,
-          })
-        }
-        emptyText="Nothing has happened on this agent yet."
-      />
-    </div>
-  );
 }
 
 /** The conversation over the composer. */

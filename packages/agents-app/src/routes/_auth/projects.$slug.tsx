@@ -2,7 +2,8 @@
 import type {} from "iterate/agents";
 import type { IterateContextApiWith } from "iterate/api";
 import { createFileRoute, getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { facetSnapshotOf, useIterateContext } from "iterate/react";
@@ -21,17 +22,26 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@iterate-com/ui/components/ui/empty";
-import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
 import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat-search";
+import { Spinner } from "@iterate-com/ui/components/ui/spinner";
+import type { AgentKindViewInputs } from "@iterate-com/ui/agent-kind-view/bridge";
+import {
+  AgentKindViewFrame,
+  useAgentKindViewLink,
+  type AgentKindViewVerbs,
+} from "@iterate-com/ui/agent-kind-view/host";
+import frameScript from "virtual:agent-kind-view-frame";
 import { AgentsHome } from "../../components/agents-home.tsx";
 import { AgentsNav } from "../../components/agents-nav.tsx";
 import type { AgentRow } from "../../lib/agent-summary.ts";
-import { claudeCodeInspectors, claudeCodeRenderers } from "../../lib/claude-code-renderers.tsx";
 import { useAgentRows } from "../../lib/use-agent-rows.ts";
 
-// The project's agents in the sidebar, and beside them one agent's chat (`AgentChat`, whose file
-// says what a chat is) or, with no agent in the URL, the home page that starts one. The project
-// stub is held for the page's life; the agent's context is `project.cd(path)`.
+// The project's agents in the sidebar, and beside them one agent's chat or, with no agent in the
+// URL, the home page that starts one. A chat is the agent's KIND's: its view, from
+// `agent-kinds/<kind>.ts` in the project's config repo, runs in a sandboxed frame
+// (@iterate-com/ui/agent-kind-view), and this page feeds it the agent's live log and does what it asks to
+// that one agent. The project stub is held for the page's life; the agent's context is
+// `project.cd(path)`.
 type ProjectPromise = ReturnType<AuthenticatedApp["api"]["projects"]["get"]>;
 type Project = Awaited<ProjectPromise>;
 type Context = Awaited<ReturnType<Project["cd"]>>;
@@ -115,12 +125,14 @@ function AgentsPage() {
       locationKey={href}
     >
       {agent ? (
-        <AgentConversation
-          key={`${project}${agent}`}
-          project={project}
-          path={agent}
-          row={agents.find((row) => row.path === agent)}
-        />
+        <AgentKindQueries>
+          <AgentConversation
+            key={`${project}${agent}`}
+            project={project}
+            path={agent}
+            row={agents.find((row) => row.path === agent)}
+          />
+        </AgentKindQueries>
       ) : installed ? (
         <AgentsHome
           key={project}
@@ -213,10 +225,20 @@ function useAgentContext(
   return { context, error };
 }
 
-/** One agent's chat: the route holds the agent's context and reads it live with the SDK's ONE
- *  `useIterateContext`; `AgentChat` draws everything inside. The chat's state is this route's
- *  search, so every view of it is a link. An agent iterate does not run (`kind`: a coding session,
- *  say) opens on its Events tab: the chat draws an iterate agent's events. */
+/** The kind files the page has read, kept while it is open. */
+function AgentKindQueries({ children }: { children: ReactNode }) {
+  const client = useMemo(
+    () => new QueryClient({ defaultOptions: { queries: { staleTime: 60_000 } } }),
+    [],
+  );
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+/** One agent's chat: its kind's view in a sandboxed frame. The route reads the kind file from the
+ *  config repo (the kind is the catalog row's), holds the agent's context, reads it live with what
+ *  the ephemeral events its view names (`ephemeralEvents`, which the frame reports once it has loaded the file), and
+ *  answers the frame's verbs for this agent alone. The chat's state is this route's search, so
+ *  every view of it is a link. */
 function AgentConversation({
   project,
   path,
@@ -224,20 +246,75 @@ function AgentConversation({
 }: {
   project: string;
   path: string;
-  /** Its catalog row, until that arrives `undefined`. */
+  /** Its catalog row, or `undefined` for an agent the catalog doesn't list (yet). */
   row: AgentRow | undefined;
 }) {
-  const kind = row?.kind;
+  const kind = row?.kind || null;
   const { api } = Route.useRouteContext();
-  const routeSearch = Route.useSearch();
-  const search: AgentChatState =
-    routeSearch.view || !kind || kind === "iterate"
-      ? routeSearch
-      : { ...routeSearch, view: "events" };
+  // the project's worker writes where each kind's file is on every publish (the template's
+  // iterate/agents/kinds `publishAgentKinds`); a kind with no entry, or an agent with no catalog
+  // row yet, shows the Events tab alone, and the row's arrival changes the key
+  const kindFile = useQuery({
+    queryKey: ["agent-kind", project, kind],
+    queryFn: async () => {
+      if (!kind) return { path: null, source: null };
+      using itx = await api.projects.get(project);
+      const paths = AgentKindPaths.parse(JSON.parse((await itx.kv.get("agent-kinds")) || "{}"));
+      const path = paths[kind];
+      if (!path) return { path: null, source: null };
+      return { path, source: await itx.repos.get("/repos/config").readFile(path) };
+    },
+  });
+  if (kindFile.error)
+    return (
+      <p data-type="error" className="px-4 py-2 text-sm text-destructive">
+        {kindFile.error.message}
+      </p>
+    );
+  if (kindFile.isPending)
+    return (
+      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+        <Spinner className="size-4" /> Reading the agent…
+      </div>
+    );
+  return (
+    <AgentKindView
+      project={project}
+      path={path}
+      name={kindFile.data.path || `${kind || "unknown"} (no kind file)`}
+      source={kindFile.data.source}
+    />
+  );
+}
+
+/** The frame, fed the agent's live log. */
+function AgentKindView({
+  project,
+  path,
+  name,
+  source,
+}: {
+  project: string;
+  path: string;
+  name: string;
+  /** The kind file, or `null` when the kind has none: the frame shows the Events tab. */
+  source: string | null;
+}) {
+  const { api } = Route.useRouteContext();
+  const search = Route.useSearch();
   const navigate = useNavigate();
   const { slug } = Route.useParams();
   const { context, error } = useAgentContext(api, project, path);
-  const log = useIterateContext(context, AgentChat.contextOptions);
+  const { link, loaded } = useAgentKindViewLink(name, source);
+  // every durable event (the Events tab is the whole log) and, named, the ephemeral ones the view
+  // reads, which a wildcard never matches; nothing until the frame has said which
+  const options = useMemo(
+    () => ({
+      consumes: ["*", ...(loaded && "ephemeralEvents" in loaded ? loaded.ephemeralEvents : [])],
+    }),
+    [loaded],
+  );
+  const log = useIterateContext(loaded ? context : undefined, options);
   const onStateChange = useCallback(
     (patch: Partial<AgentChatState>) =>
       void navigate({
@@ -248,36 +325,49 @@ function AgentConversation({
       }),
     [navigate, slug],
   );
-  const signedUrl = useCallback(
-    async (filePath: string) => {
+  const { loading, exhausted } = log.older;
+  const older = useMemo(() => (exhausted ? null : { loading, exhausted }), [loading, exhausted]);
+  // the chat's state is the search without the agent, the same object while it says the same
+  const { agent: _agent, ...searchState } = search;
+  const stateKey = JSON.stringify(searchState);
+  const state = useMemo(() => JSON.parse(stateKey) as AgentChatState, [stateKey]);
+  const inputs: AgentKindViewInputs = {
+    path,
+    events: log.events,
+    caughtUp: log.caughtUp,
+    error: log.error,
+    head: log.head,
+    older,
+    processors: log.processors,
+    presence: log.presence,
+    liveState: log.liveState,
+    hostError: error || (loaded && "error" in loaded ? loaded.error : undefined),
+    state,
+    // the page's theme (AgentKindView renders only in the browser: the kind file is read there)
+    documentClass: document.documentElement.className,
+  };
+  // everything the frame may do, to this agent only: never its context stub, whose `invoke` and
+  // `cd` reach the whole project
+  const verbs: AgentKindViewVerbs = {
+    message: async ({ message, files }) => {
+      using itx = await api.projects.get(project);
+      await withAgents(itx).agents.get(path).message({ message, files });
+    },
+    append: async (events) => {
       if (!context) throw new Error("not connected");
+      // the events as a person wrote them; the platform parses each
+      await context.append(...(events as Parameters<Context["append"]>));
+    },
+    fileUrl: async (filePath) => {
+      if (!context) throw new Error("not connected");
+      if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
       return (await context.files.get(filePath).url()).url;
     },
-    [context],
-  );
-  return (
-    <AgentChat
-      path={path}
-      context={log}
-      error={error}
-      state={search}
-      onStateChange={onStateChange}
-      onMessage={async ({ message, files }) => {
-        using itx = await api.projects.get(project);
-        await withAgents(itx).agents.get(path).message({ message, files });
-      }}
-      onAppend={
-        context
-          ? // The chat hands over events as a person wrote them (the raw composer's parsed YAML,
-            // the Events tab's draft). `append` is typed as the SDK's tuple of inputs, a shape an
-            // array cannot spell, and the platform parses each event.
-            (events) => context.append(...(events as Parameters<Context["append"]>))
-          : undefined
-      }
-      signedUrl={signedUrl}
-      listing={row}
-      renderers={claudeCodeRenderers}
-      inspectors={claudeCodeInspectors}
-    />
-  );
+    setState: onStateChange,
+    loadOlder: log.older.loadOlder,
+  };
+  return <AgentKindViewFrame link={link} frameScript={frameScript} inputs={inputs} verbs={verbs} />;
 }
+
+/** `agent-kinds` in the project's KV: each kind's file in the config repo. */
+const AgentKindPaths = z.record(z.string(), z.string());

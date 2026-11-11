@@ -472,7 +472,8 @@ interface Dial {
   /** `words-given` that arrived before the session started: said once it does. */
   wordsBeforeReady: { text: string; offset: number }[];
   /** Each hand-over, oldest first: the live model's delegation id and the offset of the
-   *  `agent/context-added` that carried it. An answer speaks for the newest one its request read. */
+   *  `agent/message-received` that carried it (the loop's own `context-added` for it lands just
+   *  after). An answer speaks for the newest one its request read. */
   delegations: { delegationId: string | null; offset: number }[];
   /** A hand-over the agent has not answered yet: progress is spoken only while one is. */
   awaitingAnswer: boolean;
@@ -528,7 +529,7 @@ type VoiceAgentDeps = {
   sleep(ms: number): Promise<void>;
   dialProvider(): Promise<WebSocket>;
   /** Hand words to the device's agent through the agents app
-   *  (`itx.agents.get(path).message(words)`), answered with the `context-added` it appended. */
+   *  (`itx.agents.get(path).message(words)`), answered with the `message-received` it appended. */
   messageAgent(path: string, words: string): Promise<{ offset: number }>;
   /** The project's live model, read when the session is prepared: the facet class's `liveModel`. */
   liveModel?: () => string | undefined;

@@ -62,11 +62,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-feed.tsx",
+          "path": "src/components/agent-chat/agent-feed-list.tsx",
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-feed-list.tsx",
+          "path": "src/components/agent-chat/agent-feed.tsx",
           "type": "registry:component"
         },
         {
@@ -74,7 +74,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/agent-shell.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/agent-ui-reducer.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/chat-parts.tsx",
           "type": "registry:component"
         },
         {
