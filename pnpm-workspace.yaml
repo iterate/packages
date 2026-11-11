@@ -85,7 +85,6 @@ minimumReleaseAgeExclude:
   - "@cloudflare/vite-plugin"
   - "@cloudflare/vitest-plugin"
   - "@cloudflare/workers-types"
-  - middlewright
   - trpc-cli
   - "@iterate-com/capnweb"
 allowBuilds:
