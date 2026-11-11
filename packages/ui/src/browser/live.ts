@@ -5,7 +5,7 @@
 // Then hold a context (`useContextStub`) and read it live for ContextView (`useIterateContext`), or
 // one facet's live state alone (`useFacetLiveState`, `facetSnapshotOf`), or, with no React,
 // subscribe to its log with `connectEventLog`.
-// packages/ui/AGENTS.md "Signing in" says which.
+// packages/ui/examples/README.md "Signing in" says which.
 export { newWebSocketRpcSession } from "capnweb";
 export { createIterateClient } from "iterate/app";
 export { connectEventLog } from "iterate/event-log";

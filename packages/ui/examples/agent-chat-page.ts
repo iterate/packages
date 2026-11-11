@@ -1,5 +1,4 @@
-// agent-chat-page.ts — A NO-BUILD PAGE WITH AN AGENT'S CHAT (packages/ui/AGENTS.md "The agent
-// chat"): the chat agents.iterate.com shows, `AgentChat`, on a mind's own host, for a signed-in
+// agent-chat-page.ts — A NO-BUILD PAGE WITH AN AGENT'S CHAT (packages/ui/src/components/agent-chat/AGENTS.md): the chat agents.iterate.com shows, `AgentChat`, on a mind's own host, for a signed-in
 // member. The worker writes the mind's agents into the page. The page holds one agent's context
 // with the host's session and hands `AgentChat` what `useIterateContext` reads of it. Under each
 // thing a person said is a row of the page's own (`itemFooter`): here, a link that opens that

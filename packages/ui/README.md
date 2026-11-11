@@ -103,7 +103,7 @@ polling for new ones.
 - React is the package's own. Load any other React library from esm.sh with
   `?external=react,react-dom` and it uses the same one, as react-query does here. A chart library
   beside our components, and what goes wrong without the flag:
-  [Another React library](https://github.com/iterate/packages/blob/main/packages/ui/AGENTS.md#another-react-library).
+  [Another React library](https://github.com/iterate/packages/blob/main/packages/ui/examples/README.md#another-react-library).
 - Components are `@iterate-com/ui/components/<name>`: `context-view/context-view`,
   `repo-ide/repo-ide`, `code-block`, and shadcn's (`ui/card`, `ui/table`, …).
 
@@ -113,7 +113,7 @@ polling for new ones.
 host (`<slug>--<mind>.iterate.app`, served by its worker) the page uses the host's session. On
 any other website the page signs in with iterate itself: a page to copy does it, jsfiddle included.
 Both, and how a Claude artifact reaches iterate instead:
-[Signing in](https://github.com/iterate/packages/blob/main/packages/ui/AGENTS.md#signing-in).
+[Signing in](https://github.com/iterate/packages/blob/main/packages/ui/examples/README.md#signing-in).
 
 ## Not: `npm install` into an app
 

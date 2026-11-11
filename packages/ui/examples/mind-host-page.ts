@@ -1,4 +1,4 @@
-// mind-host-page.ts — A NO-BUILD PAGE ON A MIND'S OWN HOST (packages/ui/AGENTS.md "Signing in"):
+// mind-host-page.ts — A NO-BUILD PAGE ON A MIND'S OWN HOST (packages/ui/examples/README.md "Signing in"):
 // the mind's config worker serves it to a signed-in member, and it reads one of the mind's
 // contexts live, with the host's own session (`createIterateClient`) and @iterate-com/ui from esm.sh.
 // Copy this file into a mind's config repo beside worker.ts, and route a slug to it in `fetch`:

@@ -1,5 +1,5 @@
 // events-chart-page.ts — A NO-BUILD PAGE THAT MIXES SOMEONE ELSE'S REACT LIBRARY WITH ITERATE'S
-// (packages/ui/AGENTS.md "Another React library"): a context's events charted over time by recharts,
+// (packages/ui/examples/README.md "Another React library"): a context's events charted over time by recharts,
 // above the same context in ContextView, iterate's own viewer. One live read feeds both, so an event
 // appended in the viewer raises a bar. recharts comes from esm.sh with `?external=react,react-dom`,
 // which leaves its `react` imports for the import map, so it uses the React @iterate-com/ui brings.

@@ -374,9 +374,9 @@ function CloseMobileSidebarOnNavigate({ locationKey }: { locationKey: string }) 
  *  as the navigation starts; shadcn leaves it open (https://github.com/shadcn-ui/ui/issues/5561),
  *  and `CloseMobileSidebarOnNavigate` only fires once the location has changed. A modified or
  *  middle click, a download, or a link to another tab leaves the sheet open, as does a button (the
- *  collapse button, a dropdown trigger). This used to live in the vendored sidebar.tsx's
- *  SidebarMenuButton (iterate/iterate#1984); a vendored file stays byte-identical to upstream
- *  (packages/ui/AGENTS.md). */
+ *  collapse button, a dropdown trigger). This lives here and not in the vendored sidebar.tsx's
+ *  SidebarMenuButton, because a vendored file stays byte-identical to upstream
+ *  (packages/ui/src/components/ui/AGENTS.md). */
 function SidebarNav({
   navRef,
   children,
