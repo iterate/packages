@@ -26,12 +26,14 @@ import { AgentChatState } from "@iterate-com/ui/components/agent-chat/agent-chat
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import type { AgentKindViewInputs } from "@iterate-com/ui/agent-kind-view/bridge";
 import {
+  AgentKindHiddenFrame,
   AgentKindViewFrame,
   useAgentKindViewLink,
+  useAgentKindViewLinks,
   type AgentKindViewVerbs,
 } from "@iterate-com/ui/agent-kind-view/host";
 import frameScript from "virtual:agent-kind-view-frame";
-import { AgentsHome } from "@iterate-com/ui/components/agents-home";
+import { AgentsHome, type NewAgentOffer } from "@iterate-com/ui/components/agents-home";
 import { AgentsNav } from "@iterate-com/ui/components/agents-nav";
 import type { AgentRow } from "@iterate-com/ui/lib/agent-summary";
 import { useAgentRows } from "../lib/use-agent-rows.ts";
@@ -64,10 +66,15 @@ function clientFor(project: string) {
 }
 
 export const Route = createFileRoute("/projects/$project")({
-  // THE PAGE IS A LINK: the agent, and the chat's every choice (the tab, the open trace, the Events
-  // tab's mode, filter, inspected event and open sheet). A hand-edited value is an absent key,
-  // never an error page.
-  validateSearch: AgentChatState.extend({ agent: z.string().optional().catch(undefined) }),
+  // THE PAGE IS A LINK: the agent, its kind until the catalog lists it (one New agent just
+  // started), New agent's choice of kind (`new`, `<kind>/<choice>`), and the chat's every choice
+  // (the tab, the open trace, the Events tab's mode, filter, inspected event and open sheet). A
+  // hand-edited value is an absent key, never an error page.
+  validateSearch: AgentChatState.extend({
+    agent: z.string().optional().catch(undefined),
+    kind: z.string().optional().catch(undefined),
+    new: z.string().optional().catch(undefined),
+  }),
   // signing in is the browser's: the server's HTML is the frame from the URL (`pendingComponent`),
   // and the page while it signs in and reads
   ssr: false,
@@ -95,7 +102,7 @@ export const Route = createFileRoute("/projects/$project")({
 
 function AgentsPage() {
   const data = Route.useLoaderData();
-  const { agent } = Route.useSearch();
+  const { agent, kind, new: choice } = Route.useSearch();
   const { itx } = Route.useRouteContext();
   const { project } = Route.useParams();
   const href = useRouterState({ select: (state) => state.location.href });
@@ -156,21 +163,46 @@ function AgentsPage() {
             key={`${project}${agent}`}
             path={agent}
             row={agents.find((row) => row.path === agent)}
+            kind={kind}
           />
         </AgentKindQueries>
       ) : installed ? (
-        <AgentsHome
-          key={project}
-          agents={agents}
-          agentHref={agentHref}
-          onOpen={openAgent}
-          onCreate={async (path) => {
-            await withAgents(itx).agents.create(path);
-          }}
-          onMessage={async (path, { message, files }) => {
-            await withAgents(itx).agents.get(path).message({ message, files });
-          }}
-        />
+        <AgentKindQueries>
+          <NewAgentKinds>
+            {({ offers, start }) => (
+              <AgentsHome
+                key={project}
+                agents={agents}
+                offers={offers}
+                choice={choice}
+                onChoice={(next) =>
+                  void navigate({
+                    to: "/projects/$project",
+                    params: { project },
+                    search: next ? { new: next } : {},
+                    replace: true,
+                  })
+                }
+                onStart={start}
+                onStarted={(path, started) =>
+                  void navigate({
+                    to: "/projects/$project",
+                    params: { project },
+                    search: { agent: path, kind: started },
+                  })
+                }
+                agentHref={agentHref}
+                onOpen={openAgent}
+                onCreate={async (path) => {
+                  await withAgents(itx).agents.create(path);
+                }}
+                onMessage={async (path, { message, files }) => {
+                  await withAgents(itx).agents.get(path).message({ message, files });
+                }}
+              />
+            )}
+          </NewAgentKinds>
+        </AgentKindQueries>
       ) : (
         <NotInstalled project={project} />
       )}
@@ -251,6 +283,74 @@ function AgentKindQueries({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+/** New agent's other kinds: each kind file besides iterate's, loaded in a frame no one sees (kind
+ *  code runs only in a frame), whose `newAgent` choices are the picker's offers, and which gives
+ *  the events that start one. None while the files are read. */
+function NewAgentKinds({
+  children,
+}: {
+  children: (kinds: {
+    offers: NewAgentOffer[];
+    start: (offer: NewAgentOffer, path: string, fields: Record<string, string>) => Promise<void>;
+  }) => ReactNode;
+}) {
+  const { itx } = Route.useRouteContext();
+  const { project } = Route.useParams();
+  const files = useQuery({
+    queryKey: ["agent-kinds", project],
+    queryFn: async () => {
+      const paths = AgentKindPaths.parse(JSON.parse((await itx.kv.get("agent-kinds")) || "{}"));
+      const config = itx.repos.get("/repos/config");
+      const kinds = await Promise.all(
+        Object.entries(paths)
+          .filter(([kind]) => kind !== "iterate")
+          .map(async ([kind, name]) => ({ kind, name, source: await config.readFile(name) })),
+      );
+      return kinds.filter((file): file is typeof file & { source: string } => Boolean(file.source));
+    },
+  });
+  const kinds = useMemo(() => files.data || [], [files.data]);
+  const { links, loaded } = useAgentKindViewLinks(kinds);
+  const offers = useMemo(
+    () =>
+      kinds.flatMap(({ kind }, index): NewAgentOffer[] => {
+        const report = loaded[index];
+        const newAgent = report && "newAgent" in report ? report.newAgent : undefined;
+        return (newAgent?.choices || []).map((option) => ({
+          value: `${kind}/${option.id}`,
+          label: `${option.label} (${kind})`,
+          kind,
+          choice: option.id,
+          fields: newAgent?.fields || [],
+        }));
+      }),
+    [kinds, loaded],
+  );
+  const start = useCallback(
+    async (offer: NewAgentOffer, path: string, fields: Record<string, string>) => {
+      const link = links[kinds.findIndex(({ kind }) => kind === offer.kind)];
+      if (!link) throw new Error(`no kind ${offer.kind}`);
+      const events = await link.startEvents({ choice: offer.choice, fields, path });
+      const context = await itx.cd(path);
+      try {
+        // the kind's own start events, as a person wrote them; the platform parses each
+        await context.append(...(events as Parameters<Context["append"]>));
+      } finally {
+        context[Symbol.dispose]();
+      }
+    },
+    [itx, kinds, links],
+  );
+  return (
+    <>
+      {links.map((link) => (
+        <AgentKindHiddenFrame key={link.name} link={link} frameScript={frameScript} />
+      ))}
+      {children({ offers, start })}
+    </>
+  );
+}
+
 /** One agent's chat: its kind's view in a sandboxed frame. The route reads the kind file from the
  *  config repo (the kind is the catalog row's), holds the agent's context, reads it live with what
  *  the ephemeral events its view names (`ephemeralEvents`, which the frame reports once it has loaded the file), and
@@ -259,12 +359,15 @@ function AgentKindQueries({ children }: { children: ReactNode }) {
 function AgentConversation({
   path,
   row,
+  kind: kindInUrl,
 }: {
   path: string;
   /** Its catalog row, or `undefined` for an agent the catalog doesn't list (yet). */
   row: AgentRow | undefined;
+  /** The kind the URL names: an agent New agent just started, until its row says. */
+  kind: string | undefined;
 }) {
-  const kind = row?.kind || null;
+  const kind = row?.kind || kindInUrl || null;
   const { itx } = Route.useRouteContext();
   const { project } = Route.useParams();
   // the project's worker writes where each kind's file is on every publish (the template's
@@ -339,8 +442,9 @@ function AgentKindView({
   );
   const { loading, exhausted } = log.older;
   const older = useMemo(() => (exhausted ? null : { loading, exhausted }), [loading, exhausted]);
-  // the chat's state is the search without the agent, the same object while it says the same
-  const { agent: _agent, ...searchState } = search;
+  // the chat's state is the search without the agent and the page's other keys, the same object
+  // while it says the same
+  const { agent: _agent, kind: _kind, new: _new, ...searchState } = search;
   const stateKey = JSON.stringify(searchState);
   const state = useMemo(() => JSON.parse(stateKey) as AgentChatState, [stateKey]);
   const inputs: AgentKindViewInputs = {

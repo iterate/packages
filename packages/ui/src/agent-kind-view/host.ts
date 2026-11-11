@@ -6,6 +6,9 @@
 //   const log = useIterateContext(loaded && agent, { consumes: ["*", ...ephemeralEvents] });
 //   <AgentKindViewFrame link={link} frameScript={url} inputs={{ path, events: log.events, … }}
 //     verbs={{ message, append, fileUrl, setState }} />
+//
+// The Agents app's New agent loads each kind in a frame no one sees (`AgentKindHiddenFrame`), for
+// the choices it reports (`newAgent`) and the events that start one (`link.startEvents`).
 import { createElement, useEffect, useMemo, useSyncExternalStore } from "react";
 import { newMessagePortRpcSession, RpcTarget, type RpcStub } from "capnweb";
 import {
@@ -81,6 +84,12 @@ export class AgentKindViewLink {
     };
   };
 
+  /** The events that start a new agent of this kind, from the kind's own `newAgent.start`. */
+  async startEvents(input: Parameters<AgentKindViewFrameApi["startEvents"]>[0]) {
+    if (!this.#frame) throw new Error(`${this.name} hasn't loaded`);
+    return await this.#frame.startEvents(input);
+  }
+
   setLoaded(result: AgentKindViewLoaded) {
     this.#loaded = result;
     for (const listener of this.#listeners) listener();
@@ -130,6 +139,52 @@ export function useAgentKindViewLink(name: string, source: string | null) {
   const link = useMemo(() => new AgentKindViewLink(name, source), [name, source]);
   const loaded = useSyncExternalStore(link.subscribe, link.loaded, () => undefined);
   return { link, loaded };
+}
+
+/** Links for several kind files at once, and what each frame reported, in the same order. */
+export function useAgentKindViewLinks(files: { name: string; source: string }[]) {
+  const key = JSON.stringify(files);
+  const links = useMemo(
+    () =>
+      (JSON.parse(key) as typeof files).map(
+        ({ name, source }) => new AgentKindViewLink(name, source),
+      ),
+    [key],
+  );
+  const store = useMemo(() => {
+    let snapshot: (AgentKindViewLoaded | undefined)[] = links.map((link) => link.loaded());
+    return {
+      subscribe: (listener: () => void) => {
+        const unsubscribe = links.map((link) => link.subscribe(listener));
+        return () => unsubscribe.forEach((stop) => stop());
+      },
+      get: () => {
+        const next = links.map((link) => link.loaded());
+        if (next.some((loaded, index) => loaded !== snapshot[index])) snapshot = next;
+        return snapshot;
+      },
+    };
+  }, [links]);
+  const loaded = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return { links, loaded };
+}
+
+/** A kind's frame that shows nothing: for what it reports and answers, not for a chat. */
+export function AgentKindHiddenFrame({
+  link,
+  frameScript,
+}: {
+  link: AgentKindViewLink;
+  frameScript: string;
+}) {
+  const srcDoc = useMemo(() => frameDocument(frameScript), [frameScript]);
+  return createElement("iframe", {
+    ref: link.attach,
+    title: link.name,
+    sandbox: "allow-scripts",
+    srcDoc,
+    hidden: true,
+  });
 }
 
 export function AgentKindViewFrame({

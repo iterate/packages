@@ -191,9 +191,11 @@
       ],
       "registryDependencies": [
         "card",
+        "input",
         "iterate/packages/agent-chat",
         "iterate/packages/agent-summary",
-        "iterate/packages/agents-nav"
+        "iterate/packages/agents-nav",
+        "native-select"
       ],
       "cssVars": {
         "theme": {

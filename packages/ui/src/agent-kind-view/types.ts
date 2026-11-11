@@ -94,6 +94,22 @@ export type AgentKindViewKit = {
   ui: AgentKindViewUi;
 };
 
+/** How the Agents app's New agent starts one of a kind's agents: its `choices` in the kind picker
+ *  (each listed as "<label> (<kind>)"), the `fields` shown beside the picker when one is chosen,
+ *  and `start`, the events appended to the new agent's path before its first message. Runs in the
+ *  frame, like `view`. */
+export type AgentKindNewAgent = {
+  choices: { id: string; label: string }[];
+  fields?: AgentKindNewAgentField[];
+  /** `path` is the new agent's. */
+  start(input: { choice: string; fields: Record<string, string>; path: string }): unknown[];
+};
+export type AgentKindNewAgentField = { name: string; label: string; defaultValue: string };
+
 /** A kind of agent whose view is a React component: iterate/agents/kinds' `AgentKind` (`kind`,
- *  `processEvent`, `ephemeralEvents`), with the chat filled in. */
-export type AgentKind = SdkAgentKind<(kit: AgentKindViewKit) => ComponentType<AgentKindViewProps>>;
+ *  `processEvent`, `ephemeralEvents`), with the chat filled in, and how New agent starts one. */
+export type AgentKind = SdkAgentKind<
+  (kit: AgentKindViewKit) => ComponentType<AgentKindViewProps>
+> & {
+  newAgent?: AgentKindNewAgent;
+};

@@ -23,7 +23,7 @@ import {
 import { FrameView } from "./frame-view.tsx";
 import { agentKindViewKit } from "./kit.ts";
 import { importAgentKind } from "./load.ts";
-import type { AgentKindViewProps } from "./types.ts";
+import type { AgentKindNewAgent, AgentKindViewProps } from "./types.ts";
 
 export function startAgentKindViewFrame(root: HTMLElement) {
   const onHello = (event: MessageEvent) => {
@@ -42,13 +42,22 @@ export function startAgentKindViewFrame(root: HTMLElement) {
 
 async function open(hello: AgentKindViewHello, port: MessagePort, root: HTMLElement) {
   const inputs = new InputsStore();
-  const host = newMessagePortRpcSession<AgentKindViewHostApi>(port, new FrameTarget(inputs));
-  const view = await viewOf(hello);
+  const loading = viewOf(hello);
+  const host = newMessagePortRpcSession<AgentKindViewHostApi>(
+    port,
+    new FrameTarget(inputs, loading),
+  );
+  const view = await loading;
   void host.loaded(
     "error" in view
       ? { error: view.error }
       : view.component
-        ? { ephemeralEvents: view.ephemeralEvents }
+        ? {
+            ephemeralEvents: view.ephemeralEvents,
+            ...(view.newAgent && {
+              newAgent: { choices: view.newAgent.choices, fields: view.newAgent.fields },
+            }),
+          }
         : { none: true },
   );
   createRoot(root).render(
@@ -62,7 +71,11 @@ async function open(hello: AgentKindViewHello, port: MessagePort, root: HTMLElem
 
 /** The kind's component, or why there is none. */
 export type LoadedView =
-  | { component: ComponentType<AgentKindViewProps>; ephemeralEvents: string[] }
+  | {
+      component: ComponentType<AgentKindViewProps>;
+      ephemeralEvents: string[];
+      newAgent: AgentKindNewAgent | undefined;
+    }
   | { component: null }
   | { error: string };
 
@@ -73,6 +86,7 @@ async function viewOf({ name, source }: AgentKindViewHello): Promise<LoadedView>
     return {
       component: kind.view(agentKindViewKit),
       ephemeralEvents: kind.ephemeralEvents || [],
+      newAgent: kind.newAgent,
     };
   } catch (error) {
     return { error: `${name}: ${error instanceof Error ? error.message : String(error)}` };
@@ -98,11 +112,19 @@ export class InputsStore {
 
 class FrameTarget extends RpcTarget implements AgentKindViewFrameApi {
   #inputs: InputsStore;
-  constructor(inputs: InputsStore) {
+  #view: Promise<LoadedView>;
+  constructor(inputs: InputsStore, view: Promise<LoadedView>) {
     super();
     this.#inputs = inputs;
+    this.#view = view;
   }
   update(update: Parameters<AgentKindViewFrameApi["update"]>[0]) {
     this.#inputs.apply(update);
+  }
+  async startEvents(input: Parameters<AgentKindViewFrameApi["startEvents"]>[0]) {
+    const view = await this.#view;
+    const newAgent = "newAgent" in view ? view.newAgent : undefined;
+    if (!newAgent) throw new Error("this kind starts no new agents");
+    return newAgent.start(input);
   }
 }
