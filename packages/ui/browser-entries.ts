@@ -37,6 +37,9 @@ export function browserEntries(): Record<string, string> {
     "react/compiler-runtime": "src/browser/react-compiler-runtime.ts",
     "react-dom": "src/browser/react-dom.ts",
     "react-dom/client": "src/browser/react-dom-client.ts",
+    // the page's side of a kind's own chat view (src/agent-kind-view/host.ts); the frame's side is
+    // one classic script beside these modules (`AGENT_KIND_VIEW_FRAME`)
+    "agent-kind-view/host": "src/agent-kind-view/host.ts",
     ...Object.fromEntries(
       [...items, ...shadcn]
         .sort()
@@ -44,6 +47,12 @@ export function browserEntries(): Record<string, string> {
     ),
   };
 }
+
+/** THE SCRIPT OF THE FRAME a kind's chat view runs in, as one classic script of the published
+ *  package (scripts/build-agent-kind-view-frame.ts builds it from src/browser/agent-kind-view-frame.ts).
+ *  The frame is sandboxed with an opaque origin: a module script would need CORS and an import
+ *  map; a classic `<script src>` needs neither. A page names it by its URL at the build it pins. */
+export const AGENT_KIND_VIEW_FRAME = "agent-kind-view-frame.js";
 
 /** package.json's publishConfig.exports for `entries`: each name at its built file, the
  *  stylesheet, and iterate's look over it with each font file its url()s name beside it
@@ -53,6 +62,7 @@ export function publishExports(entries: Record<string, string>, fonts: string[])
   return {
     ...Object.fromEntries(Object.keys(entries).map((name) => [`./${name}`, `./dist/${name}.mjs`])),
     "./styles.css": "./dist/styles.css",
+    [`./${AGENT_KIND_VIEW_FRAME}`]: `./dist/${AGENT_KIND_VIEW_FRAME}`,
     "./iterate.css": "./dist/iterate.css",
     ...Object.fromEntries(fonts.map((file) => [`./fonts/${file}`, `./dist/fonts/${file}`])),
   };

@@ -51,6 +51,7 @@
       "./react/compiler-runtime": "./dist/react/compiler-runtime.mjs",
       "./react-dom": "./dist/react-dom.mjs",
       "./react-dom/client": "./dist/react-dom/client.mjs",
+      "./agent-kind-view/host": "./dist/agent-kind-view/host.mjs",
       "./components/agent-chat/agent-chat": "./dist/components/agent-chat/agent-chat.mjs",
       "./components/agents-home": "./dist/components/agents-home.mjs",
       "./components/agents-nav": "./dist/components/agents-nav.mjs",
@@ -111,6 +112,7 @@
       "./lib/codemirror-theme": "./dist/lib/codemirror-theme.mjs",
       "./lib/plain-left-click": "./dist/lib/plain-left-click.mjs",
       "./styles.css": "./dist/styles.css",
+      "./agent-kind-view-frame.js": "./dist/agent-kind-view-frame.js",
       "./iterate.css": "./dist/iterate.css",
       "./fonts/ubuntu-cyrillic-400-normal.woff2": "./dist/fonts/ubuntu-cyrillic-400-normal.woff2",
       "./fonts/ubuntu-cyrillic-500-normal.woff2": "./dist/fonts/ubuntu-cyrillic-500-normal.woff2",
@@ -133,7 +135,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown && tailwindcss --input src/browser/styles.css --output dist/styles.css --minify && node scripts/build-iterate-css.ts",
+    "build": "tsdown && tailwindcss --input src/browser/styles.css --output dist/styles.css --minify && node scripts/build-iterate-css.ts && node scripts/build-agent-kind-view-frame.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "prepack": "pnpm build"
