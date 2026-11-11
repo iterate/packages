@@ -5,6 +5,7 @@
 import type { EditorState, Extension, RangeSet } from "@codemirror/state";
 import type { GutterMarker } from "@codemirror/view";
 import type { RepoFileLanguage } from "./repo-file-kinds.ts";
+import { systemCodeMirrorTheme } from "#/lib/codemirror-theme.ts";
 
 async function loadLanguage(language: RepoFileLanguage): Promise<Extension> {
   switch (language) {
@@ -47,6 +48,7 @@ export async function loadCodeMirror(language: RepoFileLanguage) {
     state,
     merge,
     basicSetup: setup.basicSetup,
+    vsCodeLight: themes.vsCodeLight,
     vsCodeDark: themes.vsCodeDark,
     languageSupport,
   };
@@ -190,7 +192,12 @@ export function editorExtensions(
   const { EditorView } = cm.view;
   return [
     cm.basicSetup,
-    cm.vsCodeDark,
+    systemCodeMirrorTheme({
+      Compartment: cm.state.Compartment,
+      ViewPlugin: cm.view.ViewPlugin,
+      vsCodeLight: cm.vsCodeLight,
+      vsCodeDark: cm.vsCodeDark,
+    }),
     cm.languageSupport,
     cm.state.EditorState.readOnly.of(input.readOnly),
     EditorView.editable.of(!input.readOnly),

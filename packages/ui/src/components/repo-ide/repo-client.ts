@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import type { RepoLogEntry } from "iterate/api";
 
-export type RepoProject = Awaited<ReturnType<AuthenticatedApp["api"]["projects"]["get"]>>;
+export type RepoProject = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
 
 /** `refreshing`: a newer read is in flight, and `value` is the one before it. */
 export type Read<T> =

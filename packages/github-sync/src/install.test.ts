@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { githubSyncFolder, installGithubSync } from "./install.ts";
+import { githubSyncFolder, installGithubSync, linkThroughCloud } from "./install.ts";
 
 const version = "https://pkg.pr.new/iterate/private/@iterate-com/github-sync@abc1234";
 const origin =
@@ -109,6 +109,56 @@ test.for([
   await expect(installGithubSync(root, githubSyncFolder(version))).rejects.toThrow(error);
   expect(root.processors.enable).not.toHaveBeenCalled();
   expect(Object.keys(root.contexts)).toEqual([]);
+});
+
+test("a repo links to its GitHub repository through iterate Cloud's App: the installation's secret, the origin, and the log", async () => {
+  const set = vi.fn().mockResolvedValue({});
+  const setOrigin = vi.fn().mockResolvedValue({});
+  const asked: Request[] = [];
+  const itx = {
+    fetch: async (request: Request) => {
+      asked.push(request);
+      return Response.json({
+        installations: [
+          { id: 7, account: { login: "someone-else" } },
+          { id: 42, account: { login: "Acme" } },
+        ],
+      });
+    },
+    secrets: { set },
+    repos: { get: () => ({ setOrigin }) },
+  } as unknown as Parameters<typeof linkThroughCloud>[0];
+  expect(await linkThroughCloud(itx, { repository: "acme/config" })).toEqual({
+    repo: "/repos/config",
+    repository: "acme/config",
+    installationId: "42",
+    secret: "/secrets/github-installation-42",
+    log: "/integrations/github/42",
+  });
+  // the person's own token finds the installation; it never leaves a placeholder
+  expect(asked[0]!.headers.get("authorization")).toBe(
+    'Bearer getSecret("/secrets/github", { field: "accessToken" })',
+  );
+  // the installation's token is the Cloud's to mint: the secret holds no key
+  expect(set).toHaveBeenCalledWith(
+    "/secrets/github-installation-42",
+    {},
+    {
+      urls: ["https://api.github.com", "https://github.com"],
+      refresh: {
+        kind: "github-app-installation",
+        apiOrigin: "https://api.github.com",
+        installationId: "42",
+        client: { cloud: "github" },
+      },
+    },
+  );
+  expect(setOrigin).toHaveBeenCalledWith(
+    'https://x-access-token:getSecret("/secrets/github-installation-42", { field: "accessToken" })@github.com/acme/config.git',
+  );
+  await expect(linkThroughCloud(itx, { repository: "nobody/config" })).rejects.toThrow(
+    /the App is not installed on nobody/,
+  );
 });
 
 /** A project root as installing calls it: its repo's origin, its GitHub connections (to `acme` by

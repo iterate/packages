@@ -1,11 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ChangeDeploymentLink } from "@iterate-com/ui/components/change-deployment";
-import { LogInWithIterate } from "@iterate-com/ui/components/log-in-with-iterate";
-export const Route = createFileRoute("/")({
-  component: () => (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-2 p-6">
-      <LogInWithIterate next="/projects" />
-      <ChangeDeploymentLink next="/projects" />
-    </main>
-  ),
-});
+import { LastProjectRedirect } from "@iterate-com/ui/components/last-project-redirect";
+
+// the project this browser used last, or the connect page when it is connected to none
+export const Route = createFileRoute("/")({ component: LastProjectRedirect });

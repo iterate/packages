@@ -10,278 +10,175 @@
 
 import { Route as rootRouteImport } from "./routes/__root.tsx";
 import { Route as IndexRouteImport } from "./routes/index.tsx";
-import { Route as AuthRouteImport } from "./routes/_auth.tsx";
-import { Route as AuthActivityRouteImport } from "./routes/_auth/activity.tsx";
-import { Route as AuthHomeRouteImport } from "./routes/_auth/home.tsx";
-import { Route as AuthSessionsRouteImport } from "./routes/_auth/sessions.tsx";
-import { Route as CollectSecretSlugRouteImport } from "./routes/collect-secret.$slug.tsx";
-import { Route as AuthInvitationsTokenRouteImport } from "./routes/_auth/invitations.$token.tsx";
-import { Route as AuthOrganizationsIndexRouteImport } from "./routes/_auth/organizations/index.tsx";
-import { Route as AuthOrganizationsOrgIdRouteImport } from "./routes/_auth/organizations/$orgId.tsx";
-import { Route as AuthProjectsIndexRouteImport } from "./routes/_auth/projects/index.tsx";
-import { Route as AuthProjectsSlugRouteRouteImport } from "./routes/_auth/projects/$slug/route.tsx";
-import { Route as AuthOrganizationsOrgIdActivityRouteImport } from "./routes/_auth/organizations/$orgId_.activity.tsx";
-import { Route as AuthProjectsSlugIndexRouteImport } from "./routes/_auth/projects/$slug/index.tsx";
-import { Route as AuthProjectsSlugAnalyticsRouteImport } from "./routes/_auth/projects/$slug/analytics.tsx";
-import { Route as AuthProjectsSlugDomainsRouteImport } from "./routes/_auth/projects/$slug/domains.tsx";
-import { Route as AuthProjectsSlugIntegrationsRouteImport } from "./routes/_auth/projects/$slug/integrations.tsx";
-import { Route as AuthProjectsSlugMcpRouteImport } from "./routes/_auth/projects/$slug/mcp.tsx";
-import { Route as AuthProjectsSlugSecretsRouteImport } from "./routes/_auth/projects/$slug/secrets.tsx";
-import { Route as AuthProjectsSlugContextsSplatRouteImport } from "./routes/_auth/projects/$slug/contexts.$.tsx";
-import { Route as AuthProjectsSlugReposIndexRouteImport } from "./routes/_auth/projects/$slug/repos.index.tsx";
-import { Route as AuthProjectsSlugReposSplatRouteImport } from "./routes/_auth/projects/$slug/repos.$.tsx";
+import { Route as ConnectRouteImport } from "./routes/connect.tsx";
+import { Route as ProjectsProjectRouteRouteImport } from "./routes/projects/$project/route.tsx";
+import { Route as ProjectsProjectIndexRouteImport } from "./routes/projects/$project/index.tsx";
+import { Route as ProjectsProjectAnalyticsRouteImport } from "./routes/projects/$project/analytics.tsx";
+import { Route as ProjectsProjectApprovalsRouteImport } from "./routes/projects/$project/approvals.tsx";
+import { Route as ProjectsProjectIntegrationsRouteImport } from "./routes/projects/$project/integrations.tsx";
+import { Route as ProjectsProjectMcpRouteImport } from "./routes/projects/$project/mcp.tsx";
+import { Route as ProjectsProjectSecretsRouteImport } from "./routes/projects/$project/secrets.tsx";
+import { Route as ProjectsProjectContextsSplatRouteImport } from "./routes/projects/$project/contexts.$.tsx";
+import { Route as ProjectsProjectReposIndexRouteImport } from "./routes/projects/$project/repos.index.tsx";
+import { Route as ProjectsProjectReposSplatRouteImport } from "./routes/projects/$project/repos.$.tsx";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AuthRoute = AuthRouteImport.update({
-  id: "/_auth",
+const ConnectRoute = ConnectRouteImport.update({
+  id: "/connect",
+  path: "/connect",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AuthActivityRoute = AuthActivityRouteImport.update({
-  id: "/activity",
-  path: "/activity",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthHomeRoute = AuthHomeRouteImport.update({
-  id: "/home",
-  path: "/home",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthSessionsRoute = AuthSessionsRouteImport.update({
-  id: "/sessions",
-  path: "/sessions",
-  getParentRoute: () => AuthRoute,
-} as any);
-const CollectSecretSlugRoute = CollectSecretSlugRouteImport.update({
-  id: "/collect-secret/$slug",
-  path: "/collect-secret/$slug",
+const ProjectsProjectRouteRoute = ProjectsProjectRouteRouteImport.update({
+  id: "/projects/$project",
+  path: "/projects/$project",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AuthInvitationsTokenRoute = AuthInvitationsTokenRouteImport.update({
-  id: "/invitations/$token",
-  path: "/invitations/$token",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthOrganizationsIndexRoute = AuthOrganizationsIndexRouteImport.update({
-  id: "/organizations/",
-  path: "/organizations/",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthOrganizationsOrgIdRoute = AuthOrganizationsOrgIdRouteImport.update({
-  id: "/organizations/$orgId",
-  path: "/organizations/$orgId",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthProjectsIndexRoute = AuthProjectsIndexRouteImport.update({
-  id: "/projects/",
-  path: "/projects/",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthProjectsSlugRouteRoute = AuthProjectsSlugRouteRouteImport.update({
-  id: "/projects/$slug",
-  path: "/projects/$slug",
-  getParentRoute: () => AuthRoute,
-} as any);
-const AuthOrganizationsOrgIdActivityRoute =
-  AuthOrganizationsOrgIdActivityRouteImport.update({
-    id: "/organizations/$orgId_/activity",
-    path: "/organizations/$orgId/activity",
-    getParentRoute: () => AuthRoute,
-  } as any);
-const AuthProjectsSlugIndexRoute = AuthProjectsSlugIndexRouteImport.update({
+const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => AuthProjectsSlugRouteRoute,
+  getParentRoute: () => ProjectsProjectRouteRoute,
 } as any);
-const AuthProjectsSlugAnalyticsRoute =
-  AuthProjectsSlugAnalyticsRouteImport.update({
+const ProjectsProjectAnalyticsRoute =
+  ProjectsProjectAnalyticsRouteImport.update({
     id: "/analytics",
     path: "/analytics",
-    getParentRoute: () => AuthProjectsSlugRouteRoute,
+    getParentRoute: () => ProjectsProjectRouteRoute,
   } as any);
-const AuthProjectsSlugDomainsRoute = AuthProjectsSlugDomainsRouteImport.update({
-  id: "/domains",
-  path: "/domains",
-  getParentRoute: () => AuthProjectsSlugRouteRoute,
-} as any);
-const AuthProjectsSlugIntegrationsRoute =
-  AuthProjectsSlugIntegrationsRouteImport.update({
+const ProjectsProjectApprovalsRoute =
+  ProjectsProjectApprovalsRouteImport.update({
+    id: "/approvals",
+    path: "/approvals",
+    getParentRoute: () => ProjectsProjectRouteRoute,
+  } as any);
+const ProjectsProjectIntegrationsRoute =
+  ProjectsProjectIntegrationsRouteImport.update({
     id: "/integrations",
     path: "/integrations",
-    getParentRoute: () => AuthProjectsSlugRouteRoute,
+    getParentRoute: () => ProjectsProjectRouteRoute,
   } as any);
-const AuthProjectsSlugMcpRoute = AuthProjectsSlugMcpRouteImport.update({
+const ProjectsProjectMcpRoute = ProjectsProjectMcpRouteImport.update({
   id: "/mcp",
   path: "/mcp",
-  getParentRoute: () => AuthProjectsSlugRouteRoute,
+  getParentRoute: () => ProjectsProjectRouteRoute,
 } as any);
-const AuthProjectsSlugSecretsRoute = AuthProjectsSlugSecretsRouteImport.update({
+const ProjectsProjectSecretsRoute = ProjectsProjectSecretsRouteImport.update({
   id: "/secrets",
   path: "/secrets",
-  getParentRoute: () => AuthProjectsSlugRouteRoute,
+  getParentRoute: () => ProjectsProjectRouteRoute,
 } as any);
-const AuthProjectsSlugContextsSplatRoute =
-  AuthProjectsSlugContextsSplatRouteImport.update({
+const ProjectsProjectContextsSplatRoute =
+  ProjectsProjectContextsSplatRouteImport.update({
     id: "/contexts/$",
     path: "/contexts/$",
-    getParentRoute: () => AuthProjectsSlugRouteRoute,
+    getParentRoute: () => ProjectsProjectRouteRoute,
   } as any);
-const AuthProjectsSlugReposIndexRoute =
-  AuthProjectsSlugReposIndexRouteImport.update({
+const ProjectsProjectReposIndexRoute =
+  ProjectsProjectReposIndexRouteImport.update({
     id: "/repos/",
     path: "/repos/",
-    getParentRoute: () => AuthProjectsSlugRouteRoute,
+    getParentRoute: () => ProjectsProjectRouteRoute,
   } as any);
-const AuthProjectsSlugReposSplatRoute =
-  AuthProjectsSlugReposSplatRouteImport.update({
+const ProjectsProjectReposSplatRoute =
+  ProjectsProjectReposSplatRouteImport.update({
     id: "/repos/$",
     path: "/repos/$",
-    getParentRoute: () => AuthProjectsSlugRouteRoute,
+    getParentRoute: () => ProjectsProjectRouteRoute,
   } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
-  "/activity": typeof AuthActivityRoute;
-  "/home": typeof AuthHomeRoute;
-  "/sessions": typeof AuthSessionsRoute;
-  "/collect-secret/$slug": typeof CollectSecretSlugRoute;
-  "/projects/$slug": typeof AuthProjectsSlugRouteRouteWithChildren;
-  "/invitations/$token": typeof AuthInvitationsTokenRoute;
-  "/organizations/$orgId": typeof AuthOrganizationsOrgIdRoute;
-  "/organizations/": typeof AuthOrganizationsIndexRoute;
-  "/projects/": typeof AuthProjectsIndexRoute;
-  "/organizations/$orgId/activity": typeof AuthOrganizationsOrgIdActivityRoute;
-  "/projects/$slug/analytics": typeof AuthProjectsSlugAnalyticsRoute;
-  "/projects/$slug/domains": typeof AuthProjectsSlugDomainsRoute;
-  "/projects/$slug/integrations": typeof AuthProjectsSlugIntegrationsRoute;
-  "/projects/$slug/mcp": typeof AuthProjectsSlugMcpRoute;
-  "/projects/$slug/secrets": typeof AuthProjectsSlugSecretsRoute;
-  "/projects/$slug/": typeof AuthProjectsSlugIndexRoute;
-  "/projects/$slug/contexts/$": typeof AuthProjectsSlugContextsSplatRoute;
-  "/projects/$slug/repos/$": typeof AuthProjectsSlugReposSplatRoute;
-  "/projects/$slug/repos/": typeof AuthProjectsSlugReposIndexRoute;
+  "/connect": typeof ConnectRoute;
+  "/projects/$project": typeof ProjectsProjectRouteRouteWithChildren;
+  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
+  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
+  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
+  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
+  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
+  "/projects/$project/": typeof ProjectsProjectIndexRoute;
+  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
+  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
+  "/projects/$project/repos/": typeof ProjectsProjectReposIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
-  "/activity": typeof AuthActivityRoute;
-  "/home": typeof AuthHomeRoute;
-  "/sessions": typeof AuthSessionsRoute;
-  "/collect-secret/$slug": typeof CollectSecretSlugRoute;
-  "/invitations/$token": typeof AuthInvitationsTokenRoute;
-  "/organizations/$orgId": typeof AuthOrganizationsOrgIdRoute;
-  "/organizations": typeof AuthOrganizationsIndexRoute;
-  "/projects": typeof AuthProjectsIndexRoute;
-  "/organizations/$orgId/activity": typeof AuthOrganizationsOrgIdActivityRoute;
-  "/projects/$slug/analytics": typeof AuthProjectsSlugAnalyticsRoute;
-  "/projects/$slug/domains": typeof AuthProjectsSlugDomainsRoute;
-  "/projects/$slug/integrations": typeof AuthProjectsSlugIntegrationsRoute;
-  "/projects/$slug/mcp": typeof AuthProjectsSlugMcpRoute;
-  "/projects/$slug/secrets": typeof AuthProjectsSlugSecretsRoute;
-  "/projects/$slug": typeof AuthProjectsSlugIndexRoute;
-  "/projects/$slug/contexts/$": typeof AuthProjectsSlugContextsSplatRoute;
-  "/projects/$slug/repos/$": typeof AuthProjectsSlugReposSplatRoute;
-  "/projects/$slug/repos": typeof AuthProjectsSlugReposIndexRoute;
+  "/connect": typeof ConnectRoute;
+  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
+  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
+  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
+  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
+  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
+  "/projects/$project": typeof ProjectsProjectIndexRoute;
+  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
+  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
+  "/projects/$project/repos": typeof ProjectsProjectReposIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
-  "/_auth": typeof AuthRouteWithChildren;
-  "/_auth/activity": typeof AuthActivityRoute;
-  "/_auth/home": typeof AuthHomeRoute;
-  "/_auth/sessions": typeof AuthSessionsRoute;
-  "/collect-secret/$slug": typeof CollectSecretSlugRoute;
-  "/_auth/projects/$slug": typeof AuthProjectsSlugRouteRouteWithChildren;
-  "/_auth/invitations/$token": typeof AuthInvitationsTokenRoute;
-  "/_auth/organizations/$orgId": typeof AuthOrganizationsOrgIdRoute;
-  "/_auth/organizations/": typeof AuthOrganizationsIndexRoute;
-  "/_auth/projects/": typeof AuthProjectsIndexRoute;
-  "/_auth/organizations/$orgId_/activity": typeof AuthOrganizationsOrgIdActivityRoute;
-  "/_auth/projects/$slug/analytics": typeof AuthProjectsSlugAnalyticsRoute;
-  "/_auth/projects/$slug/domains": typeof AuthProjectsSlugDomainsRoute;
-  "/_auth/projects/$slug/integrations": typeof AuthProjectsSlugIntegrationsRoute;
-  "/_auth/projects/$slug/mcp": typeof AuthProjectsSlugMcpRoute;
-  "/_auth/projects/$slug/secrets": typeof AuthProjectsSlugSecretsRoute;
-  "/_auth/projects/$slug/": typeof AuthProjectsSlugIndexRoute;
-  "/_auth/projects/$slug/contexts/$": typeof AuthProjectsSlugContextsSplatRoute;
-  "/_auth/projects/$slug/repos/$": typeof AuthProjectsSlugReposSplatRoute;
-  "/_auth/projects/$slug/repos/": typeof AuthProjectsSlugReposIndexRoute;
+  "/connect": typeof ConnectRoute;
+  "/projects/$project": typeof ProjectsProjectRouteRouteWithChildren;
+  "/projects/$project/analytics": typeof ProjectsProjectAnalyticsRoute;
+  "/projects/$project/approvals": typeof ProjectsProjectApprovalsRoute;
+  "/projects/$project/integrations": typeof ProjectsProjectIntegrationsRoute;
+  "/projects/$project/mcp": typeof ProjectsProjectMcpRoute;
+  "/projects/$project/secrets": typeof ProjectsProjectSecretsRoute;
+  "/projects/$project/": typeof ProjectsProjectIndexRoute;
+  "/projects/$project/contexts/$": typeof ProjectsProjectContextsSplatRoute;
+  "/projects/$project/repos/$": typeof ProjectsProjectReposSplatRoute;
+  "/projects/$project/repos/": typeof ProjectsProjectReposIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | "/"
-    | "/activity"
-    | "/home"
-    | "/sessions"
-    | "/collect-secret/$slug"
-    | "/projects/$slug"
-    | "/invitations/$token"
-    | "/organizations/$orgId"
-    | "/organizations/"
-    | "/projects/"
-    | "/organizations/$orgId/activity"
-    | "/projects/$slug/analytics"
-    | "/projects/$slug/domains"
-    | "/projects/$slug/integrations"
-    | "/projects/$slug/mcp"
-    | "/projects/$slug/secrets"
-    | "/projects/$slug/"
-    | "/projects/$slug/contexts/$"
-    | "/projects/$slug/repos/$"
-    | "/projects/$slug/repos/";
+    | "/connect"
+    | "/projects/$project"
+    | "/projects/$project/analytics"
+    | "/projects/$project/approvals"
+    | "/projects/$project/integrations"
+    | "/projects/$project/mcp"
+    | "/projects/$project/secrets"
+    | "/projects/$project/"
+    | "/projects/$project/contexts/$"
+    | "/projects/$project/repos/$"
+    | "/projects/$project/repos/";
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
-    | "/activity"
-    | "/home"
-    | "/sessions"
-    | "/collect-secret/$slug"
-    | "/invitations/$token"
-    | "/organizations/$orgId"
-    | "/organizations"
-    | "/projects"
-    | "/organizations/$orgId/activity"
-    | "/projects/$slug/analytics"
-    | "/projects/$slug/domains"
-    | "/projects/$slug/integrations"
-    | "/projects/$slug/mcp"
-    | "/projects/$slug/secrets"
-    | "/projects/$slug"
-    | "/projects/$slug/contexts/$"
-    | "/projects/$slug/repos/$"
-    | "/projects/$slug/repos";
+    | "/connect"
+    | "/projects/$project/analytics"
+    | "/projects/$project/approvals"
+    | "/projects/$project/integrations"
+    | "/projects/$project/mcp"
+    | "/projects/$project/secrets"
+    | "/projects/$project"
+    | "/projects/$project/contexts/$"
+    | "/projects/$project/repos/$"
+    | "/projects/$project/repos";
   id:
     | "__root__"
     | "/"
-    | "/_auth"
-    | "/_auth/activity"
-    | "/_auth/home"
-    | "/_auth/sessions"
-    | "/collect-secret/$slug"
-    | "/_auth/projects/$slug"
-    | "/_auth/invitations/$token"
-    | "/_auth/organizations/$orgId"
-    | "/_auth/organizations/"
-    | "/_auth/projects/"
-    | "/_auth/organizations/$orgId_/activity"
-    | "/_auth/projects/$slug/analytics"
-    | "/_auth/projects/$slug/domains"
-    | "/_auth/projects/$slug/integrations"
-    | "/_auth/projects/$slug/mcp"
-    | "/_auth/projects/$slug/secrets"
-    | "/_auth/projects/$slug/"
-    | "/_auth/projects/$slug/contexts/$"
-    | "/_auth/projects/$slug/repos/$"
-    | "/_auth/projects/$slug/repos/";
+    | "/connect"
+    | "/projects/$project"
+    | "/projects/$project/analytics"
+    | "/projects/$project/approvals"
+    | "/projects/$project/integrations"
+    | "/projects/$project/mcp"
+    | "/projects/$project/secrets"
+    | "/projects/$project/"
+    | "/projects/$project/contexts/$"
+    | "/projects/$project/repos/$"
+    | "/projects/$project/repos/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
-  AuthRoute: typeof AuthRouteWithChildren;
-  CollectSecretSlugRoute: typeof CollectSecretSlugRoute;
+  ConnectRoute: typeof ConnectRoute;
+  ProjectsProjectRouteRoute: typeof ProjectsProjectRouteRouteWithChildren;
 }
 
 declare module "@tanstack/react-router" {
@@ -293,208 +190,117 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_auth": {
-      id: "/_auth";
-      path: "";
-      fullPath: "/";
-      preLoaderRoute: typeof AuthRouteImport;
+    "/connect": {
+      id: "/connect";
+      path: "/connect";
+      fullPath: "/connect";
+      preLoaderRoute: typeof ConnectRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_auth/activity": {
-      id: "/_auth/activity";
-      path: "/activity";
-      fullPath: "/activity";
-      preLoaderRoute: typeof AuthActivityRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/home": {
-      id: "/_auth/home";
-      path: "/home";
-      fullPath: "/home";
-      preLoaderRoute: typeof AuthHomeRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/sessions": {
-      id: "/_auth/sessions";
-      path: "/sessions";
-      fullPath: "/sessions";
-      preLoaderRoute: typeof AuthSessionsRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/collect-secret/$slug": {
-      id: "/collect-secret/$slug";
-      path: "/collect-secret/$slug";
-      fullPath: "/collect-secret/$slug";
-      preLoaderRoute: typeof CollectSecretSlugRouteImport;
+    "/projects/$project": {
+      id: "/projects/$project";
+      path: "/projects/$project";
+      fullPath: "/projects/$project";
+      preLoaderRoute: typeof ProjectsProjectRouteRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_auth/invitations/$token": {
-      id: "/_auth/invitations/$token";
-      path: "/invitations/$token";
-      fullPath: "/invitations/$token";
-      preLoaderRoute: typeof AuthInvitationsTokenRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/organizations/": {
-      id: "/_auth/organizations/";
-      path: "/organizations";
-      fullPath: "/organizations/";
-      preLoaderRoute: typeof AuthOrganizationsIndexRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/organizations/$orgId": {
-      id: "/_auth/organizations/$orgId";
-      path: "/organizations/$orgId";
-      fullPath: "/organizations/$orgId";
-      preLoaderRoute: typeof AuthOrganizationsOrgIdRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/projects/": {
-      id: "/_auth/projects/";
-      path: "/projects";
-      fullPath: "/projects/";
-      preLoaderRoute: typeof AuthProjectsIndexRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/projects/$slug": {
-      id: "/_auth/projects/$slug";
-      path: "/projects/$slug";
-      fullPath: "/projects/$slug";
-      preLoaderRoute: typeof AuthProjectsSlugRouteRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/organizations/$orgId_/activity": {
-      id: "/_auth/organizations/$orgId_/activity";
-      path: "/organizations/$orgId/activity";
-      fullPath: "/organizations/$orgId/activity";
-      preLoaderRoute: typeof AuthOrganizationsOrgIdActivityRouteImport;
-      parentRoute: typeof AuthRoute;
-    };
-    "/_auth/projects/$slug/": {
-      id: "/_auth/projects/$slug/";
+    "/projects/$project/": {
+      id: "/projects/$project/";
       path: "/";
-      fullPath: "/projects/$slug/";
-      preLoaderRoute: typeof AuthProjectsSlugIndexRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/";
+      preLoaderRoute: typeof ProjectsProjectIndexRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/analytics": {
-      id: "/_auth/projects/$slug/analytics";
+    "/projects/$project/analytics": {
+      id: "/projects/$project/analytics";
       path: "/analytics";
-      fullPath: "/projects/$slug/analytics";
-      preLoaderRoute: typeof AuthProjectsSlugAnalyticsRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/analytics";
+      preLoaderRoute: typeof ProjectsProjectAnalyticsRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/domains": {
-      id: "/_auth/projects/$slug/domains";
-      path: "/domains";
-      fullPath: "/projects/$slug/domains";
-      preLoaderRoute: typeof AuthProjectsSlugDomainsRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+    "/projects/$project/approvals": {
+      id: "/projects/$project/approvals";
+      path: "/approvals";
+      fullPath: "/projects/$project/approvals";
+      preLoaderRoute: typeof ProjectsProjectApprovalsRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/integrations": {
-      id: "/_auth/projects/$slug/integrations";
+    "/projects/$project/integrations": {
+      id: "/projects/$project/integrations";
       path: "/integrations";
-      fullPath: "/projects/$slug/integrations";
-      preLoaderRoute: typeof AuthProjectsSlugIntegrationsRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/integrations";
+      preLoaderRoute: typeof ProjectsProjectIntegrationsRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/mcp": {
-      id: "/_auth/projects/$slug/mcp";
+    "/projects/$project/mcp": {
+      id: "/projects/$project/mcp";
       path: "/mcp";
-      fullPath: "/projects/$slug/mcp";
-      preLoaderRoute: typeof AuthProjectsSlugMcpRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/mcp";
+      preLoaderRoute: typeof ProjectsProjectMcpRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/secrets": {
-      id: "/_auth/projects/$slug/secrets";
+    "/projects/$project/secrets": {
+      id: "/projects/$project/secrets";
       path: "/secrets";
-      fullPath: "/projects/$slug/secrets";
-      preLoaderRoute: typeof AuthProjectsSlugSecretsRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/secrets";
+      preLoaderRoute: typeof ProjectsProjectSecretsRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/contexts/$": {
-      id: "/_auth/projects/$slug/contexts/$";
+    "/projects/$project/contexts/$": {
+      id: "/projects/$project/contexts/$";
       path: "/contexts/$";
-      fullPath: "/projects/$slug/contexts/$";
-      preLoaderRoute: typeof AuthProjectsSlugContextsSplatRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/contexts/$";
+      preLoaderRoute: typeof ProjectsProjectContextsSplatRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/repos/": {
-      id: "/_auth/projects/$slug/repos/";
+    "/projects/$project/repos/": {
+      id: "/projects/$project/repos/";
       path: "/repos";
-      fullPath: "/projects/$slug/repos/";
-      preLoaderRoute: typeof AuthProjectsSlugReposIndexRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/repos/";
+      preLoaderRoute: typeof ProjectsProjectReposIndexRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
-    "/_auth/projects/$slug/repos/$": {
-      id: "/_auth/projects/$slug/repos/$";
+    "/projects/$project/repos/$": {
+      id: "/projects/$project/repos/$";
       path: "/repos/$";
-      fullPath: "/projects/$slug/repos/$";
-      preLoaderRoute: typeof AuthProjectsSlugReposSplatRouteImport;
-      parentRoute: typeof AuthProjectsSlugRouteRoute;
+      fullPath: "/projects/$project/repos/$";
+      preLoaderRoute: typeof ProjectsProjectReposSplatRouteImport;
+      parentRoute: typeof ProjectsProjectRouteRoute;
     };
   }
 }
 
-interface AuthProjectsSlugRouteRouteChildren {
-  AuthProjectsSlugAnalyticsRoute: typeof AuthProjectsSlugAnalyticsRoute;
-  AuthProjectsSlugDomainsRoute: typeof AuthProjectsSlugDomainsRoute;
-  AuthProjectsSlugIntegrationsRoute: typeof AuthProjectsSlugIntegrationsRoute;
-  AuthProjectsSlugMcpRoute: typeof AuthProjectsSlugMcpRoute;
-  AuthProjectsSlugSecretsRoute: typeof AuthProjectsSlugSecretsRoute;
-  AuthProjectsSlugIndexRoute: typeof AuthProjectsSlugIndexRoute;
-  AuthProjectsSlugContextsSplatRoute: typeof AuthProjectsSlugContextsSplatRoute;
-  AuthProjectsSlugReposSplatRoute: typeof AuthProjectsSlugReposSplatRoute;
-  AuthProjectsSlugReposIndexRoute: typeof AuthProjectsSlugReposIndexRoute;
+interface ProjectsProjectRouteRouteChildren {
+  ProjectsProjectAnalyticsRoute: typeof ProjectsProjectAnalyticsRoute;
+  ProjectsProjectApprovalsRoute: typeof ProjectsProjectApprovalsRoute;
+  ProjectsProjectIntegrationsRoute: typeof ProjectsProjectIntegrationsRoute;
+  ProjectsProjectMcpRoute: typeof ProjectsProjectMcpRoute;
+  ProjectsProjectSecretsRoute: typeof ProjectsProjectSecretsRoute;
+  ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute;
+  ProjectsProjectContextsSplatRoute: typeof ProjectsProjectContextsSplatRoute;
+  ProjectsProjectReposSplatRoute: typeof ProjectsProjectReposSplatRoute;
+  ProjectsProjectReposIndexRoute: typeof ProjectsProjectReposIndexRoute;
 }
 
-const AuthProjectsSlugRouteRouteChildren: AuthProjectsSlugRouteRouteChildren = {
-  AuthProjectsSlugAnalyticsRoute: AuthProjectsSlugAnalyticsRoute,
-  AuthProjectsSlugDomainsRoute: AuthProjectsSlugDomainsRoute,
-  AuthProjectsSlugIntegrationsRoute: AuthProjectsSlugIntegrationsRoute,
-  AuthProjectsSlugMcpRoute: AuthProjectsSlugMcpRoute,
-  AuthProjectsSlugSecretsRoute: AuthProjectsSlugSecretsRoute,
-  AuthProjectsSlugIndexRoute: AuthProjectsSlugIndexRoute,
-  AuthProjectsSlugContextsSplatRoute: AuthProjectsSlugContextsSplatRoute,
-  AuthProjectsSlugReposSplatRoute: AuthProjectsSlugReposSplatRoute,
-  AuthProjectsSlugReposIndexRoute: AuthProjectsSlugReposIndexRoute,
+const ProjectsProjectRouteRouteChildren: ProjectsProjectRouteRouteChildren = {
+  ProjectsProjectAnalyticsRoute: ProjectsProjectAnalyticsRoute,
+  ProjectsProjectApprovalsRoute: ProjectsProjectApprovalsRoute,
+  ProjectsProjectIntegrationsRoute: ProjectsProjectIntegrationsRoute,
+  ProjectsProjectMcpRoute: ProjectsProjectMcpRoute,
+  ProjectsProjectSecretsRoute: ProjectsProjectSecretsRoute,
+  ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
+  ProjectsProjectContextsSplatRoute: ProjectsProjectContextsSplatRoute,
+  ProjectsProjectReposSplatRoute: ProjectsProjectReposSplatRoute,
+  ProjectsProjectReposIndexRoute: ProjectsProjectReposIndexRoute,
 };
 
-const AuthProjectsSlugRouteRouteWithChildren =
-  AuthProjectsSlugRouteRoute._addFileChildren(
-    AuthProjectsSlugRouteRouteChildren,
-  );
-
-interface AuthRouteChildren {
-  AuthActivityRoute: typeof AuthActivityRoute;
-  AuthHomeRoute: typeof AuthHomeRoute;
-  AuthSessionsRoute: typeof AuthSessionsRoute;
-  AuthProjectsSlugRouteRoute: typeof AuthProjectsSlugRouteRouteWithChildren;
-  AuthInvitationsTokenRoute: typeof AuthInvitationsTokenRoute;
-  AuthOrganizationsOrgIdRoute: typeof AuthOrganizationsOrgIdRoute;
-  AuthOrganizationsIndexRoute: typeof AuthOrganizationsIndexRoute;
-  AuthProjectsIndexRoute: typeof AuthProjectsIndexRoute;
-  AuthOrganizationsOrgIdActivityRoute: typeof AuthOrganizationsOrgIdActivityRoute;
-}
-
-const AuthRouteChildren: AuthRouteChildren = {
-  AuthActivityRoute: AuthActivityRoute,
-  AuthHomeRoute: AuthHomeRoute,
-  AuthSessionsRoute: AuthSessionsRoute,
-  AuthProjectsSlugRouteRoute: AuthProjectsSlugRouteRouteWithChildren,
-  AuthInvitationsTokenRoute: AuthInvitationsTokenRoute,
-  AuthOrganizationsOrgIdRoute: AuthOrganizationsOrgIdRoute,
-  AuthOrganizationsIndexRoute: AuthOrganizationsIndexRoute,
-  AuthProjectsIndexRoute: AuthProjectsIndexRoute,
-  AuthOrganizationsOrgIdActivityRoute: AuthOrganizationsOrgIdActivityRoute,
-};
-
-const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren);
+const ProjectsProjectRouteRouteWithChildren =
+  ProjectsProjectRouteRoute._addFileChildren(ProjectsProjectRouteRouteChildren);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AuthRoute: AuthRouteWithChildren,
-  CollectSecretSlugRoute: CollectSecretSlugRoute,
+  ConnectRoute: ConnectRoute,
+  ProjectsProjectRouteRoute: ProjectsProjectRouteRouteWithChildren,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

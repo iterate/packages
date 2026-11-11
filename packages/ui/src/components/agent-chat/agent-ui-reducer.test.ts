@@ -16,6 +16,54 @@ import {
   type AgentUiItem,
 } from "./agent-ui-reducer.ts";
 
+test("a person's message says who said it, and through what: their own append, their call into the agent's facet from an app's page, their script", () => {
+  const principal = { actor: "user:1", email: "ada@example.com" };
+  const said = (source: StreamEvent["source"]) => ({
+    type: "events.iterate.com/agent/context-added",
+    payload: { role: "user", actor: { type: "user", origin: "web" }, content: "hello" },
+    source,
+  });
+  const state = reduceAll([
+    said({ principal }),
+    said({ onBehalfOf: { principal, via: { appPage: "agents.example.com" } } }),
+    said({ onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } }),
+    said(undefined),
+  ]);
+  expect(state.items.map((item) => item.kind === "user" && item.saidBy)).toEqual([
+    "ada@example.com",
+    "ada@example.com via agents.example.com",
+    "user:2 (a script)",
+    undefined,
+  ]);
+});
+
+test("a message sent with message() keeps who said it on the bubble the loop makes of it", () => {
+  const principal = { actor: "user:1", email: "ada@example.com" };
+  const state = reduceAll([
+    {
+      type: "events.iterate.com/agent/message-received",
+      offset: 7,
+      payload: { message: "hello" },
+      source: { onBehalfOf: { principal, via: { appPage: "agents.example.com" } } },
+    },
+    {
+      type: "events.iterate.com/agent/context-added",
+      offset: 8,
+      payload: { role: "user", actor: { type: "user" }, content: "hello" },
+      source: {
+        processor: {
+          slug: "agent",
+          version: "1",
+          whileProcessing: { offset: 7, type: "events.iterate.com/agent/message-received" },
+        },
+      },
+    },
+  ]);
+  expect(state.items).toMatchObject([
+    { kind: "user", text: "hello", saidBy: "ada@example.com via agents.example.com" },
+  ]);
+});
+
 test("streams thinking and response deltas into the live llm step", () => {
   const state = reduceAll([
     {

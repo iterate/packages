@@ -27,8 +27,7 @@ export interface VoiceApi {
         totalMs: number;
       }
   >;
-  /** Provisioning, when a device connects (Kit's firmware) or its page opens (the voice app),
-   *  never on a press: the device's agent at `/agents/voice/<client>` and its relay at
+  /** Provisioning, when a device connects (Kit's firmware), never on a press: the device's agent at `/agents/voice/<client>` and its relay at
    *  `/voice/<client>`, each linked to the context that asked. Idempotent. `client` names the
    *  device: a Kit board's `itx.clients` name, or the installation id a browser (`web-…`) or the
    *  CLI (`--device`) keeps. `screen` is the `itx.clients` name of a device with a screen: the agent

@@ -15,7 +15,7 @@
 //   ITERATE_APP__URLS__VOICE=http://localhost:5174
 
 import { z } from "zod";
-import { dnsName, httpOrigin, optionalOrigin, parseAppConfigVars } from "iterate/app-config";
+import { dnsName, optionalOrigin, parseAppConfigVars } from "iterate/app-config";
 
 /** THE SCHEMA. `urls` names the platform and every first-party app (scripts/lib/start-app.ts
  *  `FIRST_PARTY_APPS` is typed against it, so an app added there is added here). */
@@ -23,8 +23,9 @@ export const StartAppConfig = z.object({
   urls: z
     .object({
       /** THE PLATFORM this app signs in against (core/os): the default issuer, and `/api` on it the
-       *  resource. */
-      os: httpOrigin,
+       *  resource. Blank for an app hosted apart from any project, which a person points at a
+       *  project by its address (packages/agents-app/scripts/standalone.ts). */
+      os: optionalOrigin,
       // THE FIRST-PARTY APPS, what a link from one app to another follows: the dash's directory of
       // apps (packages/dash/src/apps.ts), the admin app's "View dash as". The same environment's as
       // `os`. Blank ⇒ no link: a per-PR preview names only the apps its run deploys, because
@@ -41,13 +42,13 @@ export const StartAppConfig = z.object({
        *  by this repository's app scripts. Prd's and main on dev's; a per-PR preview has none. */
       kit: optionalOrigin,
     })
-    // the prefault must satisfy the input type; `os: ""` then fails naming urls.os
-    .prefault({ os: "" }),
+    .prefault({}),
   /** OUR OWN ZONES (scripts/lib/start-app.ts `ownZones`, from envs.ts): project hosts and custom
    *  apexes are userspace and could serve a look-alike issuer, so the browser-auth gate (`appAuth`
    *  `denyZones`, the SDK's `issuerOriginOf`) refuses to connect to an issuer under one. The
-   *  default issuer, `urls.os`, is exempt. */
-  denyZones: z.array(dnsName),
+   *  default issuer, `urls.os`, is exempt. Read by no gate since apps point at a project by its
+   *  address (iterate/app-server). */
+  denyZones: z.array(dnsName).default([]),
   /** PostHog's project key (envs.ts `posthogProjectKey`, prd only): the app's pages start
    *  posthog-js with it. A public key, not a secret. Blank ⇒ no PostHog. */
   posthogProjectKey: z.string().trim().default(""),

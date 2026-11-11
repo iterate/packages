@@ -6,12 +6,11 @@
 // one silent frame, with `--say`'s words typed into the call),
 // writes what came back to a WAV and prints the timeline from the press.
 //
-//   WORKER_BASE_URL=https://os.iterate.com ITERATE_BEARER_TOKEN=itk_… \
-//   node scripts/voice-call.ts --utterance ask.wav --out answer.wav
+//   PROJECT=example.com node scripts/voice-call.ts --utterance ask.wav --out answer.wav
 //   node scripts/voice-call.ts --say "Say exactly: ready." --device cli-laptop
 //
-// ITERATE_BEARER_TOKEN is a personal access token for the project
-// (`pnpm exec iterate --config prd tokens create`). PROJECT=prj-voice.
+// PROJECT is the project's address. Sign in to it once with `iterate login <address>`
+// (./client.ts).
 import type {} from "iterate/agents";
 import type {} from "@iterate-com/voice";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -75,7 +74,7 @@ function wavFromPcm(pcm: Uint8Array): Uint8Array {
 }
 
 /** ONE voice conversation on a provisioned device through the call client; prints the timeline
- *  from the press. PROJECT (env) names the project, default prj-voice. */
+ *  from the press. PROJECT (env) is the project's address. */
 export default async function voiceCall(
   options: {
     /** A 16 kHz mono PCM16 WAV to send as microphone frames. */
@@ -92,7 +91,8 @@ export default async function voiceCall(
     device?: string;
   } = {},
 ): Promise<void> {
-  const PROJECT = process.env.PROJECT || "prj-voice";
+  // the address ./client.ts connected to, named in the report
+  const PROJECT = process.env.PROJECT || "";
   const UTTERANCE = options.utterance;
   const SAY = options.say;
   const OUT = options.out || `/tmp/voice-call-${Date.now().toString(36)}.wav`;
@@ -106,9 +106,7 @@ export default async function voiceCall(
   // The project's config installs voice beside the agents app (https://k.iterate.com prepares
   // both), so its root has `voice` and `agents`: the assertion iterate/api's `IterateContextApiWith`
   // documents for a root that knows its apps are there.
-  const root = connection.session.projects.get(PROJECT) as RpcPromise<
-    IterateContextApiWith<"voice" | "agents">
-  >;
+  const root = connection.itx as unknown as RpcPromise<IterateContextApiWith<"voice" | "agents">>;
   await root.whoami();
   console.log(`session + project root ready in ${now() - warm0}ms`);
   // What a device does when it connects: provisioning and the one subscription, never on a press.

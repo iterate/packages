@@ -7,7 +7,7 @@
 //                                                     home page names the routing slug; its `ask`
 //                                                     app asks a model through the Cloud)
 //   pnpm run proof webhook <id> <slug> <to>           the connection's row on /iterate-cloud (what
-//                                                     @iterate-com/cloud-connection installs) and
+//                                                     the Cloud's connection installs) and
 //                                                     one iterate-cloud/email-requested to `to`
 //   pnpm run proof inbox <id> <slug>                  the project's /iterate-cloud log: what the
 //                                                     router appended, and the row's cursor
@@ -16,7 +16,8 @@
 // `/secrets/iterate-cloud`; before `ask` answers: `pnpm run lend <id> openai …`.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { connectIterate } from "iterate/node";
+import { newWebSocketRpcSession } from "capnweb";
+import type { IterateApi, SessionCredentials } from "iterate/api";
 import { cloudRouterEnvs, getEnv } from "../../../envs.ts";
 import { cloudDeployment } from "./cloud-state.ts";
 
@@ -25,17 +26,29 @@ const env = getEnv("prd", cloudRouterEnvs);
 if (!command || !id)
   throw new Error("usage: proof.ts project|worker|webhook|inbox <id> [<slug>] [<to>]");
 const { origin, bearer, ownerEmail } = cloudDeployment(env.cloudProject, id);
-using connection = await connectIterate({
-  baseUrl: origin,
-  auth: { type: "admin-secret", secret: bearer },
-});
+
+/** One session on the deployment's `/api`, over Node's own WebSocket. */
+async function connectIterate(auth: SessionCredentials) {
+  const root = newWebSocketRpcSession<IterateApi>(`${origin.replace(/^http/, "ws")}/api`);
+  const session = await root.authenticate(auth);
+  return {
+    session,
+    [Symbol.dispose]() {
+      session[Symbol.dispose]();
+      root[Symbol.dispose]();
+    },
+  };
+}
+
+using connection = await connectIterate({ type: "admin-secret", secret: bearer });
 const { session } = connection;
 
 if (command === "project") {
   const made = `r${[...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   using asOwner = await connectIterate({
-    baseUrl: origin,
-    auth: { type: "admin-secret", secret: bearer, as: { email: ownerEmail } },
+    type: "admin-secret",
+    secret: bearer,
+    as: { email: ownerEmail },
   });
   await asOwner.session.projects.create({ project: made });
   console.log(made);

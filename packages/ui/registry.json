@@ -39,9 +39,9 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "oklch(0.765 0.177 163.223)",
-          "warning": "oklch(0.828 0.189 84.429)",
-          "info": "oklch(0.746 0.16 232.661)"
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))",
+          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
         }
       },
       "files": [
@@ -136,6 +136,79 @@
       ]
     },
     {
+      "name": "agent-summary",
+      "type": "registry:lib",
+      "description": "The rows of a project's agents, from the catalog's live state: which to list, in what order, and what to call each.",
+      "dependencies": [
+        "zod"
+      ],
+      "files": [
+        {
+          "path": "src/lib/agent-summary.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "agents-nav",
+      "type": "registry:component",
+      "description": "The Agents app's sidebar: New agent, pinned agents and the rest, each with what runs it and what it is doing.",
+      "dependencies": [
+        "cn",
+        "lucide-react",
+        "zod"
+      ],
+      "registryDependencies": [
+        "iterate/packages/agent-summary",
+        "iterate/packages/plain-left-click",
+        "sidebar"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-warning": "var(--warning)",
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/agents-nav.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "agents-home",
+      "type": "registry:component",
+      "description": "The Agents app's home page: a composer whose first message starts an agent, and the agents active most recently.",
+      "dependencies": [
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "card",
+        "iterate/packages/agent-chat",
+        "iterate/packages/agent-summary",
+        "iterate/packages/agents-nav"
+      ],
+      "cssVars": {
+        "theme": {
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/agents-home.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "app-build",
       "type": "registry:component",
       "description": "One installed version of an app: its build's state, and Check to ask again.",
@@ -170,21 +243,12 @@
         "command",
         "dialog",
         "dropdown-menu",
-        "input",
         "iterate/packages/iterate-logo",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
         "sidebar",
         "skeleton"
       ],
-      "cssVars": {
-        "theme": {
-          "color-warning": "var(--warning)"
-        },
-        "light": {
-          "warning": "oklch(0.828 0.189 84.429)"
-        }
-      },
       "files": [
         {
           "path": "src/components/app-shell.tsx",
@@ -199,11 +263,79 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/app-shell-platform.ts",
+          "path": "src/components/connected-projects.ts",
           "type": "registry:component"
-        },
+        }
+      ]
+    },
+    {
+      "name": "connect-project",
+      "type": "registry:component",
+      "description": "The page that points an app at a project by its address.",
+      "dependencies": [
+        "zod"
+      ],
+      "registryDependencies": [
+        "button",
+        "field",
+        "input",
+        "iterate/packages/iterate-logo"
+      ],
+      "files": [
         {
-          "path": "src/components/change-deployment.tsx",
+          "path": "src/components/connect-project.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "checklist",
+      "type": "registry:component",
+      "description": "A list of things that must be true before going on, each turning done by itself, with a link or button that makes it so.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "spinner"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-warning": "var(--warning)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/checklist.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "cloudflare-button",
+      "type": "registry:component",
+      "description": "The button that goes to Cloudflare: its orange, its cloud in white. And the cloud on its own.",
+      "dependencies": [
+        "cn"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-cloudflare": "var(--cloudflare)",
+          "color-cloudflare-glow": "var(--cloudflare-glow)"
+        },
+        "light": {
+          "cloudflare": "#f6821f",
+          "cloudflare-glow": "#fbad41"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/cloudflare-button.tsx",
           "type": "registry:component"
         }
       ]
@@ -229,6 +361,7 @@
         "yaml"
       ],
       "registryDependencies": [
+        "iterate/packages/codemirror-theme",
         "spinner",
         "tooltip"
       ],
@@ -237,7 +370,7 @@
           "color-success": "var(--success)"
         },
         "light": {
-          "success": "oklch(0.765 0.177 163.223)"
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))"
         }
       },
       "files": [
@@ -270,6 +403,7 @@
         "codemirror"
       ],
       "registryDependencies": [
+        "iterate/packages/codemirror-theme",
         "spinner"
       ],
       "files": [
@@ -284,17 +418,17 @@
       ]
     },
     {
-      "name": "connect-button",
-      "type": "registry:component",
-      "description": "One button that connects an integration provider, or asks it for more scopes.",
-      "registryDependencies": [
-        "button",
-        "spinner"
+      "name": "codemirror-theme",
+      "type": "registry:lib",
+      "description": "VS Code light or dark for a CodeMirror editor, as the OS is, swapped in place when it changes.",
+      "dependencies": [
+        "@codemirror/state",
+        "@codemirror/view"
       ],
       "files": [
         {
-          "path": "src/components/connect-button.tsx",
-          "type": "registry:component"
+          "path": "src/lib/codemirror-theme.ts",
+          "type": "registry:lib"
         }
       ]
     },
@@ -330,9 +464,9 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "oklch(0.765 0.177 163.223)",
-          "warning": "oklch(0.828 0.189 84.429)",
-          "info": "oklch(0.746 0.16 232.661)"
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))",
+          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
         }
       },
       "files": [
@@ -443,6 +577,24 @@
       ]
     },
     {
+      "name": "copy-text",
+      "type": "registry:component",
+      "description": "A value to copy, such as a password or a command, with a copy button.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "button"
+      ],
+      "files": [
+        {
+          "path": "src/components/copy-text.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "environment-head-content",
       "type": "registry:component",
       "description": "<HeadContent /> that names the deployment off production, in the tab's title and icon.",
@@ -458,18 +610,19 @@
       ]
     },
     {
-      "name": "first-project-redirect",
+      "name": "last-project-redirect",
       "type": "registry:component",
-      "description": "/projects in an app that shows one project at a time: the first project, or a note that there is none.",
+      "description": "/ in an app that shows one project at a time: the project used last, or the connect page.",
       "dependencies": [
         "@tanstack/react-router"
       ],
       "registryDependencies": [
+        "iterate/packages/app-shell",
         "iterate/packages/route-defaults"
       ],
       "files": [
         {
-          "path": "src/components/first-project-redirect.tsx",
+          "path": "src/components/last-project-redirect.tsx",
           "type": "registry:component"
         }
       ]
@@ -597,6 +750,7 @@
         "badge",
         "button",
         "input",
+        "iterate/packages/codemirror-theme",
         "tabs"
       ],
       "cssVars": {
@@ -607,8 +761,8 @@
           "text-2xs--line-height": "calc(1 / 0.6875)"
         },
         "light": {
-          "success": "oklch(0.765 0.177 163.223)",
-          "info": "oklch(0.746 0.16 232.661)"
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))"
         }
       },
       "files": [
@@ -707,6 +861,31 @@
       ]
     },
     {
+      "name": "setup-steps",
+      "type": "registry:component",
+      "description": "The steps of a setup flow beside its content, done ones ticked with what was chosen, and a phone's progress bar.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-cloudflare": "var(--cloudflare)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "cloudflare": "#f6821f"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/setup-steps.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "standalone-page",
       "type": "registry:component",
       "description": "The frame of a page outside any app's shell, such as sign-in and consent.",
@@ -747,11 +926,11 @@
           "color-chart-5": "var(--chart-5)"
         },
         "light": {
-          "chart-1": "#78b4ff",
-          "chart-2": "#ff966b",
-          "chart-3": "#65d6a6",
-          "chart-4": "#f4c45f",
-          "chart-5": "#f3a0c0"
+          "chart-1": "light-dark(#2a78d6, #78b4ff)",
+          "chart-2": "light-dark(#eb6834, #ff966b)",
+          "chart-3": "light-dark(#1baf7a, #65d6a6)",
+          "chart-4": "light-dark(#eda100, #f4c45f)",
+          "chart-5": "light-dark(#e87ba4, #f3a0c0)"
         }
       },
       "files": [
@@ -826,36 +1005,36 @@
         },
         "light": {
           "radius": "0",
-          "background": "#111111",
-          "foreground": "#eeeeee",
-          "card": "#111111",
-          "card-foreground": "#eeeeee",
-          "popover": "#111111",
-          "popover-foreground": "#eeeeee",
-          "primary": "#eeeeee",
-          "primary-foreground": "#111111",
-          "secondary": "#222222",
-          "secondary-foreground": "#eeeeee",
-          "muted": "#222222",
-          "muted-foreground": "#aaaaaa",
-          "accent": "#222222",
-          "accent-foreground": "#eeeeee",
-          "destructive": "#ff8080",
-          "success": "#75d994",
-          "warning": "#e8bb63",
-          "info": "#72cadd",
-          "border": "#444444",
-          "input": "#444444",
-          "ring": "#eeeeee",
-          "link": "#8ab4f8",
-          "sidebar": "#111111",
-          "sidebar-foreground": "#eeeeee",
-          "sidebar-primary": "#eeeeee",
-          "sidebar-primary-foreground": "#111111",
-          "sidebar-accent": "#222222",
-          "sidebar-accent-foreground": "#eeeeee",
-          "sidebar-border": "#444444",
-          "sidebar-ring": "#eeeeee"
+          "background": "light-dark(#ffffff, #111111)",
+          "foreground": "light-dark(#111111, #eeeeee)",
+          "card": "light-dark(#ffffff, #111111)",
+          "card-foreground": "light-dark(#111111, #eeeeee)",
+          "popover": "light-dark(#ffffff, #111111)",
+          "popover-foreground": "light-dark(#111111, #eeeeee)",
+          "primary": "light-dark(#111111, #eeeeee)",
+          "primary-foreground": "light-dark(#ffffff, #111111)",
+          "secondary": "light-dark(#f4f4f4, #222222)",
+          "secondary-foreground": "light-dark(#111111, #eeeeee)",
+          "muted": "light-dark(#f4f4f4, #222222)",
+          "muted-foreground": "light-dark(#555555, #aaaaaa)",
+          "accent": "light-dark(#f4f4f4, #222222)",
+          "accent-foreground": "light-dark(#111111, #eeeeee)",
+          "destructive": "light-dark(#a40000, #ff8080)",
+          "success": "light-dark(#1a7f37, #75d994)",
+          "warning": "light-dark(#9a6700, #e8bb63)",
+          "info": "light-dark(#0e7490, #72cadd)",
+          "border": "light-dark(#dddddd, #444444)",
+          "input": "light-dark(#dddddd, #444444)",
+          "ring": "light-dark(#111111, #eeeeee)",
+          "link": "light-dark(#0645ad, #8ab4f8)",
+          "sidebar": "light-dark(#ffffff, #111111)",
+          "sidebar-foreground": "light-dark(#111111, #eeeeee)",
+          "sidebar-primary": "light-dark(#111111, #eeeeee)",
+          "sidebar-primary-foreground": "light-dark(#ffffff, #111111)",
+          "sidebar-accent": "light-dark(#f4f4f4, #222222)",
+          "sidebar-accent-foreground": "light-dark(#111111, #eeeeee)",
+          "sidebar-border": "light-dark(#dddddd, #444444)",
+          "sidebar-ring": "light-dark(#111111, #eeeeee)"
         }
       },
       "css": {
@@ -863,7 +1042,7 @@
         "@import \"@fontsource/ubuntu/500.css\"": {},
         "@import \"@fontsource/ubuntu/700.css\"": {},
         ":root": {
-          "color-scheme": "dark"
+          "color-scheme": "light dark"
         },
         "@layer base": {
           ":where([data-slot=\"card-description\"], [data-slot=\"dialog-description\"], [data-slot=\"alert-dialog-description\"], [data-slot=\"sheet-description\"], [data-slot=\"field-description\"], [data-slot=\"empty-title\"], [data-slot=\"empty-description\"], [data-slot=\"command-empty\"], [data-slot=\"table-caption\"])": {

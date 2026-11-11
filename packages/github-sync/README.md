@@ -43,6 +43,26 @@ itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({
   `{ log: "/integrations/own-github/<installation id>" }` syncs through that App; the repo's origin
   then names that installation's secret, `/secrets/own-github-<installation id>`.
 
+### Through iterate Cloud's GitHub App
+
+A project whose stack names an iterate Cloud (`cloud: { origin }`) needs no App of its own. A
+member connects the Cloud's App once, and the Cloud mints the installation's token and delivers its
+pushes, signed by the Cloud's key:
+
+```sh
+itx> (await itx.secrets.beginOAuth("/secrets/github", { client: { cloud: "github", accounts: ["acme"] } })).authorizationUrl
+# open it and approve: the project is connected to the App's installation on acme, the repository's
+# account, and to no other. Where the App is not installed there yet, pass `install: true` instead:
+# the member installs it on GitHub's page, and that installation is connected.
+itx> const { installGithubSync, linkThroughCloud } = await import("@iterate-com/github-sync/install")
+itx> const { log } = await linkThroughCloud(itx, { repository: "acme/config" })
+itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({ dir: "github-sync" }), { log })
+```
+
+`linkThroughCloud` finds the App's installation on the repository's owner, makes its token the
+secret `/secrets/github-installation-<id>` (refreshed by the Cloud, which keeps the App's key), sets
+the repo's origin to use it, and answers the log the pushes arrive on, `/integrations/github/<id>`.
+
 It enables the `github-sync` processor on that log (pushes) and on `/` (commits), and appends
 `github-sync/installed { repo }` to both: what came before is never synced.
 To upgrade, pin a newer build and install again; the same source again changes nothing but the

@@ -1,0 +1,277 @@
+// The requests that wait for a member's signed yes, across the project's secrets. The Dash cannot
+// sign: a passkey is bound to the project's own address, so each request links to the platform's
+// `/secrets/approvals` page in a new tab.
+import { useEffect, type ReactNode } from "react";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { ExternalLink } from "lucide-react";
+import type { AuthenticatedApp } from "iterate/app";
+import { platformOriginOf } from "iterate/project-api";
+import { Badge } from "@iterate-com/ui/components/ui/badge";
+import { Button } from "@iterate-com/ui/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@iterate-com/ui/components/ui/table";
+import { Identifier } from "../../../components/identifier.tsx";
+import { NotServedYet } from "../../../components/not-served-yet.tsx";
+import { projectApprovalsOf, type HeldRequest, type LogEvent } from "../../../lib/approvals.ts";
+import { servesRoot } from "../../../lib/served.ts";
+
+export const Route = createFileRoute("/projects/$project/approvals")({
+  // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- the list is read only once the root is known to be there
+  loader: async ({ context }) => {
+    if (!(await servesRoot(context.read, "secrets"))) return { served: false as const };
+    const secrets = await context.read((itx) => itx.secrets.list());
+    const logs = await Promise.all(
+      secrets.map(async (secret) => ({
+        secret: secret.path,
+        events: await logOf(context.read, secret.path),
+      })),
+    );
+    return { served: true as const, ...projectApprovalsOf(logs, Date.now()) };
+  },
+  staticData: { page: "Approvals" },
+  head: ({ params }) => ({ meta: [{ title: `Approvals · ${params.project} · Dash` }] }),
+  component: ProjectApprovals,
+});
+
+/** One read per page, so each answer is plain data. */
+async function logOf(read: AuthenticatedApp["read"], path: string): Promise<LogEvent[]> {
+  const events: LogEvent[] = [];
+  let after = 0;
+  for (;;) {
+    const page = await read(async (itx) => {
+      using context = itx.cd(path);
+      return await context.readEvents(after, 1000);
+    });
+    events.push(...page.events);
+    if (page.atHead || page.scannedThroughOffset <= after) return events;
+    after = page.scannedThroughOffset;
+  }
+}
+
+/** In UTC, so the server and the browser render the same text. */
+const TIME = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "UTC",
+});
+const timeOf = (at: string) => `${TIME.format(Date.parse(at))} UTC`;
+
+function ProjectApprovals() {
+  const data = Route.useLoaderData();
+  if (!data.served) return <NotServedYet title="Approvals" what="secrets" />;
+  return <Approvals {...data} />;
+}
+
+function Approvals({ waiting, approved, decided, rules }: ReturnType<typeof projectApprovalsOf>) {
+  const { project } = Route.useRouteContext();
+  const router = useRouter();
+  const approvalsPage = `${platformOriginOf(project)}/secrets/approvals`;
+  const live = waiting.length > 0 || approved.length > 0;
+
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => void router.invalidate(), 5000);
+    return () => clearInterval(timer);
+  }, [live, router]);
+
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
+        <p className="font-readme text-sm text-muted-foreground">
+          A request with a secret that has a rule waits here until a member approves it. You approve
+          on the project's own address, because your passkey or security key only signs there.
+        </p>
+      </div>
+
+      <Part
+        id="approvals-waiting"
+        title="Waiting"
+        headings={["Request", "Secret", "Since", "From", "Action"]}
+        empty={waiting.length === 0 && "Nothing waits for approval."}
+      >
+        {waiting.map((request) => (
+          <TableRow key={request.digest}>
+            <TableCell className="max-w-md align-top whitespace-normal">
+              <RequestLine request={request} />
+              {request.bodyStart ? (
+                <pre className="mt-1 max-h-24 overflow-hidden font-mono text-xs whitespace-pre-wrap text-muted-foreground wrap-anywhere">
+                  {request.bodyStart}
+                </pre>
+              ) : null}
+              <p className="mt-1 font-mono text-2xs text-muted-foreground">
+                Request {request.digest.slice(0, 12)}
+              </p>
+            </TableCell>
+            <TableCell className="align-top">
+              <Identifier value={request.secret} />
+            </TableCell>
+            <TableCell className="align-top text-muted-foreground">
+              {timeOf(request.requestedAt)}
+            </TableCell>
+            <TableCell className="align-top">
+              {request.from ? (
+                <>
+                  <span className="font-mono text-xs wrap-anywhere">{request.from}</span>
+                  <p className="text-2xs text-muted-foreground">as the platform claims</p>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </TableCell>
+            <TableCell className="align-top">
+              <Button
+                size="sm"
+                render={
+                  <a
+                    href={`${approvalsPage}?digest=${encodeURIComponent(request.digest)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Review and approve ${request.method} ${request.url}`}
+                  />
+                }
+                nativeButton={false}
+              >
+                Review and approve
+                <ExternalLink data-icon="inline-end" />
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </Part>
+
+      <Part
+        id="approvals-rules"
+        title="Rules"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            render={
+              <a
+                href={approvalsPage}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Set or change a rule"
+              />
+            }
+            nativeButton={false}
+          >
+            Set or change a rule
+            <ExternalLink data-icon="inline-end" />
+          </Button>
+        }
+        headings={["Secret", "Methods", "Hosts"]}
+        empty={
+          rules.length === 0 &&
+          "No secret has a rule. A rule names the methods and hosts whose requests with a secret wait for a member's approval; set one on the project's approvals page."
+        }
+      >
+        {rules.map(({ secret, rule }) => (
+          <TableRow key={secret}>
+            <TableCell>
+              <Identifier value={secret} />
+            </TableCell>
+            <TableCell className="font-mono text-xs">{rule.methods.join(", ")}</TableCell>
+            <TableCell className="font-mono text-xs">{rule.hosts.join(", ")}</TableCell>
+          </TableRow>
+        ))}
+      </Part>
+
+      <Part
+        id="approvals-decided"
+        title="Recently decided"
+        headings={["Request", "Decision", "By", "Sent"]}
+        empty={decided.length === 0 && "No decisions yet."}
+      >
+        {decided.slice(0, 20).map((decision) => (
+          <TableRow key={`${decision.digest}-${decision.decidedAt}`}>
+            <TableCell className="max-w-md align-top whitespace-normal">
+              <RequestLine request={decision} />
+              <p className="mt-1 font-mono text-xs text-muted-foreground">{decision.secret}</p>
+            </TableCell>
+            <TableCell className="align-top">
+              <Badge variant={decision.decision === "approved" ? "secondary" : "destructive"}>
+                {decision.decision === "approved" ? "Approved" : "Rejected"}
+              </Badge>
+              <p className="mt-1 text-xs text-muted-foreground">{timeOf(decision.decidedAt)}</p>
+              {decision.reason ? (
+                <p className="mt-1 font-readme text-xs wrap-anywhere">{decision.reason}</p>
+              ) : null}
+            </TableCell>
+            <TableCell className="align-top">
+              <span className="wrap-anywhere">{decision.signer}</span>
+              <p className="text-xs text-muted-foreground">{decision.keyLabel}</p>
+            </TableCell>
+            <TableCell className="align-top text-muted-foreground">
+              {decision.sent
+                ? `Sent, ${decision.sent.status}`
+                : decision.decision === "approved"
+                  ? "Not sent yet"
+                  : "—"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </Part>
+    </div>
+  );
+}
+
+function Part({
+  id,
+  title,
+  action,
+  headings,
+  empty,
+  children,
+}: {
+  id: string;
+  title: string;
+  action?: ReactNode;
+  headings: string[];
+  empty: string | false;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3" aria-labelledby={`${id}-title`}>
+      <div className="flex items-center justify-between gap-4">
+        <h2 id={`${id}-title`} className="text-lg font-semibold">
+          {title}
+        </h2>
+        {action}
+      </div>
+      {empty ? (
+        <p className="font-readme text-sm text-muted-foreground">{empty}</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <Table data-testid={id}>
+            <TableHeader>
+              <TableRow>
+                {headings.map((heading) => (
+                  <TableHead key={heading}>{heading}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>{children}</TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RequestLine({ request }: { request: HeldRequest }) {
+  return (
+    <p className="font-mono text-xs wrap-anywhere">
+      <span className="font-semibold">{request.method}</span> {request.url}
+    </p>
+  );
+}

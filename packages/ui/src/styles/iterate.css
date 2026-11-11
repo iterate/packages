@@ -16,13 +16,12 @@
 @import "@fontsource/ubuntu/500.css";
 @import "@fontsource/ubuntu/700.css";
 
-/* The issuer's palette: light grey on near-black, one grey fill, one border, blue links, and the
-   status colours. Its :root comes after globals.css's, so it wins. */
+/* The issuer's palette: black on white, one grey fill, one light border, blue links, and the status
+   colours. Its :root comes after globals.css's, so it wins. */
 @import "iterate/tokens.css";
 
 :root {
-  /* The sidebar is the page: the same background, with the grey fill under the item you point at
-     or are on. */
+  /* The sidebar is the page: white, with the grey fill under the item you point at or are on. */
   --sidebar: var(--background);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);

@@ -5,7 +5,9 @@
     "dev": "vite dev",
     "build": "vite build",
     "typecheck": "pnpm routes:check && tsc --noEmit",
+    "test": "vitest run",
     "deploy": "node scripts/app.ts deploy",
+    "deploy:standalone": "node scripts/standalone.ts",
     "ensure-resources": "node scripts/app.ts ensure-resources",
     "routes:generate": "node scripts/app.ts generate-route-tree",
     "routes:check": "node scripts/app.ts generate-route-tree --check"
@@ -33,6 +35,7 @@
     "@vitejs/plugin-react": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

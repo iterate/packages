@@ -72,6 +72,85 @@ export async function installGithubSync(
   return { repo, repository, log: logPath };
 }
 
+/** LINK `repo` TO A GITHUB REPOSITORY THROUGH ITERATE CLOUD'S APP (internal-packages/cloud-clients): the
+ *  App is iterate's and its key stays at the Cloud, which mints the installation's token for a
+ *  project that connected the installation. `connection` is the secret a member connected with
+ *  `itx.secrets.beginOAuth(path, { client: { cloud: client, accounts: [<the repository's owner>] } })`
+ *  (or with `install: true`, where the App is not installed there yet), by default
+ *  `/secrets/<client>`. This finds the App's installation on the repository's owner, makes that
+ *  installation's token a secret of its own, and sets the repo's origin to use it. The Cloud
+ *  delivers the installation's pushes on the `log` this answers: pass it to `installGithubSync`.
+ *  `api` and `host` are GitHub's, unless a test says otherwise. */
+export async function linkThroughCloud(
+  itx: Pick<IterateContextApi, "fetch" | "secrets" | "repos">,
+  options: {
+    repository: string;
+    repo?: string;
+    client?: string;
+    connection?: string;
+    api?: string;
+    host?: string;
+  },
+): Promise<{
+  repo: string;
+  repository: string;
+  installationId: string;
+  secret: string;
+  log: string;
+}> {
+  const { repository, repo = "/repos/config", client = "github" } = options;
+  const { connection = `/secrets/${client}`, api = "https://api.github.com" } = options;
+  const { host = "https://github.com" } = options;
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository))
+    throw new Error(`repository is owner/name, got ${JSON.stringify(repository)}`);
+  const owner = repository.split("/")[0]!.toLowerCase();
+  // the installations the person who connected administers, asked of GitHub with their token
+  const answer = await itx.fetch(
+    new Request(`${api}/user/installations?per_page=100`, {
+      headers: {
+        authorization: `Bearer getSecret("${connection}", { field: "accessToken" })`,
+        accept: "application/vnd.github+json",
+        "user-agent": "iterate",
+      },
+    }),
+  );
+  if (!answer.ok)
+    throw new Error(`GitHub answered ${answer.status} for ${connection}: connect it first`);
+  const { installations = [] } = (await answer.json()) as {
+    installations?: { id: number; account?: { login?: string } }[];
+  };
+  const installation = installations.find((each) => each.account?.login?.toLowerCase() === owner);
+  if (!installation)
+    throw new Error(`the App is not installed on ${owner}: install it there, then connect again`);
+  const installationId = String(installation.id);
+  const secret = `/secrets/${client}-installation-${installationId}`;
+  await itx.secrets.set(
+    secret,
+    {},
+    {
+      urls: [api, host],
+      refresh: {
+        kind: "github-app-installation",
+        apiOrigin: api,
+        installationId,
+        client: { cloud: client },
+      },
+    },
+  );
+  await itx.repos
+    .get(repo)
+    .setOrigin(
+      `${host.replace("://", `://x-access-token:getSecret("${secret}", { field: "accessToken" })@`)}/${repository}.git`,
+    );
+  return {
+    repo,
+    repository,
+    installationId,
+    secret,
+    log: `/integrations/${client}/${installationId}`,
+  };
+}
+
 /** The project's connections, as its root's `project` facet records them (core/os
  *  src/integrations/contract.ts `IntegrationConnectionRow`). */
 type ProjectIntegrations = {

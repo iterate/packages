@@ -45,8 +45,7 @@ changes `worker.ts` leaves the agents running.
 Voice is the npm package `@iterate-com/voice`, and each call runs on the agents app. `voice.ts`
 re-exports the `itx.voice` service and each call's relay class, the init case calls
 `installVoice(itx)`, and pinning another build in `package.json` restarts voice on its next call.
-A pkg.pr.new build loads only at a full commit (`…/@iterate-com/voice@<sha>`). A call needs the project's OpenAI key (`/secrets/openai`), which Kit and the Voice app ask for; the
-Voice app's **Upgrade to the newest** commits main's newest build.
+A pkg.pr.new build loads only at a full commit (`…/@iterate-com/voice@<sha>`). A call needs the project's OpenAI key (`/secrets/openai`), which Kit asks for.
 
 `worker.ts` reaches the project through the `itx` that `processEvent` is handed, or through
 `using itx = this.getItx()`: when the block ends, the scope, every call made through it and every

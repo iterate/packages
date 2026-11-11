@@ -13,8 +13,8 @@ export function getRouter() {
     defaultNotFoundComponent: () => (
       <DefaultNotFoundComponent
         action={
-          <Link to="/projects" className={buttonVariants({ variant: "outline" })}>
-            Back to projects
+          <Link to="/" className={buttonVariants({ variant: "outline" })}>
+            Back to your project
           </Link>
         }
       />
@@ -25,7 +25,7 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: ReturnType<typeof getRouter>;
   }
-  /** A page outside /projects names itself for the shell's breadcrumb (`staticData: { page }`). */
+  /** A project's page names itself for the shell's breadcrumb (`staticData: { page }`). */
   interface StaticDataRouteOption {
     page?: string;
   }

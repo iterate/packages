@@ -1,6 +1,6 @@
 // The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
-// project switcher in its header, the app's own navigation in its body, the collapse button, the
-// account menu and the platform the app is connected to in its footer, the rail) and the page
+// project switcher in its header, the app's own navigation in its body, the collapse button and the
+// account menu in its footer, the rail) and the page
 // beside it under a header row that carries the phone's sidebar trigger, a page's own row
 // (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the projects
 // and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
@@ -24,12 +24,9 @@ import {
   ChevronsLeftIcon,
   ChevronsUpDownIcon,
   EllipsisIcon,
-  EyeIcon,
   LogOutIcon,
+  PlusIcon,
   SearchIcon,
-  ServerIcon,
-  TriangleAlertIcon,
-  UsersIcon,
 } from "lucide-react";
 import { cn } from "cn";
 import type { Principal } from "iterate/principal";
@@ -44,8 +41,7 @@ import {
   type AppPaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import { useConnectedPlatform, type ConnectedPlatform } from "./app-shell-platform.ts";
-import { ChangeDeploymentDialog } from "./change-deployment.tsx";
+import { useConnectedProjects } from "./connected-projects.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -76,9 +72,9 @@ import {
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { resetPosthog } from "#/components/posthog.tsx";
 
-/** A project as the switcher lists it; `org` is its organization, when the app knows it — grouped
- *  by the id (two organizations may share a name), labelled by the name. */
-export type AppShellProject = { id: string; slug: string; org?: { id: string; name: string } };
+/** Where the switcher's "Connect another project" goes: every app's connect page
+ *  (iterate/app-server `CONNECT_PAGE_PATH`). */
+const CONNECT_PAGE = "/connect";
 
 /** Nothing to subscribe to: the cookie has no change event, and `SidebarProvider` reads
  *  `defaultOpen` once, when it mounts. */
@@ -90,11 +86,9 @@ const subscribeToNothing = () => () => {};
  *  default, open, until the page hydrates. */
 export function AppShell({
   app,
-  projects,
-  activeProjectId,
+  project,
   projectHref,
   onNavigate,
-  switcherActions,
   switcher,
   nav,
   paletteEntries,
@@ -102,24 +96,21 @@ export function AppShell({
   header,
   account,
   accountActions,
-  deploymentHome,
   locationKey,
   children,
 }: {
   /** the app's name, on top of the switcher: "Agents", "Notes", "Voice" */
   app: string;
-  /** the projects this session lists; grouped by `org` when the app names one */
-  projects: AppShellProject[];
-  activeProjectId: string | null;
-  /** where the app shows a project (`/projects/<slug>` by convention) — a same-origin href;
+  /** the project the page shows, by its address; the switcher lists the others this browser is
+   *  connected to (`useConnectedProjects`) */
+  project: string | null;
+  /** where the app shows a project (`/projects/<address>` by convention) — a same-origin href;
    *  switching is a full navigation unless
    *  `onNavigate` takes it (an app with a client router prevents the default and navigates itself).
    *  Only a plain left click is handed over: a modified or middle click keeps the anchor's own
    *  behaviour (a new tab). */
-  projectHref: (project: AppShellProject) => string;
+  projectHref: (address: string) => string;
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  /** the app's own items at the end of the switcher menu — `DropdownMenuItem`s, after a separator */
-  switcherActions?: ReactNode;
   /** what heads the sidebar instead of the project switcher, for an app that is not about one
    *  project (the Cloud: a person and their deployments) — `AppShellBrand` is the plain one */
   switcher?: ReactNode;
@@ -134,23 +125,30 @@ export function AppShell({
   /** what sits beside the phone's sidebar trigger in the header row; without it, a desktop shows
    *  the row only while a page puts its own in it (`AppShellPageHeader`) */
   header?: ReactNode;
-  /** who the app is signed in as (`info.principal`); "Sign out" posts to the SDK's `/.auth/logout`,
-   *  "Switch account…" signs in again through the issuer's consent. A platform admin signed in as
-   *  someone (`impersonatedBy`) sees whom and who they are, above the account menu, with Stop
-   *  impersonating, which signs in again the same way (the issuer still knows them). None while the
+  /** who the app is signed in as, when it knows; null when the app is signed in to `project` but
+   *  does not know as whom (the menu then names the project). "Sign out" posts to the gate's
+   *  `/.auth/logout?project=<address>`, which ends that project's sign-in alone. Undefined while the
    *  app is still signing in: a placeholder of the menu's height holds its place. */
-  account?: Principal;
+  account?: Principal | null;
   /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s */
   accountActions?: ReactNode;
-  /** with it, the account menu offers "Change deployment…", which lands here on the deployment a
-   *  person picks: a page every deployment has. An app proxied on the issuer's own host leaves it
-   *  out, because that gate has no `/.auth/connect`. */
-  deploymentHome?: string;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
   children: ReactNode;
 }) {
-  const platform = useConnectedPlatform();
+  const connected = useConnectedProjects();
+  // the switcher's and the palette's list: every connected project, the shown one too while the
+  // gate has not answered, by address
+  const projects = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...(project ? [project] : []),
+          ...(connected?.projects.map((item) => item.address) || []),
+        ]),
+      ].sort(),
+    [connected, project],
+  );
   const defaultOpen = useSyncExternalStore(
     subscribeToNothing,
     () => !document.cookie.split("; ").includes("sidebar_state=false"),
@@ -182,10 +180,9 @@ export function AppShell({
             <ProjectSwitcher
               app={app}
               projects={projects}
-              activeProjectId={activeProjectId}
+              project={project}
               projectHref={projectHref}
               onNavigate={onNavigate}
-              actions={switcherActions}
             />
           )}
           {searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
@@ -194,18 +191,12 @@ export function AppShell({
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>
         <SidebarFooter>
           <CollapseButton />
-          {account?.impersonatedBy ? (
-            <ImpersonationMarker
-              email={account.email || account.actor}
-              admin={account.impersonatedBy.email}
-            />
-          ) : null}
-          {account ? (
+          {/* oxlint-disable-next-line iterate/simple-truthiness-check -- `account` has three states: undefined is still signing in, null is signed in as someone the app cannot name */}
+          {account !== undefined ? (
             <AccountMenu
-              email={account.email || account.actor}
+              name={account?.email || account?.actor || project || app}
+              project={project}
               actions={accountActions}
-              platform={platform}
-              deploymentHome={deploymentHome}
             />
           ) : (
             <SidebarMenu>
@@ -250,7 +241,7 @@ export function AppShell({
         entries={paletteEntries || []}
         onClose={() => setPalette(null)}
         projects={projects}
-        activeProjectId={activeProjectId}
+        project={project}
         projectHref={projectHref}
         onNavigate={onNavigate}
       />
@@ -403,25 +394,29 @@ function SidebarNav({
   );
 }
 
+/** The project the page shows, and a menu of the projects this browser is connected to, by
+ *  address, ending with "Connect another project": the app's connect page. */
 function ProjectSwitcher({
   app,
   projects,
-  activeProjectId,
+  project,
   projectHref,
   onNavigate,
-  actions,
 }: {
   app: string;
-  projects: AppShellProject[];
-  activeProjectId: string | null;
-  projectHref: (project: AppShellProject) => string;
+  projects: string[];
+  project: string | null;
+  projectHref: (address: string) => string;
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  actions?: ReactNode;
 }) {
   const { isMobile } = useSidebar();
-  // one group per organization (by id), in order of first appearance; a bare list when the app
-  // names none
-  const orgs = [...new Map(projects.map((project) => [project.org?.id, project.org])).values()];
+  const navigate = (href: string) =>
+    onNavigate
+      ? (event: MouseEvent<HTMLAnchorElement>) => {
+          if (!plainLeftClick(event)) return;
+          onNavigate(href, event);
+        }
+      : undefined;
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -439,8 +434,7 @@ function ProjectSwitcher({
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{app}</span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {projects.find((project) => project.id === activeProjectId)?.slug ||
-                      "(select project)"}
+                    {project || "(select project)"}
                   </span>
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
@@ -453,55 +447,48 @@ function ProjectSwitcher({
             sideOffset={4}
             className="min-w-60 rounded-lg"
           >
-            {projects.length === 0 ? (
-              <DropdownMenuItem disabled className="p-2">
-                No projects yet
-              </DropdownMenuItem>
-            ) : null}
-            {orgs.map((org) => (
-              <DropdownMenuGroup key={org?.id || ""}>
-                {/* Base UI: a menu label lives inside a group, never bare in the menu */}
-                {org ? (
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    {org.name}
-                  </DropdownMenuLabel>
-                ) : null}
-                {projects
-                  .filter((project) => project.org?.id === org?.id)
-                  .map((project) => (
-                    <DropdownMenuItem
-                      key={project.id}
-                      className="gap-2 p-2"
-                      render={
-                        <a
-                          href={projectHref(project)}
-                          aria-label={`Switch to ${project.slug}`}
-                          onClick={
-                            onNavigate
-                              ? (event) => {
-                                  if (!plainLeftClick(event)) return;
-                                  onNavigate(projectHref(project), event);
-                                }
-                              : undefined
-                          }
-                        />
-                      }
-                    >
-                      <span className="flex size-6 items-center justify-center rounded-md border text-xs font-medium text-muted-foreground">
-                        {project.slug.slice(0, 1)}
-                      </span>
-                      <span className="truncate">{project.slug}</span>
-                      {project.id === activeProjectId ? <CheckIcon className="ml-auto" /> : null}
-                    </DropdownMenuItem>
-                  ))}
+            {projects.length > 0 ? (
+              <DropdownMenuGroup>
+                {projects.map((address) => (
+                  <DropdownMenuItem
+                    key={address}
+                    className="gap-2 p-2"
+                    render={
+                      <a
+                        href={projectHref(address)}
+                        aria-label={`Switch to ${address}`}
+                        aria-current={address === project ? "page" : undefined}
+                        onClick={navigate(projectHref(address))}
+                      />
+                    }
+                  >
+                    <span className="flex size-6 items-center justify-center rounded-md border text-xs font-medium text-muted-foreground">
+                      {address.slice(0, 1)}
+                    </span>
+                    <span className="truncate">{address}</span>
+                    {address === project ? <CheckIcon className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuGroup>
-            ))}
-            {actions ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>{actions}</DropdownMenuGroup>
-              </>
             ) : null}
+            {projects.length > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                className="gap-2 p-2"
+                render={
+                  <a
+                    href={CONNECT_PAGE}
+                    aria-label="Connect another project"
+                    onClick={navigate(CONNECT_PAGE)}
+                  />
+                }
+              >
+                <span className="flex size-6 items-center justify-center rounded-md border text-muted-foreground">
+                  <PlusIcon className="size-3.5" />
+                </span>
+                <span>Connect another project</span>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
@@ -546,95 +533,21 @@ function CollapseButton() {
   );
 }
 
-/** SIGN IN AGAIN, through the issuer: the app's own logout (ends this sign-in's grant), then its
- *  login with the same permissions (app-server.ts), which finds the person still signed in at the
- *  issuer and shows its consent — where a platform admin may "Sign in as someone else…" — and lands
- *  on the app's root (not the page shown: it is often another person's project). */
-const SIGN_IN_AGAIN = `/.auth/logout?${new URLSearchParams({ next: "/.auth/login?next=/" })}`;
-
-/** SIGNED IN AS SOMEONE ELSE, unmissable: whom, who you are, and Stop — signing in again as
- *  yourself (`SIGN_IN_AGAIN`). A collapsed sidebar keeps the eye. */
-function ImpersonationMarker({ email, admin }: { email: string; admin: string }) {
-  return (
-    <form
-      method="post"
-      action={SIGN_IN_AGAIN}
-      role="status"
-      className="flex flex-col gap-1.5 rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-foreground group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-1.5"
-    >
-      <div className="flex items-center gap-2">
-        <EyeIcon className="size-4 shrink-0" aria-label="Signed in as someone else" />
-        <span className="min-w-0 truncate group-data-[collapsible=icon]:hidden">
-          Signed in as <strong className="font-semibold">{email}</strong>
-        </span>
-      </div>
-      <span className="truncate text-warning group-data-[collapsible=icon]:hidden">
-        You are {admin}
-      </span>
-      <button
-        type="submit"
-        className="rounded-md bg-warning px-2 py-1 font-medium text-primary-foreground hover:bg-warning/90 group-data-[collapsible=icon]:hidden"
-      >
-        Stop impersonating
-      </button>
-    </form>
-  );
-}
-
-/** The deployment beneath the account in the sidebar: quiet when it is the app's default. Any other
- *  is orange with a warning mark, as it is again in the account menu (`DeploymentNote`). */
-function DeploymentLine({ platform }: { platform: ConnectedPlatform }) {
-  if (platform.isDefault)
-    return <span className="truncate text-xs text-muted-foreground">{platform.host}</span>;
-  return (
-    <span className="flex min-w-0 items-center gap-1 text-xs text-warning">
-      {/* important: the menu button sets every svg in it to size-4 */}
-      <TriangleAlertIcon aria-hidden className="size-3!" />
-      <span className="truncate">{platform.host}</span>
-    </span>
-  );
-}
-
-/** The deployment in the account menu, its host in full. A custom one repeats the sidebar line's
- *  mark and orange. */
-function DeploymentNote({ platform }: { platform: ConnectedPlatform }) {
-  if (platform.isDefault)
-    return (
-      <div className="flex flex-col gap-0.5 px-1.5 pt-1 pb-1.5 text-xs">
-        <span className="text-muted-foreground">Deployment</span>
-        <span className="min-w-0 font-medium wrap-anywhere">{platform.host}</span>
-      </div>
-    );
-  return (
-    <div className="flex flex-col gap-0.5 px-1.5 pt-1 pb-1.5 text-xs">
-      <span className="text-muted-foreground">Custom deployment</span>
-      <span className="flex items-start gap-1 font-medium text-warning">
-        <TriangleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
-        <span className="min-w-0 wrap-anywhere">{platform.host}</span>
-      </span>
-    </div>
-  );
-}
-
-/** The signed-in person and the deployment the app is connected to; Change deployment…, in an app
- *  that offers it; Switch account… (`SIGN_IN_AGAIN`); and sign out: a POST to the app's own logout,
- *  which ends this browser's grant at the issuer. */
+/** Who the app is signed in as, or the project when it does not know, and Sign out: a POST to the
+ *  gate's `/.auth/logout?project=<address>`, which ends this browser's sign-in to that project
+ *  alone. */
 function AccountMenu({
-  email,
+  name,
+  project,
   actions,
-  platform,
-  deploymentHome,
 }: {
-  email: string;
+  name: string;
+  project: string | null;
   actions?: ReactNode;
-  platform: ConnectedPlatform | null;
-  deploymentHome?: string;
 }) {
   const { isMobile } = useSidebar();
   const logout = useRef<HTMLFormElement>(null);
-  const switchAccount = useRef<HTMLFormElement>(null);
-  const [changingDeployment, setChangingDeployment] = useState(false);
-  const initials = email.slice(0, 2).toUpperCase();
+  const initials = name.slice(0, 2).toUpperCase();
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -650,8 +563,10 @@ function AccountMenu({
                   <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
                 </Avatar>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left group-data-[collapsible=icon]:hidden">
-                  <span className="truncate text-sm font-medium">{email}</span>
-                  {platform ? <DeploymentLine platform={platform} /> : null}
+                  <span className="truncate text-sm font-medium">{name}</span>
+                  {project && project !== name ? (
+                    <span className="truncate text-xs text-muted-foreground">{project}</span>
+                  ) : null}
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
               </SidebarMenuButton>
@@ -665,43 +580,35 @@ function AccountMenu({
           >
             {/* Base UI: a menu label lives inside a group, never bare in the menu */}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="truncate font-normal">{email}</DropdownMenuLabel>
-              {platform ? <DeploymentNote platform={platform} /> : null}
-              {deploymentHome ? (
-                <DropdownMenuItem onClick={() => setChangingDeployment(true)}>
-                  <ServerIcon />
-                  <span>Change deployment…</span>
-                </DropdownMenuItem>
-              ) : null}
+              <DropdownMenuLabel className="truncate font-normal">{name}</DropdownMenuLabel>
               {actions}
             </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => switchAccount.current?.requestSubmit()}>
-                <UsersIcon />
-                <span>Switch account…</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  resetPosthog();
-                  logout.current?.requestSubmit();
-                }}
-              >
-                <LogOutIcon />
-                <span>Sign out</span>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+            {project ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      resetPosthog();
+                      logout.current?.requestSubmit();
+                    }}
+                  >
+                    <LogOutIcon />
+                    <span className="truncate">Sign out of {project}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
-      {/* the POSTs, outside the menu items so nothing but an item's click submits one */}
-      <form ref={switchAccount} method="post" action={SIGN_IN_AGAIN} hidden />
-      <form ref={logout} method="post" action="/.auth/logout" hidden />
-      {deploymentHome ? (
-        <ChangeDeploymentDialog
-          open={changingDeployment}
-          onOpenChange={setChangingDeployment}
-          next={deploymentHome}
+      {/* the POST, outside the menu items so nothing but an item's click submits it */}
+      {project ? (
+        <form
+          ref={logout}
+          method="post"
+          action={`/.auth/logout?${new URLSearchParams({ project })}`}
+          hidden
         />
       ) : null}
     </SidebarMenu>

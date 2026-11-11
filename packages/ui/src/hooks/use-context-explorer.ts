@@ -18,8 +18,8 @@ export function contextPathOf(splat: string | undefined) {
   return resolveContextPath("/", splat || "");
 }
 
-/** A held context, as the session's stub hands it (`api.global`, `api.projects.get(id)`, `cd`). */
-type ContextStub = Awaited<AuthenticatedApp["api"]["global"]>;
+/** A held context, as a project's root hands it (`itx.cd(path)`). */
+type ContextStub = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
 
 /** The explorer at `base` (`/global`, `/projects/<slug>/contexts`) showing the splat's path: the
  *  root `openRoot` opens is held while `deps` stand (a registry or an announcement log is its live

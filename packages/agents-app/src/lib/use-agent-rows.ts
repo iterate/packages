@@ -5,20 +5,17 @@
 import { useMemo } from "react";
 import type { AuthenticatedApp } from "iterate/app";
 import { useContextStub, useFacetLiveState, type FacetLiveSnapshot } from "iterate/react";
-import { agentRowsOf, type AgentRow } from "./agent-summary.ts";
+import { agentRowsOf, type AgentRow } from "@iterate-com/ui/lib/agent-summary";
 
-/** The project's agents, kept live. `catalog` is the first snapshot, read by the route's loader, or
- *  null for a project without the agents app, which has nothing to subscribe to. */
+/** The project's agents, kept live. `itx` is the project's root; `catalog` is the first snapshot,
+ *  read by the route's loader, or null for a project without the agents app, which has nothing to
+ *  subscribe to. */
 export function useAgentRows(
-  api: AuthenticatedApp["api"],
-  project: string,
+  itx: AuthenticatedApp["itx"],
   catalog: FacetLiveSnapshot | null,
 ): AgentRow[] {
   const installed = Boolean(catalog);
-  const { stub } = useContextStub(
-    installed ? () => api.projects.get(project).cd("/agents") : null,
-    [api, project, installed],
-  );
+  const { stub } = useContextStub(installed ? () => itx.cd("/agents") : null, [itx, installed]);
   const { value } = useFacetLiveState(stub, "agents", catalog || undefined);
   return useMemo(() => agentRowsOf(value), [value]);
 }

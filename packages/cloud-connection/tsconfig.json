@@ -1,9 +1,0 @@
-{
-  // Worker code, typed against the Cloudflare types: it runs in a project's config worker and its
-  // agents' scripts.
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["@cloudflare/workers-types"]
-  },
-  "include": ["src", "tsdown.config.ts"]
-}

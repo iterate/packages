@@ -1,5 +1,5 @@
 // Which part of an app's Worker answers a request (appServerEntry): its health check, the PostHog
-// proxy, the app's own routes, the sign-in gate, the signed-in landing, the assets and the pages.
+// proxy, the app's own routes, the sign-in gate, the assets and the pages.
 // The gate's own behaviour is iterate/app-server's (app-server.test.ts).
 import { env } from "cloudflare:workers";
 import { expect, test, vi } from "vitest";
@@ -46,27 +46,12 @@ test.for([
 ])("$name", async ({ path, owns, expected }) => {
   vi.stubGlobal("fetch", async (url: string) => new Response(`fetched ${url}`));
   const response = await testEntry({
-    home: "/projects",
     before: async (request) =>
       owns === "*" || new URL(request.url).pathname === owns ? new Response("own") : null,
   }).fetch(new Request(`https://app.example${path}`));
   expect({ status: response.status, body: await response.text() }).toMatchObject({
     status: 200,
     body: expected,
-  });
-});
-
-test("a signed-in landing goes home, and without a home it is the landing page", async () => {
-  const landing = () =>
-    new Request("https://app.example/", { headers: { cookie: `__Host-itx-session=${SIGNED_IN}` } });
-  const home = await testEntry({ home: "/projects" }).fetch(landing());
-  const noHome = await testEntry({}).fetch(landing());
-  expect({
-    home: { status: home.status, location: home.headers.get("location") },
-    noHome: { status: noHome.status, body: await noHome.text() },
-  }).toMatchObject({
-    home: { status: 302, location: "/projects" },
-    noHome: { status: 200, body: "page /" },
   });
 });
 

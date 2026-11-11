@@ -47,14 +47,20 @@ which is why they live in `src/components/ui/`. Files of one item import each ot
   `font-readme` generates nothing without the look, so a component here that carries it is plain
   on a neutral page.
 
-Each look is dark, whatever the OS's setting: our tokens hold their dark values, globals.css holds
-shadcn's dark palette in `:root`, `color-scheme: dark` darkens native controls, `dark:` always
-applies, and CodeMirror is VS Code dark.
+Each look is light or dark as the OS is, and changes with it on an open page. Our tokens give both
+values as `light-dark(light, dark)`, so a registry item carries them as one; globals.css keys
+shadcn's dark palette on `prefers-color-scheme`. CodeMirror follows through
+`src/lib/codemirror-theme.ts`.
+
+**No app in this repo loads the look** since 2026-11-11: the Dash, the Agents app and the default
+config's page are shadcn as it comes, its neutral palette, light or dark as the system is (Jonas:
+"fresh from the factory ... as vanilla as humanly possible"). The look stays in the package for a
+page that asks for it.
 
 The look is opt-in, three ways, all cut from `src/styles/iterate.css` (`scripts/iterate-look.ts`):
 
 ```css
-/* an app's Tailwind stylesheet (the apps in this repo) */
+/* an app's Tailwind stylesheet */
 @import "@iterate-com/ui/globals.css";
 @import "@iterate-com/ui/iterate.css";
 ```
@@ -308,8 +314,8 @@ native-select, separator and spinner) in `core/os/src/components/ui/`, written t
 - **Customise at the call site or in a wrapper** of our own, never in the file: a `className`, a
   prop, or a component here that renders the vendored one. The table below shows where each earlier
   local change went.
-- **Keep the `dark:` classes.** Don't strip them. `dark:` always applies here (`@custom-variant
-dark (&)` in globals.css), so they are the classes in use.
+- **Keep the `dark:` classes.** Don't strip them. `dark:` is Tailwind's default, the OS's setting,
+  which also picks the palettes' dark values.
 - **`cn` comes from the `cn` package** (shadcn's replacement for clsx + tailwind-merge), which the
   CLI's components import directly. Our own files import it the same way. `components.json`'s
   `aliases.utils` is `cn` itself, so the CLI rewrites a registry item's `@/lib/utils` import (the
@@ -364,7 +370,7 @@ vendor another item, run `pnpm --dir <folder> exec shadcn add <item>`, then add 
 | sheet: full width (iterate/iterate#1883) | The `SheetContent` call site passes `data-[side=right]:w-full`. Below `sm`, a rule in `globals.css` makes every sheet full width anyway, keyed on its slot: one whose call site forgets, and the phone's sidebar sheet, which the vendored `Sidebar` renders with no className |
 | sidebar: close (iterate/iterate#1984)    | `SidebarNav` in `app-shell.tsx`: a same-tab link click closes the phone's sheet (shadcn-ui/ui#5561)                                                                                                                                                                            |
 | command: ⌘K look (iterate/iterate#2991)  | `app-shell-palette.tsx`: the classNames it passes, its own search row over cmdk's input, and Dialog's parts instead of `CommandDialog` (whose title sits outside the popup, on every page)                                                                                     |
-| sonner: light only                       | Upstream's; `AppProviders` passes `theme="dark"`; `toast` is imported from `sonner`                                                                                                                                                                                            |
+| sonner: light only                       | Upstream's, light or dark as the OS is; `toast` is imported from `sonner`                                                                                                                                                                                                      |
 | dialog, sheet: close                     | Upstream's: an sr-only "Close"                                                                                                                                                                                                                                                 |
 | breadcrumb, label                        | Upstream's                                                                                                                                                                                                                                                                     |
 
@@ -506,6 +512,20 @@ watch 100,000 rows arrive: `pnpm spec test/playwright/ui/virtual-log.spec.ts --h
 ```sh
 npx react-doctor@latest --yes src/components/virtual-log/*.tsx src/components/virtual-log/*.ts src/components/context-view/*.tsx src/components/context-view/*.ts src/components/agent-chat/*.tsx src/components/agent-chat/*.ts
 ```
+
+## The Agents app's parts
+
+What the Agents app draws around the chat, for the hosted app (`packages/agents-app`) and for a
+project's own no-build page (`apps/agents/` in a config repo) alike:
+
+- `components/agents-nav`: the sidebar's body, with pins kept in the browser.
+- `components/agents-home`: the home page, whose composer starts an agent.
+- `lib/agent-summary`: the rows, from the catalog's live state on `/agents`
+  (`agentRowsOf(useFacetLiveState(stub, "agents").value)`).
+
+None imports a router. The sidebar and the home page take `agentHref(path)`, the address of an
+agent's chat (of the home page for `undefined`), and `onOpen(path)`, which a page with a client
+router gives so that a plain click is a route change.
 
 ## The agent chat
 

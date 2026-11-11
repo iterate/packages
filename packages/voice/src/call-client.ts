@@ -7,9 +7,8 @@
 // `call-ended`. The subscription routes each frame and fact to its call by activation. A client whose
 // link to the project can drop (a phone bridge under `iterate provide`) carries its device to the
 // new link with `moveTo`.
-// packages/voice-app's page runs it with the browser's worklets and
-// packages/agents-app/scripts/voice-call.ts from Node with WAV files; Kit's firmware speaks the same
-// calls in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
+// packages/agents-app/scripts/voice-call.ts runs it from Node with WAV files; Kit's firmware speaks
+// the same calls in C (iterate/kit's firmware/components/voice/src/voice_loop.c).
 import { z } from "zod";
 import type { IterateContextApi } from "iterate/api";
 import { errorCode } from "iterate/lib";

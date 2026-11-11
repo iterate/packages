@@ -1,7 +1,7 @@
 import { RUN_DEADLINE_MS, RunRequested, RunSettled } from "iterate/stream/run";
 import { AgentContract, AgentLlmRequestCancelReason } from "iterate/agents/contract";
 import { appendText, sliceText, type StreamText } from "./chunked-text.ts";
-import type { StreamEvent } from "./stream-event.ts";
+import { relayedMessageOffset, saidByOf, type StreamEvent } from "./stream-event.ts";
 
 // The agent UI is a clean chat: user message → activity ("Ran code 2× · 3
 // requests · 7.4 s") → assistant message, with pause and resume dividers, and
@@ -299,6 +299,8 @@ export type AgentUiMessageItem = {
   text: string;
   timestampMs: number;
   files?: AgentUiFileAttachment[];
+  /** Who said it, when the platform stamped a person on its event (stream-event.ts `saidByOf`). */
+  saidBy?: string;
 };
 
 export type AgentUiStreamPauseItem = {
@@ -356,6 +358,9 @@ export type AgentUiState = {
   paused: boolean;
   /** The highest trigger an intent has named so far. */
   latestTriggerOffset: number;
+  /** Who said each `agent/message-received`, by its offset: iterate's loop relays the words as a
+   *  `context-added` of its own, which names no person. */
+  saidByMessage: Record<number, string>;
 };
 
 export function initialAgentUiState(): AgentUiState {
@@ -368,6 +373,7 @@ export function initialAgentUiState(): AgentUiState {
     summaryActivityUpdatedAtMs: null,
     paused: false,
     latestTriggerOffset: 0,
+    saidByMessage: {},
   };
 }
 
@@ -415,6 +421,14 @@ function reduceAgentUiEvent(
   if (!Number.isFinite(timestampMs)) return state;
 
   switch (event.type) {
+    // Words sent to any kind of agent (`message()`). The platform stamped who asked on this event;
+    // the bubble comes from the `context-added` the loop makes of it.
+    case "events.iterate.com/agent/message-received": {
+      const saidBy = saidByOf(event.source);
+      if (!saidBy) return state;
+      return { ...state, saidByMessage: { ...state.saidByMessage, [event.offset]: saidBy } };
+    }
+
     // The canonical model-visible context event. User context renders as a
     // bubble; assistant context replaces the streamed LLM text; the loop's
     // own developer context (actor `agent`, a format correction) renders as a
@@ -449,6 +463,7 @@ function reduceAgentUiEvent(
           text,
           ...(files.length === 0 ? {} : { files }),
           timestampMs,
+          saidBy: saidByOf(event.source) ?? state.saidByMessage[relayedMessageOffset(event) ?? -1],
         };
         if (readRecord(event, "llmRequestPolicy")?.behaviour === "dont-trigger-request")
           return emitBackgroundItem(state, items, {

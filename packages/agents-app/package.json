@@ -5,8 +5,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "typecheck": "pnpm routes:check && tsc --noEmit",
-    "test": "vitest run",
     "deploy": "node scripts/app.ts deploy",
+    "deploy:standalone": "node scripts/standalone.ts",
     "ensure-resources": "node scripts/app.ts ensure-resources",
     "routes:generate": "node scripts/app.ts generate-route-tree",
     "routes:check": "node scripts/app.ts generate-route-tree --check",
@@ -21,9 +21,7 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "capnweb": "catalog:",
-    "cn": "catalog:",
     "iterate": "workspace:*",
-    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "streamdown": "catalog:",
@@ -40,7 +38,6 @@
     "trpc-cli": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

@@ -20,7 +20,6 @@ import {
   type PaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import type { AppShellProject } from "./app-shell.tsx";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -115,16 +114,17 @@ export function AppShellPalette({
   entries,
   onClose,
   projects,
-  activeProjectId,
+  project,
   projectHref,
   onNavigate,
 }: {
   nav: SidebarNavItem[] | null;
   entries: AppPaletteEntry[];
   onClose: () => void;
-  projects: AppShellProject[];
-  activeProjectId: string | null;
-  projectHref: (project: AppShellProject) => string;
+  /** the connected projects, by address */
+  projects: string[];
+  project: string | null;
+  projectHref: (address: string) => string;
   onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   return (
@@ -149,7 +149,7 @@ export function AppShellPalette({
             entries={entries}
             onClose={onClose}
             projects={projects}
-            activeProjectId={activeProjectId}
+            project={project}
             projectHref={projectHref}
             onNavigate={onNavigate}
           />
@@ -165,34 +165,35 @@ function PaletteBody({
   entries,
   onClose,
   projects,
-  activeProjectId,
+  project,
   projectHref,
   onNavigate,
 }: {
   nav: SidebarNavItem[];
   entries: AppPaletteEntry[];
   onClose: () => void;
-  projects: AppShellProject[];
-  activeProjectId: string | null;
-  projectHref: (project: AppShellProject) => string;
+  /** the connected projects, by address */
+  projects: string[];
+  project: string | null;
+  projectHref: (address: string) => string;
   onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   const [query, setQuery] = useState("");
   const links = useRef(new Map<string, HTMLAnchorElement>());
-  const projectRows = projects.map((project): PaletteRow => ({
+  const projectRows = projects.map((address): PaletteRow => ({
     kind: "project",
-    id: `project:${project.id}`,
-    label: project.slug,
+    id: `project:${address}`,
+    label: address,
     group: "Projects",
-    detail: project.org?.name,
-    active: project.id === activeProjectId,
-    href: projectHref(project),
+    detail: undefined,
+    active: address === project,
+    href: projectHref(address),
   }));
   const navRows = withoutProjectLinks(
     nav,
-    projects.map((project) => ({
-      label: project.slug,
-      href: new URL(projectHref(project), location.href).href,
+    projects.map((address) => ({
+      label: address,
+      href: new URL(projectHref(address), location.href).href,
     })),
   ).map(({ element, label, group, detail, active }, index): PaletteRow => ({
     kind: "nav",

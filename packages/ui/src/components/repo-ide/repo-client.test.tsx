@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 // `useRead` as render state: what a page has to show while a read is in flight, once it lands, and
-// while a newer read replaces it. The repo reads made through it are covered end to end by
-// test/playwright/dash/repo-ide.spec.ts.
+// while a newer read replaces it.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test } from "vitest";

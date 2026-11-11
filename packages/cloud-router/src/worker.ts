@@ -79,7 +79,7 @@ export const registryOf = (env: Env) =>
 
 // ── the Cloud on X ──────────────────────────────────────────────────────────────────────────────
 
-/** The Cloud's X facet (packages/cloud `CloudXFacet`, a member's calls), through the Cloud's
+/** The Cloud's X facet (`CloudXFacet`, a member's calls), through the Cloud's
  *  platform: the inbox, and a reply as @iterate. */
 function cloudX(env: Env) {
   const call = async <T>(
@@ -250,7 +250,7 @@ async function forward(request: Request, url: URL, env: Env, registry: Registry)
 /** A message to `<slug>[+tag]@<zone>`, recorded as `iterate-cloud/email-received` on the project's
  *  `/iterate-cloud` context through the deployment's admin API: the platform's own `email/received`
  *  is its alone to append, so the Cloud's mail is the Cloud's fact, on the context a project keeps
- *  for its Cloud (packages/cloud-connection). A failure throws, and the sender's server tries
+ *  for its Cloud. A failure throws, and the sender's server tries
  *  again. Nothing of it is kept here. */
 async function mailIn(message: ForwardableEmailMessage, env: Env, registry: Registry) {
   const slug = slugOfAddress(message.to, env.ZONE);
@@ -555,8 +555,8 @@ async function egress(request: Request, url: URL, env: Env, registry: Registry) 
 
 const xApiHost = "api.x.com";
 
-/** A request to X's API on the deployment owner's behalf, made by the Cloud (packages/cloud
- *  `CloudPersonFacet.xFetch`, a member's call): the owner's connected account, its token in the
+/** A request to X's API on the deployment owner's behalf, made by the Cloud
+ *  (`CloudPersonFacet.xFetch`, a member's call): the owner's connected account, its token in the
  *  Cloud's egress alone. The answer is X's, status and body. */
 async function viaCloud(request: Request, path: string, owner: string, env: Env) {
   const method = request.method;
@@ -576,7 +576,7 @@ async function viaCloud(request: Request, path: string, owner: string, env: Env)
     .cd(`/people/${owner}`)
     .facets.get("cloud-person");
   // safe: a capnweb stub of `facets.get` erases the facet's methods; `xFetch` is the person facet's
-  // (packages/cloud durable-object.ts), a member's call
+  // (`CloudPersonFacet`), a member's call
   const person = handle as unknown as { xFetch(input: XRequest): Promise<unknown> };
   try {
     const answer = XAnswer.parse(

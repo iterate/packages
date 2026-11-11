@@ -84,6 +84,11 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
           <MessageContent className="group-[.is-user]:rounded-2xl">
             <UserMessageBody item={item} signedUrl={signedUrl} />
           </MessageContent>
+          {item.saidBy ? (
+            <span data-said-by className="font-readme ml-auto text-2xs text-muted-foreground">
+              {item.saidBy}
+            </span>
+          ) : null}
         </Message>
       );
     case "assistant":

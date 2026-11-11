@@ -1,32 +1,30 @@
 # Dash
 
-The account UI: where a person manages their sessions and personal access
-tokens, projects and organizations, and a project's secrets (`/projects/<slug>/secrets`:
-set, list, update and delete — the platform's `itx.secrets`, whose values never come back out; an
-agent's collection link opens `/collect-secret/<slug>`, one card outside the shell, framed like the
-issuer's sign-in and consent pages), and its integrations
-(`/projects/<slug>/integrations`: connect Slack, Google and GitHub through iterate's app or your own,
-listed from the project root's `integrations` state), and its repos (`/projects/<slug>/repos`: the
-repos list, and `/projects/<slug>/repos/<name>`, the `RepoIde` of `@iterate-com/ui` — a file tree, an
-editable CodeMirror buffer with a diff against the last commit, staging, commit and history, reusable
-in any app, see `packages/ui/AGENTS.md`; the working tree is kept in the browser until it commits
-through `itx.repos.get(path).commitFiles`, and the repo's reads and commits are text only). It is an ordinary OAuth client of the
-headless platform at `https://os.iterate.com` (which serves only sign-in and
-consent; everything else lives in apps like this one), asking for the `iterate`,
-`account` and `organizations:write` scopes; the last two are optional and can be unticked at
-consent. The browser connects to its own host's `/api`, using the
-same OAuth adapter as every other app. The app holds no OAuth credentials and no
-state of its own — sessions, projects and organizations belong to the platform.
+The app a person uses to see and change what one project holds. A person points it at a project
+by its address (`/connect`, the standard page of `@iterate-com/ui`), and may be connected to
+several, each with its own sign-in at that project's issuer (`iterate/app-server`). `/` goes to the
+project used last.
 
-Local dev: `pnpm dev` (Vite, with the Cloudflare plugin's local workerd). It talks to
-`https://os.iterate.com` by default; to use a local OS (`pnpm --dir ../os dev -- --port 8788`)
-put `ITERATE_APP__URLS__OS=http://localhost:8788` in a gitignored `.dev.vars` here. The sidebar's
-directory of apps (`src/apps.ts`) links to the origins in the worker's `ITERATE_APP` `urls`
-(`@iterate-com/shared/start-app-config`) — prd's from `envs.ts` by default, the same PR's app
-previews in a preview; a local one takes, say, `ITERATE_APP__URLS__VOICE=http://localhost:5174` in
-the same file.
+Every page is about one project, at `/projects/<address>/…`, and reads the project's root context
+`itx` through the app's gate (`createIterateClient({ project })`):
 
-Deploy: `pnpm --dir packages/dash run deploy --env prd` serves `https://dash.iterate.com` (a route on
-the `iterate.com` zone; `pnpm ensure-resources --env prd` creates the proxied DNS record).
-Deployment configuration lives in `dashEnvs` in the root `envs.ts`; previews and acting as a user
-are in `docs/dev-environments.md`.
+- the overview: the project's creation while it runs, its site, and its config repo's git remote;
+- contexts: any context's log, live, beside the project's context tree;
+- repos: the list, and `/repos/<name>`, the `RepoIde` of `@iterate-com/ui`;
+- analytics (`itx.telemetry`), secrets (`itx.secrets`) and integrations (what the project's
+  packages register on `/integrations`): each says so in one line while the project does not serve
+  its root (`src/lib/served.ts`);
+- MCP: how to connect a coding agent to the project's MCP server.
+
+The app holds no credentials and no state of its own beyond the gate's browser sessions.
+
+Local dev: `pnpm dev` (Vite, with the Cloudflare plugin's local workerd). The sidebar links to the
+other first-party apps the worker's `ITERATE_APP` `urls` names (`src/apps.ts`,
+`@iterate-com/shared/start-app-config`); a standalone Dash names none and links to none.
+
+Deploy on its own, into the account the environment's credentials reach, as `iterate-app-dash` on
+its `workers.dev` address (`scripts/standalone.ts` says how to destroy it):
+
+```sh
+CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… pnpm --dir packages/dash deploy:standalone
+```

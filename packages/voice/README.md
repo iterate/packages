@@ -41,10 +41,9 @@ changes what `voice.ts` bundles, such as a new pin, is the relay's code from its
 that only changes the website leaves the relay running. A commit that changes `voice.ts` ends every
 call in progress: its relay restarts on the new build and the call ends as interrupted. The OpenAI
 key (the live model's) is needed only once a call starts: `ensureVoiceAgent`, which Kit's Prepare
-and voice.iterate.com run, stores it when the project has none, waits for `itx.voice` and asks it
+runs, stores it when the project has none, waits for `itx.voice` and asks it
 for `health()`, and refuses a project whose config installs no voice or whose publication was
-refused, saying why. An upgrade commits a newer pin (the Voice app's **Upgrade to the newest**,
-`upgradeVoice`) and waits for that commit's publication, throwing why it was refused;
+refused, saying why. An upgrade commits a newer pin (`upgradeVoice`) and waits for that commit's publication, throwing why it was refused;
 `voiceVersion` reads the build the project runs, the pin of its published commit, which a refused
 upgrade leaves where it was. A device's calls are the same either way, so no Kit board needs a
 reflash for an upgrade.
@@ -52,7 +51,7 @@ reflash for an upgrade.
 ## A device
 
 `itx.voice.ensureVoiceDevice({ client, screen? })` provisions a device: Kit's firmware calls it
-when it connects, the voice app when its page opens, and `voice-call.ts` before its call. It is
+when it connects, and `voice-call.ts` before its call. It is
 idempotent, and it is never part of a press: a press on a device that is not provisioned ends at
 once, saying so. `client` names the device: a Kit board's `itx.clients` name, the installation id
 a browser keeps (`web-<12 hex>`), or the CLI's `--device`. Both contexts are linked to the context

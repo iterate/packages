@@ -7,13 +7,14 @@ import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { foldService } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
-import type { Extension, Line } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
-import { vsCodeDark } from "@fsegurai/codemirror-theme-bundle";
+import { Compartment, type Extension, type Line } from "@codemirror/state";
+import { keymap, ViewPlugin } from "@codemirror/view";
+import { vsCodeDark, vsCodeLight } from "@fsegurai/codemirror-theme-bundle";
 import { toast } from "sonner";
 import { stringify as stringifyYaml } from "yaml";
 import { cn } from "cn";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+import { systemCodeMirrorTheme } from "#/lib/codemirror-theme.ts";
 
 export interface CodeBlockProps {
   code: string;
@@ -39,7 +40,7 @@ export function CodeBlock({
   const extensions = useMemo(
     () => [
       basicSetup,
-      vsCodeDark,
+      systemCodeMirrorTheme({ Compartment, ViewPlugin, vsCodeLight, vsCodeDark }),
       search({ top: true }),
       foldPromptBlocks(),
       language,

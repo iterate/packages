@@ -1,5 +1,5 @@
-// install.ts — what a config repo's init case calls (README.md), what Kit's Prepare and the voice
-// app run for a project, and the Voice app's upgrade of the build the config pins. The config repo
+// install.ts — what a config repo's init case calls (README.md), what Kit's Prepare runs for a
+// project, and the upgrade of the build the config pins. The config repo
 // depends on this package and re-exports its service and relay class from `voice.ts`, and every
 // rule and row voice writes names that module of the project's published config, as the agents
 // app's name `agents.ts` (iterate/agents/install). Not the runtime, so importing it loads none.
@@ -48,7 +48,7 @@ const VoiceHealth = z.object({ ok: z.literal(true) });
 /** The config repo's part the voice checks read and the upgrade writes. */
 type ConfigRepo = Pick<RepoHandle, "tip" | "readFile">;
 
-/** What Kit's Prepare and the voice app run for a project: the OpenAI key (the live model's) stored
+/** What Kit's Prepare runs for a project: the OpenAI key (the live model's) stored
  *  when the project has none — `needs-openai-key` without one — then `itx.voice`, which the
  *  project's init case installs (`installVoice`), waited for (`voiceInstalled`), and asked for
  *  `health()`. A project whose config repo neither has `itx.voice` nor pins this package at its tip

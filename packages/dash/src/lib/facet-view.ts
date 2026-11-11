@@ -3,10 +3,7 @@ import { z } from "zod";
 import { type FacetLiveSnapshot, useContextStub, useFacetLiveState } from "iterate/react";
 
 /** What `useFacetLiveState` subscribes through, held by `useContextStub`. */
-export type FacetHost = NonNullable<Parameters<typeof useFacetLiveState>[0]> & Disposable;
-
-/** What `useFacetView` answers for a context `S` whose facet's state parses as `T`. */
-export type FacetView<S extends FacetHost, T> = ReturnType<typeof useFacetView<S, T>>;
+type FacetHost = NonNullable<Parameters<typeof useFacetLiveState>[0]> & Disposable;
 
 /** ONE FACET'S LIVE STATE on a context the page holds, parsed: the state once read, the stub and
  *  the raw value, what failed — a stub that failed to open leaves its subscription connecting for
