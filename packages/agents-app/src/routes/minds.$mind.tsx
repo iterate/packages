@@ -2,7 +2,14 @@
 import type {} from "iterate/agents";
 import type { IterateContextApiWith } from "iterate/api";
 import { createFileRoute, getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { createIterateClient, type AuthenticatedApp, type IterateClient } from "iterate/app";
@@ -330,8 +337,16 @@ function NewAgentKinds({
     async (offer: NewAgentOffer, path: string, fields: Record<string, string>) => {
       const link = links[kinds.findIndex(({ kind }) => kind === offer.kind)];
       if (!link) throw new Error(`no kind ${offer.kind}`);
-      const events = await link.startEvents({ choice: offer.choice, fields, path });
-      const context = await itx.cd(path);
+      // the kind's events and the agent's context are asked for at once; if the kind refuses, the
+      // context that still opens is let go
+      const opening = itx.cd(path);
+      const [events, context] = await Promise.all([
+        link.startEvents({ choice: offer.choice, fields, path }),
+        opening,
+      ]).catch(async (error: unknown) => {
+        (await opening.catch(() => null))?.[Symbol.dispose]();
+        throw error;
+      });
       try {
         // the kind's own start events, as a person wrote them; the platform parses each
         await context.append(...(events as Parameters<Context["append"]>));
@@ -447,6 +462,11 @@ function AgentKindView({
   const { agent: _agent, kind: _kind, new: _new, ...searchState } = search;
   const stateKey = JSON.stringify(searchState);
   const state = useMemo(() => JSON.parse(stateKey) as AgentChatState, [stateKey]);
+  const documentClass = useSyncExternalStore(
+    subscribeToDocumentClass,
+    () => document.documentElement.className,
+    () => "",
+  );
   const inputs: AgentKindViewInputs = {
     path,
     events: log.events,
@@ -459,8 +479,8 @@ function AgentKindView({
     liveState: log.liveState,
     hostError: error || (loaded && "error" in loaded ? loaded.error : undefined),
     state,
-    // the page's theme (AgentKindView renders only in the browser: the kind file is read there)
-    documentClass: document.documentElement.className,
+    // the page's theme, which the frame follows when it changes
+    documentClass,
   };
   // everything the frame may do, to this agent only: never its context stub, whose `invoke` and
   // `cd` reach the whole mind
@@ -486,3 +506,11 @@ function AgentKindView({
 
 /** `agent-kinds` in the mind's KV: each kind's file in the config repo. */
 const AgentKindPaths = z.record(z.string(), z.string());
+
+// The class on <html> is the page's theme. It lives outside React, so a component reads it as an
+// external store: "" where there is no document, and again whenever the class changes.
+function subscribeToDocumentClass(changed: () => void) {
+  const observer = new MutationObserver(changed);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => observer.disconnect();
+}

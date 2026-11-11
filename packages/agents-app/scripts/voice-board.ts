@@ -108,7 +108,7 @@ export default async function voiceBoard(
     ],
     target: (events: any[]) => {
       for (const raw of events) {
-        const event = JSON.parse(JSON.stringify(raw));
+        const event = structuredClone(raw);
         const p = event.payload ?? {};
         // the device's relay context holds every call it makes: this call's only
         if (p.activation !== activation) continue;
