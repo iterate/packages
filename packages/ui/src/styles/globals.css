@@ -90,10 +90,11 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Dark mode is shadcn's: the class `dark` on <html>, which components/mode-toggle.tsx sets from the
-   person's choice (light, dark, or as the system is: the default). `dark:` follows the class too.
-   color-scheme darkens the native controls and scrollbars, and picks a side of each light-dark()
-   in tokens.css. */
+/* Light, whatever the system says. Dark is shadcn's class `dark` on <html>, for a page that puts
+   it there: no app of ours does, and nothing here asks the system. A mind's own apps take theirs
+   from the shared theme file of its config repo (core/configs/default/apps/theme.css). `dark:`
+   follows the class too. color-scheme darkens the native controls and scrollbars, and picks a
+   side of each light-dark() in tokens.css. */
 @custom-variant dark (&:is(.dark *));
 
 :root {

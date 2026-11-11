@@ -47,11 +47,10 @@ which is why they live in `src/components/ui/`. Files of one item import each ot
   `font-readme` generates nothing without the look, so a component here that carries it is plain
   on a neutral page.
 
-Each look is light or dark by shadcn's class `dark` on `<html>`, which `ThemeProvider`
-(`src/components/mode-toggle.tsx`) sets from the person's choice: light, dark, or as the system is
-(the default). Our tokens give both values as `light-dark(light, dark)`, so a registry item
-carries them as one; globals.css has shadcn's dark palette under `.dark`. CodeMirror follows the
-class through `src/lib/codemirror-theme.ts`.
+Each look is light, whatever the system says, and has no theme switch. shadcn's dark palette is
+in globals.css under the class `dark` on `<html>`, for a page that sets it. Our tokens give both
+values as `light-dark(light, dark)`, so a registry item carries them as one. CodeMirror follows
+the class through `src/lib/codemirror-theme.ts`.
 
 **No app in this repo loads the look** since 2026-11-11: the Dash, the Agents app and the default
 config's page are shadcn as it comes, its neutral palette, light or dark as the system is (Jonas:

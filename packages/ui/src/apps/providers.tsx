@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { ThemeProvider } from "#/components/mode-toggle.tsx";
 import { initPosthog } from "#/components/posthog.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { TooltipProvider } from "#/components/ui/tooltip.tsx";
@@ -14,13 +13,15 @@ export function AppProviders(props: { children: ReactNode; posthogApiKey?: strin
     // here makes hover tooltips feel immediate across the app.
     // First-party docs:
     // https://github.com/mui/base-ui/blob/master/docs/src/app/(docs)/react/components/tooltip/page.mdx
-    // The app's theme, for every page, signed in or not: light, dark, or as the system is.
-    <ThemeProvider>
-      <TooltipProvider delay={0}>
-        {props.children}
-        {/* the vendored Toaster asks next-themes for the theme */}
-        <Toaster />
-      </TooltipProvider>
-    </ThemeProvider>
+    // Base UI tooltips are intended to share a provider; setting delay=0
+    // here makes hover tooltips feel immediate across the app.
+    // First-party docs:
+    // https://github.com/mui/base-ui/blob/master/docs/src/app/(docs)/react/components/tooltip/page.mdx
+    <TooltipProvider delay={0}>
+      {props.children}
+      {/* Light, as the app is whatever the system says. The vendored Toaster would ask
+          next-themes, which with no provider answers "system". */}
+      <Toaster theme="light" />
+    </TooltipProvider>
   );
 }

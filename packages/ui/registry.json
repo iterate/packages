@@ -246,7 +246,6 @@
         "dialog",
         "dropdown-menu",
         "iterate/packages/iterate-logo",
-        "iterate/packages/mode-toggle",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
         "sidebar",
@@ -666,25 +665,6 @@
       ]
     },
     {
-      "name": "mode-toggle",
-      "type": "registry:component",
-      "description": "Light, dark or as the system is: shadcn's mode toggle, the same three choices as menu items, the provider that sets the class on <html>, and the inline script for a page that draws before React.",
-      "dependencies": [
-        "lucide-react",
-        "next-themes"
-      ],
-      "registryDependencies": [
-        "button",
-        "dropdown-menu"
-      ],
-      "files": [
-        {
-          "path": "src/components/mode-toggle.tsx",
-          "type": "registry:component"
-        }
-      ]
-    },
-    {
       "name": "not-recorded",
       "type": "registry:component",
       "description": "A block PostHog's session replay never records, for a secret shown on screen.",
@@ -1064,7 +1044,7 @@
         "@import \"@fontsource/ubuntu/500.css\"": {},
         "@import \"@fontsource/ubuntu/700.css\"": {},
         ":root": {
-          "color-scheme": "light dark"
+          "color-scheme": "light"
         },
         "@layer base": {
           ":where([data-slot=\"card-description\"], [data-slot=\"dialog-description\"], [data-slot=\"alert-dialog-description\"], [data-slot=\"sheet-description\"], [data-slot=\"field-description\"], [data-slot=\"empty-title\"], [data-slot=\"empty-description\"], [data-slot=\"command-empty\"], [data-slot=\"table-caption\"])": {

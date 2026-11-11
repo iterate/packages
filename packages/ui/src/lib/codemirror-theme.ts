@@ -12,8 +12,7 @@ export function systemCodeMirrorTheme(codemirror: {
   vsCodeLight: Extension;
   vsCodeDark: Extension;
 }): Extension {
-  // The page's theme is the class `dark` on <html> (components/mode-toggle.tsx): the person's
-  // choice, or the system's setting while the choice is "system".
+  // The page is light unless the class `dark` is on <html> (styles/globals.css).
   const root = document.documentElement;
   const theme = new codemirror.Compartment();
   const current = () =>
