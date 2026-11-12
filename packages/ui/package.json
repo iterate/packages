@@ -71,6 +71,7 @@
       "./components/iterate-logo": "./dist/components/iterate-logo.mjs",
       "./components/last-mind-redirect": "./dist/components/last-mind-redirect.mjs",
       "./components/log-in-with-iterate": "./dist/components/log-in-with-iterate.mjs",
+      "./components/mcp-connect": "./dist/components/mcp-connect.mjs",
       "./components/mind-app-shell": "./dist/components/mind-app-shell.mjs",
       "./components/not-recorded": "./dist/components/not-recorded.mjs",
       "./components/posthog": "./dist/components/posthog.mjs",

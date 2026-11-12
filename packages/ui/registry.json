@@ -706,6 +706,21 @@
       ]
     },
     {
+      "name": "mcp-connect",
+      "type": "registry:component",
+      "description": "How to connect a coding agent to a mind over MCP: the server's address and the commands for Claude Code and the Codex CLI, each with a copy button.",
+      "registryDependencies": [
+        "card",
+        "iterate/packages/copy-text"
+      ],
+      "files": [
+        {
+          "path": "src/components/mcp-connect.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "not-recorded",
       "type": "registry:component",
       "description": "A block PostHog's session replay never records, for a secret shown on screen.",
