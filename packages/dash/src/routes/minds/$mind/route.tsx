@@ -2,25 +2,19 @@
 // its address (iterate/mind-api); the page's `itx` is that mind's root context, through the
 // app's gate (`createIterateClient({ mind })`). A browser with no session there leaves to sign
 // in, or to the connect page. Every page below reads `itx`, `read` and `mind` from this route's
-// context. Until the browser has signed in, and in the server's HTML, the route shows `Frame`: the
-// same shell, drawn from the URL alone.
+// context. Until the browser has signed in, and in the server's HTML, the route shows `MindFrame`
+// (components/mind-frame.tsx): the same shell, drawn from the URL alone.
 import { useEffect } from "react";
-import {
-  createFileRoute,
-  Outlet,
-  useMatches,
-  useParams,
-  useRouter,
-  useRouterState,
-} from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { createIterateClient, type IterateClient } from "iterate/app";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
-import { DefaultPendingComponent } from "@iterate-com/ui/components/route-defaults";
 import { DropdownMenuGroup, DropdownMenuLabel } from "@iterate-com/ui/components/ui/dropdown-menu";
 import { titleWithCount, useWaitingApprovals } from "@iterate-com/ui/lib/waiting-approvals";
 import { Identifier } from "@iterate-com/ui/components/identifier";
 import { DashBreadcrumbs } from "../../../components/dash-breadcrumbs.tsx";
 import { MindNav } from "../../../components/dash-nav.tsx";
+import { MindFrame, MindLoadError } from "../../../components/mind-frame.tsx";
+import { usePageLabel } from "../../../lib/page-label.ts";
 
 /** One client per mind this page has shown, so switching back keeps its connection. */
 const clients = new Map<string, IterateClient>();
@@ -45,39 +39,11 @@ export const Route = createFileRoute("/minds/$mind")({
     principal: (await context.read((itx) => itx.whoami())).principal || null,
   }),
   head: ({ params }) => ({ meta: [{ title: `${params.mind} · Dash` }] }),
-  pendingComponent: Frame,
+  pendingComponent: MindFrame,
+  // a sign-in or a first read that failed: the same frame, with what failed and a retry
+  errorComponent: MindLoadError,
   component: Shell,
 });
-
-/** The label the deepest page that names itself gives (`staticData: { page }`), for the header. */
-function usePageLabel() {
-  return useMatches()
-    .map((match) => match.staticData.page)
-    .filter((label): label is string => Boolean(label))
-    .at(-1);
-}
-
-/** The shell before sign-in, from what the URL says: the navigation and the mind. The account is
- *  a placeholder, and the page a spinner, until `Shell` replaces it in place. */
-function Frame() {
-  const href = useRouterState({ select: (state) => state.location.href });
-  const { mind } = useParams({ strict: false });
-  const page = usePageLabel();
-  if (!mind) return <DefaultPendingComponent />;
-  return (
-    <AppShell
-      app="Dash"
-      mind={mind}
-      mindHref={(address) => `/minds/${address}`}
-      nav={<MindNav mind={mind} />}
-      searchRow={false}
-      header={<DashBreadcrumbs mind={mind} page={page} />}
-      locationKey={href}
-    >
-      <DefaultPendingComponent />
-    </AppShell>
-  );
-}
 
 /** The count of what waits, before the tab's title. The router writes the title on each
  *  navigation, after which the count is put back: a watch on the head, for as long as the mind is

@@ -997,6 +997,9 @@
       "name": "route-defaults",
       "type": "registry:component",
       "description": "TanStack Router's pending, not-found and error components.",
+      "dependencies": [
+        "@tanstack/react-router"
+      ],
       "registryDependencies": [
         "button",
         "iterate/packages/posthog",
