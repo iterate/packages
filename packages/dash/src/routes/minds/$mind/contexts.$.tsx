@@ -1,12 +1,8 @@
-// /minds/<address>/contexts/<path> — any context of the mind, live: its log, its processors,
-// who is here and every hosted processor's live state, in the general-purpose context view
-// (packages/ui `ContextExplorer`). The path is the URL's own tail —
-// `/minds/<address>/contexts` is the root `/`, `…/contexts/repos/config` is `/repos/config` —
-// and the view's filter, inspected event and open sheet are its search, so every state is a link.
-// Full width, two panes: on the left the context tree over the mind's context registry, live; on
-// the right the context, its path once on the view's strip. A phone has the tree in a sheet,
-// opened from the path. The explorer knows no router: this route gives it the links. The view's
-// composer appends as the signed-in person. The shell's breadcrumb ends in "Contexts".
+// /minds/<address>/contexts/<path> — any context of the mind, live, in packages/ui's
+// `ContextExplorer`. This route is the explorer's wiring to the router. The path is the URL's own
+// tail: `/minds/<address>/contexts` is the root `/`, and `…/contexts/repos/config` is
+// `/repos/config`. The view's state is the URL's search, so every state is a link. The shell's
+// breadcrumb ends in "Contexts".
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ContextExplorer,
