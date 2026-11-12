@@ -13,6 +13,14 @@ export type NewAgentField = {
   type?: "text" | "checkbox";
   /** The ids of the choices that show the field; none: every choice of the kind. */
   choices?: string[];
+  /** A first value made for the person who looks: `{name}` is their first name
+   *  (`viewerNameOf`), so `"{name}.laptop"` opens as `misha.laptop`. For someone with no such
+   *  name the field opens with `defaultValue`. */
+  viewerDefault?: string;
+  /** A tick box that another field turns off: while the field named `field` has the value `is`,
+   *  this box's value is "" and it is drawn unticked and disabled (Remote control, which a
+   *  sandbox cannot have). */
+  offWhen?: { field: string; is: string };
 };
 
 /** Another kind's choice for a new agent, as the picker lists it. */
@@ -51,15 +59,42 @@ export function newAgentOffers(
   }));
 }
 
+/** A person's first name for a field's first value (`viewerDefault`), from their folder name
+ *  (lib/agent-summary.ts `personOf`: the local part of the address they sign in with): the part
+ *  before its first "-", so `misha-k-work` is `misha`. Nothing when that part does not start with
+ *  a letter: the name goes into a lend's name, whose parts are identifiers. */
+export function viewerNameOf(person: string | undefined): string | undefined {
+  const first = person?.split("-")[0] || "";
+  return /^[a-z][a-z0-9]*$/.test(first) ? first : undefined;
+}
+
+/** Whether another field's value turns this tick box off (`offWhen`), given every field's value. */
+export function newAgentFieldOff(field: NewAgentField, values: Record<string, string>): boolean {
+  return Boolean(field.offWhen) && values[field.offWhen!.field] === field.offWhen!.is;
+}
+
 /** The picked offer's fields, each by its name: what the person typed (`typed(name)`, nothing
- *  when they typed none), else the field's own first value. These are what the kind's `start`
- *  and `describe` are given. */
+ *  when they typed none), else the field's own first value, which may be made for `person`
+ *  (`viewerDefault`). A box that another field turns off is "" whatever was typed (`offWhen`).
+ *  These are what the kind's `start` and `describe` are given. */
 export function newAgentValues(
   offer: NewAgentOffer | undefined,
   typed: (name: string) => string | null | undefined,
+  person?: string,
 ): Record<string, string> {
+  const name = viewerNameOf(person);
+  const fields = offer?.fields || [];
+  const values = Object.fromEntries(
+    fields.map((field) => {
+      const first =
+        name && field.viewerDefault
+          ? field.viewerDefault.replaceAll("{name}", name)
+          : field.defaultValue;
+      return [field.name, typed(field.name) ?? first];
+    }),
+  );
   return Object.fromEntries(
-    (offer?.fields || []).map((field) => [field.name, typed(field.name) ?? field.defaultValue]),
+    fields.map((field) => [field.name, newAgentFieldOff(field, values) ? "" : values[field.name]!]),
   );
 }
 

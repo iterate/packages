@@ -114,13 +114,23 @@ export type AgentKindNewAgent = {
 };
 /** A field beside the picker: a line of text, or with `type: "checkbox"` a tick box, whose value
  *  is "on" when ticked and "" when not (`defaultValue: "on"` starts it ticked). `choices`: the ids
- *  of the choices that show the field; none: every choice of the kind. */
+ *  of the choices that show the field; none: every choice of the kind.
+ *
+ *  `viewerDefault`: a first value made for the person who looks, where `{name}` is their first
+ *  name, from the address they sign in with (`"{name}.laptop"` opens as `misha.laptop`); for
+ *  someone with no such name the field opens with `defaultValue`.
+ *
+ *  `offWhen`: a tick box that another field turns off. While the field named `field` has the
+ *  value `is`, the box's value is "" and it is drawn unticked and disabled. A page older than
+ *  this key still draws the box as it was, so `start` decides by the other field's value too. */
 export type AgentKindNewAgentField = {
   name: string;
   label: string;
   defaultValue: string;
   type?: "text" | "checkbox";
   choices?: string[];
+  viewerDefault?: string;
+  offWhen?: { field: string; is: string };
 };
 
 /** A kind of agent whose view is a React component: iterate/agents/kinds' `AgentKind` (`kind`,

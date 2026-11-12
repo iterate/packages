@@ -190,7 +190,7 @@ function AgentsPage() {
         </AgentKindQueries>
       ) : installed ? (
         <AgentKindQueries>
-          <NewAgentKinds key={mind} choice={choice}>
+          <NewAgentKinds key={mind} choice={choice} person={person}>
             {({ offers, values, line, onField, start }) => (
               <AgentsHome
                 agents={agents}
@@ -317,9 +317,12 @@ function AgentKindQueries({ children }: { children: ReactNode }) {
  *  (`newAgent.describe`: how to lend a computer as the runner typed, say). */
 function NewAgentKinds({
   choice,
+  person,
   children,
 }: {
   choice: string | undefined;
+  /** The folder name of the person signed in: a field's first value may be made from it. */
+  person: string | undefined;
   children: (kinds: {
     offers: NewAgentOffer[];
     /** The picked offer's fields, as typed or as the kind's file starts them. */
@@ -354,9 +357,14 @@ function NewAgentKinds({
       }),
     [kinds, loaded],
   );
+  // what the person typed, by kind and field: two kinds' fields of one name (every kind has a
+  // Runner) are two things, and a kind's choices share theirs
   const [typed, setTyped] = useState<Record<string, string>>({});
   const picked = offers.find((offer) => offer.value === choice);
-  const values = useMemo(() => newAgentValues(picked, (name) => typed[name]), [picked, typed]);
+  const values = useMemo(
+    () => newAgentValues(picked, (name) => typed[`${picked?.kind}/${name}`], person),
+    [picked, typed, person],
+  );
   const line = useQuery({
     queryKey: ["new-agent-line", mind, picked?.value, values],
     queryFn: async () => {
@@ -400,7 +408,8 @@ function NewAgentKinds({
         offers,
         values,
         line: line.data || null,
-        onField: (name, value) => setTyped((before) => ({ ...before, [name]: value })),
+        onField: (name, value) =>
+          setTyped((before) => ({ ...before, [`${picked?.kind}/${name}`]: value })),
         start,
       })}
     </>

@@ -80,6 +80,24 @@ test("the picker draws the picked choice's fields as typed, reports each change,
   await draw(codex, { runner: "acp.sandbox" });
   expect([text()?.value, box()]).toEqual(["acp.sandbox", null]);
 
+  // a box that its runner turns off is drawn unticked and cannot be ticked
+  const [sandboxed] = newAgentOffers("acp", {
+    ...ACP,
+    fields: [ACP.fields[0], { ...ACP.fields[1], offWhen: { field: "runner", is: "acp.sandbox" } }],
+  }) as [NewAgentOffer];
+  await draw(sandboxed, { runner: "acp.sandbox", remoteControl: "" });
+  expect([box()?.getAttribute("aria-checked"), box()?.hasAttribute("data-disabled")]).toEqual([
+    "false",
+    true,
+  ]);
+  await act(() => box()!.click());
+  expect(said).toEqual([["remoteControl", ""]]);
+  await draw(sandboxed, { runner: "acp.misha", remoteControl: "on" });
+  expect([box()?.getAttribute("aria-checked"), box()?.hasAttribute("data-disabled")]).toEqual([
+    "true",
+    false,
+  ]);
+
   // picking another kind, and iterate again
   const select = host.querySelector("select")!;
   await act(() => {

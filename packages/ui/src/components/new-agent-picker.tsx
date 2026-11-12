@@ -10,7 +10,7 @@
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
-import { newAgentLineParts, type NewAgentOffer } from "#/lib/new-agent.ts";
+import { newAgentFieldOff, newAgentLineParts, type NewAgentOffer } from "#/lib/new-agent.ts";
 
 export function NewAgentPicker({
   offers,
@@ -52,11 +52,13 @@ export function NewAgentPicker({
           field.type === "checkbox" ? (
             <label
               key={`${picked.value}/${field.name}`}
-              className="flex h-7 items-center gap-1.5 text-xs"
+              // a box another field turns off (`offWhen`) is there, unticked, and cannot be ticked
+              className="flex h-7 items-center gap-1.5 text-xs has-disabled:text-muted-foreground"
             >
               <Checkbox
                 name={field.name}
                 checked={values[field.name] === "on"}
+                disabled={newAgentFieldOff(field, values)}
                 onCheckedChange={(ticked) => onField(field.name, ticked ? "on" : "")}
               />
               {field.label}
