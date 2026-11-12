@@ -13,13 +13,9 @@ export type NewAgentField = {
   type?: "text" | "checkbox";
   /** The ids of the choices that show the field; none: every choice of the kind. */
   choices?: string[];
-  /** A first value made for the person who looks: `{name}` is their first name
-   *  (`viewerNameOf`), so `"{name}.laptop"` opens as `misha.laptop`. For someone with no such
-   *  name the field opens with `defaultValue`. */
+  /** See `AgentKindNewAgentField.viewerDefault` in ../agent-kind-view/types.ts. */
   viewerDefault?: string;
-  /** A tick box that another field turns off: while the field named `field` has the value `is`,
-   *  this box's value is "" and it is drawn unticked and disabled (Remote control, which a
-   *  sandbox cannot have). */
+  /** See `AgentKindNewAgentField.offWhen` in ../agent-kind-view/types.ts. */
   offWhen?: { field: string; is: string };
 };
 
