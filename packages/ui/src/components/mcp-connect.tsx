@@ -3,6 +3,10 @@
 // follows is the mind's own. It is one column for a page's width; the page gives the scrolling.
 //
 //   <McpConnect server="https://iterate.example.com/mcp" />
+//
+// Both tools keep the server under the mind's own name (`mindMcpNameOf`: example-com), so a person
+// with two minds has two servers.
+import { mindMcpNameOf, PLATFORM_HOSTNAME_LABEL } from "iterate/mind-api";
 import { CopyText } from "#/components/copy-text.tsx";
 import {
   Card,
@@ -18,6 +22,10 @@ export function McpConnect({
   /** The mind's MCP server (`mindMcpUrlOf(address)`, or `https://iterate.<domain>/mcp`). */
   server: string;
 }) {
+  // the mind's address is the server's host without the platform's own label
+  const { host } = new URL(server);
+  const platform = `${PLATFORM_HOSTNAME_LABEL}.`;
+  const name = mindMcpNameOf(host.startsWith(platform) ? host.slice(platform.length) : host);
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">
@@ -43,12 +51,12 @@ export function McpConnect({
           <CardTitle>Claude Code</CardTitle>
           <CardDescription>
             Add the server, then sign in from inside Claude Code: run <code>/mcp</code>, pick{" "}
-            <code>iterate</code>, Authenticate.
+            <code>{name}</code>, Authenticate.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <Command
-            text={`claude mcp add --transport http iterate ${server}`}
+            text={`claude mcp add --transport http ${name} ${server}`}
             label="the command for Claude Code"
           />
           <Command text="/mcp" label="/mcp" />
@@ -60,8 +68,8 @@ export function McpConnect({
           <CardDescription>Add the server, then sign in.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <Command text={`codex mcp add iterate --url ${server}`} label="the command for Codex" />
-          <Command text="codex mcp login iterate" label="the sign-in command for Codex" />
+          <Command text={`codex mcp add ${name} --url ${server}`} label="the command for Codex" />
+          <Command text={`codex mcp login ${name}`} label="the sign-in command for Codex" />
         </CardContent>
       </Card>
     </div>

@@ -800,6 +800,9 @@
       "name": "mcp-connect",
       "type": "registry:component",
       "description": "How to connect a coding agent to a mind over MCP: the server's address and the commands for Claude Code and the Codex CLI, each with a copy button.",
+      "dependencies": [
+        "iterate"
+      ],
       "registryDependencies": [
         "card",
         "iterate/packages/copy-text"
