@@ -7,7 +7,8 @@
 // publishes what it has when a part of it fails), install.ts mounts it.
 //
 // `ai-linter/installed` holds the install's choices, the latest marker's: the repository, its rules
-// folder and the LLM's model; the log's history before the first marker is never linted.
+// folder, the LLM's model, and whether the verdict goes to GitHub (`publish: false`: it does not, and
+// each outcome says what would have); the log's history before the first marker is never linted.
 // `ai-linter/linted` is the outcome of each delivery that queued a head.
 import { z } from "zod";
 import { defineProcessorContract } from "iterate/stream/processor";
@@ -33,6 +34,9 @@ export const AiLinterContract = defineProcessorContract({
     rules: z.string().optional(),
     /** The install's model for the LLM, or none for run.ts's default. */
     model: z.string().optional(),
+    /** `false` when the install said the linter posts nothing to GitHub (run.ts `LintConfig`); none
+     *  when it publishes. */
+    publish: z.boolean().optional(),
     queue: z.array(AiLinterJob).default([]),
   }),
   consumes: [

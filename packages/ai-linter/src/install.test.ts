@@ -68,6 +68,19 @@ test("a rules folder, a model and a connection named by the install; rows it has
   });
 });
 
+test("an install that does not publish says so in its marker, and one that publishes says nothing of it", async () => {
+  const root = mind({});
+  await installAiLinter(root, aiLinterFolder(version), { repository: "acme/app", publish: false });
+  await installAiLinter(root, aiLinterFolder(version), { repository: "acme/app" });
+  const markers = root.contexts["/integrations/github/c1"]!.appended.filter(
+    (event) => (event as { type: string }).type === "ai-linter/installed",
+  );
+  expect(markers).toEqual([
+    { type: "ai-linter/installed", payload: { repository: "acme/app", publish: false } },
+    { type: "ai-linter/installed", payload: { repository: "acme/app" } },
+  ]);
+});
+
 test.for([
   [
     "a repository that is not owner/name",

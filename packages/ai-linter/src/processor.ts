@@ -39,6 +39,7 @@ const AiLinterInstalled = z.object({
   repository: z.string(),
   rules: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  publish: z.boolean().optional(),
 });
 const AiLinterLinted = z.object({ key: z.string() });
 
@@ -62,8 +63,8 @@ export class AiLinterProcessor extends StreamProcessor<AiLinterState> {
     if (event.type === "ai-linter/installed") {
       const installed = AiLinterInstalled.safeParse(event.payload);
       if (!installed.success) return;
-      const { repository, rules, model } = installed.data;
-      return { ...state, repository, rules, model };
+      const { repository, rules, model, publish } = installed.data;
+      return { ...state, repository, rules, model, publish };
     }
     if (event.type === "ai-linter/linted") {
       const linted = AiLinterLinted.safeParse(event.payload);
@@ -113,7 +114,11 @@ export class AiLinterProcessor extends StreamProcessor<AiLinterState> {
     const remembered = `remembered/${job.key}/`;
     runInBackground(async () => {
       try {
-        const config = { rules: state.rules || "rules", model: state.model || DEFAULT_MODEL };
+        const config = {
+          rules: state.rules || "rules",
+          model: state.model || DEFAULT_MODEL,
+          publish: state.publish !== false,
+        };
         const outcome = await lintHead(job, config, {
           fetch: async (request) => {
             using itx = getItx();

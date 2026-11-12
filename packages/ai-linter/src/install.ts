@@ -16,13 +16,21 @@ export function aiLinterFolder(version: string): Record<string, string> {
 /** Mount the linter from its source (`aiLinterFolder`, as `repo.modules({ dir })` answers it) for the
  *  pull requests of `repository` (`owner/name`), against its `rules` folder (default `rules`), the
  *  LLM being `model` (default run.ts's), through `connection`: by default the mind's one GitHub
- *  connection to the repository's owner. Each install appends its choices as the latest
+ *  connection to the repository's owner. `publish: false` installs a linter that posts nothing to
+ *  GitHub and records in each outcome what it would post (run.ts `LintConfig`); install again
+ *  without it and it publishes. Each install appends its choices as the latest
  *  `ai-linter/installed`; the same source again changes nothing else, and a new source is an
  *  upgrade. */
 export async function installAiLinter(
   itx: Pick<IterateContextApi, "whoami" | "cd" | "facets">,
   source: Record<string, string>,
-  options: { repository: string; rules?: string; model?: string; connection?: string },
+  options: {
+    repository: string;
+    rules?: string;
+    model?: string;
+    connection?: string;
+    publish?: boolean;
+  },
 ): Promise<{ repository: string; connection: string }> {
   const { path } = await itx.whoami();
   if (path !== "/") throw new Error("Install the AI linter at the mind root");
@@ -54,7 +62,8 @@ export async function installAiLinter(
   // What it lints starts here: the log's history before the first marker is never linted.
   await log.append({
     type: "ai-linter/installed",
-    payload: { repository, rules, model },
+    // a linter publishes unless its marker says no
+    payload: { repository, rules, model, ...(options.publish === false && { publish: false }) },
   });
   return { repository, connection };
 }

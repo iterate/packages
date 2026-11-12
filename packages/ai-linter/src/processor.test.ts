@@ -33,6 +33,22 @@ test("the latest install marker names the repository and the model", () => {
   });
 });
 
+test("the latest install marker says whether the linter publishes: it does unless the marker says no", () => {
+  const processor = new AiLinterProcessor(unusedItx, memoryStorage().storage);
+  expect(fold(processor, [installed({ publish: false })])).toMatchObject({ publish: false });
+  // a later marker with no word on it publishes again
+  expect(fold(processor, [installed({ publish: false }), installed()]).publish).toBeUndefined();
+});
+
+test("a head's outcome from a linter that does not publish says so, whatever the lint found", async () => {
+  const processor = new AiLinterProcessor(() => pullRequestClosed, memoryStorage().storage);
+  const state = fold(processor, [installed({ publish: false }), pullRequest("opened", HEAD)]);
+  const appended = await processEvent(processor, state);
+  expect(appended.map((event) => event.payload)).toMatchObject([
+    { key: KEY, status: "skipped", published: false },
+  ]);
+});
+
 test("a head delivered again after its outcome is queued again, and its outcome is keyed by the delivery that queued it", async () => {
   const { values, storage } = memoryStorage();
   // What an earlier run of this head remembered, and another head's.
@@ -95,7 +111,7 @@ async function processEvent(processor: AiLinterProcessor, state: AiLinterState) 
   return appended;
 }
 
-function installed(extra: { model?: string } = {}) {
+function installed(extra: { model?: string; publish?: boolean } = {}) {
   return { type: "ai-linter/installed", payload: { repository: "acme/app", ...extra } };
 }
 

@@ -85,9 +85,12 @@ export type Job = {
   baseSha: string;
 };
 
-/** What the install chose: the repository's rules folder, and the model for the LLM rules and Jev's
- *  unsure units. */
-export type LintConfig = { rules: string; model: string };
+/** What the install chose: the repository's rules folder, the model for the LLM rules and Jev's
+ *  unsure units, and whether the verdict goes to GitHub. `publish: false` is a lint that posts
+ *  nothing: no review, no Check Run. It reads GitHub and asks the models as any lint does, and its
+ *  outcome says what it would post (`wouldPost`). So it can run beside another linter of the same
+ *  repository and App, whose Check Run it does not take for its own. */
+export type LintConfig = { rules: string; model: string; publish?: boolean };
 
 /** The AI Gateway every model call goes through, and what it logs: the mind, whose daily cap
  *  bounds the linter, by the names it has (iterate/lib `mindNamesOf`), the app and the pull request
@@ -142,8 +145,19 @@ const settle = <T>(work: () => Promise<T>): Promise<{ value: T } | { error: stri
     (error: unknown) => ({ error: errorMessage(error) }),
   );
 
-/** Lint `job`'s head and publish the verdict; the outcome for `ai-linter/linted`. Never throws. */
+/** Lint `job`'s head and publish the verdict; the outcome for `ai-linter/linted`. Never throws.
+ *  Every outcome of a lint that does not publish says `published: false`. */
 export async function lintHead(
+  job: Job,
+  config: LintConfig,
+  io: LintIo,
+): Promise<Record<string, unknown>> {
+  const outcome = await lintOrFailure(job, config, io);
+  if (config.publish === false) return { ...outcome, published: false };
+  return outcome;
+}
+
+async function lintOrFailure(
   job: Job,
   config: LintConfig,
   io: LintIo,
@@ -153,6 +167,7 @@ export async function lintHead(
     return await lint(job, config, io, github);
   } catch (caught) {
     const error = errorMessage(caught).slice(0, 2_000);
+    if (config.publish === false) return { status: "failed", error, checkRun: null };
     // Its external_id is not the head's key, so the next delivery of this head lints it again.
     const checkRun = await settle(
       async () =>
@@ -188,16 +203,21 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
     return pull.state === "open" && pull.draft !== true && pull.head.sha === job.headSha;
   };
   if (!(await current())) return { status: "skipped", reason: "the pull request moved on" };
-  const checks = z
-    .object({ check_runs: z.array(z.object({ external_id: z.string().nullable() })) })
-    .parse(
-      await github(
-        "GET",
-        `${repo}/commits/${job.headSha}/check-runs?check_name=${encodeURIComponent(CHECK_NAME)}&filter=all&per_page=100`,
-      ),
-    );
-  if (checks.check_runs.some((run) => run.external_id === job.key))
-    return { status: "skipped", reason: "this head already has its Check Run" };
+  const publish = config.publish !== false;
+  // A lint that does not publish made no Check Run, so one under this head's key is another
+  // linter's, and says nothing of this lint.
+  if (publish) {
+    const checks = z
+      .object({ check_runs: z.array(z.object({ external_id: z.string().nullable() })) })
+      .parse(
+        await github(
+          "GET",
+          `${repo}/commits/${job.headSha}/check-runs?check_name=${encodeURIComponent(CHECK_NAME)}&filter=all&per_page=100`,
+        ),
+      );
+    if (checks.check_runs.some((run) => run.external_id === job.key))
+      return { status: "skipped", reason: "this head already has its Check Run" };
+  }
 
   const problems: Problem[] = [];
   const rules = await readRules(github, repo, job.baseSha, config.rules, problems);
@@ -452,7 +472,7 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
   // The review first, the Check Run last: a head with its complete Check Run is done, so a lint that
   // died between the two posts the review again, and the marker makes that a no-op.
   let reviewUrl: string | null = null;
-  if (findings.length > 0) {
+  if (publish && findings.length > 0) {
     const review = await settle(() =>
       postReview(github, repo, job, {
         marker,
@@ -477,26 +497,29 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
     repository: job.repository,
     baseSha: job.baseSha,
   });
-  const checkRun = await settle(
-    async () =>
-      CheckRun.parse(
-        await github("POST", `${repo}/check-runs`, {
-          name: CHECK_NAME,
-          head_sha: job.headSha,
-          status: "completed",
-          conclusion: output.conclusion,
-          // Only a complete verdict is the head's: a head whose Check Run is incomplete is linted again
-          // when it is delivered again (reopened, readied).
-          external_id: output.complete ? job.key : `${job.key}:incomplete`,
-          output: { title: output.title, summary: output.summary },
-        }),
-      ).html_url,
-  );
+  const checkRun = publish
+    ? await settle(
+        async () =>
+          CheckRun.parse(
+            await github("POST", `${repo}/check-runs`, {
+              name: CHECK_NAME,
+              head_sha: job.headSha,
+              status: "completed",
+              conclusion: output.conclusion,
+              // Only a complete verdict is the head's: a head whose Check Run is incomplete is linted
+              // again when it is delivered again (reopened, readied).
+              external_id: output.complete ? job.key : `${job.key}:incomplete`,
+              output: { title: output.title, summary: output.summary },
+            }),
+          ).html_url,
+      )
+    : undefined;
   return {
-    status: "value" in checkRun ? "linted" : "failed",
-    ...("error" in checkRun && {
-      error: `the Check Run was not posted: ${checkRun.error.slice(0, 500)}`,
-    }),
+    status: !checkRun || "value" in checkRun ? "linted" : "failed",
+    ...(checkRun &&
+      "error" in checkRun && {
+        error: `the Check Run was not posted: ${checkRun.error.slice(0, 500)}`,
+      }),
     conclusion: output.conclusion,
     title: output.title,
     findings: findings.length,
@@ -505,8 +528,24 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
       llm: findings.filter((finding) => finding.decidedBy.engine === "llm").length,
     },
     dropped,
-    checkRun: "value" in checkRun ? checkRun.value : null,
+    checkRun: checkRun && "value" in checkRun ? checkRun.value : null,
     review: reviewUrl,
+    // What a lint that does not publish would post: whether a review, the digest its marker would
+    // carry (equal digests are equal findings, messages included, and equal problems), whether
+    // the Check Run would be the head's complete one, and each finding by its place.
+    ...(!publish && {
+      wouldPost: {
+        review: findings.length > 0,
+        digest: reviewDigest.slice(0, 16),
+        complete: output.complete,
+        findings: findings.map((finding) => ({
+          rule: finding.rule,
+          path: finding.path,
+          startLine: finding.startLine,
+          engine: finding.decidedBy.engine,
+        })),
+      },
+    }),
     problems: problems.map((problem) => ({ ...problem, error: problem.error.slice(0, 500) })),
     notReviewed,
     jev: jevStats,

@@ -53,6 +53,14 @@ itx> await installAiLinter(itx, source, { repository: "acme/app" })
 - `rules`: its rules folder, `rules` by default.
 - `model`: the LLM, `openai/gpt-6-astra` by default.
 - `connection`: by default the mind's one GitHub connection to the repository's owner.
+- `publish`: `false` installs a linter that posts nothing to GitHub: no review, no Check Run. It
+  reads GitHub and asks the models as any lint does, and each `ai-linter/linted` outcome says
+  `published: false` and, under `wouldPost`, what it would post: whether a review, the 16 digits
+  its review's marker would carry, whether the Check Run would be the head's complete one, and
+  each finding's rule, path, line and engine. So a new install can run beside another linter of the
+  same repository and App, whose Check Run it does not take for its own, and the two can be
+  compared: equal digits are equal findings, messages included. Install again without it and the
+  linter publishes.
 
 It enables the `ai-linter` processor on `/integrations/github/<connection>` and appends
 `ai-linter/installed` with those choices; the latest marker's hold, and what came before the first

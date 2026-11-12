@@ -47,6 +47,81 @@ test("every part runs: the review and a neutral Check Run carry the findings of 
   ]);
 });
 
+test("a lint that does not publish posts nothing, and its outcome says what it would post", async () => {
+  const github = fakeGithub({});
+  const outcome = await lintHead(job, { ...config, publish: false }, io({ github }).lintIo);
+  expect(github).toMatchObject({ posted: [] });
+  expect(outcome).toMatchObject({
+    status: "linted",
+    published: false,
+    conclusion: "neutral",
+    title: "3 findings",
+    byEngine: { jev: 1, llm: 2 },
+    checkRun: null,
+    review: null,
+    problems: [],
+    wouldPost: {
+      review: true,
+      digest: expect.stringMatching(/^[0-9a-f]{16}$/),
+      complete: true,
+      findings: [
+        {
+          rule: "comments/no-repeated-explanations",
+          path: "src/read.ts",
+          startLine: 2,
+          engine: "llm",
+        },
+        {
+          rule: "comments/no-narrating-comments",
+          path: "src/read.ts",
+          startLine: 2,
+          engine: "jev",
+        },
+        { rule: "typescript/explain-type-cast", path: "src/read.ts", startLine: 4, engine: "llm" },
+      ],
+    },
+  });
+});
+
+test("the digest of a lint that does not publish is the one in the marker of the review it would post", async () => {
+  const published = fakeGithub({});
+  await lintHead(job, config, io({ github: published }).lintIo);
+  const marker = /<!-- (\S+) ([0-9a-f]{16}) -->/.exec(reviewOf(published.posted).body);
+  const dry = await lintHead(
+    job,
+    { ...config, publish: false },
+    io({ github: fakeGithub({}) }).lintIo,
+  );
+  expect(marker?.[1]).toBe(job.key);
+  expect(dry).toMatchObject({ wouldPost: { digest: marker?.[2] } });
+});
+
+test("a head that has another linter's Check Run under its key is linted when the lint does not publish, and skipped when it does", async () => {
+  const there = { checkRuns: [{ external_id: job.key }] };
+  const publishing = fakeGithub(there);
+  expect(await lintHead(job, config, io({ github: publishing }).lintIo)).toEqual({
+    status: "skipped",
+    reason: "this head already has its Check Run",
+  });
+  const dry = fakeGithub(there);
+  const outcome = await lintHead(job, { ...config, publish: false }, io({ github: dry }).lintIo);
+  expect(outcome).toMatchObject({ status: "linted", published: false, title: "3 findings" });
+  expect(dry).toMatchObject({ posted: [] });
+});
+
+test("a lint that does not publish and fails before it has a verdict posts no Check Run", async () => {
+  const github = fakeGithub({});
+  const nameless = io({ github, mind: {} });
+  const outcome = await lintHead(job, { ...config, publish: false }, nameless.lintIo);
+  expect(outcome).toMatchObject({
+    status: "failed",
+    published: false,
+    error: expect.stringContaining("names no mind"),
+    checkRun: null,
+  });
+  expect(github).toMatchObject({ posted: [] });
+});
+
 test("each model call names the mind to the AI Gateway by its slug, and by its id only where the mind has one", async () => {
   // a mind on its own stack: `whoami` answers a slug and no id
   const stack = io({ github: fakeGithub({}), mind: { mindSlug: "example-com" } });
@@ -408,13 +483,15 @@ const WHOLE_DIFF_RULE =
 
 /** GitHub's REST API as the lint reads it: the pull request, the rules folder (`rulesFolder`,
  *  `rules` by default) served from fixtures/rules plus `extraRules`, and one changed file holding
- *  `source`, listed with `alsoListed` after it, 100 a page. `fail` answers a request instead, by
- *  method and path. */
+ *  `source`, listed with `alsoListed` after it, 100 a page. `checkRuns` are on the head already.
+ *  `fail` answers a request instead, by method and path. */
 function fakeGithub(options: {
   source?: string;
   rulesFolder?: string;
   extraRules?: Record<string, string>;
   alsoListed?: unknown[];
+  /** The Check Runs of the linter's name that the head has already. */
+  checkRuns?: { external_id: string }[];
   fail?: (method: string, path: string) => Route | undefined;
 }) {
   const source = options.source || SOURCE;
@@ -450,7 +527,7 @@ function fakeGithub(options: {
     if (path === `${REPO}/pulls/7`)
       return { status: 200, body: { state: "open", draft: false, head: { sha: "head1" } } };
     if (path === `${REPO}/commits/head1/check-runs`)
-      return { status: 200, body: { check_runs: [] } };
+      return { status: 200, body: { check_runs: options.checkRuns || [] } };
     if (path === `${REPO}/pulls/7/files`) {
       const page = Number(search.get("page"));
       return { status: 200, body: listed.slice((page - 1) * 100, page * 100) };
