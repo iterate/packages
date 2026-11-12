@@ -3,7 +3,7 @@ import { useParams, useRouterState } from "@tanstack/react-router";
 import type { Principal } from "iterate/principal";
 import type { AppPaletteEntry } from "#/components/app-shell-palette-entries.ts";
 import { AppShell } from "#/components/app-shell.tsx";
-import { DefaultPendingComponent } from "#/components/route-defaults.tsx";
+import { DefaultErrorComponent, DefaultPendingComponent } from "#/components/route-defaults.tsx";
 
 /** A mind's page in an app that shows one mind at a time (Notes, Voice): the shared
  *  `AppShell` with that mind picked in its switcher, each mind at `/minds/<address>` under
@@ -54,14 +54,44 @@ export function MindAppShell({
 /** A mind's page before it has loaded, drawn from the URL alone: `MindAppShell` with the
  *  mind by its address, a placeholder for the account and a spinner for the page. An app names
  *  it as the `pendingComponent` of its mind route, so the frame is the page until the browser
- *  has signed in and while the route reads. A path without a mind shows the spinner alone. */
-export function MindAppFrame({ app, basePath }: { app: string; basePath?: string }) {
+ *  has signed in and while the route reads. A path without a mind shows the spinner alone.
+ *  `children` take the spinner's place (`MindAppLoadError`). */
+export function MindAppFrame({
+  app,
+  basePath,
+  children,
+}: {
+  app: string;
+  basePath?: string;
+  children?: ReactNode;
+}) {
   const { mind } = useParams({ strict: false });
   const locationKey = useRouterState({ select: (state) => state.location.href });
-  if (!mind) return <DefaultPendingComponent />;
+  const body = children || <DefaultPendingComponent />;
+  if (!mind) return body;
   return (
     <MindAppShell app={app} mind={mind} basePath={basePath} locationKey={locationKey}>
-      <DefaultPendingComponent />
+      {body}
     </MindAppShell>
+  );
+}
+
+/** A mind's page whose sign-in or first read failed: the frame stays, so the person can still go
+ *  to another mind, and the page says which mind and what failed, with a retry. An app names it as
+ *  the `errorComponent` of its mind route. */
+export function MindAppLoadError({
+  app,
+  basePath,
+  error,
+}: {
+  app: string;
+  basePath?: string;
+  error: unknown;
+}) {
+  const { mind } = useParams({ strict: false });
+  return (
+    <MindAppFrame app={app} basePath={basePath}>
+      <DefaultErrorComponent error={error} title={`${app} could not load ${mind || "this mind"}`} />
+    </MindAppFrame>
   );
 }

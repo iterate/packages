@@ -37,7 +37,8 @@ export function AppRoot(props: { posthogProjectKey: string | null }) {
   );
 }
 
-/** The document and the providers in one root `component`, for an app with no `shellComponent`. */
+/** The document and the providers in one root `component`: for an app outside this repo that
+ *  names no `shellComponent` yet. Its root loader's failure renders no document. */
 export function AppDocument(props: {
   icon: string;
   posthogProjectKey: string | null;

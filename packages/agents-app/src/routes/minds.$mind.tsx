@@ -15,7 +15,7 @@ import { z } from "zod";
 import { createIterateClient, type AuthenticatedApp, type IterateClient } from "iterate/app";
 import { facetSnapshotOf, useIterateContext } from "iterate/react";
 import { AppShell } from "@iterate-com/ui/components/app-shell";
-import { MindAppFrame } from "@iterate-com/ui/components/mind-app-shell";
+import { MindAppFrame, MindAppLoadError } from "@iterate-com/ui/components/mind-app-shell";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -108,6 +108,8 @@ export const Route = createFileRoute("/minds/$mind")({
     meta: [{ title: [match.search.agent, params.mind, "Agents"].filter(Boolean).join(" · ") }],
   }),
   pendingComponent: () => <MindAppFrame app="Agents" />,
+  // a sign-in or a first read that failed: the same frame, with what failed and a retry
+  errorComponent: ({ error }) => <MindAppLoadError app="Agents" error={error} />,
   component: AgentsPage,
 });
 
