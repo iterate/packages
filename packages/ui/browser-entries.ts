@@ -48,6 +48,26 @@ export function browserEntries(): Record<string, string> {
   };
 }
 
+/** THE VENDOR CHUNKS of the build: one file per library, whichever components load it
+ *  (tsdown.config.ts makes one chunk per group). Each is also an export of the published package
+ *  (`publishExports`), and the export is what keeps it ONE file on esm.sh. esm.sh builds every
+ *  lazily loaded chunk again, and copies into it each file that chunk imports, unless the file is
+ *  an export or two exports import it directly. Only lazy chunks import CodeMirror. So without the
+ *  export, a page with two of them (the repo IDE: its own wiring, and `code-editor`) got two
+ *  CodeMirrors, and the editor refused the extensions the other one made. */
+export const vendorChunks = [
+  { name: "vendor-react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+  {
+    name: "vendor-codemirror",
+    test: /node_modules[\\/](@codemirror|@lezer|codemirror|crelt|style-mod|w3c-keyname|@marijn)[\\/]/,
+  },
+  { name: "vendor-codemirror-themes", test: /node_modules[\\/]@fsegurai[\\/]/ },
+  { name: "vendor-base-ui", test: /node_modules[\\/](@base-ui|@floating-ui)[\\/]/ },
+  { name: "vendor-yaml", test: /node_modules[\\/]yaml[\\/]/ },
+  { name: "vendor-zod", test: /node_modules[\\/]zod[\\/]/ },
+  { name: "vendor-posthog", test: /node_modules[\\/]posthog-js[\\/]/ },
+];
+
 /** THE SCRIPT OF THE FRAME a kind's chat view runs in, as one classic script of the published
  *  package (scripts/build-agent-kind-view-frame.ts builds it from src/browser/agent-kind-view-frame.ts).
  *  The frame is sandboxed with an opaque origin: a module script would need CORS and an import
@@ -61,6 +81,9 @@ export const AGENT_KIND_VIEW_FRAME = "agent-kind-view-frame.js";
 export function publishExports(entries: Record<string, string>, fonts: string[]) {
   return {
     ...Object.fromEntries(Object.keys(entries).map((name) => [`./${name}`, `./dist/${name}.mjs`])),
+    ...Object.fromEntries(
+      vendorChunks.map(({ name }) => [`./chunks/${name}`, `./dist/chunks/${name}.mjs`]),
+    ),
     "./styles.css": "./dist/styles.css",
     [`./${AGENT_KIND_VIEW_FRAME}`]: `./dist/${AGENT_KIND_VIEW_FRAME}`,
     "./iterate.css": "./dist/iterate.css",
