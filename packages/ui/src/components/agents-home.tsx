@@ -4,14 +4,17 @@
 //
 // A new agent is iterate's unless the picker above the composer says otherwise. The page offers
 // other kinds' choices ("opencode (acp)", from each kind file's `newAgent`), and a choice shows its
-// fields beside the picker. Sending then starts that kind's agent on a new path, in the folder of
-// the person signed in (lib/agent-summary.ts `newAgentPath`), and sends the message after.
+// fields beside the picker, a line of text or a tick box each. Sending then starts that kind's
+// agent on a new path, in the folder of the person signed in (lib/agent-summary.ts
+// `newAgentPath`), and sends the message after. Nothing here knows any kind but iterate.
 import { useMemo, useRef, type ComponentProps } from "react";
 import { BotIcon } from "lucide-react";
+import { newAgentFieldValues } from "../lib/new-agent-fields.ts";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
 import { useComposerDraft } from "#/components/agent-chat/use-composer-attachments.ts";
 import { AgentLink, type AgentHref, type OpenAgent } from "#/components/agents-nav.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import {
@@ -35,7 +38,9 @@ export type NewAgentOffer = {
   /** The kind's word that this choice's agents may live in a person's folder
    *  (agent-kind-view/types.ts `byPerson`). Without it they are born at `/agents/<kind>/…`. */
   byPerson?: boolean;
-  fields: { name: string; label: string; defaultValue: string }[];
+  /** The fields this choice shows (the kind's, less those for its other choices): a line of
+   *  text each, or a tick box, whose value is "on" when ticked and "" when not. */
+  fields: { name: string; label: string; defaultValue: string; type?: "text" | "checkbox" }[];
 };
 
 export function AgentsHome({
@@ -105,16 +110,26 @@ export function AgentsHome({
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            {picked?.fields.map((field) => (
-              <Input
-                key={`${picked.value}/${field.name}`}
-                name={field.name}
-                aria-label={field.label}
-                placeholder={field.label}
-                defaultValue={field.defaultValue}
-                className="h-7 w-40 font-mono text-xs"
-              />
-            ))}
+            {picked?.fields.map((field) =>
+              field.type === "checkbox" ? (
+                <label
+                  key={`${picked.value}/${field.name}`}
+                  className="flex h-7 items-center gap-1.5 text-xs"
+                >
+                  <Checkbox name={field.name} defaultChecked={field.defaultValue === "on"} />
+                  {field.label}
+                </label>
+              ) : (
+                <Input
+                  key={`${picked.value}/${field.name}`}
+                  name={field.name}
+                  aria-label={field.label}
+                  placeholder={field.label}
+                  defaultValue={field.defaultValue}
+                  className="h-7 w-40 font-mono text-xs"
+                />
+              ),
+            )}
           </div>
         ) : null}
         <AgentComposer
@@ -130,13 +145,7 @@ export function AgentsHome({
                 new Date(),
                 picked.byPerson ? person : undefined,
               );
-              const values = Object.fromEntries(
-                [...(fields.current?.querySelectorAll("input[name]") || [])].map((element) => {
-                  const field = element as HTMLInputElement;
-                  return [field.name, field.value];
-                }),
-              );
-              await onStart(picked, path, values);
+              await onStart(picked, path, newAgentFieldValues(fields.current));
               await onMessage(path, input);
               onStarted(path, picked.kind);
               return;

@@ -335,12 +335,16 @@ function NewAgentKinds({
         const newAgent = report && "newAgent" in report ? report.newAgent : undefined;
         return (newAgent?.choices || []).map((option) => ({
           value: `${kind}/${option.id}`,
-          label: `${option.label} (${kind})`,
+          // a choice named as its kind is said once: "claude", not "claude (claude)"
+          label: option.label === kind ? option.label : `${option.label} (${kind})`,
           kind,
           choice: option.id,
           // the kind's word that this choice's agents may live in a person's folder
           byPerson: option.byPerson === true,
-          fields: newAgent?.fields || [],
+          // a field may be for some of the kind's choices alone
+          fields: (newAgent?.fields || []).filter(
+            (field) => !field.choices || field.choices.includes(option.id),
+          ),
         }));
       }),
     [kinds, loaded],

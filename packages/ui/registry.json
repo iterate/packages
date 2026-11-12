@@ -191,6 +191,7 @@
       ],
       "registryDependencies": [
         "card",
+        "checkbox",
         "input",
         "iterate/packages/agent-chat",
         "iterate/packages/agent-summary",
@@ -207,6 +208,10 @@
         {
           "path": "src/components/agents-home.tsx",
           "type": "registry:component"
+        },
+        {
+          "path": "src/lib/new-agent-fields.ts",
+          "type": "registry:lib"
         }
       ]
     },
