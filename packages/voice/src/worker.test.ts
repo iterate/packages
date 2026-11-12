@@ -7,8 +7,6 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { expect, test, vi } from "vitest";
 
-import { admitLoadedCodeRow } from "../../../core/itx/src/context/itx-expression-rewriting.ts";
-
 // Whichever row runs first pays for bundling the worker with esbuild (`loadVoiceWorker()`), which
 // used to run under the hook budget; every row gets that budget.
 vi.setConfig({ testTimeout: 10_000 });
@@ -439,8 +437,10 @@ async function harness(image = png(3, 0), infoOverride = {}, callerPath = "/") {
     browser: { quickAction },
     clients: { waveshare_rlcd_4_2: { screen }, zectrix_note4: { screen }, tiny: { screen } },
     cd: vi.fn((path: string) => ({
+      // Whether the platform lets loaded code write these rows is the kernel's to say, and its
+      // own test holds the shapes a device is provisioned with (core/itx
+      // src/context/loaded-code-rows.test.ts).
       append: async (...events: any[]) => {
-        for (const event of events) admitLoadedCodeRow(event, path);
         (appended[path] ??= []).push(events);
         return [];
       },
