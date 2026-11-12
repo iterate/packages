@@ -6,7 +6,7 @@
 // It knows no router. The page opens the registry's context and names the mind:
 //
 //   <IntegrationsPage openRegistry={() => itx.cd("/integrations")} deps={[itx]} mind="example.com" />
-import type { DependencyList } from "react";
+import { useSyncExternalStore, type DependencyList } from "react";
 import { z } from "zod";
 import { cn } from "cn";
 import {
@@ -251,6 +251,9 @@ function StatusText({ status }: { status: IntegrationStatus }) {
   );
 }
 
+/** A page's origin never changes: the store that reads it has nothing to tell. */
+const subscribeToNothing = () => () => {};
+
 /** A card's or a row's buttons, each a link to where its target leads (`integrationTargetHrefOf`):
  *  a URL on another origin than the page's opens beside it, a page of the mind's in its place,
  *  and a target that leads nowhere is no link. Two buttons alike — the same label to the same place
@@ -264,8 +267,13 @@ function TargetLinks({
   hrefOf: (target: IntegrationTarget) => string | null;
   className?: string;
 }) {
-  // the page's own origin: this draws in a browser alone
-  const { origin } = window.location;
+  // The page's own origin, kept out of a server render (useSyncExternalStore): there no link
+  // opens beside the page, and the browser's first render says which do.
+  const origin = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.origin,
+    () => "",
+  );
   const links = new Map<string, { label: string; href: string; beside: boolean }>();
   for (const action of actions) {
     const href = hrefOf(action);

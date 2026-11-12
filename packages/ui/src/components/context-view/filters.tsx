@@ -186,3 +186,13 @@ function valueGlance(value: unknown): string {
 /** Who appended: the email when the stamp has one, else the actor id; "" for the platform's own. */
 export const actorLabel = (event: ContextViewEvent): string =>
   event.source?.principal?.email || event.source?.principal?.actor || "";
+
+/** A run's types in the order they first come, each with its count when it comes more than once:
+ *  `itx/woken, itx/subscription-configured ×4`. */
+export function runLabel(types: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const type of types) counts.set(type, (counts.get(type) || 0) + 1);
+  return [...counts]
+    .map(([type, count]) => `${shortEventType(type)}${count > 1 ? ` ×${String(count)}` : ""}`)
+    .join(", ");
+}

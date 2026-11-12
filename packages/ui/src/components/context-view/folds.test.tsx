@@ -2,7 +2,7 @@
 // upkeep). The fixture's two days sit 48 h apart at noon UTC, so they are two local days in every
 // timezone.
 import { expect, test } from "vitest";
-import { runLabel } from "./feed-rows.tsx";
+
 import {
   foldEvents,
   growthOf,
@@ -16,6 +16,7 @@ import {
   filterEvents,
   recount,
   refilter,
+  runLabel,
   typeCounts,
   type Filtered,
   type TypeCounts,

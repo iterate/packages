@@ -8,7 +8,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
 import { formatClockTime, rowClass } from "./event-row-format.ts";
 import { RowGutter, RowOffset, RowTimes, RowWho, rowBody, rowLine } from "./event-row.tsx";
-import { actorLabel, shortEventType } from "./filters.tsx";
+import { actorLabel, runLabel } from "./filters.tsx";
 import type { ContextViewEvent } from "./types.tsx";
 
 export const DaySeparator = memo(function DaySeparator({ date }: { date: Date }) {
@@ -32,16 +32,6 @@ export const DaySeparator = memo(function DaySeparator({ date }: { date: Date })
     </div>
   );
 });
-
-/** A run's types in the order they first come, each with its count when it comes more than once:
- *  `itx/woken, itx/subscription-configured ×4`. */
-export function runLabel(types: readonly string[]): string {
-  const counts = new Map<string, number>();
-  for (const type of types) counts.set(type, (counts.get(type) || 0) + 1);
-  return [...counts]
-    .map(([type, count]) => `${shortEventType(type)}${count > 1 ? ` ×${String(count)}` : ""}`)
-    .join(", ");
-}
 
 /** A run: `events.length` events in a row as one line. Open, its events are listed under it. */
 export const RunRow = memo(function RunRow({

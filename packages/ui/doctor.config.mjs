@@ -18,6 +18,19 @@ export default {
         files: ["src/components/docs-editor/*.ts"],
         rules: ["react-doctor/prefer-dynamic-import"],
       },
+      // AN ENTRY OF THE PUBLISHED PACKAGE hands a page its component AND the readers of that
+      // component's state in ONE module: a no-build page loads the entry with one import() and
+      // calls both (`kit.SecretsPage`, `kit.secretsPageStateOf(view)`). The rule keeps Fast Refresh
+      // whole in a dev server, which costs these four files a full reload when they are edited.
+      {
+        files: [
+          "src/components/analytics-page.tsx",
+          "src/components/context-explorer/context-explorer.tsx",
+          "src/components/repo-ide/repo-ide.tsx",
+          "src/components/secrets-page.tsx",
+        ],
+        rules: ["react-doctor/only-export-components"],
+      },
       // An example page's inline script runs in a browser and nowhere else: it has no server render
       // to guard a global from.
       {
