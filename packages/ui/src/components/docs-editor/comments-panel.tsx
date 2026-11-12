@@ -41,7 +41,7 @@ export function CommentsPanel({
         <article
           aria-label="New comment"
           ref={reveal}
-          className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs ring-2 ring-highlight"
+          className="flex scroll-mb-12 flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-xs ring-2 ring-highlight"
         >
           <Quoted quote={state.draft.quote} gone={false} />
           <CommentForm
@@ -74,10 +74,37 @@ export function CommentsPanel({
   );
 }
 
-/** Brings a new comment's box into view: on a phone the panel is below the whole doc. A ref of its
- *  own, not an inline one, so it runs once, when the box appears. */
-function reveal(element: HTMLElement | null) {
-  element?.scrollIntoView({ block: "nearest" });
+/** How much of the page's bottom the editor's status line covers, and a little air: a box that
+ *  is brought into view stops this far above the bottom (`scroll-mb-12` on the box). */
+const UNDER_THE_STATUS_LINE = "0px 0px -48px 0px";
+
+/** BRINGS A NEW COMMENT'S BOX INTO VIEW, AND KEEPS IT THERE UNTIL THE PAGE IS STILL. On a phone the
+ *  panel is below the whole doc, and the editor only estimates the doc's height until it has
+ *  drawn the lines near its end: after the first scroll the doc grows and the box is below the
+ *  window again, its field and buttons unseen. So the box is shown again each time it is not
+ *  whole in view, until a person scrolls or a moment has passed. A ref of its own, not an inline
+ *  one, so it runs once, when the box appears; what it returns ends the watch when the box goes. */
+function reveal(element: HTMLElement) {
+  const show = () => element.scrollIntoView({ block: "nearest" });
+  show();
+  const watch = new IntersectionObserver(
+    ([entry]) => {
+      if (entry && entry.intersectionRatio < 1) show();
+    },
+    { threshold: 1, rootMargin: UNDER_THE_STATUS_LINE },
+  );
+  watch.observe(element);
+  const stop = () => {
+    watch.disconnect();
+    clearTimeout(settled);
+    removeEventListener("wheel", stop);
+    removeEventListener("touchmove", stop);
+  };
+  // a person who scrolls has the page; and the doc has its height within a moment
+  const settled = setTimeout(stop, 1500);
+  addEventListener("wheel", stop, { passive: true });
+  addEventListener("touchmove", stop, { passive: true });
+  return stop;
 }
 
 function ThreadCard({
