@@ -47,6 +47,7 @@
     "exports": {
       "./page": "./dist/page.mjs",
       "./live": "./dist/live.mjs",
+      "./icons": "./dist/icons.mjs",
       "./react": "./dist/react.mjs",
       "./react/jsx-runtime": "./dist/react/jsx-runtime.mjs",
       "./react/compiler-runtime": "./dist/react/compiler-runtime.mjs",
@@ -131,6 +132,9 @@
       "./chunks/vendor-yjs": "./dist/chunks/vendor-yjs.mjs",
       "./chunks/vendor-atomic": "./dist/chunks/vendor-atomic.mjs",
       "./chunks/vendor-posthog": "./dist/chunks/vendor-posthog.mjs",
+      "./chunks/vendor-icons": "./dist/chunks/vendor-icons.mjs",
+      "./chunks/ui-base": "./dist/chunks/ui-base.mjs",
+      "./chunks/ui-shell": "./dist/chunks/ui-shell.mjs",
       "./styles.css": "./dist/styles.css",
       "./components/docs-editor/doc-tree": "./dist/components/docs-editor/doc-tree.mjs",
       "./docs-editor.css": "./dist/docs-editor.css",

@@ -1,0 +1,60 @@
+// THE ICONS A NO-BUILD PAGE TAKES FROM THIS PACKAGE: the ones iterate's own apps use, and the
+// common ones that this package's components use already. They are Lucide's (https://lucide.dev),
+// by the names lucide-react gives them.
+//
+//   import { BotIcon, PlusIcon } from "@iterate-com/ui/icons";
+//
+// A page does not import `lucide-react` itself: on a module server that is one module of every
+// icon Lucide has (826 kB), for the few a page shows. The build keeps every icon that this
+// package's components and this list use in one small file (browser-entries.ts `vendor-icons`),
+// which every page loads: so an icon added here is paid for by all of them, about half a
+// kilobyte each.
+export {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  BlocksIcon,
+  BookOpenIcon,
+  BotIcon,
+  BoxIcon,
+  ChartLineIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronUpIcon,
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CompassIcon,
+  CopyIcon,
+  EllipsisIcon,
+  ExternalLinkIcon,
+  FileIcon,
+  FileTextIcon,
+  FolderGit2Icon,
+  HistoryIcon,
+  InboxIcon,
+  InfoIcon,
+  KeyRoundIcon,
+  LayoutDashboardIcon,
+  LockIcon,
+  LockKeyholeIcon,
+  LogOutIcon,
+  MessageCircleIcon,
+  PencilIcon,
+  PhoneIcon,
+  PinIcon,
+  PlugIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+  SparklesIcon,
+  SquarePenIcon,
+  SquareTerminalIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+  UserIcon,
+  UsersIcon,
+  WaypointsIcon,
+  XIcon,
+} from "lucide-react";

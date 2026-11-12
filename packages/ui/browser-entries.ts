@@ -32,6 +32,8 @@ export function browserEntries(): Record<string, string> {
   return {
     page: "src/browser/page.ts",
     live: "src/browser/live.ts",
+    // the icons a page takes from this package, and not from lucide-react (src/browser/icons.ts)
+    icons: "src/browser/icons.ts",
     react: "src/browser/react.ts",
     "react/jsx-runtime": "src/browser/react-jsx-runtime.ts",
     "react/compiler-runtime": "src/browser/react-compiler-runtime.ts",
@@ -78,6 +80,26 @@ export const vendorChunks = [
   // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
   { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },
   { name: "vendor-posthog", test: /node_modules[\\/]posthog-js[\\/]/ },
+  // FEWER FILES FOR A PAGE TO ASK FOR, AT NO COST IN BYTES. Without these three, each icon is a
+  // chunk of its own, and a page asks for each vendored shadcn component by its own file of two
+  // kilobytes. A group also takes what its files import and no earlier group holds, so the order
+  // here says who holds what:
+  //   vendor-icons  every icon that a component or src/browser/icons.ts uses
+  //   ui-base       what nearly every page with a component loads: the button and the text
+  //                 fields, with the class helpers under them. A public page of one button and one
+  //                 card loads this and no more, as before.
+  //   ui-shell      the components that only the app shell brings: a page with the shell loads
+  //                 what it loaded before, in one file, and a page without it loads none of it.
+  // `components/ui/<name>` stays an entry, which hands on what its file holds.
+  { name: "vendor-icons", test: /node_modules[\\/]lucide-react[\\/]/ },
+  {
+    name: "ui-base",
+    test: /[\\/]src[\\/]components[\\/]ui[\\/](button|input|label|textarea)\.tsx$/,
+  },
+  {
+    name: "ui-shell",
+    test: /[\\/]src[\\/]components[\\/]ui[\\/](avatar|dialog|dropdown-menu|input-group|separator|sheet|skeleton|tooltip)\.tsx$/,
+  },
 ];
 
 /** THE SCRIPT OF THE FRAME a kind's chat view runs in, as one classic script of the published
