@@ -32,7 +32,9 @@ whose config files hold the processors the editor talks to.
   `@atomic-editor/editor/styles.css` in its own stylesheet.
 - `DocTree` draws @pierre/trees through its vanilla model (`doc-tree.ts`). The page passes the open
   path; a new one moves the selection. `doc-tree.ts` is its own build
-  (`scripts/build-docs-tree.ts`), loaded when the tree first draws.
+  (`scripts/build-docs-tree.ts`), loaded when the tree first draws. The tree needs no CSS of the
+  page: its element is as tall as its rows (in a flex column it takes the room it is given), and it
+  follows the page's colour scheme.
 - Other pages must load the same files and bytes with this item as without it. So: the item's
   Tailwind classes go to `docs-editor.css` only, never `styles.css`; its icons are ones no other entry
   imports (a shared icon becomes a new chunk); its live state comes through `iterate/react`, whose

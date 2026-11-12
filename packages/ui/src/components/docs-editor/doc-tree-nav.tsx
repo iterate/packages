@@ -81,7 +81,9 @@ function LoadedDocTree({ list, openPath, onOpen, author }: DocTreeProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
       {docs.kind === "loaded" ? (
-        <div ref={tree.mount} aria-label="Files" className="min-h-0 flex-1" />
+        // the tree gives this element its height (doc-tree.ts): in a flex column it grows into
+        // the room that is left, and shrinks to scroll inside it
+        <div ref={tree.mount} aria-label="Files" className="min-h-0 flex-auto" />
       ) : (
         <p
           className={

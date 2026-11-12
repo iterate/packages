@@ -5,6 +5,11 @@
 // page's open path changes). It draws in its own shadow DOM, so a page's search gets the files from
 // the `DocList`, not by reading the sidebar.
 //
+// IT NEEDS NO CSS OF THE PAGE. Its element is as tall as its rows, with one row of room below them
+// for "New doc" at the root, so it draws in a parent that gives it no height (a sidebar group); in
+// a flex column it takes the room it is given and scrolls inside it. And it follows the page's
+// colour scheme, not the visitor's system.
+//
 // Right-clicking a row, or the space below the rows, offers "New doc": a row named `untitled.md` in
 // that folder (the repo's root below the rows), named in place with the tree's own rename input
 // A name with no extension gets `.md`. Enter makes the file, as the
@@ -97,6 +102,15 @@ export class PierreDocTree {
       },
     });
     tree.render({ containerWrapper: parent });
+    // Pierre's own element says `color-scheme: light dark`, and the theme's colours are
+    // `light-dark()` pairs: left so, a light page showed a dark tree to a visitor whose system is dark
+    tree.getFileTreeContainer()?.style.setProperty("color-scheme", "inherit");
+    // Pierre draws the rows that fit the height it is given, and a sidebar group gives it none
+    const size = () => {
+      parent.style.height = `${String((tree.getVisibleCount() + 1) * tree.getItemHeight())}px`;
+    };
+    size();
+    const stopSizing = tree.subscribe(size);
     this.#tree = tree;
     this.#paths = new Set(paths);
     // below the rows is the repo's root: "New doc" there makes a file at the top
@@ -113,6 +127,7 @@ export class PierreDocTree {
     return () => {
       parent.removeEventListener("contextmenu", onContextMenu);
       stopListing();
+      stopSizing();
       tree.cleanUp();
       this.#tree = null;
     };

@@ -158,6 +158,9 @@ export function RepoFileTree({
       <FileTree
         model={model}
         className="min-h-0 flex-1 overflow-y-auto"
+        // Pierre's own element says `color-scheme: light dark`, which follows the visitor's
+        // system: the tree is part of the page, and follows the page
+        style={{ colorScheme: "inherit" }}
         renderContextMenu={(item, context) => (
           <RepoTreeContextMenu
             item={item}
