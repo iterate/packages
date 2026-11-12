@@ -6,9 +6,10 @@
 // shown without the `events.iterate.com/` that every type of the platform starts with; the row's
 // title has it whole. Everything is in the page's own font and one size: no sentence, no badge, no
 // second font, and a path or an id is plain text. The columns' figures are tabular. No rule between
-// rows: the hover and the inspected row's 2px bar are enough. On a phone the body comes first and
-// the rest is one muted line under it. What a line cuts, the inspector (a click) shows whole, with
-// the event as JSON.
+// rows: the hover and the inspected row's 2px bar are enough. THE PAYLOAD TAKES THE WIDTH THAT IS
+// LEFT, and the row's end cuts it, once. On a phone the type comes first, the payload is a line of
+// its own under it, and the rest is one muted line under that. What a line cuts, the inspector (a
+// click) shows whole, with the event as JSON.
 import { memo } from "react";
 import { cn } from "cn";
 import { formatClockTime, formatDelta, rowClass } from "./event-row-format.ts";
@@ -54,7 +55,7 @@ export function RowGutter({ times }: { times?: boolean }) {
 /** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground sm:ml-auto">
+    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground sm:ml-auto sm:shrink-0">
       {who}
     </span>
   );
@@ -86,9 +87,9 @@ export function RowTimes({
 /** The body column: first on a phone, where it takes the whole first line. */
 export const rowBody = "min-w-0 flex-1 max-sm:order-first max-sm:basis-full";
 
-/** The body of every row, one line in the page's font: on a desktop the type has a column of its
- *  own, so the payloads start in line. */
-export const rowLine = "flex min-w-0 items-baseline gap-x-3 text-sm leading-5";
+/** The body of every row, in the page's font. On a desktop it is one line, and the type has a
+ *  column of its own, so the payloads start in line. On a phone the payload is under the type. */
+export const rowLine = "flex min-w-0 items-baseline gap-x-3 text-sm leading-5 max-sm:flex-col";
 
 /** The type's column. */
 export const rowType = "min-w-0 shrink-0 truncate max-sm:max-w-full sm:w-60";
@@ -101,7 +102,11 @@ export function EventLine({ event }: { event: ContextViewEvent }) {
       <span className={rowType} title={event.type} data-event-type>
         {shortEventType(event.type)}
       </span>
-      {glance ? <span className="min-w-0 truncate text-muted-foreground">{glance}</span> : null}
+      {glance ? (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground max-sm:w-full">
+          {glance}
+        </span>
+      ) : null}
     </span>
   );
 }

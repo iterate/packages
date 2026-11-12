@@ -186,9 +186,10 @@ test("an object reads as its fields, strings to their first line, nested values 
     "role system · content You are an agent. · target [2] · config {llm, maxAutonomousTurns, other, …} · n 4",
   );
 });
-test("more than five fields end in an ellipsis; a long line is cut", () => {
-  const wide = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`k${String(i)}`, i]));
-  expect(payloadSummary(wide)).toBe("k0 0 · k1 1 · k2 2 · k3 3 · k4 4 · …");
+test("more than eight fields end in an ellipsis; a string is its first 160 characters; a long line is cut", () => {
+  const wide = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`k${String(i)}`, i]));
+  expect(payloadSummary(wide)).toBe("k0 0 · k1 1 · k2 2 · k3 3 · k4 4 · k5 5 · k6 6 · k7 7 · …");
+  expect(payloadSummary({ a: "x".repeat(200) })).toBe(`a ${"x".repeat(159)}…`);
   expect(payloadSummary({ a: "x".repeat(200) }, 30)).toHaveLength(30);
 });
 test("nothing, arrays and scalars", () => {

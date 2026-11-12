@@ -118,8 +118,8 @@ export function AgentShell({
         <div className="flex min-h-0 flex-1 flex-col">
           <ContextView
             // the view scrolls its own feed: it fills the tab
+            // and it is as wide as the tab: a log's rows are long
             className="min-h-0 w-full flex-1 py-2"
-            columnClassName="mx-auto w-full max-w-3xl px-4 md:px-6"
             title={path}
             context={context}
             error={hostError}

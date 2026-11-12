@@ -147,8 +147,8 @@ export function refold(
   }
   if (previous && growth && "start" in growth) {
     const first = previous.items[1]!; // items[0] is the first day's mark
-    const seam = foldEvents(events.slice(0, growth.start.length + sizeOf(first)));
-    const items = seam.concat(previous.items.slice(2));
+    const refolded = foldEvents(events.slice(0, growth.start.length + sizeOf(first)));
+    const items = refolded.concat(previous.items.slice(2));
     return { events, items, namedBefore: whoBefore(items, actorOf) };
   }
   const items = foldEvents(events);

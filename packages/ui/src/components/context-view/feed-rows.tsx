@@ -75,7 +75,7 @@ export const RunRow = memo(function RunRow({
     >
       <RowOffset offset={first.offset} />
       <RowTimes event={first} previous={previous} />
-      <span className={cn(rowBody, rowLine, "gap-x-1.5")}>
+      <span className={cn(rowBody, rowLine, "gap-x-1.5 max-sm:flex-row")}>
         <span className="min-w-0 truncate tabular-nums">
           {runLabel(events.map((event) => event.type))}
         </span>

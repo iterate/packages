@@ -150,15 +150,16 @@ export function offsetBound(text: string): number | undefined | null {
 export const shortEventType = (type: string): string => type.replace(/^events\.iterate\.com\//, "");
 
 /** The payload's top-level fields as one line — `key value · key value` — which is what a row
- *  shows of it: strings to their first line, arrays to their length, objects to their keys. */
-export function payloadSummary(payload: unknown, max = 120): string {
+ *  shows of it: strings to their first line, arrays to their length, objects to their keys. The
+ *  row's own width is what cuts it; the limits here only keep a huge payload out of the page. */
+export function payloadSummary(payload: unknown, max = 400): string {
   if (payload === undefined) return "";
   if (Array.isArray(payload))
     return `${String(payload.length)} item${payload.length === 1 ? "" : "s"}`;
   if (!isRecord(payload)) return valueGlance(payload);
   const parts: string[] = [];
   for (const [key, value] of Object.entries(payload)) {
-    if (parts.length === 5) {
+    if (parts.length === 8) {
       parts.push("…");
       break;
     }
@@ -172,7 +173,7 @@ export function payloadSummary(payload: unknown, max = 120): string {
 function valueGlance(value: unknown): string {
   if (typeof value === "string") {
     const line = value.split("\n")[0] || "";
-    return line.length > 48 ? `${line.slice(0, 47)}…` : line;
+    return line.length > 160 ? `${line.slice(0, 159)}…` : line;
   }
   if (Array.isArray(value)) return `[${String(value.length)}]`;
   if (isRecord(value)) {

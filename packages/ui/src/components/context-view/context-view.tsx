@@ -4,10 +4,8 @@
 // then Filter and Processors as labelled text buttons), a filter row (a text query, the types
 // left ticked), the log folded for reading (folds.tsx) as rows one line wide on a desktop and two
 // on a phone, and two right-edge sheets — the inspector for one event, the processors with their
-// live state. THE LOG READS ONE WAY: each row is an event's offset, its time, its type as it is
-// stored and a glance at its payload, in the page's own font (event-row.tsx); events in a row of one
-// type, or of the stream's upkeep, are one row that opens in place. Nothing here ever scrolls
-// sideways; the inspector shows what a line cuts, and the event whole as JSON.
+// live state. The log reads one way: event-row.tsx says what a row is, and folds.tsx which events
+// are one row. Nothing here ever scrolls sideways; the inspector shows what a line cuts.
 // BUILT FOR 100,000 EVENTS: the log arrives newest page first and grows at both ends (live
 // appends, older pages as the reader scrolls up — `older`); the filter, the type counts and the fold
 // follow that growth instead of passing over the whole log again (folds.tsx `refold`), and the rows
