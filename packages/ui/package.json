@@ -56,6 +56,7 @@
       "./components/agent-chat/agent-chat": "./dist/components/agent-chat/agent-chat.mjs",
       "./components/agents-home": "./dist/components/agents-home.mjs",
       "./components/agents-nav": "./dist/components/agents-nav.mjs",
+      "./components/analytics-page": "./dist/components/analytics-page.mjs",
       "./components/app-build": "./dist/components/app-build.mjs",
       "./components/app-shell": "./dist/components/app-shell.mjs",
       "./components/approvals-alert": "./dist/components/approvals-alert.mjs",

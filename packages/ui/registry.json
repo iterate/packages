@@ -234,6 +234,41 @@
       ]
     },
     {
+      "name": "analytics-page",
+      "type": "registry:component",
+      "description": "The analytics page of a Dash, for a mind that has telemetry: the last hour live, the last day, the busiest context paths and event types, what each context stores, and a box that runs a SELECT. It knows no router: the page gives it one query function.",
+      "dependencies": [
+        "cn"
+      ],
+      "registryDependencies": [
+        "button",
+        "card",
+        "input",
+        "iterate/packages/time-chart",
+        "sheet",
+        "spinner",
+        "table",
+        "tabs",
+        "textarea"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-chart-1": "var(--chart-1)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "chart-1": "light-dark(#2a78d6, #78b4ff)"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/analytics-page.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "app-build",
       "type": "registry:component",
       "description": "One installed version of an app: its build's state, and Check to ask again.",
