@@ -2,21 +2,18 @@
 // that were active most recently, each opening its chat. The rows are the sidebar's
 // (lib/agent-summary.ts). It imports no router: see agents-nav.tsx for `agentHref` and `onOpen`.
 //
-// A new agent is iterate's unless the picker above the composer says otherwise. The page offers
-// other kinds' choices ("opencode (acp)", from each kind file's `newAgent`), and a choice shows its
-// fields beside the picker, a line of text or a tick box each. Sending then starts that kind's
-// agent on a new path, in the folder of the person signed in (lib/agent-summary.ts
-// `newAgentPath`), and sends the message after. Nothing here knows any kind but iterate.
+// A new agent is iterate's unless the picker above the composer says otherwise
+// (new-agent-picker.tsx: other kinds' choices, the picked choice's fields, the kind's line about
+// it). Sending then starts that kind's agent on a new path, in the folder of the person signed in
+// (lib/agent-summary.ts `newAgentPath`), and sends the message after. Nothing here knows any kind
+// but iterate.
 import { useMemo, useRef, type ComponentProps } from "react";
 import { BotIcon } from "lucide-react";
-import { newAgentFieldValues } from "../lib/new-agent-fields.ts";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
 import { useComposerDraft } from "#/components/agent-chat/use-composer-attachments.ts";
 import { AgentLink, type AgentHref, type OpenAgent } from "#/components/agents-nav.tsx";
+import { NewAgentPicker } from "#/components/new-agent-picker.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import {
   agentTitle,
   byRecentActivity,
@@ -25,30 +22,17 @@ import {
   topLevelAgents,
   type AgentRow,
 } from "#/lib/agent-summary.ts";
-
-/** Another kind's choice for a new agent, as the picker lists it. */
-export type NewAgentOffer = {
-  /** `<kind>/<choice>` */
-  value: string;
-  /** "opencode (acp)" */
-  label: string;
-  kind: string;
-  /** The kind's own id for the choice. */
-  choice: string;
-  /** The kind's word that this choice's agents may live in a person's folder
-   *  (agent-kind-view/types.ts `byPerson`). Without it they are born at `/agents/<kind>/…`. */
-  byPerson?: boolean;
-  /** The fields this choice shows (the kind's, less those for its other choices): a line of
-   *  text each, or a tick box, whose value is "on" when ticked and "" when not. */
-  fields: { name: string; label: string; defaultValue: string; type?: "text" | "checkbox" }[];
-};
+import type { NewAgentOffer } from "#/lib/new-agent.ts";
 
 export function AgentsHome({
   agents,
   person,
   offers,
   choice,
+  values,
+  line,
   onChoice,
+  onField,
   onStart,
   onStarted,
   onCreate,
@@ -64,7 +48,13 @@ export function AgentsHome({
   offers: NewAgentOffer[];
   /** The picked offer's value, or `undefined` for iterate: the page's URL. */
   choice: string | undefined;
+  /** The picked offer's fields, each by its name (lib/new-agent.ts `newAgentValues`): what
+   *  its start is given. The page keeps what the person typed. */
+  values: Record<string, string>;
+  /** The kind's line about the choice as typed (its `newAgent.describe`), which the page asks. */
+  line?: string | null;
   onChoice: (choice: string | undefined) => void;
+  onField: (name: string, value: string) => void;
   /** Starts the picked offer's agent at `path`, with its fields' values. */
   onStart: (offer: NewAgentOffer, path: string, fields: Record<string, string>) => Promise<unknown>;
   /** Opens an agent another kind just started, at a path the catalog may not list yet. */
@@ -82,8 +72,6 @@ export function AgentsHome({
 }) {
   const draft = useComposerDraft();
   const picked = offers.find((offer) => offer.value === choice);
-  // the picked choice's fields, read when the message is sent
-  const fields = useRef<HTMLDivElement>(null);
   // the agent born for a first message that then failed to send: sending again goes to it, so a
   // retry leaves no empty agent behind
   const born = useRef<string | undefined>(undefined);
@@ -96,41 +84,14 @@ export function AgentsHome({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-4 pt-8 md:p-8 md:pt-16">
       <div className="flex flex-col gap-2">
         {offers.length > 0 ? (
-          <div ref={fields} className="flex flex-wrap items-center gap-2">
-            <NativeSelect
-              size="sm"
-              aria-label="Kind of agent"
-              value={picked?.value || ""}
-              onChange={(event) => onChoice(event.target.value || undefined)}
-            >
-              <NativeSelectOption value="">iterate</NativeSelectOption>
-              {offers.map((offer) => (
-                <NativeSelectOption key={offer.value} value={offer.value}>
-                  {offer.label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            {picked?.fields.map((field) =>
-              field.type === "checkbox" ? (
-                <label
-                  key={`${picked.value}/${field.name}`}
-                  className="flex h-7 items-center gap-1.5 text-xs"
-                >
-                  <Checkbox name={field.name} defaultChecked={field.defaultValue === "on"} />
-                  {field.label}
-                </label>
-              ) : (
-                <Input
-                  key={`${picked.value}/${field.name}`}
-                  name={field.name}
-                  aria-label={field.label}
-                  placeholder={field.label}
-                  defaultValue={field.defaultValue}
-                  className="h-7 w-40 font-mono text-xs"
-                />
-              ),
-            )}
-          </div>
+          <NewAgentPicker
+            offers={offers}
+            picked={picked}
+            values={values}
+            onChoice={onChoice}
+            onField={onField}
+            line={line}
+          />
         ) : null}
         <AgentComposer
           draft={draft}
@@ -145,7 +106,7 @@ export function AgentsHome({
                 new Date(),
                 picked.byPerson ? person : undefined,
               );
-              await onStart(picked, path, newAgentFieldValues(fields.current));
+              await onStart(picked, path, values);
               await onMessage(path, input);
               onStarted(path, picked.kind);
               return;

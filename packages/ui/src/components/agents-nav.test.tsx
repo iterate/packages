@@ -23,7 +23,9 @@ test("the home page links each recent agent to its chat", () => {
       agents={agents()}
       offers={[]}
       choice={undefined}
+      values={{}}
       onChoice={() => {}}
+      onField={() => {}}
       onStart={async () => {}}
       onStarted={() => {}}
       agentHref={agentHref}

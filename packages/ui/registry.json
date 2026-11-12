@@ -191,12 +191,11 @@
       ],
       "registryDependencies": [
         "card",
-        "checkbox",
-        "input",
         "iterate/packages/agent-chat",
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
-        "native-select"
+        "iterate/packages/new-agent",
+        "iterate/packages/new-agent-picker"
       ],
       "cssVars": {
         "theme": {
@@ -208,10 +207,34 @@
         {
           "path": "src/components/agents-home.tsx",
           "type": "registry:component"
-        },
+        }
+      ]
+    },
+    {
+      "name": "new-agent",
+      "type": "registry:lib",
+      "description": "What a page that starts agents reads from a kind's file: its offers, each field's value, and the parts of its line.",
+      "files": [
         {
-          "path": "src/lib/new-agent-fields.ts",
+          "path": "src/lib/new-agent.ts",
           "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "new-agent-picker",
+      "type": "registry:component",
+      "description": "New agent's picker: iterate or another kind's choice, the choice's fields (a line of text or a tick box each), and the kind's line about it.",
+      "registryDependencies": [
+        "checkbox",
+        "input",
+        "iterate/packages/new-agent",
+        "native-select"
+      ],
+      "files": [
+        {
+          "path": "src/components/new-agent-picker.tsx",
+          "type": "registry:component"
         }
       ]
     },

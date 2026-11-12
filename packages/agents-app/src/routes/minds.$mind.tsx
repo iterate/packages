@@ -10,7 +10,12 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
 import { z } from "zod";
 import { createIterateClient, type AuthenticatedApp, type IterateClient } from "iterate/app";
 import { facetSnapshotOf, useIterateContext } from "iterate/react";
@@ -40,7 +45,8 @@ import {
   type AgentKindViewVerbs,
 } from "@iterate-com/ui/agent-kind-view/host";
 import frameScript from "virtual:agent-kind-view-frame";
-import { AgentsHome, type NewAgentOffer } from "@iterate-com/ui/components/agents-home";
+import { AgentsHome } from "@iterate-com/ui/components/agents-home";
+import { newAgentOffers, newAgentValues, type NewAgentOffer } from "@iterate-com/ui/lib/new-agent";
 import { AgentsNav } from "@iterate-com/ui/components/agents-nav";
 import { personOf, type AgentRow } from "@iterate-com/ui/lib/agent-summary";
 import { useAgentRows } from "../lib/use-agent-rows.ts";
@@ -184,14 +190,16 @@ function AgentsPage() {
         </AgentKindQueries>
       ) : installed ? (
         <AgentKindQueries>
-          <NewAgentKinds>
-            {({ offers, start }) => (
+          <NewAgentKinds key={mind} choice={choice}>
+            {({ offers, values, line, onField, start }) => (
               <AgentsHome
-                key={mind}
                 agents={agents}
                 person={person}
                 offers={offers}
                 choice={choice}
+                values={values}
+                line={line}
+                onField={onField}
                 onChoice={(next) =>
                   void navigate({
                     to: "/minds/$mind",
@@ -302,12 +310,22 @@ function AgentKindQueries({ children }: { children: ReactNode }) {
 
 /** New agent's other kinds: each kind file besides iterate's, loaded in a frame no one sees (kind
  *  code runs only in a frame), whose `newAgent` choices are the picker's offers, and which gives
- *  the events that start one. None while the files are read. */
+ *  the events that start one. None while the files are read.
+ *
+ *  It also keeps what the person typed into the picked choice's fields (`choice` is the picked
+ *  offer's value, from the URL), and asks that kind for its line about them
+ *  (`newAgent.describe`: how to lend a computer as the runner typed, say). */
 function NewAgentKinds({
+  choice,
   children,
 }: {
+  choice: string | undefined;
   children: (kinds: {
     offers: NewAgentOffer[];
+    /** The picked offer's fields, as typed or as the kind's file starts them. */
+    values: Record<string, string>;
+    line: string | null;
+    onField: (name: string, value: string) => void;
     start: (offer: NewAgentOffer, path: string, fields: Record<string, string>) => Promise<void>;
   }) => ReactNode;
 }) {
@@ -330,25 +348,26 @@ function NewAgentKinds({
   const { links, loaded } = useAgentKindViewLinks(kinds);
   const offers = useMemo(
     () =>
-      kinds.flatMap(({ kind }, index): NewAgentOffer[] => {
+      kinds.flatMap(({ kind }, index) => {
         const report = loaded[index];
-        const newAgent = report && "newAgent" in report ? report.newAgent : undefined;
-        return (newAgent?.choices || []).map((option) => ({
-          value: `${kind}/${option.id}`,
-          // a choice named as its kind is said once: "claude", not "claude (claude)"
-          label: option.label === kind ? option.label : `${option.label} (${kind})`,
-          kind,
-          choice: option.id,
-          // the kind's word that this choice's agents may live in a person's folder
-          byPerson: option.byPerson === true,
-          // a field may be for some of the kind's choices alone
-          fields: (newAgent?.fields || []).filter(
-            (field) => !field.choices || field.choices.includes(option.id),
-          ),
-        }));
+        return newAgentOffers(kind, report && "newAgent" in report ? report.newAgent : undefined);
       }),
     [kinds, loaded],
   );
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  const picked = offers.find((offer) => offer.value === choice);
+  const values = useMemo(() => newAgentValues(picked, (name) => typed[name]), [picked, typed]);
+  const line = useQuery({
+    queryKey: ["new-agent-line", mind, picked?.value, values],
+    queryFn: async () => {
+      const link = links[kinds.findIndex(({ kind }) => kind === picked?.kind)];
+      if (!picked || !link) return null;
+      return await link.describe({ choice: picked.choice, fields: values, mind });
+    },
+    enabled: Boolean(picked),
+    // the line of the fields as they were stays until the kind has said the new one
+    placeholderData: keepPreviousData,
+  });
   const start = useCallback(
     async (offer: NewAgentOffer, path: string, fields: Record<string, string>) => {
       const link = links[kinds.findIndex(({ kind }) => kind === offer.kind)];
@@ -377,7 +396,13 @@ function NewAgentKinds({
       {links.map((link) => (
         <AgentKindHiddenFrame key={link.name} link={link} frameScript={frameScript} />
       ))}
-      {children({ offers, start })}
+      {children({
+        offers,
+        values,
+        line: line.data || null,
+        onField: (name, value) => setTyped((before) => ({ ...before, [name]: value })),
+        start,
+      })}
     </>
   );
 }
