@@ -6,7 +6,7 @@ import { GitPanel } from "./git-panel.tsx";
 import { RepoEditorPane, type RepoFileHandlers } from "./repo-editor-pane.tsx";
 import { RepoFileTree } from "./repo-file-tree.tsx";
 import { RepoIdeActivityStrip } from "./repo-ide-activity-strip.tsx";
-import type { RepoIdeSearch } from "./repo-ide-search.ts";
+import { RepoIdeSearch } from "./repo-ide-search.ts";
 import {
   useRepoFiles,
   useRepoLog,
@@ -299,4 +299,10 @@ function RepoIdeMain({
       handlers={handlers}
     />
   );
+}
+
+/** The IDE's view state from anything a URL can hold (a page with no router keeps it as JSON in one
+ *  search key): a key with a wrong value is an absent key, never an error. */
+export function repoIdeSearchOf(value: unknown): RepoIdeSearch {
+  return RepoIdeSearch.safeParse(value).data || {};
 }

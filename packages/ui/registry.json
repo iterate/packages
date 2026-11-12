@@ -579,6 +579,24 @@
       ]
     },
     {
+      "name": "context-explorer",
+      "type": "registry:component",
+      "description": "A mind's contexts as one page: the tree of every context, live, and beside it one context's log, processors and presence. It knows no router: the page names the context shown and where a path's link goes.",
+      "dependencies": [
+        "iterate",
+        "zod"
+      ],
+      "registryDependencies": [
+        "iterate/packages/context-view"
+      ],
+      "files": [
+        {
+          "path": "src/components/context-explorer/context-explorer.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "copy-text",
       "type": "registry:component",
       "description": "A value to copy, such as a password or a command, with a copy button.",
