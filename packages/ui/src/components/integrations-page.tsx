@@ -62,10 +62,14 @@ export function IntegrationsPage({
           Loading…
         </p>
       )}
-      <IntegrationsGrid
-        registry={registryView.state}
-        hrefOf={(target) => integrationTargetHrefOf(mind, target)}
-      />
+      {/* nothing is said about the registry until it has answered: a page with no `seed` would
+          say "No integrations" beside "Loading…" */}
+      {registryView.state ? (
+        <IntegrationsGrid
+          registry={registryView.state}
+          hrefOf={(target) => integrationTargetHrefOf(mind, target)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -78,15 +82,15 @@ function IntegrationsGrid({
   registry,
   hrefOf,
 }: {
-  registry: z.infer<typeof RegistryLive> | undefined;
+  registry: z.infer<typeof RegistryLive>;
   /** Where a target leads (`integrationTargetHrefOf`). */
   hrefOf: (target: IntegrationTarget) => string | null;
 }) {
-  const cards = Object.entries(registry?.integrations || {}).flatMap(([integration, value]) => {
+  const cards = Object.entries(registry.integrations).flatMap(([integration, value]) => {
     const card = IntegrationCard.safeParse(value).data;
     return card ? [{ integration, card }] : [];
   });
-  const rows = Object.entries(registry?.connections || {}).flatMap(([key, value]) => {
+  const rows = Object.entries(registry.connections).flatMap(([key, value]) => {
     const row = IntegrationConnection.safeParse(value).data;
     // the key is `<integration>/<connection>`, and neither name can hold a "/"
     const slash = key.indexOf("/");

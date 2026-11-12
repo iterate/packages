@@ -167,18 +167,27 @@ type RowTarget = { row: Row } | { column: Dimension; value: string };
 const OpenRow = createContext<(target: RowTarget) => void>(() => {});
 
 export function AnalyticsPage({ query }: { query: TelemetryQuery }) {
-  // The day's charts and the storage table are asked once, when the page mounts, and not awaited:
-  // the page shows at once, and each card awaits its own answer.
-  const [asked] = useState(() => ({
-    at: Date.now(),
-    day: DAY.map(({ sql }) => query(sql)),
-    storage: query(STORAGE_SQL, 720),
-  }));
+  // The day's charts and the storage table are asked once for a `query`, when the page first has
+  // it, and not awaited: the page shows at once, and each card awaits its own answer.
+  const [asked, setAsked] = useState(() => dayOf(query));
+  // another function is another mind's telemetry (a page that stays up while its mind changes):
+  // its answers replace these, as the live charts and the Activity section read again
+  if (asked.query !== query) setAsked(dayOf(query));
   return (
     <Telemetry value={query}>
       <Analytics at={asked.at} day={asked.day} storage={asked.storage} />
     </Telemetry>
   );
+}
+
+/** The day's charts and the storage table, asked of `query` now. */
+function dayOf(query: TelemetryQuery) {
+  return {
+    query,
+    at: Date.now(),
+    day: DAY.map(({ sql }) => query(sql)),
+    storage: query(STORAGE_SQL, 720),
+  };
 }
 
 /** A promise's answer once it has one, and `fallback` until then. */

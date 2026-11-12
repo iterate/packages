@@ -54,6 +54,24 @@ test("everything else is asked once when the page mounts: a page that renders te
   await act(() => root.unmount());
 });
 
+test("a page that is handed another query function asks that one for the day's charts too, once", async () => {
+  using _clock = ownClock();
+  const first = fakeTelemetry();
+  const second = fakeTelemetry();
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(() => root.render(<AnalyticsPage query={first.query} />));
+  await act(() => vi.advanceTimersByTimeAsync(1_000));
+  const once = first.others();
+  // the page stays up and its mind changes: another function
+  for (let render = 0; render < 5; render += 1)
+    await act(() => root.render(<AnalyticsPage query={second.query} />));
+  await act(() => vi.advanceTimersByTimeAsync(1_000));
+  expect(second.others()).toBe(once);
+  expect(second.live()).toBe(1);
+  expect(first.others()).toBe(once);
+  await act(() => root.unmount());
+});
+
 /** The test's own clock and a tab that is shown, until the test ends. The charts measure their own
  *  width, which jsdom does not do, so the observer they ask for does nothing. */
 function ownClock() {
