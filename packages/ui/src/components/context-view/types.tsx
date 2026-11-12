@@ -22,6 +22,15 @@ export type ContextViewEvent = {
     /** Why it happened (core/itx/src/cause.ts): the chain it belongs to, `<ISO> with <origin>
      *  ~<nonce>`, how deep in it, and the event whose handling wrote it. */
     cause?: { chain: string; depth: number; parent?: string };
+    /** A copy row's event: the event it copied, and the row that copied it (core/itx/src/caller.ts
+     *  `copiedFrom`). */
+    copiedFrom?: {
+      path: string;
+      offset: number;
+      type: string;
+      createdAt?: string;
+      subscription?: string;
+    };
   };
 };
 

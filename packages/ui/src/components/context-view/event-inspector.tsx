@@ -171,6 +171,13 @@ function envelopeOf(event: ContextViewEvent): [label: string, value: string][] {
   const rows: [string, string][] = [
     ["Who", actorLabel(event)],
     ["From", source?.origin || ""],
+    // a copy row's event: what it copied, which the payload alone rarely says
+    [
+      "Copy of",
+      source?.copiedFrom
+        ? `${shortEventType(source.copiedFrom.type)} #${source.copiedFrom.offset}${source.copiedFrom.subscription ? ` (row ${source.copiedFrom.subscription})` : ""}`
+        : "",
+    ],
     ["Grant", source?.grant || ""],
     ["Processor", source?.processor ? `${source.processor.slug}@${source.processor.version}` : ""],
   ];
