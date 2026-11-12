@@ -56,8 +56,7 @@ test("a tab that the browser froze for its back-forward cache and brought back j
   // the processor's text moves on while the page is frozen
   mind.processorEdit((text) => text.insert(0, "While away\n"));
   frozen("pageshow");
-  // until it has joined again the editor takes no typing: what was typed into the connection
-  // that ended would be lost when the doc's text comes in
+  // read-only while it joins again: #rejoin in doc-session.ts says why
   expect(tab.readOnly()).toBe(true);
   await vi.waitFor(() => expect(tab.text()).toBe("While away\n# Plan\n"));
   expect(tab.readOnly()).toBe(false);
