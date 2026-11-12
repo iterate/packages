@@ -10,7 +10,12 @@
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
-import { newAgentFieldOff, newAgentLineParts, type NewAgentOffer } from "#/lib/new-agent.ts";
+import {
+  newAgentFieldOff,
+  newAgentLineParts,
+  type NewAgentField,
+  type NewAgentOffer,
+} from "#/lib/new-agent.ts";
 
 export function NewAgentPicker({
   offers,
@@ -48,33 +53,14 @@ export function NewAgentPicker({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {picked?.fields.map((field) =>
-          field.type === "checkbox" ? (
-            <label
-              key={`${picked.value}/${field.name}`}
-              // a box another field turns off (`offWhen`) is there, unticked, and cannot be ticked
-              className="flex h-7 items-center gap-1.5 text-xs has-disabled:text-muted-foreground"
-            >
-              <Checkbox
-                name={field.name}
-                checked={values[field.name] === "on"}
-                disabled={newAgentFieldOff(field, values)}
-                onCheckedChange={(ticked) => onField(field.name, ticked ? "on" : "")}
-              />
-              {field.label}
-            </label>
-          ) : (
-            <Input
-              key={`${picked.value}/${field.name}`}
-              name={field.name}
-              aria-label={field.label}
-              placeholder={field.label}
-              value={values[field.name] || ""}
-              onChange={(event) => onField(field.name, event.target.value)}
-              className="h-7 w-40 font-mono text-xs"
-            />
-          ),
-        )}
+        {picked?.fields.map((field) => (
+          <NewAgentFieldInput
+            key={`${picked.value}/${field.name}`}
+            field={field}
+            values={values}
+            onField={onField}
+          />
+        ))}
       </div>
       {picked && line ? (
         <p className="text-xs text-muted-foreground" data-new-agent-line>
@@ -91,5 +77,57 @@ export function NewAgentPicker({
         </p>
       ) : null}
     </>
+  );
+}
+
+/** One field of the picked choice: a tick box, a list, or a line of text. */
+function NewAgentFieldInput({
+  field,
+  values,
+  onField,
+}: {
+  field: NewAgentField;
+  values: Record<string, string>;
+  onField: (name: string, value: string) => void;
+}) {
+  if (field.type === "checkbox")
+    return (
+      // a box another field turns off (`offWhen`) is there, unticked, and cannot be ticked
+      <label className="flex h-7 items-center gap-1.5 text-xs has-disabled:text-muted-foreground">
+        <Checkbox
+          name={field.name}
+          checked={values[field.name] === "on"}
+          disabled={newAgentFieldOff(field, values)}
+          onCheckedChange={(ticked) => onField(field.name, ticked ? "on" : "")}
+        />
+        {field.label}
+      </label>
+    );
+  if (field.type === "select" && field.options?.length)
+    return (
+      <NativeSelect
+        size="sm"
+        name={field.name}
+        aria-label={field.label}
+        value={values[field.name] || ""}
+        onChange={(event) => onField(field.name, event.target.value)}
+        className="font-mono text-xs"
+      >
+        {field.options.map((option) => (
+          <NativeSelectOption key={option} value={option}>
+            {option}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    );
+  return (
+    <Input
+      name={field.name}
+      aria-label={field.label}
+      placeholder={field.label}
+      value={values[field.name] || ""}
+      onChange={(event) => onField(field.name, event.target.value)}
+      className="h-7 w-40 font-mono text-xs"
+    />
   );
 }

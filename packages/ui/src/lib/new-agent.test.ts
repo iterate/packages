@@ -86,6 +86,51 @@ test("a field's value is what the person typed, else the field's own; a box unti
   expect(newAgentValues(undefined, () => "x")).toEqual({});
 });
 
+test("a list field's value is one of its options: what was picked, else its own first value, never a value from another choice's list", () => {
+  const [claude, codex] = newAgentOffers("acp", {
+    choices: [
+      { id: "claude", label: "claude" },
+      { id: "codex", label: "codex" },
+    ],
+    fields: [
+      {
+        name: "model",
+        label: "Model",
+        type: "select",
+        options: ["haiku", "sonnet"],
+        defaultValue: "haiku",
+        choices: ["claude"],
+      },
+      {
+        name: "model",
+        label: "Model",
+        type: "select",
+        options: ["gpt-a", "gpt-b"],
+        // a first value that is not in the list: the list's first option stands in
+        defaultValue: "gone",
+        choices: ["codex"],
+      },
+    ],
+  });
+  const model = (offer: typeof claude, typed?: string) => newAgentValues(offer, () => typed).model;
+  expect({
+    opens: model(claude),
+    picked: model(claude, "sonnet"),
+    // the page still holds what was picked for the kind's other choice
+    fromTheOtherList: model(claude, "gpt-b"),
+    codexOpens: model(codex),
+    codexPicked: model(codex, "gpt-b"),
+    codexFromTheOtherList: model(codex, "sonnet"),
+  }).toEqual({
+    opens: "haiku",
+    picked: "sonnet",
+    fromTheOtherList: "haiku",
+    codexOpens: "gpt-a",
+    codexPicked: "gpt-b",
+    codexFromTheOtherList: "gpt-a",
+  });
+});
+
 test("a kind's line is plain text and the code between its backticks, each part with its place in the line", () => {
   expect(newAgentLineParts("Run `a b` there, then `c`.")).toEqual([
     { at: 0, text: "Run ", code: false },

@@ -98,8 +98,35 @@ test("the picker draws the picked choice's fields as typed, reports each change,
     false,
   ]);
 
+  // a list field is a second select, with the field's options, and reports the option picked
+  const [modelled] = newAgentOffers("acp", {
+    ...ACP,
+    fields: [
+      ACP.fields[0],
+      {
+        name: "model",
+        label: "Model",
+        type: "select" as const,
+        options: ["haiku", "sonnet"],
+        defaultValue: "haiku",
+      },
+    ],
+  }) as [NewAgentOffer];
+  await draw(modelled, { runner: "acp.sandbox", model: "sonnet" });
+  const model = host.querySelector<HTMLSelectElement>('select[name="model"]')!;
+  expect({
+    label: model.getAttribute("aria-label"),
+    value: model.value,
+    options: [...model.options].map((option) => option.value),
+  }).toEqual({ label: "Model", value: "sonnet", options: ["haiku", "sonnet"] });
+  await act(() => {
+    model.value = "haiku";
+    model.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(said.at(-1)).toEqual(["model", "haiku"]);
+
   // picking another kind, and iterate again
-  const select = host.querySelector("select")!;
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Kind of agent"]')!;
   await act(() => {
     select.value = "acp/claude";
     select.dispatchEvent(new Event("change", { bubbles: true }));

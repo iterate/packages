@@ -116,6 +116,12 @@ export type AgentKindNewAgent = {
  *  is "on" when ticked and "" when not (`defaultValue: "on"` starts it ticked). `choices`: the ids
  *  of the choices that show the field; none: every choice of the kind.
  *
+ *  `type: "select"` with `options`: a list to pick one of (the models a choice can run, say). Its
+ *  value is always one of the options: `defaultValue` at first, or the first option when that is
+ *  not among them. Two fields of one name, each for other `choices`, give each choice its own
+ *  list. A page older than this type draws a line of text with `defaultValue` in it, where a
+ *  person can type anything: `start` must refuse a value that is not an option.
+ *
  *  `viewerDefault`: a first value made for the person who looks, where `{name}` is their first
  *  name, from the address they sign in with (`"{name}.laptop"` opens as `misha.laptop`); for
  *  someone with no such name the field opens with `defaultValue`.
@@ -127,7 +133,8 @@ export type AgentKindNewAgentField = {
   name: string;
   label: string;
   defaultValue: string;
-  type?: "text" | "checkbox";
+  type?: "text" | "checkbox" | "select";
+  options?: string[];
   choices?: string[];
   viewerDefault?: string;
   offWhen?: { field: string; is: string };

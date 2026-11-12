@@ -10,7 +10,9 @@ export type NewAgentField = {
   name: string;
   label: string;
   defaultValue: string;
-  type?: "text" | "checkbox";
+  type?: "text" | "checkbox" | "select";
+  /** See `AgentKindNewAgentField` in ../agent-kind-view/types.ts: what a `select` offers. */
+  options?: string[];
   /** The ids of the choices that show the field; none: every choice of the kind. */
   choices?: string[];
   /** See `AgentKindNewAgentField.viewerDefault` in ../agent-kind-view/types.ts. */
@@ -71,8 +73,9 @@ export function newAgentFieldOff(field: NewAgentField, values: Record<string, st
 
 /** The picked offer's fields, each by its name: what the person typed (`typed(name)`, nothing
  *  when they typed none), else the field's own first value, which may be made for `person`
- *  (`viewerDefault`). A box that another field turns off is "" whatever was typed (`offWhen`).
- *  These are what the kind's `start` and `describe` are given. */
+ *  (`viewerDefault`). A box that another field turns off is "" whatever was typed (`offWhen`),
+ *  and a list's value is one of its options (`fieldValue`). These are what the kind's `start`
+ *  and `describe` are given. */
 export function newAgentValues(
   offer: NewAgentOffer | undefined,
   typed: (name: string) => string | null | undefined,
@@ -86,12 +89,21 @@ export function newAgentValues(
         name && field.viewerDefault
           ? field.viewerDefault.replaceAll("{name}", name)
           : field.defaultValue;
-      return [field.name, typed(field.name) ?? first];
+      return [field.name, fieldValue(field, typed(field.name) ?? first)];
     }),
   );
   return Object.fromEntries(
     fields.map((field) => [field.name, newAgentFieldOff(field, values) ? "" : values[field.name]!]),
   );
+}
+
+/** `value` as the field can hold it. A list (`type: "select"`) holds one of its options: any other
+ *  value becomes its own first one, `defaultValue` when that is an option, else the first option.
+ *  The page may still hold what was picked from another choice's list of the same name. */
+function fieldValue(field: NewAgentField, value: string): string {
+  if (field.type !== "select" || !field.options?.length || field.options.includes(value))
+    return value;
+  return field.options.includes(field.defaultValue) ? field.defaultValue : field.options[0]!;
 }
 
 /** A kind's line about a choice, in its parts in order: plain text, and code (what the kind put
