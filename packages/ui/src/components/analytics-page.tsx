@@ -11,9 +11,11 @@
 // of the vault.
 //
 // It knows no router, and it is for a mind that HAS telemetry: the page that hosts it asks first
-// (`itx.rewriteRules.get("itx.telemetry")`) and says "telemetry is off" in its place.
+// (`itx.rewriteRules.get("itx.telemetry")`) and draws `TelemetryOff` in its place, which says what
+// turns telemetry on and asks the mind nothing.
 //
 //   <AnalyticsPage query={telemetryQueryOf(itx)} />
+//   <TelemetryOff mind="example.com" />
 import {
   createContext,
   Suspense,
@@ -27,7 +29,7 @@ import {
 } from "react";
 import { cn } from "cn";
 import { TimeChart } from "#/components/time-chart.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import {
   Card,
   CardContent,
@@ -165,6 +167,49 @@ type RowTarget = { row: Row } | { column: Dimension; value: string };
 
 /** Opens a result row in the page's one sheet. */
 const OpenRow = createContext<(target: RowTarget) => void>(() => {});
+
+/** THE ANALYTICS PAGE OF A MIND WITH NO TELEMETRY: that it is off, what turns it on, and who
+ *  can. A person who opens the page must find something to do on it. */
+export function TelemetryOff({
+  mind,
+}: {
+  /** The mind's address: iterate Cloud names the mind's card by it. */
+  mind: string;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-8" data-telemetry-off>
+      <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
+      <p className="text-sm">Telemetry is off for this mind, so there is nothing to chart yet.</p>
+      <p className="text-sm">
+        To turn it on, open this mind on cloud.iterate.com, press “Turn on telemetry”, then “Update
+        iterate”. You need access to the mind's Cloudflare account.
+      </p>
+      <div>
+        <a
+          href={`https://cloud.iterate.com/deployments#${encodeURIComponent(mind)}`}
+          target="_blank"
+          rel="noreferrer"
+          className={buttonVariants({ variant: "default" })}
+        >
+          Open cloud.iterate.com
+        </a>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        A mind that you deployed by hand, not through cloud.iterate.com, needs one deploy with{" "}
+        <code className="whitespace-nowrap">telemetry: true</code> in its config.{" "}
+        <a
+          href="https://github.com/iterate/core/blob/main/core/alchemy/README.md#telemetry"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-4"
+        >
+          The README has the commands
+        </a>
+        .
+      </p>
+    </div>
+  );
+}
 
 export function AnalyticsPage({ query }: { query: TelemetryQuery }) {
   // The day's charts and the storage table are asked once for a `query`, when the page first has

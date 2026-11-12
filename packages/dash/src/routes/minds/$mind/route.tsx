@@ -15,6 +15,7 @@ import { DashBreadcrumbs } from "../../../components/dash-breadcrumbs.tsx";
 import { MindNav } from "../../../components/dash-nav.tsx";
 import { MindFrame, MindLoadError } from "../../../components/mind-frame.tsx";
 import { usePageLabel } from "../../../lib/page-label.ts";
+import { servesRoot } from "../../../lib/served.ts";
 
 /** One client per mind this page has shown, so switching back keeps its connection. */
 const clients = new Map<string, IterateClient>();
@@ -34,10 +35,16 @@ export const Route = createFileRoute("/minds/$mind")({
     ...(await clientFor(params.mind).authenticate(location.href)),
     mind: params.mind,
   }),
-  // who the mind's API says is signed in, for the account menu
-  loader: async ({ context }) => ({
-    principal: (await context.read((itx) => itx.whoami())).principal || null,
-  }),
+  // Who the mind's API says is signed in, for the account menu, and whether the mind has
+  // telemetry, for the sidebar's "Off" beside Analytics. Both once for a mind. A failed second
+  // read marks nothing.
+  loader: async ({ context }) => {
+    const [who, telemetry] = await Promise.all([
+      context.read((itx) => itx.whoami()),
+      servesRoot(context.read, "telemetry").catch(() => true),
+    ]);
+    return { principal: who.principal || null, telemetry };
+  },
   head: ({ params }) => ({ meta: [{ title: `${params.mind} · Dash` }] }),
   pendingComponent: MindFrame,
   // a sign-in or a first read that failed: the same frame, with what failed and a retry
@@ -66,7 +73,7 @@ function useCountInTitle(count: number) {
 
 function Shell() {
   const { mind, read } = Route.useRouteContext();
-  const { principal } = Route.useLoaderData();
+  const { principal, telemetry } = Route.useLoaderData();
   const router = useRouter();
   const href = useRouterState({ select: (state) => state.location.href });
   const page = usePageLabel();
@@ -83,7 +90,7 @@ function Shell() {
         event.preventDefault();
         void router.navigate({ href: to });
       }}
-      nav={<MindNav mind={mind} waiting={waiting} />}
+      nav={<MindNav mind={mind} waiting={waiting} telemetryOff={!telemetry} />}
       searchRow={false}
       header={<DashBreadcrumbs mind={mind} page={page} />}
       // the menu names the mind when its API says nobody

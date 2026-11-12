@@ -42,7 +42,16 @@ const MIND_PAGES = [
 
 /** The mind's pages, its own site, and the first-party apps opened on it: every app serves
  *  `/minds/<address>`, and its own gate signs the browser in to the mind there. */
-export function MindNav({ mind, waiting = 0 }: { mind: string; waiting?: number }) {
+export function MindNav({
+  mind,
+  waiting = 0,
+  telemetryOff = false,
+}: {
+  mind: string;
+  waiting?: number;
+  /** The mind has no telemetry: Analytics stays in its place, muted, with "Off" beside it. */
+  telemetryOff?: boolean;
+}) {
   const matchRoute = useMatchRoute();
   const { apps } = root.useLoaderData();
   const site = mindSiteOf(mind);
@@ -70,11 +79,21 @@ export function MindNav({ mind, waiting = 0 }: { mind: string; waiting?: number 
                     fuzzy: to === "/minds/$mind/contexts/$" || to === "/minds/$mind/repos",
                   }),
                 )}
+                className={
+                  to === "/minds/$mind/analytics" && telemetryOff
+                    ? "text-muted-foreground"
+                    : undefined
+                }
                 render={<Link to={to} params={{ mind }} />}
               >
                 <Icon />
                 <span>{label}</span>
               </SidebarMenuButton>
+              {to === "/minds/$mind/analytics" && telemetryOff ? (
+                <SidebarMenuBadge className="text-muted-foreground" data-off>
+                  Off
+                </SidebarMenuBadge>
+              ) : null}
               {to === "/minds/$mind/approvals" && waiting > 0 ? (
                 <SidebarMenuBadge className="bg-warning/20 text-foreground">
                   {waiting}

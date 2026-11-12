@@ -4,7 +4,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { AnalyticsPage, type TelemetryQuery } from "./analytics-page.tsx";
+import { AnalyticsPage, TelemetryOff, type TelemetryQuery } from "./analytics-page.tsx";
 
 test("the live charts are read again thirty seconds after each answer: one read at a time, none while the tab is hidden, none after the page has gone", async () => {
   using page = ownClock();
@@ -74,6 +74,23 @@ test("a page that is handed another query function asks that one for the day's c
 
 /** The test's own clock and a tab that is shown, until the test ends. The charts measure their own
  *  width, which jsdom does not do, so the observer they ask for does nothing. */
+test("a mind with telemetry off gets something to do: where to turn it on, with a link to its own card, and what a mind deployed by hand needs", async () => {
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  await act(() => root.render(<TelemetryOff mind="example.com" />));
+  expect(host.textContent).toContain("Telemetry is off for this mind");
+  expect(host.textContent).toContain("press “Turn on telemetry”, then “Update iterate”");
+  expect(
+    [...host.querySelectorAll("a")].map((link) => `${link.textContent}: ${link.href}`),
+  ).toEqual([
+    "Open cloud.iterate.com: https://cloud.iterate.com/deployments#example.com",
+    "The README has the commands: https://github.com/iterate/core/blob/main/core/alchemy/README.md#telemetry",
+  ]);
+  // "stack" is a word of the code: a person is told what to do, in their words
+  expect(host.textContent).not.toMatch(/stack/i);
+  await act(() => root.unmount());
+});
+
 function ownClock() {
   vi.useFakeTimers();
   vi.stubGlobal(
