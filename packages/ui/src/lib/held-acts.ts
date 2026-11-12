@@ -65,12 +65,9 @@ export type ProposedRule = {
   proposedAt: string;
 };
 
-/** THE PROPOSED RULES THAT WAIT FOR A MEMBER TO APPROVE OR REJECT THEM, newest first, from the
- *  same log. The mind's code or an agent proposes a rule, for a mail or a call or for a request
- *  with a secret, and the gate keeps it until a member signs it into a rule or rejects it
- *  (`rule-proposed`; its end is `rule-set` with the proposal's id, `rule-proposal-signed`, or
- *  `rule-proposal-rejected`). What the rule holds is not read here: the mind's own page says it,
- *  from what the gate kept, and a member approves there. */
+/** The open proposals from the gate's log, newest first. A proposal is closed by `rule-set` with
+ *  its id, by `rule-proposal-signed` or by `rule-proposal-rejected`. What a rule holds is not read
+ *  here: the mind's own page says it (`proposedRules` in core/secrets-worker/src/acts-page.ts). */
 export function proposedRulesOf(events: LogEvent[]): ProposedRule[] {
   const open = new Map<string, ProposedRule>();
   for (const event of events) {
