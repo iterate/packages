@@ -23,7 +23,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@iterate-com/ui/components/ui/sidebar";
-import { mindSiteOf } from "../lib/origins.ts";
+import { mindSiteOf } from "@iterate-com/ui/lib/mind-site";
 
 /** The root loader's: the directory of apps this deployment has (apps.ts `appDirectory`), empty for
  *  a standalone Dash. */

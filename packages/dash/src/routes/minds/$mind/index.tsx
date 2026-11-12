@@ -52,7 +52,7 @@ import {
 import { Spinner } from "@iterate-com/ui/components/ui/spinner";
 import { cn } from "cn";
 
-import { mindSiteOf } from "../../../lib/origins.ts";
+import { mindSiteOf } from "@iterate-com/ui/lib/mind-site";
 
 /** The mind facet's live state, the fields this page reads: where the mind's own creation
  *  stands, as the offset of the event that says so (null until `mind/create-requested` lands). */

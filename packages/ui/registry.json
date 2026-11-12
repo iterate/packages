@@ -686,6 +686,47 @@
       ]
     },
     {
+      "name": "integrations-page",
+      "type": "registry:component",
+      "description": "The integrations page of a Dash: a card for each integration the mind's packages registered, with its connections and buttons, live from one subscription. It knows no router.",
+      "dependencies": [
+        "cn",
+        "iterate",
+        "zod"
+      ],
+      "registryDependencies": [
+        "button",
+        "card",
+        "spinner"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-warning": "var(--warning)",
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/integrations-page.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/lib/facet-view.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/mind-site.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
       "name": "iterate-logo",
       "type": "registry:component",
       "description": "The iterate mark.",

@@ -69,6 +69,7 @@
       "./components/copy-text": "./dist/components/copy-text.mjs",
       "./components/environment-head-content": "./dist/components/environment-head-content.mjs",
       "./components/identifier": "./dist/components/identifier.mjs",
+      "./components/integrations-page": "./dist/components/integrations-page.mjs",
       "./components/iterate-logo": "./dist/components/iterate-logo.mjs",
       "./components/last-mind-redirect": "./dist/components/last-mind-redirect.mjs",
       "./components/log-in-with-iterate": "./dist/components/log-in-with-iterate.mjs",
