@@ -28,7 +28,9 @@ whose config files hold the processors the editor talks to.
   `@layer utilities`, and the second sheet's plain utilities (`.hidden`) would beat the first's
   variants (`md:block`). The build fails unless `docs-editor.css` holds every rule of `styles.css`
   in its order (`scripts/check-docs-editor-css.ts`). `theme.css` and `iterate.css` go after it,
-  as after `styles.css`. An app that installs the item from the registry imports
+  as after `styles.css`. `iterate.css` is cut from `styles.css`, so the build fails when a class
+  that only the docs editor uses has a value that the look changes
+  (`scripts/build-iterate-css.ts`): use a class that another component uses too. An app that installs the item from the registry imports
   `@atomic-editor/editor/styles.css` in its own stylesheet.
 - `DocTree` draws @pierre/trees through its vanilla model (`doc-tree.ts`). The page passes the open
   path; a new one moves the selection. `doc-tree.ts` is its own build

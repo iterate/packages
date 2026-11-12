@@ -1,0 +1,6 @@
+/* What a look for the docs editor's page would be cut from: docs-editor.css with iterate's look
+   over it, as iterate.css is styles.css with the look over it. No stylesheet is built from this.
+   The build compiles it to check that dist/iterate.css, which is cut from styles.css, is also the
+   look of the classes that only the docs editor uses (scripts/build-iterate-css.ts). */
+@import "./docs-editor.css";
+@import "../styles/iterate.css";
