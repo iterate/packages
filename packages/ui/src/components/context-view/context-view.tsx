@@ -1,21 +1,21 @@
 // THE CONTEXT VIEW — one context's stream with its processors and its presence, the general-purpose
 // view every app reuses (the dash's activity pages, the agents feed's base): a strip, one line (what
 // this is — a path once, each segment a link up, `context-path.tsx` —, how many events, who is here,
-// then Pretty | Raw, Filter and Processors as labelled text buttons), a filter row (a text query, the types
+// then Filter and Processors as labelled text buttons), a filter row (a text query, the types
 // left ticked), the log folded for reading (folds.tsx) as rows one line wide on a desktop and two
 // on a phone, and two right-edge sheets — the inspector for one event, the processors with their
-// live state. Two modes on the strip: Pretty (sentences, housekeeping folded, repeats counted) and
-// Raw (the log as data); Pretty + raw (every event, sentence and raw line) is still a URL's
-// `mode=pretty-raw`, and what an opened fold lists. Nothing here ever
-// scrolls sideways; the inspector shows what a line cuts.
+// live state. THE LOG READS ONE WAY: each row is an event's offset, its time, its type as it is
+// stored and a glance at its payload, in the page's own font (event-row.tsx); events in a row of one
+// type, or of the stream's upkeep, are one row that opens in place. Nothing here ever scrolls
+// sideways; the inspector shows what a line cuts, and the event whole as JSON.
 // BUILT FOR 100,000 EVENTS: the log arrives newest page first and grows at both ends (live
 // appends, older pages as the reader scrolls up — `older`); the filter, the type counts and the fold
 // follow that growth instead of passing over the whole log again (folds.tsx `refold`), and the rows
 // are one virtual list in the view's own scroll region (feed-list.tsx), so the view needs a bounded
 // height from its caller (a flex child that fills the page).
 // CONTROLLED: every choice a person makes here is `state` (context-view-search.ts — a URL's search
-// in every app) and comes back as an `onStateChange` patch, so a view is a link: the mode, the
-// filter, the inspected event, the open sheet. Only the folds opened in place stay local — scroll-
+// in every app) and comes back as an `onStateChange` patch, so a view is a link: the
+// filter, the inspected event, the open sheet. Only the runs opened in place stay local — scroll-
 // position-grade ephemera. Pure otherwise: the context arrives as ONE prop, `context` — what the
 // SDK's `useIterateContext(itx)` returns, typed structurally here (`ContextViewSource`) so the UI kit
 // stays free of the SDK: `<ContextView context={useIterateContext(itx)} … />`.
@@ -32,31 +32,27 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "cn";
-import { ContextPathLinksContext, type ContextPathLinks } from "./context-path-links.ts";
 import {
   contextViewFilterOf,
   RIGHT_EDGE_CLOSED,
   type ContextViewState,
 } from "./context-view-search.ts";
-import { coreEventInspectors, coreEventRenderers } from "./core-renderers.tsx";
+import { coreEventInspectors } from "./core-events.tsx";
 import { EventInspector } from "./event-inspector.tsx";
 import { FeedList } from "./feed-list.tsx";
 import { actorLabel, narrows, recount, refilter, sortedCounts } from "./filters.tsx";
-import { refold, sentenceText } from "./folds.tsx";
+import { refold } from "./folds.tsx";
 import { AppendComposer } from "./append-composer.tsx";
 import { type ContextViewAppendEvent } from "./append-events.ts";
 import { FilterRow } from "./filter-row.tsx";
 import { EventRate, PresenceStrip } from "./presence-strip.tsx";
 import { ProcessorsPanel } from "./processors-panel.tsx";
-import {
-  type ContextViewEvent,
-  type ContextViewMode,
-  type ContextViewPresence,
-  type ContextViewProcessor,
-  type LiveStateView,
-  type EventInspectors,
-  type EventRenderers,
-  rendererFor,
+import type {
+  ContextViewEvent,
+  ContextViewPresence,
+  ContextViewProcessor,
+  LiveStateView,
+  EventInspectors,
 } from "./types.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import {
@@ -66,11 +62,6 @@ import {
 } from "#/components/virtual-log/older-pages.ts";
 import { ReadProgress } from "#/components/virtual-log/read-progress.tsx";
 import { remembered } from "#/components/virtual-log/remembered.ts";
-
-const MODES: { id: ContextViewMode; label: string }[] = [
-  { id: "pretty", label: "Pretty" },
-  { id: "raw", label: "Raw" },
-];
 
 /** The strip's text buttons: a word, muted, the one that is on on a quiet fill — no border. */
 const stripButton = (on: boolean) =>
@@ -83,12 +74,10 @@ export function ContextView({
   title,
   context,
   error: callerError,
-  renderers,
   inspectors,
   state,
   onStateChange,
   onAppend,
-  pathLinks,
   emptyText = "Nothing has happened on this context yet.",
   className,
   columnClassName,
@@ -99,7 +88,6 @@ export function ContextView({
   context: ContextViewSource;
   /** The caller's own failure (opening the context), shown over the context's. */
   error?: string;
-  renderers?: EventRenderers;
   /** Rich inspector bodies by type — over the platform's own (a script's code, its result). */
   inspectors?: EventInspectors;
   /** The view's state — the route's parsed search (`validateSearch: ContextViewState`). */
@@ -109,8 +97,6 @@ export function ContextView({
   /** Append to the context (`(events) => itx.append(...events)`); omitted = a view with no composer.
    *  The platform stamps who appended: nothing to add here. */
   onAppend?: (events: ContextViewAppendEvent[]) => Promise<unknown>;
-  /** Where a context path a row names links (a child context's); omitted = plain text. */
-  pathLinks?: ContextPathLinks;
   emptyText?: string;
   className?: string;
   /** The column the text sits in, when it is narrower than the view, so that the scrollbar stays at
@@ -122,22 +108,17 @@ export function ContextView({
   const older = (!context.error && context.older) || OLDER_EXHAUSTED;
   const processors = context.processors.rows;
   const error = callerError || context.error || context.processors.error;
-  const mode = state.mode || "pretty";
   const filter = useMemo(() => contextViewFilterOf(state), [state]);
   const filtering = Boolean(state.filter);
   const inspected = state.event;
-  /** The folds opened in place, by item key. */
+  /** The runs opened in place, by item key. */
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   /** Bumped by each append from here: the feed goes back to its tail to show it land. */
   const [followTail, setFollowTail] = useState(0);
-  // the platform's own events read as sentences everywhere; an app's renderers lie over them
-  const allRenderers = useMemo(() => ({ ...coreEventRenderers, ...renderers }), [renderers]);
   const allInspectors = useMemo(() => ({ ...coreEventInspectors, ...inspectors }), [inspectors]);
   const { shown, items, namedBefore, types } = useFoldedLog({
     events,
     filter,
-    mode,
-    renderers: allRenderers,
     counting: filtering,
   });
   const filtered = narrows(filter);
@@ -176,7 +157,6 @@ export function ContextView({
           events={events}
           presence={presence}
           pickedActor={filter.actor}
-          mode={mode}
           filtering={filtering}
           filtered={filtered}
           processorCount={processors.length}
@@ -200,51 +180,46 @@ export function ContextView({
           </p>
         ) : null}
       </div>
-      <ContextPathLinksContext value={pathLinks}>
-        <FeedList
-          items={items}
-          namedBefore={namedBefore}
-          mode={mode}
-          renderers={allRenderers}
-          inspected={inspected}
-          onInspect={inspect}
-          opened={opened}
-          onToggle={toggleOpened}
-          older={older}
-          logShare={heldShare(events, head)}
-          followTail={followTail}
-          arrivals={shown}
-          columnClassName={columnClassName}
-          empty={
-            error ? null : (
-              <FeedEmpty
-                caughtUp={caughtUp}
-                readProgress={older.exhausted ? undefined : heldShare(events, head)}
-                text={filtered ? "No event matches the filter." : emptyText}
-              />
-            )
-          }
-          footer={
-            onAppend ? (
-              <div className="bg-background">
-                <div className={columnClassName}>
-                  <AppendComposer
-                    onAppend={onAppend}
-                    onAppended={() => setFollowTail((count) => count + 1)}
-                    events={events}
-                    processors={processors}
-                  />
-                </div>
+      <FeedList
+        items={items}
+        namedBefore={namedBefore}
+        inspected={inspected}
+        onInspect={inspect}
+        opened={opened}
+        onToggle={toggleOpened}
+        older={older}
+        logShare={heldShare(events, head)}
+        followTail={followTail}
+        arrivals={shown}
+        columnClassName={columnClassName}
+        empty={
+          error ? null : (
+            <FeedEmpty
+              caughtUp={caughtUp}
+              readProgress={older.exhausted ? undefined : heldShare(events, head)}
+              text={filtered ? "No event matches the filter." : emptyText}
+            />
+          )
+        }
+        footer={
+          onAppend ? (
+            <div className="bg-background">
+              <div className={columnClassName}>
+                <AppendComposer
+                  onAppend={onAppend}
+                  onAppended={() => setFollowTail((count) => count + 1)}
+                  events={events}
+                  processors={processors}
+                />
               </div>
-            ) : null
-          }
-        />
-      </ContextPathLinksContext>
+            </div>
+          ) : null
+        }
+      />
       <EventInspector
         events={events}
         offset={inspected}
         older={older}
-        renderers={allRenderers}
         inspectors={allInspectors}
         onNavigate={inspect}
         onClose={() => onStateChange({ event: undefined })}
@@ -268,40 +243,17 @@ export function ContextView({
 function useFoldedLog({
   events,
   filter,
-  mode,
-  renderers,
   counting,
 }: {
   events: readonly ContextViewEvent[];
   filter: ReturnType<typeof contextViewFilterOf>;
-  mode: ContextViewMode;
-  renderers: EventRenderers;
   /** The type counts are asked for only while the filter row that lists them is open. */
   counting: boolean;
 }) {
   const [filtering] = useState(() => remembered(refilter));
   const shown = useMemo(() => filtering(events, filter).shown, [filtering, events, filter]);
-  // the same fact = the same sentence: four sign-ins fold whatever their timestamps and ids say.
-  // Remembered per event: a fold asks it of every event it passes, and a render per ask is most of
-  // a fold's time.
-  const factOf = useMemo(() => {
-    const facts = new WeakMap<ContextViewEvent, string>();
-    return (event: ContextViewEvent) => {
-      let fact = facts.get(event);
-      if (!fact) {
-        const sentence = rendererFor(renderers, event.type)?.(event);
-        const text = sentence ? sentenceText(sentence) : "";
-        fact = `${event.type}\u0000${text || JSON.stringify(event.payload ?? null)}`;
-        facts.set(event, fact);
-      }
-      return fact;
-    };
-  }, [renderers]);
   const [folding] = useState(() => remembered(refold));
-  const { items, namedBefore } = useMemo(
-    () => folding(shown, mode, factOf, actorLabel),
-    [folding, shown, mode, factOf],
-  );
+  const { items, namedBefore } = useMemo(() => folding(shown, actorLabel), [folding, shown]);
   const [recounting] = useState(() => remembered(recount));
   const types = useMemo(
     () => (counting ? sortedCounts(recounting(events).counts) : []),
@@ -337,7 +289,6 @@ function ContextStrip({
   events,
   presence,
   pickedActor,
-  mode,
   filtering,
   filtered,
   processorCount,
@@ -349,7 +300,6 @@ function ContextStrip({
   events: readonly ContextViewEvent[];
   presence: ContextViewSource["presence"];
   pickedActor: string | undefined;
-  mode: ContextViewMode;
   filtering: boolean;
   filtered: boolean;
   processorCount: number;
@@ -372,22 +322,6 @@ function ContextStrip({
         onPick={(actor) => onStateChange({ actor: pickedActor === actor ? undefined : actor })}
       />
       <div className="ml-auto flex items-center gap-3 text-xs">
-        <div role="tablist" aria-label="How the log reads" className="flex gap-0.5">
-          {MODES.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === candidate.id}
-              onClick={() =>
-                onStateChange({ mode: candidate.id === "pretty" ? undefined : candidate.id })
-              }
-              className={stripButton(mode === candidate.id)}
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </div>
         <button
           type="button"
           onClick={() => onStateChange({ filter: filtering ? undefined : true })}
@@ -431,7 +365,7 @@ function FeedEmpty({
         <ReadProgress label="Reading the log" value={readProgress} />
       </div>
     );
-  return <p className="font-readme px-3 sm:px-4 py-6 text-sm text-muted-foreground">{text}</p>;
+  return <p className="px-3 sm:px-4 py-6 text-sm text-muted-foreground">{text}</p>;
 }
 
 /** What `ContextView` reads of the SDK's `useIterateContext` result — structural, so any source of

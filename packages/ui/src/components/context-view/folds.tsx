@@ -1,23 +1,20 @@
-// The log folded for reading, as a pure function: day separators wherever the date turns; in
-// Pretty, a run of the platform's housekeeping becomes one quiet row and a fact repeated
-// back-to-back — the same SENTENCE, whatever the payload's timestamps and ids (four "Signed in with
-// a browser cookie" in a row) — becomes one row with its count. Pretty + raw and Raw keep every
-// event; only the days are marked.
+// The log folded for reading, as a pure function: a day mark wherever the date turns, and a RUN
+// wherever events repeat. A run is two or more events in a row, on one day, that are all of one
+// type ("itx/rewrite-rule-configured ×2") or all the stream's upkeep, whatever their types
+// ("itx/woken, itx/subscription-configured ×4": core-events.tsx `isUpkeep`). A run is one row,
+// which opens in place to its events. Every other event is a row of its own.
 // INCREMENTALLY, for a log of 100,000 events that grows at both ends (live appends at the tail,
 // older pages prepended at the head): `refold` re-folds only the last item and what was appended,
 // or the first item and what was prepended, and folds the whole log only when it changed otherwise.
 // It equals `foldEvents` over the whole log (folds.test.tsx proves it across appends and prepends).
-import { isValidElement, type ReactNode } from "react";
-import { isHousekeeping } from "./core-renderers.tsx";
-import type { ContextViewEvent, ContextViewMode } from "./types.tsx";
+import { isUpkeep } from "./core-events.tsx";
+import type { ContextViewEvent } from "./types.tsx";
 
 export type FeedItem =
   | { kind: "day"; key: string; date: Date }
   | { kind: "event"; key: string; event: ContextViewEvent }
-  /** The same fact several times in a row — shown once, with how many. */
-  | { kind: "repeat"; key: string; events: ContextViewEvent[] }
-  /** A run of the platform's housekeeping — one quiet row, expandable. */
-  | { kind: "housekeeping"; key: string; events: ContextViewEvent[] };
+  /** Events in a row of one type, or all upkeep: one row with their types and counts. */
+  | { kind: "run"; key: string; events: ContextViewEvent[] };
 
 /** The LOCAL calendar day an event fell on — the day the reader's clock says, the same day the
  *  separator labels (feed-rows.tsx); grouping by the UTC date would open a second "Today" for an
@@ -33,30 +30,9 @@ function dayOf(event: ContextViewEvent): string {
 }
 const daysSeen = new WeakMap<ContextViewEvent, string>();
 
-/** What makes two events "the same fact" for the repeat fold. The view keys by the type and the
- *  rendered sentence's text (`sentenceText`); without renderers, by the type and the payload. */
-export type FactKey = (event: ContextViewEvent) => string;
-export const factByPayload: FactKey = (event) =>
-  JSON.stringify([event.type, event.payload ?? null]);
-
-/** The words of a rendered sentence — strings and numbers, elements' children walked — so two
- *  renderings compare as text. Sentences are small trees of spans and strongs; nothing else is expected. */
-export function sentenceText(node: ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(sentenceText).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return sentenceText(node.props.children);
-  return "";
-}
-
 /** Fold `events` into items. `markedDay` is the day already marked above them (a re-fold of the
  *  tail continues the day its first event fell on, so it opens no second separator for it). */
-export function foldEvents(
-  events: readonly ContextViewEvent[],
-  mode: ContextViewMode,
-  factOf: FactKey = factByPayload,
-  markedDay = "",
-): FeedItem[] {
+export function foldEvents(events: readonly ContextViewEvent[], markedDay = ""): FeedItem[] {
   const items: FeedItem[] = [];
   let lastDay = markedDay;
   let i = 0;
@@ -67,36 +43,21 @@ export function foldEvents(
       items.push({ kind: "day", key: `day:${day}`, date: new Date(event.createdAt) });
       lastDay = day;
     }
-    if (mode === "pretty") {
-      if (isHousekeeping(event)) {
-        let end = i + 1;
-        while (end < events.length && isHousekeeping(events[end]!) && dayOf(events[end]!) === day)
-          end += 1;
-        const run = events.slice(i, end);
-        items.push(
-          run.length === 1
-            ? { kind: "event", key: `event:${String(event.offset)}`, event }
-            : { kind: "housekeeping", key: `housekeeping:${String(event.offset)}`, events: run },
-        );
-        i = end;
-        continue;
-      }
-      const fact = factOf(event);
-      let end = i + 1;
-      while (end < events.length && dayOf(events[end]!) === day && factOf(events[end]!) === fact)
-        end += 1;
-      if (end - i >= 2) {
-        items.push({
-          kind: "repeat",
-          key: `repeat:${String(event.offset)}`,
-          events: events.slice(i, end),
-        });
-        i = end;
-        continue;
-      }
-    }
-    items.push({ kind: "event", key: `event:${String(event.offset)}`, event });
-    i += 1;
+    // upkeep continues a run of upkeep; anything else continues a run of its own type
+    const upkeep = isUpkeep(event);
+    let end = i + 1;
+    while (
+      end < events.length &&
+      dayOf(events[end]!) === day &&
+      (upkeep ? isUpkeep(events[end]!) : events[end]!.type === event.type)
+    )
+      end += 1;
+    items.push(
+      end - i === 1
+        ? { kind: "event", key: `event:${String(event.offset)}`, event }
+        : { kind: "run", key: `run:${String(event.offset)}`, events: events.slice(i, end) },
+    );
+    i = end;
   }
   return items;
 }
@@ -156,8 +117,6 @@ export function growthOf<T>(
 /** A fold and what it folded, for the next `refold`. */
 export type Fold = {
   events: readonly ContextViewEvent[];
-  mode: ContextViewMode;
-  factOf: FactKey;
   items: FeedItem[];
   /** `whoBefore` of `items`. */
   namedBefore: string[];
@@ -170,23 +129,16 @@ export type Fold = {
 export function refold(
   previous: Fold | undefined,
   events: readonly ContextViewEvent[],
-  mode: ContextViewMode,
-  factOf: FactKey,
   actorOf: (event: ContextViewEvent) => string,
 ): Fold {
-  const growth =
-    previous && previous.mode === mode && previous.factOf === factOf && previous.items.length > 0
-      ? growthOf(previous.events, events)
-      : null;
+  const growth = previous && previous.items.length > 0 ? growthOf(previous.events, events) : null;
   if (previous && growth && "end" in growth) {
     if (growth.end.length === 0) return { ...previous, events };
     const last = previous.items.at(-1)!; // a day mark is always followed by an item: never a day
     const start = previous.events.length - sizeOf(last);
-    const tail = foldEvents(events.slice(start), mode, factOf, dayOf(events[start]!));
+    const tail = foldEvents(events.slice(start), dayOf(events[start]!));
     return {
       events,
-      mode,
-      factOf,
       items: previous.items.slice(0, -1).concat(tail),
       namedBefore: previous.namedBefore
         .slice(0, -1)
@@ -195,10 +147,10 @@ export function refold(
   }
   if (previous && growth && "start" in growth) {
     const first = previous.items[1]!; // items[0] is the first day's mark
-    const seam = foldEvents(events.slice(0, growth.start.length + sizeOf(first)), mode, factOf);
+    const seam = foldEvents(events.slice(0, growth.start.length + sizeOf(first)));
     const items = seam.concat(previous.items.slice(2));
-    return { events, mode, factOf, items, namedBefore: whoBefore(items, actorOf) };
+    return { events, items, namedBefore: whoBefore(items, actorOf) };
   }
-  const items = foldEvents(events, mode, factOf);
-  return { events, mode, factOf, items, namedBefore: whoBefore(items, actorOf) };
+  const items = foldEvents(events);
+  return { events, items, namedBefore: whoBefore(items, actorOf) };
 }

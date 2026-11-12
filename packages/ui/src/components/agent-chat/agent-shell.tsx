@@ -12,9 +12,9 @@ import { useMemo, type ReactNode } from "react";
 import { CircleIcon } from "lucide-react";
 import { cn } from "cn";
 import type { AgentChatState } from "./agent-chat-search.ts";
-import { agentEventInspectors, agentEventRenderers } from "./agent-event-renderers.tsx";
+import { agentEventInspectors } from "./agent-event-inspectors.tsx";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import type { EventInspectors, EventRenderers } from "#/components/context-view/types.tsx";
+import type { EventInspectors } from "#/components/context-view/types.tsx";
 import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
 
 /** What the strip says the agent is doing, and how loudly. */
@@ -33,7 +33,6 @@ export function AgentShell({
   onStateChange,
   onAppend,
   status,
-  renderers,
   inspectors,
   sheet,
   closeSheet,
@@ -52,8 +51,6 @@ export function AgentShell({
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** The strip's line. Omitted: the strip shows the tabs alone. */
   status?: AgentShellStatus;
-  /** Sentences for the kind's own event types in the Events tab, over the agent ones. */
-  renderers?: EventRenderers;
   /** Inspector bodies for the kind's own event types, over the agent ones. */
   inspectors?: EventInspectors;
   /** One right-edge sheet of the kind's own (iterate's traces), drawn over both tabs. */
@@ -66,7 +63,6 @@ export function AgentShell({
 }) {
   const error = hostError || context.error;
   const view = children ? state.view : "events";
-  const allRenderers = useMemo(() => ({ ...agentEventRenderers, ...renderers }), [renderers]);
   const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
   const held = context.events.length;
   const wholeLogHeld = !context.older || context.older.exhausted;
@@ -124,10 +120,9 @@ export function AgentShell({
             // the view scrolls its own feed: it fills the tab
             className="min-h-0 w-full flex-1 py-2"
             columnClassName="mx-auto w-full max-w-3xl px-4 md:px-6"
-            title={<span className="font-mono text-xs">{path}</span>}
+            title={path}
             context={context}
             error={hostError}
-            renderers={allRenderers}
             inspectors={allInspectors}
             onAppend={onAppend}
             state={state}

@@ -18,8 +18,9 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   every older page, because its prompt is every context item before the request.
 - Inputs with `llmRequestPolicy: "dont-trigger-request"` fold into one quiet row per run. They close
   no activity and join no queue. Inputs that start a turn stay bubbles.
-- The page's own rows go under a feed item through `itemFooter`. `renderers` and `inspectors` name
-  the page's own event types in the Events tab.
+- The page's own rows go under a feed item through `itemFooter`. `inspectors` gives the Events
+  tab's inspector a body for the page's own event types. The rows of the Events tab are the same
+  for every type: the type as stored and a glance at the payload.
 - The copy buttons call sonner's `toast`, so the page renders this package's `Toaster` once
   (`AppProviders` does this in the apps).
 - Markdown renders through streamdown. An app's stylesheet must scan it

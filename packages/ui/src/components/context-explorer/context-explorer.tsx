@@ -96,7 +96,6 @@ export function ContextExplorer({
             context={context}
             state={state}
             onStateChange={onStateChange}
-            pathLinks={links}
             onAppend={stub ? (events) => stub.append(...events) : undefined}
             // the feed scrolls itself: it fills what the page leaves it, never less than 24rem
             className="min-h-96 flex-1"

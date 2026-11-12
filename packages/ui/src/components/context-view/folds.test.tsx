@@ -1,13 +1,13 @@
-// Folding the log for reading: days, housekeeping runs, repeated facts — and that the raw modes fold nothing.
-// The fixture's two days sit 48 h apart at noon UTC, so they are two local days in every timezone.
+// Folding the log for reading: days, and runs (events in a row of one type, or of the stream's
+// upkeep). The fixture's two days sit 48 h apart at noon UTC, so they are two local days in every
+// timezone.
 import { expect, test } from "vitest";
+import { runLabel } from "./feed-rows.tsx";
 import {
-  factByPayload,
   foldEvents,
   growthOf,
   lastEventOf,
   refold,
-  sentenceText,
   whoBefore,
   type FeedItem,
   type Fold,
@@ -20,7 +20,6 @@ import {
   type Filtered,
   type TypeCounts,
 } from "./filters.tsx";
-import { housekeepingSummary } from "./core-renderers.tsx";
 import type { ContextViewEvent } from "./types.tsx";
 
 const log: ContextViewEvent[] = [
@@ -48,49 +47,65 @@ const log: ContextViewEvent[] = [
 ];
 
 // ── foldEvents ──
-test("pretty: a day mark, housekeeping runs folded, a repeated fact shown once with its count", () => {
-  const items = foldEvents(log, "pretty");
-  expect(items.map((item) => item.kind)).toEqual([
-    "day",
-    "event", // born
-    "housekeeping", // woken + subscription
-    "repeat", // 3 cookie sign-ins
-    "event", // the admin-secret sign-in differs in payload
-    "day",
-    "housekeeping", // woken + subscription + live state
-    "event", // grant minted
+test("a day mark, a run of upkeep as one item, and events in a row of one type as one item whatever their payloads", () => {
+  const items = foldEvents(log);
+  expect(items.map(shape)).toEqual([
+    "day:Mon Sep 21 2026",
+    "event:1 1", // itx/created
+    "run:2 2,3", // itx/woken, itx/subscription-configured: upkeep, two types
+    "run:4 4,5,6,7", // account/authenticated ×4, the last with another credential
+    "day:Wed Sep 23 2026",
+    "run:8 8,9,10", // woken, subscription, live state
+    "event:11 11",
   ]);
-  const repeat = items[3];
-  expect(repeat.kind === "repeat" && repeat.events.map((e) => e.offset)).toEqual([4, 5, 6]);
-  const housekeeping = items[6];
-  expect(housekeeping.kind === "housekeeping" && housekeeping.events.length).toBe(3);
 });
-test("a lone housekeeping event stays a plain row; a run never crosses a day", () => {
-  const items = foldEvents([log[0]!, log[1]!, log[3]!], "pretty");
-  expect(items.map((item) => item.kind)).toEqual(["day", "event", "event", "event"]);
-  const acrossDays = foldEvents([log[1]!, log[7]!], "pretty");
-  expect(acrossDays.map((item) => item.kind)).toEqual(["day", "event", "day", "event"]);
+test("one event of upkeep stays a row of its own, and a run never crosses a day", () => {
+  expect(foldEvents([log[0]!, log[1]!, log[3]!]).map((item) => item.kind)).toEqual([
+    "day",
+    "event",
+    "event",
+    "event",
+  ]);
+  expect(foldEvents([log[1]!, log[7]!]).map((item) => item.kind)).toEqual([
+    "day",
+    "event",
+    "day",
+    "event",
+  ]);
 });
-test("pretty + raw and raw keep every event; only the days are marked", () => {
-  for (const mode of ["pretty-raw", "raw"] as const) {
-    const items = foldEvents(log, mode);
-    expect(items.filter((item) => item.kind === "event")).toHaveLength(log.length);
-    expect(items.filter((item) => item.kind === "day")).toHaveLength(2);
-  }
+test("a run of one type does not take in upkeep, nor a run of upkeep an event that is not", () => {
+  const mixed = [
+    at(1, "t.example.com/a", {}),
+    at(2, "t.example.com/a", {}),
+    at(3, "events.iterate.com/itx/woken", {}),
+    at(4, "t.example.com/a", {}),
+    at(5, "t.example.com/b", {}),
+  ];
+  expect(foldEvents(mixed).map(shape).slice(1)).toEqual([
+    "run:1 1,2",
+    "event:3 3",
+    "event:4 4",
+    "event:5 5",
+  ]);
 });
-test("lastEventOf anchors the next gap at the end of a fold", () => {
-  const items = foldEvents(log, "pretty");
-  expect(lastEventOf(items[3])?.offset).toBe(6);
+test("lastEventOf anchors the next gap at the end of a run", () => {
+  const items = foldEvents(log);
+  expect(lastEventOf(items[3])?.offset).toBe(7);
   expect(lastEventOf(items[0])).toBeUndefined();
 });
 
-test("housekeepingSummary counts by kind", () => {
+test("a run's line names its types as they are stored, in order, with a count for each that repeats", () => {
+  expect(runLabel([log[1]!, log[2]!, log[7]!, log[8]!, log[9]!].map((e) => e.type))).toBe(
+    "itx/woken ×2, itx/subscription-configured ×2, itx/live-state-changed",
+  );
   expect(
-    housekeepingSummary([log[1]!, log[2]!, log[7]!, log[8]!, log[9]!].map((e) => e.type)),
-  ).toBe("woke ×2, subscription ×2, live state");
+    runLabel(Array.from({ length: 4 }, () => "events.iterate.com/account/authenticated")),
+  ).toBe("account/authenticated ×4");
+  // a type of an app's own is shown whole
+  expect(runLabel(["t.example.com/a", "t.example.com/a"])).toBe("t.example.com/a ×2");
 });
 
-test("an agent keeping warm folds as housekeeping, however long the call", () => {
+test("an agent keeping warm is upkeep, however long the call", () => {
   const kept = [
     at(1, "events.iterate.com/agent/warm-up-requested", {}),
     at(2, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 1 }),
@@ -98,92 +113,35 @@ test("an agent keeping warm folds as housekeeping, however long the call", () =>
     at(4, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 3 }),
     at(5, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
   ];
-  const [first, ...rest] = foldEvents(kept, "pretty").filter((item) => item.kind !== "day");
-  expect(rest).toEqual([]);
-  expect(first?.kind).toBe("housekeeping");
-  expect(housekeepingSummary(kept.map((event) => event.type))).toBe(
-    "warm-up ×2, kept warm ×2, idle check",
+  expect(foldEvents(kept).map(shape).slice(1)).toEqual(["run:1 1,2,3,4,5"]);
+  expect(runLabel(kept.map((event) => event.type))).toBe(
+    "agent/warm-up-requested ×2, agent/cache-kept-warm ×2, agent/idle-check",
   );
 });
 
-test("warming that stopped stays a row of its own: that is news, not housekeeping", () => {
+test("warming that stopped is news, not upkeep: it is no part of the upkeep before it", () => {
   const kept = [
     at(1, "events.iterate.com/agent/warm-up-requested", {}),
     at(2, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
     at(3, "events.iterate.com/agent/cache-kept-warm", { stopped: "missed" }),
-    at(4, "events.iterate.com/agent/cache-kept-warm", { stopped: "cost-cap" }),
+    at(4, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
   ];
-  expect(
-    foldEvents(kept, "pretty")
-      .filter((item) => item.kind !== "day")
-      .map((item) => item.kind),
-  ).toEqual(["housekeeping", "event", "event"]);
+  expect(foldEvents(kept).map(shape).slice(1)).toEqual(["run:1 1,2", "event:3 3", "event:4 4"]);
 });
 
-// ── the same fact is the same sentence ──
-test("payloads that differ only in timestamps and ids fold when a fact key says they read the same", () => {
-  const signIns = [
-    at(1, "events.iterate.com/account/authenticated", {
-      credential: "cookie",
-      at: 1,
-      operationId: "a",
-    }),
-    at(2, "events.iterate.com/account/authenticated", {
-      credential: "cookie",
-      at: 2,
-      operationId: "b",
-    }),
-    at(3, "events.iterate.com/account/authenticated", {
-      credential: "admin-secret",
-      at: 3,
-      operationId: "c",
-    }),
-  ];
-  expect(foldEvents(signIns, "pretty").map((item) => item.kind)).toEqual([
-    "day",
-    "event",
-    "event",
-    "event",
-  ]);
-  expect(
-    foldEvents(
-      signIns,
-      "pretty",
-      // the sentence would read the credential only — so key by it
-      (event) => `${event.type}:${String((event.payload as { credential: string }).credential)}`,
-    ).map((item) => item.kind),
-  ).toEqual(["day", "repeat", "event"]);
-});
-test("sentenceText walks strings, numbers, arrays and elements' children", () => {
-  expect(
-    sentenceText(
-      <>
-        Approved <strong>Claude Code</strong> for {1} mind{["(s)", null, false]}
-      </>,
-    ),
-  ).toBe("Approved Claude Code for 1 mind(s)");
-});
-
-test("whoBefore: carries the last named actor over housekeeping, starts afresh at a day mark", () => {
+test("whoBefore: carries the last named actor over upkeep, starts afresh at a day mark", () => {
   const named = (offset: number, actor: string, iso?: string): ContextViewEvent => ({
-    ...at(
-      offset,
-      "events.iterate.com/account/personal-access-token-minted",
-      { id: `pat_${String(offset)}` },
-      iso,
-    ),
+    // a type of its own each, so that none folds into the one before it
+    ...at(offset, `t.example.com/did-${String(offset)}`, { id: `pat_${String(offset)}` }, iso),
     source: { principal: { actor } },
   });
-  const items = foldEvents(
-    [
-      named(1, "user_a"),
-      at(2, "events.iterate.com/itx/woken", { incarnation: 2 }),
-      named(3, "user_a"),
-      named(4, "user_b"),
-      named(5, "user_b", "2026-09-23T12:00:00.000Z"),
-    ],
-    "pretty",
-  );
+  const items = foldEvents([
+    named(1, "user_a"),
+    at(2, "events.iterate.com/itx/woken", { incarnation: 2 }),
+    named(3, "user_a"),
+    named(4, "user_b"),
+    named(5, "user_b", "2026-09-23T12:00:00.000Z"),
+  ]);
   expect(items.map((item) => item.kind)).toEqual([
     "day",
     "event",
@@ -206,10 +164,10 @@ test("whoBefore: carries the last named actor over housekeeping, starts afresh a
 });
 
 // ── the incremental passes equal the whole ones ──
-// A log of runs (repeats, housekeeping, lone events, actors changing hands) across three days, grown
-// the way the SDK's log grows: the newest page first, then older pages prepended and live events
-// appended, a few at a time, with ends that split runs and days. After every step the incremental
-// fold, filter and type counts must equal the whole passes over the log as it stands.
+// A log of runs (one type in a row, upkeep, lone events, actors changing hands) across three days,
+// grown the way the SDK's log grows: the newest page first, then older pages prepended and live
+// events appended, a few at a time, with ends that split runs and days. After every step the
+// incremental fold, filter and type counts must equal the whole passes over the log as it stands.
 const grown = growingLog(240);
 const growths: {
   name: string;
@@ -233,42 +191,38 @@ const growths: {
     sizes: [97, 2],
   },
 ];
-for (const growth of growths)
-  for (const mode of ["pretty", "pretty-raw", "raw"] as const)
-    test(`refold, refilter, recount: ${growth.name}, ${mode}`, () => {
-      const actorOf = (event: ContextViewEvent) => event.source?.principal?.actor || "";
-      const filter = {
-        query: "",
-        types: new Set(["t.example.com/a", "events.iterate.com/itx/woken"]),
-      };
-      let [low, high] = growth.from;
-      let fold: Fold | undefined;
-      let filtered: Filtered | undefined;
-      let counts: TypeCounts | undefined;
-      let filteredFold: Fold | undefined;
-      for (let step = 0; low > 0 || high < grown.length; step += 1) {
-        const size = growth.sizes[step % growth.sizes.length]!;
-        const direction = growth.steps[step % growth.steps.length]!;
-        if (direction === "prepend") low = Math.max(0, low - size);
-        else high = Math.min(grown.length, high + size);
-        // a fresh array each step, as the SDK publishes, holding the same event objects
-        const log = grown.slice(low, high);
-        fold = refold(fold, log, mode, factByPayload, actorOf);
-        const whole = foldEvents(log, mode);
-        expect(fold.items.map(shape)).toEqual(whole.map(shape));
-        expect(fold).toMatchObject({ namedBefore: whoBefore(whole, actorOf) });
-        filtered = refilter(filtered, log, filter);
-        expect(filtered.shown.map((e) => e.offset)).toEqual(
-          filterEvents(log, filter).map((e) => e.offset),
-        );
-        filteredFold = refold(filteredFold, filtered.shown, mode, factByPayload, actorOf);
-        expect(filteredFold.items.map(shape)).toEqual(
-          foldEvents(filterEvents(log, filter), mode).map(shape),
-        );
-        counts = recount(counts, log);
-        expect([...counts.counts.entries()].sort()).toEqual(typeCounts(log).sort());
-      }
-    });
+test.for(growths)("refold, refilter, recount: $name", (growth) => {
+  const actorOf = (event: ContextViewEvent) => event.source?.principal?.actor || "";
+  const filter = {
+    query: "",
+    types: new Set(["t.example.com/a", "events.iterate.com/itx/woken"]),
+  };
+  let [low, high] = growth.from;
+  let fold: Fold | undefined;
+  let filtered: Filtered | undefined;
+  let counts: TypeCounts | undefined;
+  let filteredFold: Fold | undefined;
+  for (let step = 0; low > 0 || high < grown.length; step += 1) {
+    const size = growth.sizes[step % growth.sizes.length]!;
+    const direction = growth.steps[step % growth.steps.length]!;
+    if (direction === "prepend") low = Math.max(0, low - size);
+    else high = Math.min(grown.length, high + size);
+    // a fresh array each step, as the SDK publishes, holding the same event objects
+    const log = grown.slice(low, high);
+    fold = refold(fold, log, actorOf);
+    const whole = foldEvents(log);
+    expect(fold.items.map(shape)).toEqual(whole.map(shape));
+    expect(fold).toMatchObject({ namedBefore: whoBefore(whole, actorOf) });
+    filtered = refilter(filtered, log, filter);
+    expect(filtered.shown.map((e) => e.offset)).toEqual(
+      filterEvents(log, filter).map((e) => e.offset),
+    );
+    filteredFold = refold(filteredFold, filtered.shown, actorOf);
+    expect(filteredFold.items.map(shape)).toEqual(foldEvents(filterEvents(log, filter)).map(shape));
+    counts = recount(counts, log);
+    expect([...counts.counts.entries()].sort()).toEqual(typeCounts(log).sort());
+  }
+});
 
 // growthOf compares items by identity; distinct strings stand in for distinct events.
 test.for([
@@ -298,8 +252,8 @@ function shape(item: FeedItem): string {
   return `${item.key} ${offsets.join(",")}`;
 }
 
-/** `count` events over three days: runs of one fact (repeats), runs of housekeeping, lone events,
- *  and actors changing hands every so often. */
+/** `count` events over three days: runs of one type, runs of upkeep, lone events, and actors
+ *  changing hands every so often. */
 function growingLog(count: number): ContextViewEvent[] {
   return Array.from({ length: count }, (_, i) => {
     const day = i < 80 ? "2026-09-21" : i < 170 ? "2026-09-23" : "2026-09-25";
@@ -307,9 +261,9 @@ function growingLog(count: number): ContextViewEvent[] {
     const k = i % 23;
     const type =
       k < 5
-        ? "t.example.com/a" // a run of five of the same fact
+        ? "t.example.com/a" // a run of five of one type
         : k < 9
-          ? "events.iterate.com/itx/woken" // housekeeping
+          ? "events.iterate.com/itx/woken" // upkeep
           : `t.example.com/unique-${String(i)}`;
     const payload = k < 5 ? { same: true } : { i };
     return {

@@ -1,16 +1,15 @@
-// The rows that are not one event: the day mark (a plain word over the clock column, no rule), a
-// repeated fact with a small count, a run of the platform's housekeeping folded into one quiet line
-// ("2 housekeeping · woke, subscription"). The two folds open in place on a click: the feed lists
-// their members under them as rows of their own (feed-list.tsx), each opening the inspector like
-// any row. Memoised, like every row: the feed re-renders on every scroll frame.
+// The rows that are not one event: the day mark (a plain word over the clock column, no rule), and
+// a run of events folded into one line, which names their types as they are stored and how many of
+// each ("itx/subscription-configured ×4"). A run opens in place on a click: the feed lists its
+// events under it as rows of their own (feed-list.tsx), each opening the inspector like any row.
+// Memoised, like every row: the feed re-renders on every scroll frame.
 import { memo } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
-import { housekeepingSummary } from "./core-renderers.tsx";
 import { formatClockTime, rowClass } from "./event-row-format.ts";
-import { EventSentence, RowGutter, RowOffset, RowTimes, RowWho, rowBody } from "./event-row.tsx";
-import { actorLabel } from "./filters.tsx";
-import type { ContextViewEvent, EventRenderers } from "./types.tsx";
+import { RowGutter, RowOffset, RowTimes, RowWho, rowBody, rowLine } from "./event-row.tsx";
+import { actorLabel, shortEventType } from "./filters.tsx";
+import type { ContextViewEvent } from "./types.tsx";
 
 export const DaySeparator = memo(function DaySeparator({ date }: { date: Date }) {
   const today = new Date();
@@ -34,29 +33,29 @@ export const DaySeparator = memo(function DaySeparator({ date }: { date: Date })
   );
 });
 
-function Chevron({ open }: { open: boolean }) {
-  return open ? (
-    <ChevronDownIcon className="size-3 shrink-0 self-center text-muted-foreground/70" />
-  ) : (
-    <ChevronRightIcon className="size-3 shrink-0 self-center text-muted-foreground/70" />
-  );
+/** A run's types in the order they first come, each with its count when it comes more than once:
+ *  `itx/woken, itx/subscription-configured ×4`. */
+export function runLabel(types: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const type of types) counts.set(type, (counts.get(type) || 0) + 1);
+  return [...counts]
+    .map(([type, count]) => `${shortEventType(type)}${count > 1 ? ` ×${String(count)}` : ""}`)
+    .join(", ");
 }
 
-/** The same fact `events.length` times in a row: its sentence once, the count, the span of time. */
-export const RepeatRow = memo(function RepeatRow({
+/** A run: `events.length` events in a row as one line. Open, its events are listed under it. */
+export const RunRow = memo(function RunRow({
   itemKey,
   events,
   previous,
-  renderers,
   showWho,
   open,
   onToggle,
 }: {
-  /** The fold's key, handed back to `onToggle`. */
+  /** The run's key, handed back to `onToggle`. */
   itemKey: string;
   events: ContextViewEvent[];
   previous?: ContextViewEvent;
-  renderers?: EventRenderers;
   showWho: boolean;
   open: boolean;
   onToggle: (itemKey: string) => void;
@@ -64,61 +63,25 @@ export const RepeatRow = memo(function RepeatRow({
   const first = events[0]!;
   const last = events.at(-1)!;
   const who = actorLabel(first);
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
     <button
       type="button"
       onClick={() => onToggle(itemKey)}
       aria-expanded={open}
+      data-run={events.length}
+      title={`${String(events.length)} events, ${formatClockTime(Date.parse(first.createdAt))} to ${formatClockTime(Date.parse(last.createdAt))}`}
       className={rowClass()}
     >
       <RowOffset offset={first.offset} />
       <RowTimes event={first} previous={previous} />
-      <span className={cn(rowBody, "flex items-baseline gap-1.5")}>
-        <EventSentence event={first} renderers={renderers} className="min-w-0" />
-        <span
-          className="shrink-0 text-2xs text-muted-foreground tabular-nums"
-          title={`${String(events.length)} times, ${formatClockTime(Date.parse(first.createdAt))} – ${formatClockTime(Date.parse(last.createdAt))}`}
-        >
-          ×{events.length}
+      <span className={cn(rowBody, rowLine, "gap-x-1.5")}>
+        <span className="min-w-0 truncate tabular-nums">
+          {runLabel(events.map((event) => event.type))}
         </span>
-        <Chevron open={open} />
+        <Chevron className="size-3 shrink-0 self-center text-muted-foreground" />
       </span>
       {showWho && who ? <RowWho who={who} /> : null}
-    </button>
-  );
-});
-
-/** A run of the platform's housekeeping: one quiet line saying how much of what; open for the rows. */
-export const HousekeepingRow = memo(function HousekeepingRow({
-  itemKey,
-  events,
-  previous,
-  open,
-  onToggle,
-}: {
-  /** The fold's key, handed back to `onToggle`. */
-  itemKey: string;
-  events: ContextViewEvent[];
-  previous?: ContextViewEvent;
-  open: boolean;
-  onToggle: (itemKey: string) => void;
-}) {
-  const first = events[0]!;
-  return (
-    <button
-      type="button"
-      onClick={() => onToggle(itemKey)}
-      aria-expanded={open}
-      className={cn(rowClass(), "text-muted-foreground")}
-    >
-      <RowOffset offset={first.offset} />
-      <RowTimes event={first} previous={previous} />
-      <span className={cn(rowBody, "flex items-baseline gap-1 text-xs")}>
-        <Chevron open={open} />
-        <span className="truncate">
-          {events.length} housekeeping · {housekeepingSummary(events.map((e) => e.type))}
-        </span>
-      </span>
     </button>
   );
 });

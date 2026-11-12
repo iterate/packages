@@ -6,7 +6,7 @@
 // crosses the wire untyped, and a shape miss degrades to the generic fields, never a crash.
 import type { ReactNode } from "react";
 import { compactJson, printExpression } from "./print-expression.ts";
-import { isRecord, record } from "./renderer-helpers.tsx";
+import { isRecord, record } from "./payload-readers.ts";
 
 /** A state as fields, one line each. */
 export function PrettyFields({ value, depth = 0 }: { value: unknown; depth?: number }) {

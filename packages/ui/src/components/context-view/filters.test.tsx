@@ -4,7 +4,6 @@ import { expect, test } from "vitest";
 import {
   filterEvents,
   offsetBound,
-  payloadPreview,
   payloadSummary,
   refilter,
   shortEventType,
@@ -12,7 +11,7 @@ import {
   typeCounts,
   type ContextViewFilter,
 } from "./filters.tsx";
-import { rendererFor, type ContextViewEvent } from "./types.tsx";
+import { inspectorFor, type ContextViewEvent } from "./types.tsx";
 
 const EMPTY_FILTER: ContextViewFilter = { query: "", types: new Set() };
 
@@ -134,8 +133,8 @@ test("typeCounts: most frequent first, ties by name", () => {
   ]);
 });
 
-// Renderers by name: an exact type, a namespace's prefix and the platform's prefix.
-const renderers = {
+// Inspectors by name: an exact type, a namespace's prefix and the platform's prefix.
+const inspectors = {
   "events.iterate.com/account/personal-access-token-minted": "exact",
   "events.iterate.com/account/*": "account",
   "events.iterate.com/*": "all",
@@ -144,35 +143,33 @@ const renderers = {
 test.for([
   {
     name: "an exact type wins over a prefix",
-    registry: renderers,
+    registry: inspectors,
     type: "events.iterate.com/account/personal-access-token-minted",
     renderer: "exact",
   },
   {
     name: "the longest prefix wins",
-    registry: renderers,
+    registry: inspectors,
     type: "events.iterate.com/account/grant-ended",
     renderer: "account",
   },
   {
     name: "a shorter prefix when no longer matches",
-    registry: renderers,
+    registry: inspectors,
     type: "events.iterate.com/itx/created",
     renderer: "all",
   },
-  { name: "nothing else matches", registry: renderers, type: "custom/thing", renderer: undefined },
+  { name: "nothing else matches", registry: inspectors, type: "custom/thing", renderer: undefined },
   { name: "no registry matches nothing", registry: undefined, type: "x", renderer: undefined },
-])("rendererFor: $name", ({ registry, type, renderer }) => {
-  expect(rendererFor(registry, type)).toBe(renderer);
+])("inspectorFor: $name", ({ registry, type, renderer }) => {
+  expect(inspectorFor(registry, type)).toBe(renderer);
 });
 
-test("the short forms: the prefix dropped, the payload on one line and cut", () => {
+test("the short type: the platform's prefix dropped, any other type whole", () => {
   expect(shortEventType("events.iterate.com/account/personal-access-token-minted")).toBe(
     "account/personal-access-token-minted",
   );
-  expect(payloadPreview({ a: 1 })).toBe('{"a":1}');
-  expect(payloadPreview("x".repeat(200), 20)).toHaveLength(20);
-  expect(payloadPreview(undefined)).toBe("");
+  expect(shortEventType("guestbook/entry-written")).toBe("guestbook/entry-written");
 });
 
 // ── payloadSummary ──

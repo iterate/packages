@@ -54,7 +54,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-event-renderers.tsx",
+          "path": "src/components/agent-chat/agent-event-inspectors.tsx",
           "type": "registry:component"
         },
         {
@@ -559,7 +559,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/context-view/core-renderers.tsx",
+          "path": "src/components/context-view/core-events.tsx",
           "type": "registry:component"
         },
         {
@@ -611,7 +611,7 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/context-view/renderer-helpers.tsx",
+          "path": "src/components/context-view/payload-readers.ts",
           "type": "registry:component"
         },
         {

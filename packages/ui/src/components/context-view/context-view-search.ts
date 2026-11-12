@@ -1,5 +1,5 @@
 // The context view's state as a URL's search — every choice a person makes in the view that they
-// would share or come back to: the mode, the filter (query, types, actor, offset range), the
+// would share or come back to: the filter (query, types, actor, offset range), the
 // inspected event, the processors sheet, the filter row. zod only, router-agnostic: an app's route hands the parsed
 // search in as `state` and applies `onStateChange` patches with its router (`validateSearch:
 // ContextViewState`, `navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })`).
@@ -8,8 +8,6 @@ import { z } from "zod";
 import type { ContextViewFilter } from "./filters.tsx";
 
 export const ContextViewState = z.object({
-  /** How the log reads; omitted = the app's default (Pretty). */
-  mode: z.enum(["pretty", "pretty-raw", "raw"]).optional().catch(undefined),
   /** The text query over the type and the payload. */
   q: z.string().optional().catch(undefined),
   /** The event types left ticked; omitted = all. */

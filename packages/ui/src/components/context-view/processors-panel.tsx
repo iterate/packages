@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "cn";
 import { shortEventType } from "./filters.tsx";
 import { LiveStateValue } from "./live-state-value.tsx";
-import { record } from "./renderer-helpers.tsx";
+import { record } from "./payload-readers.ts";
 import type {
   ContextViewEvent,
   ContextViewPresence,

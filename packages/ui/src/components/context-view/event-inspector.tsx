@@ -9,7 +9,7 @@
 // - A LINK TO AN EVENT NOT LOADED (`?event=5` on a 100,000 event log, whose newest page is all that
 //   is read) reads older pages until it is, rather than showing nothing; an offset no event has (an
 //   ephemeral one, a typo) says so and offers its neighbours.
-// - THE HEADER: the event's sentence (or short type; the full type on hover), `#offset · N loaded ·
+// - THE HEADER: the event's type as stored (the full type on hover), `#offset · N loaded ·
 //   when`, and the gap to the previous and to the next event (`+166ms · +28ms to next`).
 // - THE BODY: a rich inspector when one is registered for the type (the message as prose, the
 //   script as code), who and on what grant, then the raw event in the read-only CodeMirror block —
@@ -26,12 +26,7 @@ import {
   type InspectedPlace,
 } from "./event-inspector-log.ts";
 import { actorLabel, shortEventType } from "./filters.tsx";
-import {
-  type ContextViewEvent,
-  type EventInspectors,
-  type EventRenderers,
-  rendererFor,
-} from "./types.tsx";
+import { type ContextViewEvent, type EventInspectors, inspectorFor } from "./types.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Sheet,
@@ -48,7 +43,6 @@ export function EventInspector({
   events,
   offset,
   older,
-  renderers,
   inspectors,
   onNavigate,
   onClose,
@@ -59,7 +53,6 @@ export function EventInspector({
   offset: number | undefined;
   /** Reading the log below what is loaded. */
   older: OlderPages;
-  renderers?: EventRenderers;
   inspectors?: EventInspectors;
   /** Inspect another offset — a `state.event` patch. */
   onNavigate: (offset: number) => void;
@@ -88,7 +81,6 @@ export function EventInspector({
             loaded={events.length}
             place={place}
             paging={paging}
-            renderers={renderers}
             inspectors={inspectors}
           />
         )}
@@ -191,7 +183,6 @@ function InspectedEvent({
   loaded,
   place,
   paging,
-  renderers,
   inspectors,
 }: {
   shown: number;
@@ -199,23 +190,17 @@ function InspectedEvent({
   loaded: number;
   place: InspectedPlace | undefined;
   paging: ReturnType<typeof useInspectorPaging>;
-  renderers: EventRenderers | undefined;
   inspectors: EventInspectors | undefined;
 }) {
   const { event, previous, next, missing } = place || {};
-  const sentence = event ? (rendererFor(renderers, event.type)?.(event) ?? null) : null;
   return (
     <>
       <SheetHeader className="shrink-0 pr-12">
-        <SheetTitle className="line-clamp-2 text-sm [&_*]:inline" title={event?.type}>
-          {!event
-            ? `Event #${String(shown)}`
-            : (sentence ?? <span className="font-mono">{shortEventType(event.type)}</span>)}
+        <SheetTitle className="line-clamp-2 text-sm break-all" title={event?.type}>
+          {event ? shortEventType(event.type) : `Event #${String(shown)}`}
         </SheetTitle>
-        <SheetDescription className="font-mono text-xs">
-          #{shown}
-          {event && sentence ? ` · ${shortEventType(event.type)}` : ""} · {loaded.toLocaleString()}{" "}
-          loaded
+        <SheetDescription className="text-xs tabular-nums">
+          #{shown} · {loaded.toLocaleString()} loaded
           {event ? ` · ${event.createdAt}` : ""}
         </SheetDescription>
       </SheetHeader>
@@ -310,7 +295,7 @@ function EventBody({
 }) {
   // a new object only when the event is another: CodeMirror rebuilds on a new document
   const raw = useMemo(() => orderEventKeys(event), [event]);
-  const body = rendererFor(inspectors, event.type)?.(event) ?? null;
+  const body = inspectorFor(inspectors, event.type)?.(event) ?? null;
   const envelope = envelopeOf(event);
   return (
     <>

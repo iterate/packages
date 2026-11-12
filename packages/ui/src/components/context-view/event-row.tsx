@@ -1,23 +1,19 @@
 // One row of the stream, ONE line that never runs past the view on a desktop (two on a phone), read
 // like a log, left to right in fixed columns: `#offset` in a muted gutter sized to the log's largest
 // offset (`--offset-width`, set by the view), the clock, the gap since the row before (blank under a
-// second; coloured by its size, so a long pause runs hot), the body, and who — when it is not who
-// acted on the row before. No rule between rows: the hover and the inspected row's 2px bar are
-// enough. On a phone the body comes first and the rest is one muted line under it. The body in
-// Pretty is a renderer's sentence for the type (the platform's own come with theirs — the
-// lifecycle's are ordinary muted sentences, a wake purple), else the type and a glance at the
-// payload's fields; Pretty + raw adds the raw line under it; Raw is the raw line, the type in a
-// fixed column. What a line cuts the inspector (click) shows whole.
+// second; coloured by its size, so a long pause runs hot), THE EVENT'S TYPE AS IT IS STORED, a
+// glance at its payload's fields, and who, when it is not who acted on the row before. The type is
+// shown without the `events.iterate.com/` that every type of the platform starts with; the row's
+// title has it whole. Everything is in the page's own font and one size: no sentence, no badge, no
+// second font, and a path or an id is plain text. The columns' figures are tabular. No rule between
+// rows: the hover and the inspected row's 2px bar are enough. On a phone the body comes first and
+// the rest is one muted line under it. What a line cuts, the inspector (a click) shows whole, with
+// the event as JSON.
 import { memo } from "react";
 import { cn } from "cn";
 import { formatClockTime, formatDelta, rowClass } from "./event-row-format.ts";
-import { actorLabel, payloadPreview, payloadSummary, shortEventType } from "./filters.tsx";
-import {
-  type ContextViewEvent,
-  type ContextViewMode,
-  type EventRenderers,
-  rendererFor,
-} from "./types.tsx";
+import { actorLabel, payloadSummary, shortEventType } from "./filters.tsx";
+import type { ContextViewEvent } from "./types.tsx";
 
 /** The gap's colour by its size: under ten seconds the success colour, then the warning colour, a
  *  faded destructive, and the destructive colour for a pause of ten minutes or more — where the log
@@ -30,9 +26,9 @@ function deltaColor(ms: number): string {
 }
 
 const OFFSET =
-  "shrink-0 text-2xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
-const CLOCK = "shrink-0 text-2xs text-muted-foreground tabular-nums sm:w-[8ch]";
-const GAP = "shrink-0 text-2xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
+  "shrink-0 text-xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
+const CLOCK = "shrink-0 text-xs text-muted-foreground tabular-nums sm:w-[8ch]";
+const GAP = "shrink-0 text-xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
 
 /** `#123`, right-aligned in the gutter the view sizes to its largest offset (`--offset-width`). */
 export function RowOffset({ offset }: { offset: number }) {
@@ -58,13 +54,13 @@ export function RowGutter({ times }: { times?: boolean }) {
 /** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground max-sm:text-2xs sm:ml-auto">
+    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground sm:ml-auto">
       {who}
     </span>
   );
 }
 
-/** The clock and the gap since the row before (from its LAST moment, so a fold's gap is the idle
+/** The clock and the gap since the row before (from its LAST moment, so a run's gap is the idle
  *  time between rows, not inside one): two columns, the gap blank under a second. */
 export function RowTimes({
   event,
@@ -90,53 +86,22 @@ export function RowTimes({
 /** The body column: first on a phone, where it takes the whole first line. */
 export const rowBody = "min-w-0 flex-1 max-sm:order-first max-sm:basis-full";
 
-/** The raw line: the type and the payload's JSON, one line. */
-export function RawLine({ event, className }: { event: ContextViewEvent; className?: string }) {
-  const glance = payloadPreview(event.payload);
-  return (
-    <span
-      className={cn(
-        "flex min-w-0 gap-3 font-mono text-xs leading-5 text-muted-foreground",
-        className,
-      )}
-    >
-      <span className="w-[26ch] shrink-0 truncate text-foreground/85">
-        {shortEventType(event.type)}
-      </span>
-      {glance ? <span className="min-w-0 truncate">{glance}</span> : null}
-    </span>
-  );
-}
+/** The body of every row, one line in the page's font: on a desktop the type has a column of its
+ *  own, so the payloads start in line. */
+export const rowLine = "flex min-w-0 items-baseline gap-x-3 text-sm leading-5";
 
-/** The sentence: a renderer's for the type, else the type with a glance at the payload's fields.
- *  Every child is forced inline so the line truncates as one — a renderer's <strong> and <span> too. */
-export function EventSentence({
-  event,
-  renderers,
-  className,
-}: {
-  event: ContextViewEvent;
-  renderers?: EventRenderers;
-  className?: string;
-}) {
-  const rich = rendererFor(renderers, event.type)?.(event) ?? null;
+/** The type's column. */
+export const rowType = "min-w-0 shrink-0 truncate max-sm:max-w-full sm:w-60";
+
+/** The body: the type as stored, then the payload's fields in one line. */
+export function EventLine({ event }: { event: ContextViewEvent }) {
   const glance = payloadSummary(event.payload);
   return (
-    <span
-      className={cn(
-        // a phone gets two lines, a desktop one — never a third, never a sideways scroll
-        "line-clamp-2 min-w-0 text-sm leading-5 wrap-break-word whitespace-normal sm:block sm:truncate [&_*]:inline",
-        className,
-      )}
-    >
-      {rich ?? (
-        <>
-          <span className="text-xs font-medium text-foreground/80">
-            {shortEventType(event.type)}
-          </span>
-          {glance ? <span className="ml-2 text-xs text-muted-foreground">{glance}</span> : null}
-        </>
-      )}
+    <span className={rowLine}>
+      <span className={rowType} title={event.type} data-event-type>
+        {shortEventType(event.type)}
+      </span>
+      {glance ? <span className="min-w-0 truncate text-muted-foreground">{glance}</span> : null}
     </span>
   );
 }
@@ -144,21 +109,14 @@ export function EventSentence({
 export const EventRow = memo(function EventRow({
   event,
   previous,
-  renderers,
-  mode,
   showWho,
-  quiet,
   selected,
   onOpen,
 }: {
   event: ContextViewEvent;
   previous?: ContextViewEvent;
-  renderers?: EventRenderers;
-  mode: ContextViewMode;
   /** Whether to name who acted — false when the row before was theirs too. */
   showWho: boolean;
-  /** Housekeeping expanded out of its fold reads muted. */
-  quiet?: boolean;
   selected?: boolean;
   onOpen: (offset: number) => void;
 }) {
@@ -168,17 +126,12 @@ export const EventRow = memo(function EventRow({
       type="button"
       onClick={() => onOpen(event.offset)}
       data-offset={event.offset}
-      className={cn(rowClass(selected), quiet && "text-muted-foreground")}
+      className={rowClass(selected)}
     >
       <RowOffset offset={event.offset} />
       <RowTimes event={event} previous={previous} />
       <span className={rowBody}>
-        {mode === "raw" ? (
-          <RawLine event={event} />
-        ) : (
-          <EventSentence event={event} renderers={renderers} />
-        )}
-        {mode === "pretty-raw" ? <RawLine event={event} className="mt-0.5 text-2xs" /> : null}
+        <EventLine event={event} />
       </span>
       {showWho && who ? <RowWho who={who} /> : null}
     </button>

@@ -3,7 +3,7 @@
 // `refilter` and `recount` follow a log that grows at either end without passing over all of it
 // again (folds.tsx `growthOf`): a JSON.stringify per event per append is too slow at 100,000.
 import { growthOf } from "./folds.tsx";
-import { isRecord } from "./renderer-helpers.tsx";
+import { isRecord } from "./payload-readers.ts";
 import type { ContextViewEvent } from "./types.tsx";
 
 export type ContextViewFilter = {
@@ -149,15 +149,8 @@ export function offsetBound(text: string): number | undefined | null {
 /** The event type without its `events.iterate.com/` prefix. */
 export const shortEventType = (type: string): string => type.replace(/^events\.iterate\.com\//, "");
 
-/** The payload as one line, cut to `max` characters — the row's glance at the body. */
-export function payloadPreview(payload: unknown, max = 140): string {
-  if (payload === undefined) return "";
-  const text = JSON.stringify(payload);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-/** The payload's top-level fields as one human line — `key value · key value` — for a type no
- *  renderer names: strings to their first line, arrays to their length, objects to their keys. */
+/** The payload's top-level fields as one line — `key value · key value` — which is what a row
+ *  shows of it: strings to their first line, arrays to their length, objects to their keys. */
 export function payloadSummary(payload: unknown, max = 120): string {
   if (payload === undefined) return "";
   if (Array.isArray(payload))

@@ -2,9 +2,9 @@
 // own. The link target is the caller's (`ContextPathLinks`): the UI kit knows no routes, so an app
 // says what URL a path opens and, with a client router, takes the plain click itself — the way
 // AppShell's `mindHref` and `onNavigate` work.
-import { useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "cn";
-import { ContextPathLinksContext, type ContextPathLinks } from "./context-path-links.ts";
+import type { ContextPathLinks } from "./context-path-links.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 
 export type { ContextPathLinks };
@@ -39,23 +39,6 @@ export function PathLink({
     >
       {children}
     </a>
-  );
-}
-
-/** A path a row names (`Child context /repos/config created`): a link when the view has
- *  `pathLinks`, else the path as text. The path is the children too, so a sentence's text (the
- *  fold's fact, folds.tsx `sentenceText`) still carries it. */
-export function ContextPathText({ path }: { path: string }) {
-  const links = useContext(ContextPathLinksContext);
-  if (!links) return <span>{path}</span>;
-  return (
-    <PathLink
-      path={path}
-      links={links}
-      className="underline decoration-border underline-offset-2 hover:decoration-foreground"
-    >
-      {path}
-    </PathLink>
   );
 }
 

@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { ContextViewState, contextViewFilterOf } from "./context-view-search.ts";
 
 // ── ContextViewState ──
-test("a valid search parses as is", () => {
+test("a valid search parses as is, and the mode of an old link is dropped: the log reads one way", () => {
   expect(
     ContextViewState.parse({
       mode: "raw",
@@ -17,7 +17,6 @@ test("a valid search parses as is", () => {
       filter: true,
     }),
   ).toEqual({
-    mode: "raw",
     q: "grant",
     types: ["events.iterate.com/account/personal-access-token-minted"],
     actor: "user_1",
