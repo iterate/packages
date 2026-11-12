@@ -24,6 +24,23 @@ async function logOf(read: Read, path: string): Promise<LogEvent[]> {
   }
 }
 
+/** The path of every secret the mind ever had, from the `/secrets` context's own record of its
+ *  children: a deleted one too, whose log may still hold a decision. NOT `itx.secrets.list()`,
+ *  which asks the vault to describe each path, one call into the vault for every secret ever made:
+ *  a shell that asked that on a timer filled the vault's memory (12 November 2026). */
+async function secretPaths(read: Read): Promise<string[]> {
+  const created = await logOf(read, "/secrets").catch((): LogEvent[] => []);
+  const paths = created.flatMap((event) => {
+    const child = Object(event.payload).childPath;
+    return event.type === "events.iterate.com/itx/child-created" &&
+      typeof child === "string" &&
+      /^\/secrets\/[^/]+$/.test(child)
+      ? [child]
+      : [];
+  });
+  return [...new Set(paths)].sort();
+}
+
 /** The mind's approvals: the requests that wait by their secret, from the secrets' logs, and the
  *  mails and calls that wait in the gate, from `/approvals`. `served: false` for a mind with no
  *  vault yet. */
@@ -32,15 +49,12 @@ export async function readMindApprovals(read: Read) {
   const vault = await read((itx) => itx.rewriteRules.get("itx.secrets"));
   if (!vault?.target) return { served: false as const };
   const [secrets, gate] = await Promise.all([
-    read((itx) => itx.secrets.list()),
+    secretPaths(read),
     // a mind from before the gate has no such context: nothing waits there
     logOf(read, "/approvals").catch((): LogEvent[] => []),
   ]);
   const logs = await Promise.all(
-    secrets.map(async (secret) => ({
-      secret: secret.path,
-      events: await logOf(read, secret.path),
-    })),
+    secrets.map(async (secret) => ({ secret, events: await logOf(read, secret) })),
   );
   const now = Date.now();
   return {
@@ -50,8 +64,10 @@ export async function readMindApprovals(read: Read) {
   };
 }
 
-/** How often the shell asks again while its tab is in front. */
-const ASK_EVERY_MS = 30_000;
+/** How often the shell asks again while its tab is in front. Each ask reads the log of every
+ *  secret, so it is rare: a page that shows the list asks for itself, a tab that comes to the front
+ *  asks at once, and a page that decided something asks at once (`askWaitingApprovals`). */
+const ASK_EVERY_MS = 5 * 60_000;
 
 /** How many requests wait, per mind, asked while somebody shows it: a small store, so the shell
  *  reads it with `useSyncExternalStore` and a page that decided something can ask again at once. */
