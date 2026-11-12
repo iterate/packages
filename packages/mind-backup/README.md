@@ -34,11 +34,9 @@ value. The key is the deployment's: type it only into a page whose code you trus
 
 ## Install
 
-1. In the config repo's `package.json`, under `dependencies`, the build to use:
-
-   ```json
-   "@iterate-com/mind-backup": "https://pkg.pr.new/iterate/private/@iterate-com/mind-backup@<commit>"
-   ```
+1. In the config repo's `package.json`, under `dependencies`, a build of the package. No build is
+   published: `.github/workflows/pkg-pr-new.yml`, which lists what pkg.pr.new and npm publish,
+   does not name `packages/mind-backup`.
 
 2. In `worker.ts`, the import, one element of the `integrations` array (iterate/sdk
    `Integration`: the worker hands it the requests on its routing slug and every event), and a

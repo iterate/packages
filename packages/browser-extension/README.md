@@ -56,8 +56,9 @@ so Chrome derives the ID from its folder. The panel heading shows the version.
 Chrome 114 or newer. Open `chrome://extensions`, enable **Developer mode**, **Load unpacked**, select
 the unzipped folder or `packages/browser-extension/dist`. Pin it from the toolbar's extensions menu and
 click its button to open the panel. Sign in — the platform's own login and consent
-pages open in a Chrome identity window; tick the mind — then enter the mind's slug or
-`mind_…` id and click **Open a page through the mind**: the panel calls `itx.chrome.openPage`
+pages open in a Chrome identity window (the panel's Platform field, os.iterate.com by default; the
+panel speaks its API, `api.minds.get`, which a mind's own stack does not serve);
+tick the mind — then enter the mind's slug or `mind_…` id and click **Open a page through the mind**: the panel calls `itx.chrome.openPage`
 and then `itx.chrome.cdp(tabId, "Runtime.evaluate", …)` through the platform, which calls back into
 the panel, which opens the tab and reads its title.
 After editing a file, build again and click **Reload** on the extension's card.

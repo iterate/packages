@@ -11,6 +11,8 @@ Every page is about one mind, at `/minds/<address>/…`, and reads the mind's ro
 - the overview: the mind's creation while it runs, its site, and its config repo's git remote;
 - contexts: any context's log, live, beside the mind's context tree;
 - repos: the list, and `/repos/<name>`, the `RepoIde` of `@iterate-com/ui`;
+- approvals: the requests that wait for a member's signed yes, each linked to the platform's
+  `/secrets/approvals` page, where the member signs with a passkey;
 - analytics (`itx.telemetry`), secrets (`itx.secrets`) and integrations (what the mind's
   packages register on `/integrations`): each says so in one line while the mind does not serve
   its root (`src/lib/served.ts`);
@@ -28,3 +30,6 @@ its `workers.dev` address (`scripts/standalone.ts` says how to destroy it):
 ```sh
 CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… pnpm --dir packages/dash deploy:standalone
 ```
+
+The prd deploy's CI workflow (`.depot/workflows/deploy-dash.yml`) is off, so dash.iterate.com keeps
+the build that serves os.iterate.com's minds.

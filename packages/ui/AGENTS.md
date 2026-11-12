@@ -50,6 +50,8 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
 - `browser-entries.ts` names the entries: one for each item and each vendored component, plus
   `page`, `live`, React's own modules (`src/browser/`) and `styles.css`. esm.sh needs each entry
   named, not a wildcard, to keep shared chunks shared.
+- The default config's apps (`core/configs/default/apps/*/index.html`) import one pinned build
+  through their import maps, so a change here reaches them only when that pin moves.
 - How a page uses the package and signs in: [examples/README.md](examples/README.md).
 
 ## Quality bar

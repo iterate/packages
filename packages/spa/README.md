@@ -16,8 +16,12 @@ capnweb comes from a CDN through a native import map (`@iterate-com/capnweb`). T
 `sessionStorage` (this tab, until it closes); the issuer renews an interactive grant's access
 token hourly, and the socket is closed by the platform at the grant's expiry or revocation.
 
-Run locally: `pnpm --filter @iterate-com/spa dev` serves the files at http://localhost:8799; open
-`http://localhost:8799/?issuer=http://localhost:8788` against a local OS (`pnpm --dir ../os dev`).
+The page speaks os.iterate.com's API (`authenticate`, then `api.minds`). A mind's own stack serves
+its root `itx` at `iterate.<domain>/api` with neither, so the page reaches only os.iterate.com's
+minds.
+
+Run locally: `pnpm --filter @iterate-com/spa dev` serves the files at http://localhost:8799;
+`?issuer=<origin>` names another issuer, and the page remembers it.
 Deploy: `pnpm --dir packages/spa run deploy --env prd` → https://iterate-spa.iterate.workers.dev, which
 talks to https://os.iterate.com by default.
 

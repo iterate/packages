@@ -26,7 +26,7 @@ From a clone of the config repo whose root `package.json` lists the package (so 
 it):
 
 ```sh
-iterate repl --mind <slug>
+iterate repl --mind <address>
 itx> const { installGithubSync } = await import("@iterate-com/github-sync/install")
 itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({ dir: "github-sync" }))
 ```

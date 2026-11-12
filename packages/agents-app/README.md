@@ -8,7 +8,7 @@ facet, not a platform built-in. This folder is the web app and the tests that dr
 
 - `src/` — the web app: chat, attachments, live state, events and traces.
 - `scripts/` — the voice call and device tools.
-- Its e2e and Workers tests live outside the app: `test/vitest/agents/` and `test/vitest/agents-workers/`.
+- Its tests are those of `iterate/agents` (`core/lib/src/agents/*.test.ts`); this folder has none.
 
 A mind's config repo installs the app ([core/lib/src/agents/README.md](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#install);
 core/configs/default does). This app installs nothing: on a mind without `itx.agents` it says so
@@ -32,11 +32,13 @@ The agents upgrade with the platform: a deploy restarts them on their next call,
 and history kept. A mind whose config still pins the retired npm package `@iterate-com/agents`
 keeps running that build until its `agents.ts` re-exports `iterate/agents` instead.
 
-`pnpm test` runs app unit tests.
-
 See [packages/voice/README.md](../../packages/voice/README.md) for voice setup. Run voice tools from this package:
 `pnpm voice:call`, `pnpm voice:board`. Kit’s Prepare device flow installs voice.
 
-Dev: `pnpm dev` (defaults to https://os.iterate.com; a gitignored `.dev.vars` with
-`ITERATE_APP__URLS__OS=http://localhost:8788` selects a local platform). Deploy through the existing
-`doppler run --project agents --config prd -- pnpm run deploy --env prd` command.
+Dev: `pnpm dev`. The app signs in at the mind its URL names (`/minds/<address>`), at that mind's
+own issuer; `/connect` points it at a mind. The prd deploy is
+`doppler run --project agents --config prd -- pnpm run deploy --env prd`; its CI workflow
+(`.depot/workflows/deploy-agents.yml`) is off, so agents.iterate.com keeps the build that serves
+os.iterate.com's minds. Deploy on its own, as `iterate-app-agents` on its `workers.dev` address:
+`CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… pnpm deploy:standalone` (`scripts/standalone.ts`
+says how to destroy it).

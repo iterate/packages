@@ -17,7 +17,8 @@ never sit in front of the relay's dial.
 
 A mind's config repo depends on the package, re-exports its service and relay class from
 `voice.ts`, and installs voice from its init case beside the agents app, which every device's agent
-runs on (configs/voice does all of it):
+runs on (the default config's Voice app, `core/configs/default/apps/voice`, makes that commit with
+"Turn voice on"):
 
 ```text
 package.json   "dependencies": { "@iterate-com/voice": "0.1.0-main.<date>-<sha>" }   (npm's `main` dist-tag, pinned)
@@ -41,7 +42,7 @@ changes what `voice.ts` bundles, such as a new pin, is the relay's code from its
 that only changes the website leaves the relay running. A commit that changes `voice.ts` ends every
 call in progress: its relay restarts on the new build and the call ends as interrupted. The OpenAI
 key (the live model's) is needed only once a call starts: `ensureVoiceAgent`, which Kit's Prepare
-runs, stores it when the mind has none, waits for `itx.voice` and asks it
+and the Voice app run, stores it when the mind has none, waits for `itx.voice` and asks it
 for `health()`, and refuses a mind whose config installs no voice or whose publication was
 refused, saying why. An upgrade commits a newer pin (`upgradeVoice`) and waits for that commit's publication, throwing why it was refused;
 `voiceVersion` reads the build the mind runs, the pin of its published commit, which a refused
@@ -132,15 +133,15 @@ The call client counts the rest on the device's own clock: `pressToAcceptedMs` a
 | `src/voice-agent.ts`                         | `VoiceAgentDurableObject`: the GPT-Live relay and the device's call fold. Dials `wss://api.openai.com/v1/live/sessions` through egress with `getSecret("/secrets/openai")`, forwards `mic-frame`s, appends `speaker-frame`s and transcripts, hands the live model's delegations to the device's agent, and forwards the agent's replies to the live model to speak.                                                                       |
 | `src/mic-pacer.ts`                           | The relay's one queue and pacer for everything the live model hears: the device's frames from the press on, held until the session starts, sent oldest first: what was held goes at once up to 5 s (GPT-Live's burst limit), the rest at most 1.2× real time (at most 100 ms of saved-up credit), and digital silence only when nothing is queued and the provider would starve. More than 6 s queued ends the call with `audio-trimmed`. |
 | `src/worker.ts`                              | The voice service at `itx.voice`: `ensureVoiceDevice`, `setImage`, `health`.                                                                                                                                                                                                                                                                                                                                                              |
-| `src/install.ts`                             | `installVoice`, the init case's; `ensureVoiceAgent`, the key and the wait Kit and voice.iterate.com run in the browser, preserving existing services and secrets; `voiceVersion` and `upgradeVoice`, the running build and its upgrade.                                                                                                                                                                                                   |
+| `src/install.ts`                             | `installVoice`, the init case's; `ensureVoiceAgent`, the key and the wait Kit and the Voice app run in the browser, preserving existing services and secrets; `voiceVersion` and `upgradeVoice`, the running build and its upgrade.                                                                                                                                                                                                       |
 | `src/screen-font.ts`                         | The screen font's CSS with its font embedded (`assets/`), stored at `voice/screen-font.css`.                                                                                                                                                                                                                                                                                                                                              |
-| `src/call-client.ts`                         | `connectVoiceDevice(mind, { client, screen? })` (`@iterate-com/voice/call`): a device as a client makes its calls — provisioning and one subscription, then `call()`, the press, `mic-frame` appends, `speak` (`words-given`), the keepalive, the 5 s opening deadline and `call-ended`; `moveTo` carries the device to a new link after a reconnect. voice.iterate.com, `voice-call.ts` and the phone bridges run it.                    |
+| `src/call-client.ts`                         | `connectVoiceDevice(mind, { client, screen? })` (`@iterate-com/voice/call`): a device as a client makes its calls — provisioning and one subscription, then `call()`, the press, `mic-frame` appends, `speak` (`words-given`), the keepalive, the 5 s opening deadline and `call-ended`; `moveTo` carries the device to a new link after a reconnect. The Voice app, `voice-call.ts` and the phone bridges run it.                        |
 | `packages/agents-app/scripts/voice-call.ts`  | One conversation from Node through the call client (`--device`): a WAV in, the answer's WAV out, the press timeline printed.                                                                                                                                                                                                                                                                                                              |
 | `packages/agents-app/scripts/voice-board.ts` | The physical HAVPE proof: remote press, the prompt spoken through the air, transcripts checked.                                                                                                                                                                                                                                                                                                                                           |
 
 A device's calls are `readEvents` on its relay's context, and what its agent did on the agent's,
 through the CLI:
-`pnpm exec iterate itx run --mind <slug> --eval 'return (await itx.cd("/voice/<device>").readEvents(0, 500)).events'`.
+`pnpm exec iterate itx run --mind <address> --eval 'return (await itx.cd("/voice/<device>").readEvents(0, 500)).events'`.
 
 ## Your own model, voice and instructions
 
@@ -166,7 +167,7 @@ whole.
 ## The device's calls on the wire
 
 ```ts
-const root = session.authenticate(credentials).minds.get("prj-voice");
+const { itx: root } = await connectMind({ address: "example.com" }); // iterate/node
 // when the device connects: provisioning, then one subscription for every call
 const { path } = await root.voice.ensureVoiceDevice({
   client: "home_assistant_voice_preview_edition",
@@ -213,15 +214,12 @@ parent link gives it.
 Run these commands from `packages/agents-app`. The mind's config installs both apps.
 
 ```bash
-export WORKER_BASE_URL=https://os.iterate.com
-# a personal access token for prj-voice: the Dash's Sessions page, or
-# `pnpm exec iterate --config prd tokens create --name voice-scripts --mind prj-voice`
-export ITERATE_BEARER_TOKEN=itk_…
-export OPENAI_API_KEY=$(doppler secrets get OPENAI_API_KEY --project os --config prd --plain)
-# First prepare the mind at https://k.iterate.com
+# sign in to the mind once (or set ITERATE_MIND_TOKEN)
+pnpm exec iterate login example.com
+# First prepare the mind at https://k.iterate.com, or turn voice on in its Voice app
 say -o ask.wav --data-format LEI16@16000 --channels=1 "What is two plus two?"
-MIND=prj-voice node scripts/voice-call.ts --utterance ask.wav --out answer.wav --device cli-laptop
-MIND=prj-voice node scripts/voice-board.ts --device home_assistant_voice_preview_edition --expect banana
+MIND=example.com node scripts/voice-call.ts --utterance ask.wav --out answer.wav --device cli-laptop
+MIND=example.com node scripts/voice-board.ts --device home_assistant_voice_preview_edition --expect banana
 ```
 
 `--expect` is a case-insensitive regular expression tested against the spoken transcript; models

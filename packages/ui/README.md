@@ -110,7 +110,7 @@ polling for new ones.
 ### Your mind's data
 
 `@iterate-com/ui/live` reads a mind live, as the person viewing the page. On the mind's own
-host (`<slug>--<mind>.iterate.app`, served by its worker) the page uses the host's session. On
+host (`<host>.<domain>`, served by its config worker) the page uses the host's session. On
 any other website the page signs in with iterate itself: a page to copy does it, jsfiddle included.
 Both, and how a Claude artifact reaches iterate instead:
 [Signing in](https://github.com/iterate/packages/blob/main/packages/ui/examples/README.md#signing-in).
