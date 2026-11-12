@@ -1,9 +1,6 @@
-// stylesheet-order.ts — ONE STYLESHEET HOLDS ANOTHER, IN ITS ORDER. dist/docs-editor.css is a page's
-// whole stylesheet, linked in place of dist/styles.css (src/browser/docs-editor.css says why): it
-// must have every rule of styles.css, in the same at-rules and the same order, so that every element
-// computes what it computes with styles.css, and the docs editor's own rules only add to that. Two
-// sheets in one `@layer utilities` would not: the later sheet's plain `.hidden` beats the earlier
-// sheet's `md:block`. scripts/check-docs-editor-css.ts runs `rulesMissingInOrder` after the build.
+// stylesheet-order.ts — ONE STYLESHEET HOLDS ANOTHER, IN ITS ORDER: the comparison behind the
+// build's check of dist/docs-editor.css against dist/styles.css (check-docs-editor-css.ts;
+// src/browser/docs-editor.css says why one sheet must hold the other).
 import postcss, { type ChildNode, type Container } from "postcss";
 
 /** At-rules that only group the rules inside them. */

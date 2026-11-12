@@ -27,8 +27,8 @@ test.for([
     missing: [],
   },
   {
-    // the sheet a page once linked after styles.css: its utilities only, so its plain `.hidden` came
-    // after styles.css's `md:block` in the one `utilities` layer, and the shell's sidebar vanished
+    // a second sheet of utilities alone, linked after styles.css, is not a whole: its plain
+    // `.hidden` would come after styles.css's `md:block` in the one `utilities` layer, and win
     name: "the docs editor's utilities alone, as a second sheet",
     whole:
       "@layer utilities{.hidden{display:none}.grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}",
