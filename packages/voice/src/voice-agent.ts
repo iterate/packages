@@ -1611,7 +1611,7 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
 
   /** `itx.whoami()`, read once per incarnation: the session every call starts with names the
    *  mind. */
-  #whoami?: { mindId: string; path: string };
+  #whoami?: { mindId?: string; mindSlug?: string; path: string };
   async #identity() {
     if (this.#whoami) return this.#whoami;
     using itx = this.getItx();

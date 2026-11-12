@@ -17,7 +17,13 @@ import { INTEGRATIONS_PATH } from "iterate/integrations";
 import { errorCode } from "iterate/lib";
 import type { Integration } from "iterate/sdk";
 import { z } from "zod";
-import { ARCHIVE_BUDGET_BYTES, BackupPart, readBackup, writeBackup } from "./archive.ts";
+import {
+  ARCHIVE_BUDGET_BYTES,
+  backupSourceOf,
+  BackupPart,
+  readBackup,
+  writeBackup,
+} from "./archive.ts";
 import { BACKUPS_FOLDER, backupToFiles, exportMind } from "./export.ts";
 import { backupPage } from "./page.ts";
 import { RestoreRefused, restoreMind } from "./restore.ts";
@@ -78,7 +84,7 @@ async function answer(
   const route = `${request.method} ${url.pathname}`;
 
   if (route === "GET /")
-    return backupPage(await itx.whoami(), await itx.files.list(BACKUPS_FOLDER));
+    return backupPage(backupSourceOf(await itx.whoami()), await itx.files.list(BACKUPS_FOLDER));
 
   if (route === "POST /backup") {
     await backupToFiles(itx);

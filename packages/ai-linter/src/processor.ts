@@ -131,9 +131,10 @@ export class AiLinterProcessor extends StreamProcessor<AiLinterState> {
             await storage.put(`${remembered}${key}`, value);
             return value;
           },
-          mindId: async () => {
+          mind: async () => {
             using itx = getItx();
-            return (await itx.whoami()).mindId;
+            const { mindId, mindSlug } = await itx.whoami();
+            return { mindId, mindSlug };
           },
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         });

@@ -50,8 +50,8 @@ async function shortDigest(text: string): Promise<string> {
 export default class VoiceWorker extends IterateConfigEntrypoint implements VoiceApi {
   async health() {
     using itx = this.getItx();
-    const { mindId } = await itx.whoami();
-    return { ok: true as const, mindId };
+    const { mindId, mindSlug } = await itx.whoami();
+    return { ok: true as const, mindId, mindSlug };
   }
 
   /** Render to the resolution and pixel format advertised by the target. */

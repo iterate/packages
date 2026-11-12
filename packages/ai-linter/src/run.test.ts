@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { lintHead, type Job, type LintIo } from "./run.ts";
+import { lintHead, type Gateway, type Job, type LintIo } from "./run.ts";
 
 // One lint of one head against a fake GitHub (the pull request, rules/ served from fixtures/rules, one
 // changed file) and fake models, with a part failing in each case: what the other parts found is
@@ -45,6 +45,36 @@ test("every part runs: the review and a neutral Check Run carry the findings of 
     "**[comments/no-narrating-comments",
     "**[typescript/explain-type-cast",
   ]);
+});
+
+test("each model call names the mind to the AI Gateway by its slug, and by its id only where the mind has one", async () => {
+  // a mind on its own stack: `whoami` answers a slug and no id
+  const stack = io({ github: fakeGithub({}), mind: { mindSlug: "example-com" } });
+  await lintHead(job, config, stack.lintIo);
+  expect(stack.gatewayMetadata.length).toBeGreaterThan(0);
+  // strictly equal: a name the mind does not have is no key at all, never a key that is undefined
+  for (const metadata of stack.gatewayMetadata)
+    expect(metadata).toStrictEqual({
+      mindSlug: "example-com",
+      app: "ai-linter",
+      pullRequest: job.key,
+    });
+  // the frozen platform's mind has both
+  const both = io({ github: fakeGithub({}), mind: { mindId: "mind_test", mindSlug: "test" } });
+  await lintHead(job, config, both.lintIo);
+  expect(both.gatewayMetadata[0]).toStrictEqual({
+    mindId: "mind_test",
+    mindSlug: "test",
+    app: "ai-linter",
+    pullRequest: job.key,
+  });
+  // no name at all: no cap could bound the lint, so no model is called
+  const nameless = io({ github: fakeGithub({}), mind: {} });
+  expect(await lintHead(job, config, nameless.lintIo)).toMatchObject({
+    status: "failed",
+    error: expect.stringContaining("names no mind"),
+  });
+  expect(nameless).toMatchObject({ calls: { llm: 0, jev: 0 } });
 });
 
 test("the LLM's call fails: Jev's findings are still reviewed, and the Check Run says what did not run", async () => {
@@ -472,8 +502,12 @@ function io(options: {
   jev?: (input: unknown) => unknown;
   /** What the lint remembers, kept across its runs as the host's storage keeps it. */
   remembered?: Map<string, unknown>;
+  /** The names the lint's context has for its mind; by default an id, as the frozen platform's. */
+  mind?: { mindId?: string; mindSlug?: string };
 }) {
   const calls = { llm: 0, jev: 0 };
+  /** what each model call told the AI Gateway about itself */
+  const gatewayMetadata: Gateway["metadata"][] = [];
   const remembered = options.remembered || new Map<string, unknown>();
   const lintIo: LintIo = {
     async remember<T>(key: string, compute: () => Promise<T>) {
@@ -483,7 +517,8 @@ function io(options: {
       return value;
     },
     fetch: options.github.fetch,
-    async model(model, input) {
+    async model(model, input, { gateway }) {
+      gatewayMetadata.push(gateway.metadata);
       if (model === "typesafe/jev") {
         calls.jev++;
         return (options.jev || jevAnswers)(input);
@@ -491,10 +526,10 @@ function io(options: {
       calls.llm++;
       return (options.llm || llmAnswers)(input);
     },
-    mindId: async () => "mind_test",
+    mind: async () => options.mind || { mindId: "mind_test" },
     sleep: async () => {},
   };
-  return { lintIo, calls };
+  return { lintIo, calls, gatewayMetadata };
 }
 
 function jevAnswers(input: unknown) {

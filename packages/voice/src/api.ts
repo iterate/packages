@@ -10,8 +10,9 @@ import type { ScreenImageInput, ScreenInfo } from "./screen.ts";
 
 /** `itx.voice`: a device's provisioning, the screen renderer, and the installer's liveness probe. */
 export interface VoiceApi {
-  /** The installer's check that the service loads and answers, in the mind it names. */
-  health(): Promise<{ ok: true; mindId: string }>;
+  /** The installer's check that the service loads and answers, in the mind it names: by its slug,
+   *  and by its id where the mind has one (a mind on its own stack has none). */
+  health(): Promise<{ ok: true; mindId?: string; mindSlug?: string }>;
   /** Render `image.html` in Browser Run at the device's advertised resolution and upload it to
    *  `itx.clients[device].screen` in its chunk size; `image: null` restores the call-status view. */
   setImage(input: z.input<typeof ScreenImageInput>): Promise<

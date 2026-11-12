@@ -62,11 +62,21 @@ const BackupManifest = z.object({
   format: z.literal("iterate-mind-backup"),
   version: z.literal(1),
   capturedAt: z.iso.datetime(),
+  /** `mindId` is the mind's id, or its slug for a mind on its own stack, which has no id
+   *  (`backupSourceOf`). */
   source: z.object({ mindId: z.string().min(1), mindSlug: z.string().optional() }),
   parts: z.array(BackupPart),
   /** What export left out, and why: a file over the budget, a path no zip entry can name. */
   skipped: z.array(z.object({ part: BackupPart, path: z.string(), reason: z.string() })),
 });
+
+/** The mind a backup is taken from, as `itx.whoami` names it. A mind on its own stack has a slug
+ *  and no id, and its slug then stands for the id: the manifest and the page compare by it. */
+export function backupSourceOf(who: { mindId?: string; mindSlug?: string }) {
+  const mindId = who.mindId || who.mindSlug;
+  if (!mindId) throw new Error("this context names no mind: a backup needs its id or its slug");
+  return { mindId, mindSlug: who.mindSlug };
+}
 
 /** The records, each as the platform answered it: kept whole, checked only for what restore's
  *  report names. */

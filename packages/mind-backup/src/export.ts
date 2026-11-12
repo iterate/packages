@@ -8,6 +8,7 @@ import type { IterateContextApi } from "iterate/api";
 import { z } from "zod";
 import {
   ARCHIVE_BUDGET_BYTES,
+  backupSourceOf,
   BackupPart,
   isEntryPath,
   SealedSecret,
@@ -33,14 +34,14 @@ export async function exportMind(
   } = {},
 ): Promise<MindBackup> {
   const parts = options.parts || BackupPart.options;
-  const { mindId, mindSlug } = await itx.whoami();
+  const source = backupSourceOf(await itx.whoami());
   const skipped: MindBackup["manifest"]["skipped"] = [];
   const backup: MindBackup = {
     manifest: {
       format: "iterate-mind-backup",
       version: 1,
       capturedAt: new Date().toISOString(),
-      source: { mindId, mindSlug },
+      source,
       parts,
       skipped,
     },

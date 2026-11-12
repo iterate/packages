@@ -17,6 +17,7 @@
 //
 // Every model call names the mind, so the gateway's per-mind cap bounds what the linter spends
 // and it never uses up the budget every mind's agents share.
+import { mindNamesOf } from "iterate/lib";
 import { z } from "zod";
 import {
   CHECK_NAME,
@@ -89,10 +90,11 @@ export type Job = {
 export type LintConfig = { rules: string; model: string };
 
 /** The AI Gateway every model call goes through, and what it logs: the mind, whose daily cap
- *  bounds the linter, the app and the pull request head. */
+ *  bounds the linter, by the names it has (iterate/lib `mindNamesOf`), the app and the pull request
+ *  head. */
 export type Gateway = {
   id: string;
-  metadata: { mindId: string; app: string; pullRequest: string };
+  metadata: { mindId?: string; mindSlug?: string; app: string; pullRequest: string };
 };
 
 /** The lint's I/O. `fetch` answers the status and the whole body, read before the call returns.
@@ -103,7 +105,8 @@ export type LintIo = {
   fetch(request: Request): Promise<{ status: number; text: string }>;
   model(model: string, input: unknown, options: { gateway: Gateway }): Promise<unknown>;
   remember<T>(key: string, compute: () => Promise<T>): Promise<T>;
-  mindId(): Promise<unknown>;
+  /** The names the lint's context has for its mind (`itx.whoami`). */
+  mind(): Promise<{ mindId?: string; mindSlug?: string }>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -280,14 +283,14 @@ async function lint(job: Job, config: LintConfig, io: LintIo, github: GithubApi)
   // The mind names the spend, so the gateway's per-mind cap bounds the linter and it never
   // uses up the budget every mind's agents share. Without it the cap does not apply, so no
   // model is called.
-  const mindId = await io.mindId();
-  if (typeof mindId !== "string" || !mindId)
+  const mind = mindNamesOf(await io.mind());
+  if (!mind.mindId && !mind.mindSlug)
     throw new Error(
       "this context names no mind, so the AI Gateway's per-mind cap could not bound the lint",
     );
   const gateway: Gateway = {
     id: "default",
-    metadata: { mindId, app: "ai-linter", pullRequest: job.key },
+    metadata: { ...mind, app: "ai-linter", pullRequest: job.key },
   };
   const usage = { llmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0 };
   // Each LLM request's answer is remembered by the request, so a lint run again after a restart
