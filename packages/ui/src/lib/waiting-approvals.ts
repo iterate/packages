@@ -89,8 +89,8 @@ type Watch = {
   stop?: () => void;
   /** ONE FUNCTION FOR THE MIND'S WHOLE LIFE. React subscribes again whenever it is handed a
    *  different function, and a first subscription reads the mind. A function made in the hook's
-   *  body is a different one at every render: a shell then read every secret's log at every
-   *  render, and one open page filled the vault's memory (12 November 2026). */
+   *  body is a different one at every render, so the shell would read every secret's log at
+   *  every render. */
   subscribe(changed: () => void): () => void;
   getCount(): number;
 };
