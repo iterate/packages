@@ -109,7 +109,7 @@ export async function restoreMind(
           restored: 0,
           notes: (backup.records?.integrations || []).map(
             ({ provider, account, connection }) =>
-              `Reconnect ${provider} (${account}) as the connection ${connection}: the Dash's Integrations page, or itx.integrations.connect("${provider}", { connection: "${connection}" }).`,
+              `Reconnect ${provider} (${account}) as the connection ${connection}, on the Dash's Integrations page.`,
           ),
         });
         break;

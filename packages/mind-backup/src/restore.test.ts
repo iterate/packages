@@ -132,9 +132,7 @@ test("without a key each secret gets a collect link, and a borrowed or a connect
       {
         part: "integrations",
         restored: 0,
-        notes: [
-          'Reconnect github (acme) as the connection acme: the Dash\'s Integrations page, or itx.integrations.connect("github", { connection: "acme" }).',
-        ],
+        notes: ["Reconnect github (acme) as the connection acme, on the Dash's Integrations page."],
       },
     ],
   );
