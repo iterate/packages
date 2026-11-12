@@ -137,11 +137,17 @@ export class DocCollab {
     } while (this.#syncAgain || this.#missingUpdates());
   }
 
+  #closed?: Promise<void>;
+
   /** Leave the doc: the others are told this tab has gone (the awareness handler sends it), and
    *  once the last edit is out, the processor (`docs/left`). Resolves when that has been sent, so
-   *  the caller keeps the context until then. */
-  async close() {
-    if (this.#disposed) return;
+   *  the caller keeps the context until then. One goodbye for every caller: a second `close`
+   *  waits for the first one's. */
+  close(): Promise<void> {
+    return (this.#closed ||= this.#close());
+  }
+
+  async #close() {
     this.#disposed = true;
     removeAwarenessStates(this.awareness, [this.doc.clientID], "left");
     // A sync still on its way would say this tab is here after its goodbye, and the processor

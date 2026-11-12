@@ -247,6 +247,13 @@ export class DocSession {
     // a closing tab never unmounts: say goodbye now, if the socket lasts long enough to carry it
     const leave = () => void this.#collab?.close();
     window.addEventListener("pagehide", leave);
+    // A page the browser froze for its back-forward cache left the doc too (`pagehide` with
+    // `persisted`), and comes back as it was drawn: an editor that looks live and syncs nothing.
+    // So it joins the doc again.
+    const back = (event: PageTransitionEvent) => {
+      if (event.persisted) this.#rejoin(view, attachment);
+    };
+    window.addEventListener("pageshow", back);
     // Cmd/Ctrl-F with the focus elsewhere on the page finds in the file too, as the editor's own
     // keymap does once it has focus. Not from another text field, nor on an html file's Preview,
     // where the editor is hidden and the browser's find is the one that sees the page.
@@ -264,6 +271,7 @@ export class DocSession {
       attachment.unmounted = true;
       window.removeEventListener("beforeunload", warnIfUnsent);
       window.removeEventListener("pagehide", leave);
+      window.removeEventListener("pageshow", back);
       window.removeEventListener("keydown", find);
       for (const cleanup of attachment.cleanups.reverse()) cleanup();
       clearTimeout(this.#previewTimer);
@@ -283,6 +291,28 @@ export class DocSession {
   #hold(attachment: Attachment, cleanup: () => void) {
     if (attachment.unmounted) cleanup();
     else attachment.cleanups.push(cleanup);
+  }
+
+  /** Let go of the doc's connection and open it again in the same view: what the view held for
+   *  the connection that ended goes first. */
+  #rejoin(view: EditorView, attachment: Attachment) {
+    if (attachment.unmounted || this.#goingLive) return;
+    // The view is still bound to the text of the connection that ended. Until the doc's text
+    // comes in it takes no typing, as before the first join: what was typed now would be lost.
+    view.setState(
+      EditorState.create({
+        doc: view.state.doc.toString(),
+        extensions: [this.#extensions(), readOnly],
+      }),
+    );
+    for (const cleanup of attachment.cleanups.splice(0).reverse()) cleanup();
+    // the agents that open threads are routed to were followed over the context that ended
+    for (const letGo of this.#routes.values()) letGo();
+    this.#routes.clear();
+    this.#collab = null;
+    this.#context = null;
+    this.#undo = null;
+    void this.#goLive(view, attachment);
   }
 
   /** Open the doc and bind the editor to it. A failure before the editor is live lets go of what
@@ -315,10 +345,17 @@ export class DocSession {
         void closing.finally(() => (context as unknown as Disposable)[Symbol.dispose]());
       });
       if (attachment.unmounted) return;
+      // a connection that was let go of says nothing more: its last send may fail after the tab
+      // has joined again, and that failure is not the new connection's
+      let current = true;
+      hold(() => {
+        current = false;
+      });
       const collab = new DocCollab({
         context,
         user: { name: user.name, color: user.color },
         onStatus: (status) => {
+          if (!current) return;
           this.#collabStatus = status;
           this.#refresh();
         },
@@ -367,8 +404,9 @@ export class DocSession {
           ],
         }),
       );
-      // a new state has no selection, and no update tells the listener that
-      this.#set({ selecting: false });
+      // a new state has no selection, and no update tells the listener that, nor that the text is
+      // now the doc's and not the one the page loaded
+      this.#set({ selecting: false, previewText: collab.text.toString() });
       this.#refresh();
       this.#threadsChanged();
     } catch (error) {

@@ -37,6 +37,34 @@ test("a local edit goes out as an edit frame, and a frame from the processor com
   await vi.waitFor(() => expect(tab.text()).toBe("Draft\n# Plan\nBring a coat.\n"));
 });
 
+test("the preview shows the processor's text once the tab is live, not the text the page loaded", async () => {
+  const mind = fakeMind("<h1>Newer</h1>\n");
+  using tab = open(mind, "ada@example.com", "<h1>Older</h1>\n");
+  expect(tab.session.state()).toMatchObject({ previewText: "<h1>Older</h1>\n" });
+  await vi.waitFor(() => expect(tab.session.state()).toMatchObject({ status: { kind: "saved" } }));
+  expect(tab.session.state()).toMatchObject({ previewText: "<h1>Newer</h1>\n" });
+});
+
+test("a tab that the browser froze for its back-forward cache and brought back joins the doc again", async () => {
+  const mind = fakeMind("# Plan\n");
+  using tab = open(mind, "ada@example.com", "# Plan\n");
+  await vi.waitFor(() => expect(tab.session.state()).toMatchObject({ status: { kind: "saved" } }));
+  const frozen = (type: string) =>
+    window.dispatchEvent(Object.assign(new Event(type), { persisted: true }));
+  // frozen: the tab leaves the doc, as a closing tab does
+  frozen("pagehide");
+  // the processor's text moves on while the page is frozen
+  mind.processorEdit((text) => text.insert(0, "While away\n"));
+  frozen("pageshow");
+  // until it has joined again the editor takes no typing: what was typed into the connection
+  // that ended would be lost when the doc's text comes in
+  expect(tab.readOnly()).toBe(true);
+  await vi.waitFor(() => expect(tab.text()).toBe("While away\n# Plan\n"));
+  expect(tab.readOnly()).toBe(false);
+  tab.type(tab.text().length, "Back again.\n");
+  await vi.waitFor(() => expect(mind.text()).toBe("While away\n# Plan\nBack again.\n"));
+});
+
 test("two tabs on one doc type at once and converge on the same text", async () => {
   const mind = fakeMind("# Plan\n");
   using ada = open(mind, "ada@example.com", "# Plan\n");
@@ -209,6 +237,14 @@ function open(mind: ReturnType<typeof fakeMind>, email: string, text: string) {
   return {
     session,
     text: text_,
+    readOnly: () => {
+      let readOnly = false;
+      session.run((view) => {
+        readOnly = view.state.readOnly;
+        return true;
+      });
+      return readOnly;
+    },
     type: (at: number, insert: string) =>
       session.run((view) => {
         view.dispatch({ changes: { from: at, insert } });
