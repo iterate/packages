@@ -17,6 +17,16 @@ test.for([
     file: "node_modules/.pnpm/lucide-react@1.48.0/node_modules/lucide-react/dist/esm/createLucideIcon.js",
     chunk: "vendor-icons",
   },
+  {
+    file: "node_modules/.pnpm/@tanstack+react-query@5.107.1_react@19.3.0/node_modules/@tanstack/react-query/build/modern/useQuery.js",
+    chunk: "vendor-query",
+  },
+  {
+    file: "node_modules/.pnpm/@tanstack+query-core@5.107.1/node_modules/@tanstack/query-core/build/modern/queryClient.js",
+    chunk: "vendor-query",
+  },
+  // another library of the same house is not react-query
+  { file: "node_modules/@tanstack/react-virtual/dist/esm/index.js", chunk: undefined },
   { file: "packages/ui/src/components/ui/button.tsx", chunk: "ui-base" },
   { file: "packages/ui/src/components/ui/textarea.tsx", chunk: "ui-base" },
   { file: "packages/ui/src/components/ui/dialog.tsx", chunk: "ui-shell" },
@@ -36,7 +46,13 @@ test.for([
   expect(vendorChunks.find(({ test }) => test.test(file))?.name).toBe(chunk);
 });
 
-test("the icons a page takes from the kit are an entry of their own", () => {
-  expect(browserEntries()).toMatchObject({ icons: "src/browser/icons.ts" });
-  expect(publishExports(browserEntries(), [])).toMatchObject({ "./icons": "./dist/icons.mjs" });
+test("the icons and react-query that a page takes from the kit are entries of their own", () => {
+  expect(browserEntries()).toMatchObject({
+    icons: "src/browser/icons.ts",
+    query: "src/browser/query.ts",
+  });
+  expect(publishExports(browserEntries(), [])).toMatchObject({
+    "./icons": "./dist/icons.mjs",
+    "./query": "./dist/query.mjs",
+  });
 });

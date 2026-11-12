@@ -34,6 +34,9 @@ export function browserEntries(): Record<string, string> {
     live: "src/browser/live.ts",
     // the icons a page takes from this package, and not from lucide-react (src/browser/icons.ts)
     icons: "src/browser/icons.ts",
+    // react-query for a page, from this package and not from an import-map line of its own
+    // (src/browser/query.ts)
+    query: "src/browser/query.ts",
     react: "src/browser/react.ts",
     "react/jsx-runtime": "src/browser/react-jsx-runtime.ts",
     "react/compiler-runtime": "src/browser/react-compiler-runtime.ts",
@@ -101,6 +104,9 @@ export const vendorChunks = [
   { name: "vendor-base-ui", test: /node_modules[\\/](@base-ui|@floating-ui)[\\/]/ },
   { name: "vendor-yaml", test: /node_modules[\\/]yaml[\\/]/ },
   { name: "vendor-zod", test: /node_modules[\\/]zod[\\/]/ },
+  // react-query, which a page takes from the `query` entry: one client for the page and for
+  // this package's components
+  { name: "vendor-query", test: /node_modules[\\/]@tanstack[\\/](react-query|query-core)[\\/]/ },
   { name: "vendor-yjs", test: /node_modules[\\/](yjs|lib0|y-protocols|y-codemirror\.next)[\\/]/ },
   // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
   { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },
