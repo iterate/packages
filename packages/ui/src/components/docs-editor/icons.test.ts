@@ -11,8 +11,12 @@ test("the docs editor's icon chunk holds exactly the icons that no other file of
   const importers = new Map<string, string[]>();
   for (const file of sourceFiles(src)) {
     const code = readFileSync(file, "utf8");
-    for (const [, names] of code.matchAll(/import\s*\{([^}]*)\}\s*from\s*"lucide-react"/g))
-      for (const name of names!.split(",").map((part) => part.trim().split(/\s+/)[0]!))
+    // an import and a re-export alike (browser/icons.ts hands its icons on with `export { … }`),
+    // and an icon by either of the names lucide gives it: `Trash2` and `Trash2Icon` are one file
+    for (const [, names] of code.matchAll(
+      /(?:import|export)\s*\{([^}]*)\}\s*from\s*"lucide-react"/g,
+    ))
+      for (const name of names!.split(",").map((part) => iconOf(part.trim().split(/\s+/)[0]!)))
         if (name) importers.set(name, [...(importers.get(name) || []), relative(src, file)]);
   }
   const ofTheDocsEditorAlone = [...importers]
@@ -22,6 +26,9 @@ test("the docs editor's icon chunk holds exactly the icons that no other file of
   expect(ofTheDocsEditorAlone.length).toBeGreaterThan(0);
   expect([...docsEditorIcons].sort()).toEqual(ofTheDocsEditorAlone);
 });
+
+/** An icon by its one name: lucide exports each as `X`, `XIcon` and `LucideX`. */
+const iconOf = (name: string) => name.replace(/^Lucide(?=[A-Z])/, "").replace(/Icon$/, "");
 
 /** lucide's file for an icon: `Heading1` is heading-1, `CodeXml` is code-xml. */
 const fileNameOf = (icon: string) =>

@@ -81,7 +81,6 @@ export const docsEditorIcons = [
   "strikethrough",
   "table",
   "text-quote",
-  "trash-2",
   "undo",
 ];
 
