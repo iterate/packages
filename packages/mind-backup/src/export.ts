@@ -1,9 +1,9 @@
 // export.ts — WHAT A BACKUP READS from a mind, part by part, through the mind root's own itx:
 // every read is one the mind's code may make, and nothing needs an operator or a deployment key.
-// Secrets come as their catalog (paths, pins, strategy kinds) and, beside each entry, the sealed cell
-// its facet folded from the secret's own log (`SealedSecretCell`, core/lib/src/api.ts, read as
-// `itx.cd(path).facets.get("secret").snapshot()`); restore.ts opens one with the key. A value is
-// never read.
+// Secrets come as their catalog (paths, pins, strategy kinds) and, where the platform has one,
+// the sealed cell beside each entry (`SealedSecretCell`, core/lib/src/api.ts, says where that is:
+// the frozen platform's secret facet has it, and a mind's own stack gives none out, so each secret
+// there is named in `skipped`); restore.ts opens one with the key. A value is never read.
 import type { IterateContextApi } from "iterate/api";
 import { z } from "zod";
 import {
@@ -144,8 +144,8 @@ export async function exportMind(
 
 /** The current cell of the secret at `path`, as its facet folded it from the facts on that path
  *  (`state.material.sealed`): the facet is the secret's own reduce, and `snapshot` is public to the
- *  owner. Throws for a secret with no cell: never set, deleted, borrowed, or on a platform from
- *  before the facts carried cells. */
+ *  owner. Throws for a secret with no cell: never set, deleted, borrowed, on a platform from
+ *  before the facts carried cells, or on a mind's own stack, which has no such facet. */
 async function sealedCellOnLog(itx: Pick<IterateContextApi, "cd">, path: string) {
   const { state } = await itx
     .cd(path)

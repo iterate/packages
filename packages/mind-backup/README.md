@@ -22,10 +22,15 @@ This is a prototype.
 
 `/backups/`, where the mind keeps its backups, is left out of `files`.
 
-**Secrets.** A secret's value is never read: the backup holds each secret's _sealed cell_
-(`sealed` in `secrets.json`), the material as the platform's facts carry it, encrypted under the
-deployment's secrets key and bound to that secret (the secret facet's `snapshot()` on the
-secret's path answers the current one). The cell opens only with that key. The restore page asks for the key when a backup has sealed cells and
+**Secrets.** A secret's value is never read. Where the platform's facts carry a secret's _sealed
+cell_, the backup holds it (`sealed` in `secrets.json`): the material, encrypted under the
+deployment's secrets key and bound to that secret. That is the frozen platform, whose secret
+facet's `snapshot()` on the secret's path answers the current cell. **A mind on its own stack
+gives no cell out:** no fact carries one and no call reads one, so a backup made there has each
+secret's path and pin alone, names each secret in the manifest's `skipped`, and restore asks a
+person for each value.
+
+A cell opens only with its deployment's key. The restore page asks for the key when a backup has sealed cells and
 sends it with the restore, once, to the mind's own host: the worker opens every cell before it
 writes anything (a wrong key restores nothing), sets each secret as it was, and the platform seals
 it again under its own key. So a backup moves secrets between minds, and between deployments
