@@ -81,7 +81,7 @@ export function FilterRow({
             aria-pressed={filter.types.has(type)}
             title={type}
             className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-xs hover:bg-muted",
+              "rounded px-1.5 py-0.5 text-xs hover:bg-muted",
               filter.types.has(type) ? "bg-muted text-foreground" : "text-muted-foreground",
             )}
           >
@@ -127,7 +127,7 @@ function OffsetInput({
         const bound = offsetBound(event.target.value);
         if (bound !== null) onChange(bound);
       }}
-      className="h-7 w-16 rounded-md border bg-background px-1.5 text-center font-mono text-base tabular-nums sm:text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-7 w-16 rounded-md border bg-background px-1.5 text-center text-base tabular-nums sm:text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
     />
   );
 }

@@ -47,12 +47,12 @@ export function PathLink({
  *  fold's fact, folds.tsx `sentenceText`) still carries it. */
 export function ContextPathText({ path }: { path: string }) {
   const links = useContext(ContextPathLinksContext);
-  if (!links) return <span className="font-mono">{path}</span>;
+  if (!links) return <span>{path}</span>;
   return (
     <PathLink
       path={path}
       links={links}
-      className="font-mono underline decoration-border underline-offset-2 hover:decoration-foreground"
+      className="underline decoration-border underline-offset-2 hover:decoration-foreground"
     >
       {path}
     </PathLink>
@@ -74,7 +74,7 @@ export function ContextPath({
   return (
     <nav
       aria-label="Context path"
-      className={cn("flex min-w-0 items-baseline gap-1 font-mono text-sm", className)}
+      className={cn("flex min-w-0 items-baseline gap-1 text-sm", className)}
     >
       {segments.length === 0 ? (
         <span aria-current="page" className="font-semibold">

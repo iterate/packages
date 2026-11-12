@@ -30,9 +30,9 @@ function deltaColor(ms: number): string {
 }
 
 const OFFSET =
-  "shrink-0 font-mono text-2xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
-const CLOCK = "shrink-0 font-mono text-2xs text-muted-foreground tabular-nums sm:w-[8ch]";
-const GAP = "shrink-0 font-mono text-2xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
+  "shrink-0 text-2xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
+const CLOCK = "shrink-0 text-2xs text-muted-foreground tabular-nums sm:w-[8ch]";
+const GAP = "shrink-0 text-2xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
 
 /** `#123`, right-aligned in the gutter the view sizes to its largest offset (`--offset-width`). */
 export function RowOffset({ offset }: { offset: number }) {
@@ -58,7 +58,7 @@ export function RowGutter({ times }: { times?: boolean }) {
 /** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground max-sm:font-mono max-sm:text-2xs sm:ml-auto">
+    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground max-sm:text-2xs sm:ml-auto">
       {who}
     </span>
   );
@@ -131,7 +131,9 @@ export function EventSentence({
     >
       {rich ?? (
         <>
-          <span className="font-mono text-xs text-foreground/80">{shortEventType(event.type)}</span>
+          <span className="text-xs font-medium text-foreground/80">
+            {shortEventType(event.type)}
+          </span>
           {glance ? <span className="ml-2 text-xs text-muted-foreground">{glance}</span> : null}
         </>
       )}

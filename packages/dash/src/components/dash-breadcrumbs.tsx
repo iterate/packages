@@ -25,10 +25,7 @@ export function DashBreadcrumbs({
         {page ? (
           <>
             <BreadcrumbItem className="hidden md:inline-flex">
-              <BreadcrumbLink
-                className="font-mono"
-                render={<Link to="/minds/$mind" params={{ mind }} />}
-              >
+              <BreadcrumbLink render={<Link to="/minds/$mind" params={{ mind }} />}>
                 {mind}
               </BreadcrumbLink>
             </BreadcrumbItem>
@@ -39,7 +36,7 @@ export function DashBreadcrumbs({
           </>
         ) : (
           <BreadcrumbItem>
-            <BreadcrumbPage className="font-mono">{mind}</BreadcrumbPage>
+            <BreadcrumbPage>{mind}</BreadcrumbPage>
           </BreadcrumbItem>
         )}
       </BreadcrumbList>

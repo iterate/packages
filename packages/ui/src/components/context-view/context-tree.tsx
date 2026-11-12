@@ -84,7 +84,7 @@ export function ContextTree({
           ref={inputRef}
           aria-label="Filter or go to a path"
           placeholder="Filter or go to a path"
-          className="h-8 pr-9 font-mono text-xs md:text-xs"
+          className="h-8 pr-9 text-xs md:text-xs"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -134,7 +134,7 @@ function TreeList({
     overscan: 16,
   });
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto text-xs">
       <ul className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => (
           <li
@@ -210,7 +210,7 @@ export function ContextTreeSheet({ className, ...tree }: Parameters<typeof Conte
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         className={cn(
-          "flex min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-sm",
+          "flex min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-sm",
           className,
         )}
         aria-label={`Contexts: ${tree.current}`}
