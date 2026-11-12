@@ -31,7 +31,7 @@ type AppServer = {
     }
   | {
       /** Served only under a mind's hosts, which a config worker fetches it through to (Notes):
-       *  the platform answers those hosts' `/.auth/*` and `/api` itself (core/mind-worker/src/worker.ts), so
+       *  the platform answers those hosts' `/.auth/*` and `/api` itself (core/mind-worker/src/http.ts), so
        *  the app has no sign-in gate and no OAuth client of its own. */
       proxied: true;
     }
