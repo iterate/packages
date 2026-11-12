@@ -6,6 +6,9 @@ export default defineConfig({
     reporters: vitestReporters,
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // The Dash's own logic and its tests are in packages/ui (lib/waiting-approvals.ts and the
+    // files beside it). A test of a route's own code goes here.
+    passWithNoTests: true,
     restoreMocks: true,
     unstubGlobals: true,
     unstubEnvs: true,

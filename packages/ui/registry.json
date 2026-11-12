@@ -211,6 +211,29 @@
       ]
     },
     {
+      "name": "approvals-alert",
+      "type": "registry:component",
+      "description": "The alert that requests wait for a member's yes: the first thing in a Dash's sidebar, a link to where the member answers. It draws nothing when nothing waits.",
+      "dependencies": [
+        "@base-ui/react",
+        "lucide-react"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-warning": "var(--warning)"
+        },
+        "light": {
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/approvals-alert.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "app-build",
       "type": "registry:component",
       "description": "One installed version of an app: its build's state, and Check to ask again.",
@@ -1080,6 +1103,29 @@
           }
         }
       }
+    },
+    {
+      "name": "waiting-approvals",
+      "type": "registry:lib",
+      "description": "What waits for a member's yes in a mind: the requests held by a secret's rule and the mails and calls held by the gate, read from the mind's logs, and the count of them as a hook.",
+      "dependencies": [
+        "iterate",
+        "zod"
+      ],
+      "files": [
+        {
+          "path": "src/lib/waiting-approvals.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/approvals.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/held-acts.ts",
+          "type": "registry:lib"
+        }
+      ]
     }
   ]
 }

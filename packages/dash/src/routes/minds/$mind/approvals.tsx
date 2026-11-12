@@ -15,11 +15,11 @@ import {
   TableHeader,
   TableRow,
 } from "@iterate-com/ui/components/ui/table";
+import { mindApprovalsOf, type HeldRequest } from "@iterate-com/ui/lib/approvals";
+import type { HeldAct } from "@iterate-com/ui/lib/held-acts";
+import { askWaitingApprovals, readMindApprovals } from "@iterate-com/ui/lib/waiting-approvals";
 import { Identifier } from "../../../components/identifier.tsx";
 import { NotServedYet } from "../../../components/not-served-yet.tsx";
-import { mindApprovalsOf, type HeldRequest } from "../../../lib/approvals.ts";
-import { askWaitingApprovals, readMindApprovals } from "../../../lib/approvals-read.ts";
-import type { HeldAct } from "../../../lib/held-acts.ts";
 
 export const Route = createFileRoute("/minds/$mind/approvals")({
   loader: async ({ context }) => {

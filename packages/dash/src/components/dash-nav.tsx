@@ -11,10 +11,10 @@ import {
   LayoutDashboard,
   LockKeyhole,
   Plug,
-  ShieldAlert,
   ShieldCheck,
   Waypoints,
 } from "lucide-react";
+import { ApprovalsAlert } from "@iterate-com/ui/components/approvals-alert";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -40,9 +40,6 @@ const MIND_PAGES = [
   { to: "/minds/$mind/integrations", label: "Integrations", icon: Blocks },
 ] as const;
 
-const waitingWords = (waiting: number) =>
-  waiting === 1 ? "1 request waits for approval" : `${waiting} requests wait for approval`;
-
 /** The mind's pages, its own site, and the first-party apps opened on it: every app serves
  *  `/minds/<address>`, and its own gate signs the browser in to the mind there. */
 export function MindNav({ mind, waiting = 0 }: { mind: string; waiting?: number }) {
@@ -54,21 +51,10 @@ export function MindNav({ mind, waiting = 0 }: { mind: string; waiting?: number 
       <SidebarGroupContent>
         {/* REQUESTS THAT WAIT FOR A YES come before everything else on every page of the mind:
             an agent stands still until a member answers. The rail shows the icon alone. */}
-        {waiting > 0 ? (
-          <Link
-            to="/minds/$mind/approvals"
-            params={{ mind }}
-            data-approvals-alert={waiting}
-            title={waitingWords(waiting)}
-            className="mb-2 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm outline-none hover:bg-warning/20 focus-visible:ring-3 focus-visible:ring-ring/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1.5"
-          >
-            <ShieldAlert aria-hidden className="size-5 shrink-0 text-warning" />
-            <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-              <span className="font-semibold">{waitingWords(waiting)}</span>
-              <span className="text-xs text-muted-foreground">Your agents wait. Review now.</span>
-            </span>
-          </Link>
-        ) : null}
+        <ApprovalsAlert
+          waiting={waiting}
+          render={<Link to="/minds/$mind/approvals" params={{ mind }} />}
+        />
         <SidebarMenu>
           {MIND_PAGES.map(({ to, label, icon: Icon }) => (
             <SidebarMenuItem key={to}>

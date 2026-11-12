@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { titleWithCount } from "./approvals-read.ts";
+import { titleWithCount } from "./waiting-approvals.ts";
 
 test("the tab's title carries the count of what waits, once, and loses it at zero", () => {
   expect(titleWithCount("Approvals · example.com · Dash", 2)).toBe(

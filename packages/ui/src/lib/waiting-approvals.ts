@@ -1,11 +1,11 @@
-// approvals-read.ts — WHAT WAITS FOR A MEMBER'S YES IN A MIND, read through the page's own `read`:
-// for the Approvals page, and for the count that the shell shows on every page of the mind (the
-// alert in the sidebar and the number in the tab's title).
+// waiting-approvals.ts — WHAT WAITS FOR A MEMBER'S YES IN A MIND, read through the page's own
+// `read`: for an Approvals page, and for the count a Dash shows on every page of the mind (the
+// alert in the sidebar, `ApprovalsAlert`, and the number in the tab's title). A page with an app
+// client passes its `read`; a page that holds one `itx` passes `(ask) => ask(itx)`.
 import { useSyncExternalStore } from "react";
 import type { AuthenticatedApp } from "iterate/app";
 import { mindApprovalsOf, type LogEvent } from "./approvals.ts";
 import { heldActsOf } from "./held-acts.ts";
-import { servesRoot } from "./served.ts";
 
 type Read = AuthenticatedApp["read"];
 
@@ -29,7 +29,8 @@ async function logOf(read: Read, path: string): Promise<LogEvent[]> {
  *  vault yet. */
 export async function readMindApprovals(read: Read) {
   // the list is read only once the root is known to be there
-  if (!(await servesRoot(read, "secrets"))) return { served: false as const };
+  const vault = await read((itx) => itx.rewriteRules.get("itx.secrets"));
+  if (!vault?.target) return { served: false as const };
   const [secrets, gate] = await Promise.all([
     read((itx) => itx.secrets.list()),
     // a mind from before the gate has no such context: nothing waits there
