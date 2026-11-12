@@ -22,14 +22,19 @@ whose config files hold the processors the editor talks to.
   "Try again" (`reconnect`) opens it again.
 - CodeMirror, Atomic and Yjs are static imports. The build keeps each in one vendor chunk
   (`browser-entries.ts` `vendorChunks`): two copies of any break their `instanceof` checks.
-- Rich mode's look is Atomic's stylesheet. A no-build page links the published
-  `docs-editor.css` (`src/browser/docs-editor.css`); an app that installs the item from the
-  registry imports `@atomic-editor/editor/styles.css` in its own stylesheet.
+- A no-build page that shows the editor links the published `docs-editor.css` IN PLACE OF
+  `styles.css`, never both: it is the whole kit's stylesheet with the editor's classes and Atomic's
+  live preview added (`src/browser/docs-editor.css`). Two sheets would share one
+  `@layer utilities`, and the second sheet's plain utilities (`.hidden`) would beat the first's
+  variants (`md:block`). The build fails unless `docs-editor.css` holds every rule of `styles.css`
+  in its order (`scripts/check-docs-editor-css.ts`). `theme.css` and `iterate.css` go after it,
+  as after `styles.css`. An app that installs the item from the registry imports
+  `@atomic-editor/editor/styles.css` in its own stylesheet.
 - `DocTree` draws @pierre/trees through its vanilla model (`doc-tree.ts`). The page passes the open
   path; a new one moves the selection. `doc-tree.ts` is its own build
   (`scripts/build-docs-tree.ts`), loaded when the tree first draws.
 - Other pages must load the same files and bytes with this item as without it. So: the item's
-  Tailwind classes go to `docs-editor.css`, not `styles.css`; its icons are ones no other entry
+  Tailwind classes go to `docs-editor.css` only, never `styles.css`; its icons are ones no other entry
   imports (a shared icon becomes a new chunk); its live state comes through `iterate/react`, whose
   chunk the `live` entry already loads; its own libraries are in its own vendor chunks.
 - Undo is Yjs's (`Y.UndoManager`): no extension here may add CodeMirror's `history()`.

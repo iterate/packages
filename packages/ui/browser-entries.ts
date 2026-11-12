@@ -163,7 +163,7 @@ export function publishExports(entries: Record<string, string>, fonts: string[])
     "./styles.css": "./dist/styles.css",
     // the docs editor's file tree, its own build (scripts/build-docs-tree.ts)
     "./components/docs-editor/doc-tree": "./dist/components/docs-editor/doc-tree.mjs",
-    // the docs editor's own stylesheet (src/browser/docs-editor.css): a page that shows it links it
+    // the docs editor's page's whole stylesheet (src/browser/docs-editor.css), in place of styles.css
     "./docs-editor.css": "./dist/docs-editor.css",
     [`./${AGENT_KIND_VIEW_FRAME}`]: `./dist/${AGENT_KIND_VIEW_FRAME}`,
     "./iterate.css": "./dist/iterate.css",

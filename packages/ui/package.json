@@ -162,7 +162,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown && tailwindcss --input src/browser/styles.css --output dist/styles.css --minify && tailwindcss --input src/browser/docs-editor.css --output dist/docs-editor.css --minify && node scripts/build-iterate-css.ts && node scripts/build-agent-kind-view-frame.ts && node scripts/build-docs-tree.ts",
+    "build": "tsdown && tailwindcss --input src/browser/styles.css --output dist/styles.css --minify && tailwindcss --input src/browser/docs-editor.css --output dist/docs-editor.css --minify && node scripts/check-docs-editor-css.ts && node scripts/build-iterate-css.ts && node scripts/build-agent-kind-view-frame.ts && node scripts/build-docs-tree.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "prepack": "pnpm build"

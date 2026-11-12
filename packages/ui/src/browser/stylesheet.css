@@ -1,0 +1,14 @@
+/* What the published stylesheets have in common: the apps' globals.css, whose Tailwind scans all of
+   src/, Streamdown's classes for the repo IDE's markdown preview, as Dash's stylesheet adds, and
+   the example pages'. styles.css is this without the docs editor's classes; docs-editor.css is this
+   with them, and Atomic's. */
+@import "../styles/globals.css";
+@source "../../node_modules/streamdown/dist/*.js";
+/* the example pages' own classes (examples/), so a page copied from one finds them */
+@source "../../examples/*";
+
+/* Tailwind also reads every file of the package for class names. The registry's theme item and the
+   build's scripts name the look's utilities without using them (shadow-2xl, ring), so they stay
+   out, and this stylesheet is what the components use. */
+@source not "../../registry.json";
+@source not "../../scripts";

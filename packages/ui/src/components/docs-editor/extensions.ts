@@ -61,7 +61,7 @@ const formattingKeymap = Prec.highest(
 /** Atomic's colours from the page's tokens (src/styles/globals.css and tokens.css): Atomic's own
  *  defaults are a dark theme, inline code and code blocks' syntax colours included (the `hl-`
  *  ones; a fence's language name is `hl-variable`). The tokens follow the page's light or dark. Its
- *  stylesheet is the page's to link: dist/docs-editor.css (src/browser/docs-editor.css). */
+ *  stylesheet is in dist/docs-editor.css, which the page links in place of styles.css. */
 const theme = EditorView.theme({
   "&": {
     "--atomic-editor-fg": "var(--foreground)",

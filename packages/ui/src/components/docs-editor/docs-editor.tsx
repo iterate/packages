@@ -4,8 +4,8 @@
 // bound to the doc's shared Y.Text, the comments beside it, and where saving stands. `DocList` is a
 // repo's files, live; `DocListPanel` lists them with a box to start a doc, and `DocTree` shows them
 // as a tree. None of it imports a router: a link is an href from the page, and a plain left click
-// on one is the page's `onNavigate` or `onOpen`. Rich mode's look is a stylesheet the page links,
-// dist/docs-editor.css (AGENTS.md beside this file says how the parts fit).
+// on one is the page's `onNavigate` or `onOpen`. The page links dist/docs-editor.css in place of
+// styles.css (AGENTS.md beside this file says how the parts fit).
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import type { EditorView } from "@codemirror/view";
 import {
