@@ -69,55 +69,118 @@ export async function readMindApprovals(read: Read) {
  *  asks at once, and a page that decided something asks at once (`askWaitingApprovals`). */
 const ASK_EVERY_MS = 5 * 60_000;
 
-/** How many requests wait, per mind, asked while somebody shows it: a small store, so the shell
- *  reads it with `useSyncExternalStore` and a page that decided something can ask again at once. */
-const counts = new Map<string, number>();
-const listeners = new Map<string, Set<() => void>>();
-const readers = new Map<string, Read>();
+/** An answer this new is not asked for again by a shell that mounts or a tab that comes to the
+ *  front: a page that leaves a mind's shell and comes back, or a tab switched to and fro, reads
+ *  nothing. */
+const FRESH_MS = 10_000;
 
-async function ask(mind: string) {
-  const read = readers.get(mind);
-  if (!read) return;
-  // a read that fails keeps the last count: the next one says
-  const answer = await readMindApprovals(read).catch(() => null);
-  if (!answer) return;
-  const count = answer.served ? answer.waiting.length + answer.acts.length : 0;
-  if (counts.get(mind) === count) return;
-  counts.set(mind, count);
-  for (const changed of listeners.get(mind) || []) changed();
+/** WHAT THE SHELLS OF ONE MIND SHARE while somebody shows it: the count, and the one read, the one
+ *  timer and the one listener for the tab that keep it. */
+type Watch = {
+  /** The newest `read` a shell gave: a page's client can hand it a new function at each navigation. */
+  read: Read;
+  count: number;
+  /** When the last answer came. */
+  answeredAt: number;
+  listeners: Set<() => void>;
+  /** A read runs now. `again`: a page said meanwhile that the list changed, so one more follows. */
+  reading: boolean;
+  again: boolean;
+  stop?: () => void;
+  /** ONE FUNCTION FOR THE MIND'S WHOLE LIFE. React subscribes again whenever it is handed a
+   *  different function, and a first subscription reads the mind. A function made in the hook's
+   *  body is a different one at every render: a shell then read every secret's log at every
+   *  render, and one open page filled the vault's memory (12 November 2026). */
+  subscribe(changed: () => void): () => void;
+  getCount(): number;
+};
+const watches = new Map<string, Watch>();
+
+/** Read the mind's approvals into the watch's count. One read at a time: an ask that comes while
+ *  one runs starts none, unless it says that the list changed (`afterChange`), and then one more
+ *  read follows the one that runs, however many asked. */
+async function ask(watch: Watch, afterChange = false) {
+  if (watch.reading) {
+    watch.again ||= afterChange;
+    return;
+  }
+  watch.reading = true;
+  try {
+    do {
+      watch.again = false;
+      // a read that fails keeps the last count: the next one says
+      const answer = await readMindApprovals(watch.read).catch(() => null);
+      if (answer) {
+        watch.answeredAt = Date.now();
+        const count = answer.served ? answer.waiting.length + answer.acts.length : 0;
+        if (watch.count !== count) {
+          watch.count = count;
+          for (const changed of watch.listeners) changed();
+        }
+      }
+    } while (watch.again);
+  } finally {
+    watch.reading = false;
+  }
+}
+
+function watchOf(mind: string, read: Read): Watch {
+  const held = watches.get(mind);
+  if (held) {
+    held.read = read;
+    return held;
+  }
+  const listeners = new Set<() => void>();
+  const askIfStale = () => {
+    if (document.visibilityState === "visible" && Date.now() - watch.answeredAt >= FRESH_MS)
+      void ask(watch);
+  };
+  const watch: Watch = {
+    read,
+    count: 0,
+    answeredAt: 0,
+    listeners,
+    reading: false,
+    again: false,
+    subscribe(changed) {
+      listeners.add(changed);
+      // the first shell starts the watch; a second one of the same mind shares it
+      if (!watch.stop) {
+        askIfStale();
+        const timer = setInterval(askIfStale, ASK_EVERY_MS);
+        document.addEventListener("visibilitychange", askIfStale);
+        watch.stop = () => {
+          clearInterval(timer);
+          document.removeEventListener("visibilitychange", askIfStale);
+        };
+      }
+      return () => {
+        listeners.delete(changed);
+        if (listeners.size > 0) return;
+        watch.stop?.();
+        watch.stop = undefined;
+      };
+    },
+    getCount: () => watch.count,
+  };
+  watches.set(mind, watch);
+  return watch;
 }
 
 /** Ask now: after a page saw the list change. */
 export function askWaitingApprovals(mind: string) {
-  void ask(mind);
+  const watch = watches.get(mind);
+  if (watch) void ask(watch, true);
 }
 
 /** How many requests wait for a yes in `mind`: 0 until the first answer. */
 export function useWaitingApprovals(mind: string, read: Read): number {
-  return useSyncExternalStore(
-    (changed) => {
-      readers.set(mind, read);
-      const of = listeners.get(mind) || new Set();
-      listeners.set(mind, of);
-      of.add(changed);
-      void ask(mind);
-      const timer = setInterval(() => {
-        if (document.visibilityState === "visible") void ask(mind);
-      }, ASK_EVERY_MS);
-      const front = () => {
-        if (document.visibilityState === "visible") void ask(mind);
-      };
-      document.addEventListener("visibilitychange", front);
-      return () => {
-        of.delete(changed);
-        clearInterval(timer);
-        document.removeEventListener("visibilitychange", front);
-      };
-    },
-    () => counts.get(mind) || 0,
-    () => 0,
-  );
+  const watch = watchOf(mind, read);
+  return useSyncExternalStore(watch.subscribe, watch.getCount, noneWaiting);
 }
+
+/** The server's HTML has no count. */
+const noneWaiting = () => 0;
 
 /** The tab's title with the count before it, "(2) Approvals · …", for as long as `count` is not 0.
  *  The router writes the title on each navigation, so the count is put back when it does. */
