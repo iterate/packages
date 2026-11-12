@@ -47,14 +47,17 @@ export const SealedSecret = z.object({
 export type SealedSecret = z.infer<typeof SealedSecret>;
 
 /** One secret as `secrets.list()` catalogs it (never a value), and its sealed cell when export was
- *  handed one. */
+ *  handed one: `sealed`, a cell of the frozen platform, or `stored`, the text that a mind's own
+ *  stack hands out (`secrets.exportSealed`) and takes back as it is (`secrets.importSealed`). */
 const ArchivedSecret = z.object({
   path: z.string().regex(/^\/secrets\/[a-zA-Z0-9._-]+$/),
   urls: z.array(z.string()),
   refresh: z.string().optional(),
-  createdAt: z.string(),
+  /** When the secret was first set. A mind's own stack keeps no such time. */
+  createdAt: z.string().optional(),
   borrowed: z.looseObject({ lendId: z.string() }).optional(),
   sealed: SealedSecret.optional(),
+  stored: z.string().min(1).optional(),
 });
 type ArchivedSecret = z.infer<typeof ArchivedSecret>;
 

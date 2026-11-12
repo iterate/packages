@@ -1,6 +1,7 @@
 // mindBackup, the integration: which requests its fetch answers, the export and restore round
 // trip through it, and the card its install hook registers. The page's browser script is not run
 // here, and which routing slug reaches it is the worker's dispatch.
+import { Script } from "node:vm";
 import { expect, test } from "vitest";
 import { readBackup, writeBackup } from "./archive.ts";
 import { exportMind } from "./export.ts";
@@ -33,10 +34,24 @@ test("the integration answers the backup routing slug, or the one it is given", 
   expect(mindBackup({ slug: "safe" })).toMatchObject({ routingSlug: "safe" });
 });
 
-test("the page names the mind and lets its scripts reach only its own origin", async () => {
+test("the page names the mind and lets its scripts reach only its own origin, and its script is one that a browser reads", async () => {
   const response = await fetchPage(fakeMind(), request("/"));
-  expect(await response.text()).toContain("<h1>Backup of source</h1>");
+  const page = await response.text();
+  const script = /<script type="module"[^>]*>([\s\S]*?)<\/script>/.exec(page)?.[1] || "";
+  expect(page).toContain("<h1>Backup of source</h1>");
   expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'");
+  // The import is the browser's to load: the rest must parse, or no button on the page works.
+  expect(
+    () => new Script(`(async () => {${script.replace(/^\s*import .*$/m, "")}})`),
+  ).not.toThrow();
+  expect(script).toContain('"x-secrets-key"');
+  // each key field is emptied after its one use
+  expect(script).toContain('byId("export-key").value = ""');
+  // page.ts says why the keyed download's link is in the document and why its address lives
+  // on. A request that fails is said on the page.
+  expect(script).toContain("document.body.append(link)");
+  expect(script).not.toMatch(/link\.click\(\);\s*URL\.revokeObjectURL/);
+  expect(script).toMatch(/catch \(error\) \{\s*show\(/);
 });
 
 test("export.zip downloads the parts asked for, and restore puts them onto another mind", async () => {
@@ -118,6 +133,38 @@ test("a restore with the secrets key of the backup's deployment sets each sealed
       },
     ],
     collectLinks: [],
+  });
+});
+
+test("export.zip with the stack's at-rest key in its header holds each stored cell, and a restore with that key hands it back to the vault", async () => {
+  const stored = JSON.stringify({ cell: { context: "/secrets/openai", version: 3 } });
+  const stack = () =>
+    fakeMind({
+      secrets: [
+        { path: "/secrets/openai", urls: ["https://api.openai.com"], createdAt: "2026-10-01" },
+      ],
+      vault: { key: "the-stack-key", stored: { "/secrets/openai": stored } },
+    });
+  const download = await fetchPage(
+    stack(),
+    request("/export.zip?part=secrets", { key: "the-stack-key" }),
+  );
+  const zip = new Uint8Array(await download.arrayBuffer());
+  const target = stack();
+
+  const restored = await fetchPage(
+    target,
+    request("/restore?part=secrets", { method: "POST", body: zip, key: "the-stack-key" }),
+  );
+
+  expect({
+    inTheZip: readBackup(zip).secrets,
+    restored: await restored.json(),
+    taken: target.calls.cellsTaken,
+  }).toMatchObject({
+    inTheZip: [{ path: "/secrets/openai", stored }],
+    restored: [{ part: "secrets", restored: 1 }],
+    taken: [{ path: "/secrets/openai", cell: stored }],
   });
 });
 

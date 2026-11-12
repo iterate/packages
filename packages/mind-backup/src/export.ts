@@ -1,9 +1,10 @@
 // export.ts — WHAT A BACKUP READS from a mind, part by part, through the mind root's own itx:
 // every read is one the mind's code may make, and nothing needs an operator or a deployment key.
-// Secrets come as their catalog (paths, pins, strategy kinds) and, where the platform has one,
-// the sealed cell beside each entry (`SealedSecretCell`, core/lib/src/api.ts, says where that is:
-// the frozen platform's secret facet has it, and a mind's own stack gives none out, so each secret
-// there is named in `skipped`); restore.ts opens one with the key. A value is never read.
+// Secrets come as their catalog (paths, pins, strategy kinds) and, where the platform gives one,
+// the sealed cell beside each entry: a mind's own stack hands its stored cell out to its at-rest
+// key (`secrets.exportSealed`), and the frozen platform's secret facet has one with no key
+// (`SealedSecretCell`, core/lib/src/api.ts). restore.ts gives each back. A value is never read in
+// clear.
 import type { IterateContextApi } from "iterate/api";
 import { z } from "zod";
 import {
@@ -15,6 +16,7 @@ import {
   writeBackup,
   type MindBackup,
 } from "./archive.ts";
+import { proofUnder } from "./sealed-secret.ts";
 
 /** The mind's backup, in memory (`writeBackup` zips it): the parts asked for (every part by
  *  default). Files go in until `budgetBytes` of them are in; each one after that, and every earlier
@@ -31,6 +33,9 @@ export async function exportMind(
     /** Where a secret's sealed cell comes from; its facet's snapshot on the secret's path by
      *  default. */
     sealSecret?: (path: string) => Promise<unknown>;
+    /** The at-rest key of the mind's own stack: with it the stack's vault hands each stored cell
+     *  out, and no facet is asked. */
+    atRestKey?: string;
   } = {},
 ): Promise<MindBackup> {
   const parts = options.parts || BackupPart.options;
@@ -109,10 +114,19 @@ export async function exportMind(
   if (parts.includes("secrets")) {
     backup.secrets = [];
     const sealSecret = options.sealSecret || ((path: string) => sealedCellOnLog(itx, path));
+    const { atRestKey } = options;
     for (const { path, urls, refresh, createdAt, borrowed } of await itx.secrets.list()) {
       // a borrowed secret's material is its lender's, never the mind's to back up
-      const sealed = borrowed ? undefined : await sealedCellOf(path, sealSecret, skipped);
-      backup.secrets.push({ path, urls, refresh, createdAt, borrowed, sealed });
+      const own = !borrowed;
+      const stored =
+        own && atRestKey
+          ? await cellOf(path, () => storedCellOf(itx, path, atRestKey), skipped)
+          : undefined;
+      const sealed =
+        own && !atRestKey
+          ? await cellOf(path, async () => SealedSecret.parse(await sealSecret(path)), skipped)
+          : undefined;
+      backup.secrets.push({ path, urls, refresh, createdAt, borrowed, sealed, stored });
     }
   }
 
@@ -157,16 +171,29 @@ async function sealedCellOnLog(itx: Pick<IterateContextApi, "cd">, path: string)
   return state.material.sealed;
 }
 
-/** The secret's sealed cell from `sealSecret`, or none, named in `skipped` with why: a secret with
- *  no cell on its log (never set, deleted, borrowed, or a platform from before the facts carried
- *  cells). The entry stays, so restore asks a person for the value instead. */
-async function sealedCellOf(
+/** The stored cell of the secret at `path`, as the vault of the mind's own stack hands it out to
+ *  a proof of its at-rest key. The proof ends a minute from now. */
+async function storedCellOf(
+  itx: Pick<IterateContextApi, "secrets">,
   path: string,
-  sealSecret: (path: string) => Promise<unknown>,
+  atRestKey: string,
+): Promise<string> {
+  const until = Date.now() + 60_000;
+  const proof = await proofUnder(atRestKey, [path, "exportSealed", until]);
+  return (await itx.secrets.exportSealed(path, proof, until)).sealed;
+}
+
+/** The secret's sealed cell from `read`, or none, named in `skipped` with why: a secret with no
+ *  cell to give (never set, deleted, a platform from before the facts carried cells, a mind's own
+ *  stack that was given no key or a wrong one). The entry stays, so restore asks a person for the
+ *  value instead. */
+async function cellOf<Cell>(
+  path: string,
+  read: () => Promise<Cell>,
   skipped: MindBackup["manifest"]["skipped"],
-): Promise<SealedSecret | undefined> {
+): Promise<Cell | undefined> {
   try {
-    return SealedSecret.parse(await sealSecret(path));
+    return await read();
   } catch (error) {
     skipped.push({
       part: "secrets",

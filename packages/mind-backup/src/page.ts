@@ -42,13 +42,16 @@ export function backupPage(
         <label><input type="checkbox" name="part" value="kv" checked /> kv: every key and value</label>
         <label><input type="checkbox" name="part" value="files" checked /> Files (up to 48 MB in all; the rest are named in the manifest)</label>
         <label><input type="checkbox" name="part" value="config" checked /> The config repo, at its tip</label>
-        <label><input type="checkbox" name="part" value="secrets" checked /> Secrets: their paths and pins, never their values</label>
+        <label><input type="checkbox" name="part" value="secrets" checked /> Secrets: their paths and pins, and with the key below their sealed cells; never a value in clear</label>
         <label><input type="checkbox" name="part" value="routes" checked /> Fetch routes (a record)</label>
         <label><input type="checkbox" name="part" value="schedules" checked /> Schedules (a record)</label>
         <label><input type="checkbox" name="part" value="integrations" checked /> Integration connections (a record)</label>
         <label><input type="checkbox" name="part" value="hostnames" checked /> Custom hostnames (a record)</label>
       </fieldset>
-      <button type="submit">Download the backup</button>
+      <p><label>The stack's at-rest key (optional):
+        <input type="password" id="export-key" autocomplete="off" spellcheck="false" /></label>
+        <span class="muted">A mind on its own stack hands its secrets' sealed cells out only to this key. It is sent once, with the download, to this host only. Without it the backup has each secret's path and pin, and a restore asks a person for each value.</span></p>
+      <button type="submit" id="export">Download the backup</button>
     </form>
 
     <h2>Backups kept in this mind</h2>
@@ -101,7 +104,7 @@ export function backupPage(
       const describe = {
         secrets: () => {
           const secrets = json("secrets.json");
-          return secrets.length + " secrets, " + secrets.filter((secret) => secret.sealed).length + " with sealed values";
+          return secrets.length + " secrets, " + secrets.filter((secret) => secret.sealed || secret.stored).length + " with sealed values";
         },
         kv: () => strFromU8(entries["kv.jsonl"]).split("\\n").filter(Boolean).length + " keys",
         files: () => {
@@ -113,6 +116,33 @@ export function backupPage(
           return count + " files at commit " + String(json("config/repo.json").commitOid).slice(0, 7);
         },
       };
+
+      // With a key the download is a fetch, since a form's GET carries no header; without one the
+      // form goes as it is.
+      byId("export").form.addEventListener("submit", async (event) => {
+        const key = byId("export-key").value;
+        if (!key) return;
+        event.preventDefault();
+        try {
+          const query = new URLSearchParams(new FormData(event.target)).toString();
+          const response = await fetch("export.zip?" + query, { headers: { "x-secrets-key": key } });
+          if (!response.ok) return show(response.status + " " + (await response.text()));
+          // The link is in the document while it is pressed, and its address lives a minute
+          // more: Firefox and Safari start no download from a link that is not in the page, or
+          // whose blob is gone before they read it.
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(await response.blob());
+          link.download = (mind.slug || mind.id) + "-" + new Date().toISOString().slice(0, 10) + ".zip";
+          link.hidden = true;
+          document.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+          byId("export-key").value = "";
+        } catch (error) {
+          show("The backup was not downloaded: " + String(error));
+        }
+      });
 
       byId("archive").addEventListener("change", async (event) =>
         open(new Uint8Array(await event.target.files[0].arrayBuffer())),
@@ -145,7 +175,7 @@ export function backupPage(
             label.append(box, " " + part + ": " + what);
             return label;
           });
-          keyNeeded = manifest.parts.includes("secrets") && json("secrets.json").some((secret) => secret.sealed);
+          keyNeeded = manifest.parts.includes("secrets") && json("secrets.json").some((secret) => secret.sealed || secret.stored);
         } catch (error) {
           ({ entries, manifest } = previous);
           return show(String(error));

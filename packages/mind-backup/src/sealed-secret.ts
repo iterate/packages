@@ -40,3 +40,19 @@ export async function openSealedSecret(
     return await open(keys.previous);
   }
 }
+
+/** A PROOF OF A STACK'S AT-REST KEY, as its vault checks one: the HMAC-SHA256 of `about` as JSON
+ *  under the key, in hex. `secrets.exportSealed` and `secrets.importSealed` each take one
+ *  (core/lib/src/api.ts says over what). */
+export async function proofUnder(atRestKey: string, about: unknown[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(atRestKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const proof = await crypto.subtle.sign("HMAC", key, encoder.encode(JSON.stringify(about)));
+  return [...new Uint8Array(proof)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}

@@ -108,6 +108,8 @@ async function answer(
   if (route === "GET /export.zip") {
     const backup = await exportMind(itx, {
       parts: parts.data.length > 0 ? parts.data : undefined,
+      // the at-rest key of the mind's own stack, as the page sends it: its vault's cells go in
+      atRestKey: request.headers.get("x-secrets-key") || undefined,
     });
     const { source, capturedAt } = backup.manifest;
     return new Response(writeBackup(backup), {

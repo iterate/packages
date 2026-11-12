@@ -2,6 +2,7 @@
 // call it, and a secret sealed the way core/os seals one (src/secret-at-rest.ts
 // `encryptSecretMaterial`; test/vitest/os/mind-backup-sealed-secret.test.ts opens the platform's
 // own cell with `openSealedSecret`).
+import { createHmac } from "node:crypto";
 import type { SecretCatalogEntry } from "iterate/api";
 import type { exportMind } from "./export.ts";
 import type { restoreMind } from "./restore.ts";
@@ -19,6 +20,14 @@ export function fakeMind(
     secrets?: SecretCatalogEntry[];
     /** Each secret's sealed cell, by path, as its facet's snapshot holds it. */
     cells?: Record<string, unknown>;
+    /** A stack's vault: its at-rest key, and each secret's stored cell as the text it hands out.
+     *  It checks each proof as the vault does, and keeps what it takes back in `calls`. */
+    vault?: {
+      key: string;
+      stored: Record<string, string>;
+      /** The paths whose import fails while they are in the set: a call that did not answer. */
+      down?: Set<string>;
+    };
     routes?: unknown[];
     schedules?: unknown[];
     integrations?: Record<string, unknown>;
@@ -39,6 +48,8 @@ export function fakeMind(
     fileReads: [] as string[],
     secretsSet: [] as { path: string; material: unknown; options: unknown }[],
     collectLinks: [] as string[],
+    collectPins: [] as { path: string; urls: string[] | undefined }[],
+    cellsTaken: [] as { path: string; cell: string }[],
     commits: [] as { message: string; parent: unknown; changes: unknown[] }[],
     appends: [] as { path: string; event: unknown }[],
   };
@@ -121,9 +132,29 @@ export function fakeMind(
         calls.secretsSet.push({ path, material, options });
         return { path };
       },
-      collectFromUser: async ({ path }: { path: string }) => {
+      collectFromUser: async ({ path, egress }: { path: string; egress?: { urls: string[] } }) => {
         calls.collectLinks.push(path);
+        calls.collectPins.push({ path, urls: egress?.urls });
         return { path, url: `https://os.example/collect-secret${path}` };
+      },
+      exportSealed: async (path: string, proof: string, until: number) => {
+        const ahead = until - Date.now();
+        if (!(ahead > 0 && ahead <= 5 * 60_000)) throw new Error("the proof's time is past");
+        if (proof !== proofOf(input.vault?.key, [path, "exportSealed", until]))
+          throw new Error(`no proof under the at-rest key for ${path}`);
+        const sealed = input.vault?.stored[path];
+        if (!sealed) throw new Error(`${path} holds no material`);
+        return { sealed };
+      },
+      importSealed: async (path: string, cell: string, proof: string) => {
+        if (proof !== proofOf(input.vault?.key, [path, cell]))
+          throw new Error(`no proof under the at-rest key for ${path}`);
+        // a cell is taken once, in the vault's own words
+        if (calls.cellsTaken.some((taken) => taken.path === path && taken.cell === cell))
+          throw new Error(`secrets.importSealed: this cell of ${path} was imported once already`);
+        if (input.vault?.down?.has(path)) throw new Error(`the vault did not answer for ${path}`);
+        calls.cellsTaken.push({ path, cell });
+        return { path };
       },
     },
     fetchRoutes: { list: async () => input.routes || [] },
@@ -147,6 +178,11 @@ export function fakeMind(
     Parameters<typeof restoreMind>[0];
   return { itx, kv, files, config, calls };
 }
+
+/** The vault's proof: the HMAC-SHA256 of `about` as JSON under its at-rest key, made here with
+ *  Node's own HMAC, not with the package's. No key proves nothing. */
+const proofOf = (key: string | undefined, about: unknown[]) =>
+  key ? createHmac("sha256", key).update(JSON.stringify(about)).digest("hex") : null;
 
 /** `material` sealed under `secretsKey` at `binding`, as the platform keeps a secret at rest. */
 export async function sealSecret(

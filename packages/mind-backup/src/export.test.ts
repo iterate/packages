@@ -1,6 +1,8 @@
 // exportMind: what it reads from a mind root, part by part. The zip is archive.test.ts's.
 import { strToU8 } from "fflate";
+import type { SecretCatalogEntry } from "iterate/api";
 import { expect, test } from "vitest";
+import { readBackup, writeBackup } from "./archive.ts";
 import { backupToFiles, exportMind, RPC_VALUE_MAX_BYTES } from "./export.ts";
 import { fakeMind, sealSecret } from "./test-support.ts";
 
@@ -146,6 +148,66 @@ test("with sealSecret each secret's cell goes beside its entry, and a borrowed s
   });
   expect(asked).toEqual(["/secrets/openai"]);
 });
+
+test("with the stack's at-rest key each secret's stored cell goes beside its entry, as the text the vault handed out; a borrowed secret is never asked for, and a wrong key leaves the entry, named in skipped", async () => {
+  const stack = () =>
+    fakeMind({
+      secrets: [
+        { path: "/secrets/openai", urls: ["https://api.openai.com"], createdAt: "2026-10-01" },
+        {
+          path: "/secrets/lent",
+          urls: ["https://api.example.com"],
+          createdAt: "2026-10-02",
+          borrowed: { lendId: "lend_1", lender: { instance: true } },
+        },
+      ],
+      vault: { key: "the-stack-key", stored: { "/secrets/openai": STORED } },
+    }).itx;
+
+  expect({
+    held: await exportMind(stack(), { parts: ["secrets"], atRestKey: "the-stack-key" }),
+    wrong: await exportMind(stack(), { parts: ["secrets"], atRestKey: "another-key" }),
+  }).toMatchObject({
+    held: {
+      secrets: [
+        { path: "/secrets/openai", stored: STORED },
+        { path: "/secrets/lent", stored: undefined },
+      ],
+      manifest: { skipped: [] },
+    },
+    wrong: {
+      secrets: [{ path: "/secrets/openai", stored: undefined }, { path: "/secrets/lent" }],
+      manifest: {
+        skipped: [
+          {
+            part: "secrets",
+            path: "/secrets/openai",
+            reason: expect.stringContaining("no proof under the at-rest key"),
+          },
+        ],
+      },
+    },
+  });
+});
+
+test("a backup of a mind on its own stack reads back from its zip: a catalog entry there has no createdAt", async () => {
+  const stack = fakeMind({
+    // the catalog of a mind's own stack, which keeps no time of the first set; the type says it has one
+    secrets: [{ path: "/secrets/openai", urls: ["https://api.openai.com"] } as SecretCatalogEntry],
+    vault: { key: "the-stack-key", stored: { "/secrets/openai": STORED } },
+  });
+
+  const zip = writeBackup(
+    await exportMind(stack.itx, { parts: ["secrets"], atRestKey: "the-stack-key" }),
+  );
+
+  expect(readBackup(zip)).toMatchObject({
+    secrets: [{ path: "/secrets/openai", urls: ["https://api.openai.com"], stored: STORED }],
+  });
+});
+
+/** A stored cell as a stack's vault hands it out: text, which only that vault reads. */
+const STORED = JSON.stringify({ cell: { context: "/secrets/openai", version: 3 } });
 
 /** A mind with something in every part: two kv keys, a file, a config repo linked to GitHub, a
  *  secret of its own and a borrowed one, a route, a schedule, a GitHub connection, and a hostname

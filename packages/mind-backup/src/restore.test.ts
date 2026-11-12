@@ -99,6 +99,120 @@ test.for([
   expect(Object.fromEntries(target.kv)).toEqual({});
 });
 
+test("a stack's stored cell goes back to the vault with a proof under the key given, and no value is set here; with no key it gets a collect link, and a wrong key stops the restore", async () => {
+  const stored = JSON.stringify({ cell: { context: "/secrets/openai", version: 3 } });
+  const stack = () =>
+    fakeMind({
+      secrets: [
+        { path: "/secrets/openai", urls: ["https://api.openai.com"], createdAt: "2026-10-01" },
+      ],
+      vault: { key: sourceKey, stored: { "/secrets/openai": stored } },
+    });
+  const backup = await exportMind(stack().itx, { parts: ["secrets"], atRestKey: sourceKey });
+  const [keyed, unkeyed, wrong] = [stack(), stack(), stack()];
+
+  const report = await restoreMind(keyed.itx, backup, {
+    parts: ["secrets"],
+    sourceKeys: { current: sourceKey },
+  });
+  await restoreMind(unkeyed.itx, backup, { parts: ["secrets"] });
+  await expect(
+    restoreMind(wrong.itx, backup, { parts: ["secrets"], sourceKeys: { current: "another-key" } }),
+  ).rejects.toThrow("/secrets/openai was not taken back by the vault");
+
+  expect({ report, keyed: keyed.calls, unkeyed: unkeyed.calls, wrong: wrong.calls }).toMatchObject({
+    report: [{ part: "secrets", restored: 1, links: [] }],
+    keyed: { cellsTaken: [{ path: "/secrets/openai", cell: stored }], secretsSet: [] },
+    unkeyed: { cellsTaken: [], collectLinks: ["/secrets/openai"] },
+    wrong: { cellsTaken: [], secretsSet: [], collectLinks: [] },
+  });
+});
+
+test("a restore that stopped at one secret runs again with the same backup: a cell that the vault took before is that secret done, said in a note, and the rest go back", async () => {
+  const down = new Set(["/secrets/b"]);
+  const stack = fakeMind({
+    secrets: [
+      { path: "/secrets/a", urls: ["https://a.example.com"], createdAt: "2026-10-01" },
+      { path: "/secrets/b", urls: ["https://b.example.com"], createdAt: "2026-10-01" },
+    ],
+    vault: {
+      key: sourceKey,
+      stored: { "/secrets/a": '{"cell":"a"}', "/secrets/b": '{"cell":"b"}' },
+      down,
+    },
+  });
+  const backup = await exportMind(stack.itx, { parts: ["secrets"], atRestKey: sourceKey });
+  const restoring = () =>
+    restoreMind(stack.itx, backup, { parts: ["secrets"], sourceKeys: { current: sourceKey } });
+
+  await expect(restoring()).rejects.toThrow("/secrets/b was not taken back by the vault");
+  down.clear();
+  const again = await restoring();
+
+  expect({ again, taken: stack.calls.cellsTaken.map(({ path }) => path) }).toEqual({
+    again: [
+      {
+        part: "secrets",
+        // what this run put back: the cell of /secrets/a went in with the run that stopped
+        restored: 1,
+        notes: [
+          "/secrets/a: the vault took this cell before (an earlier run of this restore), and the secret is left as it is now.",
+        ],
+        links: [],
+      },
+    ],
+    taken: ["/secrets/a", "/secrets/b"],
+  });
+});
+
+test("a collect link pins its secret as the vault describes it now; only a secret that the vault does not hold takes the backup file's hosts, and the report says which", async () => {
+  // a file that somebody changed: it has no cell, and it names a host of its own for each secret
+  const source = fakeMind({
+    secrets: [
+      { path: "/secrets/openai", urls: ["https://evil.example.com"], createdAt: "2026-10-01" },
+      { path: "/secrets/gone", urls: ["https://also-evil.example.com"], createdAt: "2026-10-01" },
+    ],
+  });
+  const backup = await exportMind(source.itx, { parts: ["secrets"] });
+  const target = fakeMind({
+    secrets: [
+      { path: "/secrets/openai", urls: ["https://api.openai.com"], createdAt: "2026-10-01" },
+    ],
+  });
+
+  const report = await restoreMind(target.itx, backup, { parts: ["secrets"] });
+
+  expect({ report, pinned: target.calls.collectPins }).toEqual({
+    report: [
+      {
+        part: "secrets",
+        restored: 0,
+        notes: [
+          "1 link pins its secret to hosts that the BACKUP FILE names: read each link's urls before a value is entered there.",
+        ],
+        links: [
+          {
+            path: "/secrets/openai",
+            url: "https://os.example/collect-secret/secrets/openai",
+            urls: ["https://api.openai.com"],
+            pinFrom: "the vault",
+          },
+          {
+            path: "/secrets/gone",
+            url: "https://os.example/collect-secret/secrets/gone",
+            urls: ["https://also-evil.example.com"],
+            pinFrom: "the backup file",
+          },
+        ],
+      },
+    ],
+    pinned: [
+      { path: "/secrets/openai", urls: ["https://api.openai.com"] },
+      { path: "/secrets/gone", urls: ["https://also-evil.example.com"] },
+    ],
+  });
+});
+
 test("without a key each secret gets a collect link, and a borrowed or a connection's secret a note", async () => {
   const source = fakeMind({
     secrets: [
@@ -124,9 +238,15 @@ test("without a key each secret gets a collect link, and a borrowed or a connect
         notes: [
           "/secrets/github-acme is an integration connection's: reconnect it (integrations).",
           "/secrets/lent was borrowed: lend or connect it again.",
+          "1 link pins its secret to hosts that the BACKUP FILE names: read each link's urls before a value is entered there.",
         ],
         links: [
-          { path: "/secrets/openai", url: "https://os.example/collect-secret/secrets/openai" },
+          {
+            path: "/secrets/openai",
+            url: "https://os.example/collect-secret/secrets/openai",
+            urls: ["https://api.openai.com"],
+            pinFrom: "the backup file",
+          },
         ],
       },
       {
