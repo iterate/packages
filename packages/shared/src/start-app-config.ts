@@ -1,9 +1,9 @@
 // start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
 // admin and voice, TanStack Start apps that are each an OAuth client of the platform and nothing
 // else — but notes, which a mind's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
-// as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps a copy of this file.
+// as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps its own copy of this file, with two fields (`denyZones`, `pkgPrNewRef`) that it reads and no app here does.
 //
-//   { urls: { os, dash, agents, notes, admin, voice, kit }, denyZones, posthogProjectKey, pkgPrNewRef }
+//   { urls: { os, dash, agents, notes, admin, voice, kit }, posthogProjectKey }
 //
 // scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
@@ -15,7 +15,7 @@
 //   ITERATE_APP__URLS__VOICE=http://localhost:5174
 
 import { z } from "zod";
-import { dnsName, optionalOrigin, parseAppConfigVars } from "iterate/app-config";
+import { optionalOrigin, parseAppConfigVars } from "iterate/app-config";
 
 /** THE SCHEMA. `urls` names the platform and every first-party app (scripts/lib/start-app.ts
  *  `FIRST_PARTY_APPS` is typed against it, so an app added there is added here). */
@@ -33,8 +33,8 @@ export const StartAppConfig = z.object({
       dash: optionalOrigin,
       agents: optionalOrigin,
       /** read by no app: nothing links to Notes, which is served under each mind's hosts. It
-       *  is here because `FIRST_PARTY_APPS` is typed against `urls`, which gives Notes' origin its
-       *  place in `ownZones` and a per-PR preview its Notes Worker. */
+       *  is here because `FIRST_PARTY_APPS` is typed against `urls`, which gives a per-PR preview
+       *  its Notes Worker. */
       notes: optionalOrigin,
       admin: optionalOrigin,
       voice: optionalOrigin,
@@ -43,21 +43,9 @@ export const StartAppConfig = z.object({
       kit: optionalOrigin,
     })
     .prefault({}),
-  /** OUR OWN ZONES (scripts/lib/start-app.ts `ownZones`, from envs.ts): mind hosts and custom
-   *  apexes are userspace and could serve a look-alike issuer, so the browser-auth gate (`appAuth`
-   *  `denyZones`, the SDK's `issuerOriginOf`) refuses to connect to an issuer under one. The
-   *  default issuer, `urls.os`, is exempt. Read by no gate since apps point at a mind by its
-   *  address (iterate/app-server). */
-  denyZones: z.array(dnsName).default([]),
   /** PostHog's project key (envs.ts `posthogProjectKey`, prd only): the app's pages start
    *  posthog-js with it. A public key, not a secret. Blank ⇒ no PostHog. */
   posthogProjectKey: z.string().trim().default(""),
-  /** WHICH BUILD OF THIS REPOSITORY'S PACKAGES goes with this deployment, as pkg.pr.new names it
-   *  (iterate/package-builds): `main`, or the commit a per-commit deployment's packages are
-   *  published at (scripts/os/published-package-commit.ts). What an app installs in a mind,
-   *  pinned as it writes. No app in this repository reads it; iterate/docs' Docs app keeps the
-   *  same field for its "Install Docs". A config written without it (a test's) goes with main's. */
-  pkgPrNewRef: z.string().trim().default("main"),
 });
 
 export type StartAppConfig = z.output<typeof StartAppConfig>;
