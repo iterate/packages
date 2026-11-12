@@ -53,6 +53,12 @@ async function bundle(): Promise<string> {
     logLevel: "warn",
     publicDir: false,
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    // THE BUNDLE IS PRODUCTION'S, UNDER `vite dev` TOO. The line above gives it React's production
+    // build, whose `react/jsx-dev-runtime` has no `jsxDEV`. Vite picks the JSX transform by the
+    // process's own NODE_ENV, which under `vite dev` is "development": left to itself it writes
+    // `jsxDEV(…)` calls, every render throws "jsxDEV is not a function", and each kind's chat is
+    // a blank frame.
+    oxc: { jsx: { development: false } },
     build: {
       write: false,
       minify: true,
