@@ -103,6 +103,10 @@ export type AgentKindNewAgent = {
   fields?: AgentKindNewAgentField[];
   /** `path` is the new agent's. */
   start(input: { choice: string; fields: Record<string, string>; path: string }): unknown[];
+  /** A line under the picker about what the choice and its fields' values as typed will do (a
+   *  runner that has to be started first, say), or null for none. `mind` is the mind's address.
+   *  Text, where `backticks` mark code a person may copy. */
+  describe?(input: { choice: string; fields: Record<string, string>; mind: string }): string | null;
 };
 export type AgentKindNewAgentField = { name: string; label: string; defaultValue: string };
 

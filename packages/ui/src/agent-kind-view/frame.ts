@@ -127,4 +127,9 @@ class FrameTarget extends RpcTarget implements AgentKindViewFrameApi {
     if (!newAgent) throw new Error("this kind starts no new agents");
     return newAgent.start(input);
   }
+  async describe(input: Parameters<AgentKindViewFrameApi["describe"]>[0]) {
+    const view = await this.#view;
+    const newAgent = "newAgent" in view ? view.newAgent : undefined;
+    return newAgent?.describe?.(input) || null;
+  }
 }

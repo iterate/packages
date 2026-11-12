@@ -90,6 +90,12 @@ export class AgentKindViewLink {
     return await this.#frame.startEvents(input);
   }
 
+  /** The kind's line about a New agent choice as typed (`newAgent.describe`), or null. */
+  async describe(input: Parameters<AgentKindViewFrameApi["describe"]>[0]) {
+    if (!this.#frame) return null;
+    return await this.#frame.describe(input);
+  }
+
   setLoaded(result: AgentKindViewLoaded) {
     this.#loaded = result;
     for (const listener of this.#listeners) listener();

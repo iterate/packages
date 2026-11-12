@@ -5,6 +5,8 @@
 //                 go as the pages added at either end, never the whole log again.
 //   host → frame  `startEvents(input)`: the events that start a new agent of the kind (its
 //                 `newAgent.start`), for the Agents app's New agent.
+//   host → frame  `describe(input)`: the line New agent shows about the choice as typed (its
+//                 `newAgent.describe`), or null.
 //   frame → host  `loaded(…)` once (what the live read should include, and New agent's choices),
 //                 then the verbs: message,
 //                 append, fileUrl, setState, loadOlder. Each acts on the one agent the host shows;
@@ -51,7 +53,7 @@ export type AgentKindViewUpdate = Partial<Omit<AgentKindViewInputs, "events">> &
 };
 
 /** A kind's New agent choices and fields, as data: `start` stays in the frame. */
-export type AgentKindNewAgentOffer = Omit<AgentKindNewAgent, "start">;
+export type AgentKindNewAgentOffer = Omit<AgentKindNewAgent, "start" | "describe">;
 
 /** What the frame reports once it has read the kind file. */
 export type AgentKindViewLoaded =
@@ -72,6 +74,9 @@ export interface AgentKindViewHostApi {
 export interface AgentKindViewFrameApi {
   update(update: AgentKindViewUpdate): void;
   startEvents(input: Parameters<AgentKindNewAgent["start"]>[0]): Promise<unknown[]>;
+  describe(
+    input: Parameters<NonNullable<AgentKindNewAgent["describe"]>>[0],
+  ): Promise<string | null>;
 }
 
 /** The update from `previous` (what the frame holds) to `next`, or `null` when nothing changed. */
