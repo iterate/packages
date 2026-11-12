@@ -135,6 +135,7 @@
       "./chunks/vendor-icons": "./dist/chunks/vendor-icons.mjs",
       "./chunks/ui-base": "./dist/chunks/ui-base.mjs",
       "./chunks/ui-shell": "./dist/chunks/ui-shell.mjs",
+      "./chunks/docs-editor-icons": "./dist/chunks/docs-editor-icons.mjs",
       "./styles.css": "./dist/styles.css",
       "./components/docs-editor/doc-tree": "./dist/components/docs-editor/doc-tree.mjs",
       "./docs-editor.css": "./dist/docs-editor.css",

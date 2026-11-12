@@ -57,6 +57,31 @@ export function browserEntries(): Record<string, string> {
  *  an export or two exports import it directly. Only lazy chunks import CodeMirror. So without the
  *  export, a page with two of them (the repo IDE: its own wiring, and `code-editor`) got two
  *  CodeMirrors, and the editor refused the extensions the other one made. */
+/** The lucide icons that only src/components/docs-editor imports, by their file names. */
+export const docsEditorIcons = [
+  "bold",
+  "code-xml",
+  "dot",
+  "heading-1",
+  "heading-2",
+  "heading-3",
+  "italic",
+  "link",
+  "list",
+  "list-checks",
+  "list-ordered",
+  "message-square-plus",
+  "pilcrow",
+  "redo",
+  "rotate-ccw",
+  "separator-horizontal",
+  "strikethrough",
+  "table",
+  "text-quote",
+  "trash-2",
+  "undo",
+];
+
 export const vendorChunks = [
   { name: "vendor-react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
   // CodeMirror, without the languages only the docs editor loads: those are the next group's. A
@@ -91,7 +116,14 @@ export const vendorChunks = [
   //   ui-shell      the components that only the app shell brings: a page with the shell loads
   //                 what it loaded before, in one file, and a page without it loads none of it.
   // `components/ui/<name>` stays an entry, which hands on what its file holds.
-  { name: "vendor-icons", test: /node_modules[\\/]lucide-react[\\/]/ },
+  // every icon but the docs editor's own, and lucide's shared parts (the group after this one
+  // says why the order is this)
+  {
+    name: "vendor-icons",
+    test: new RegExp(
+      `node_modules[\\\\/]lucide-react[\\\\/](?!dist[\\\\/]esm[\\\\/]icons[\\\\/](?:${docsEditorIcons.join("|")})\\.m?js$)`,
+    ),
+  },
   {
     name: "ui-base",
     test: /[\\/]src[\\/]components[\\/]ui[\\/](button|input|label|textarea)\.tsx$/,
@@ -99,6 +131,16 @@ export const vendorChunks = [
   {
     name: "ui-shell",
     test: /[\\/]src[\\/]components[\\/]ui[\\/](avatar|dialog|dropdown-menu|input-group|separator|sheet|skeleton|tooltip)\.tsx$/,
+  },
+  // The icons that the docs editor alone draws: a page that shows no doc loads none of them.
+  // AFTER vendor-icons, whose test leaves them out: a group also takes what its files import, so
+  // ahead of it this one would hold lucide's shared parts, and every page would load it.
+  // src/components/docs-editor/icons.test.ts holds the list to what the sources import.
+  {
+    name: "docs-editor-icons",
+    test: new RegExp(
+      `node_modules[\\\\/]lucide-react[\\\\/]dist[\\\\/]esm[\\\\/]icons[\\\\/](?:${docsEditorIcons.join("|")})\\.m?js$`,
+    ),
   },
 ];
 
