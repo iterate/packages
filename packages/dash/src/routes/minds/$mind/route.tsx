@@ -18,9 +18,9 @@ import { AppShell } from "@iterate-com/ui/components/app-shell";
 import { DefaultPendingComponent } from "@iterate-com/ui/components/route-defaults";
 import { DropdownMenuGroup, DropdownMenuLabel } from "@iterate-com/ui/components/ui/dropdown-menu";
 import { titleWithCount, useWaitingApprovals } from "@iterate-com/ui/lib/waiting-approvals";
+import { Identifier } from "@iterate-com/ui/components/identifier";
 import { DashBreadcrumbs } from "../../../components/dash-breadcrumbs.tsx";
 import { MindNav } from "../../../components/dash-nav.tsx";
-import { Identifier } from "../../../components/identifier.tsx";
 
 /** One client per mind this page has shown, so switching back keeps its connection. */
 const clients = new Map<string, IterateClient>();

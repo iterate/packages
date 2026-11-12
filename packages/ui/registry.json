@@ -671,6 +671,21 @@
       ]
     },
     {
+      "name": "identifier",
+      "type": "registry:component",
+      "description": "A compact fixed-width pill for an id, a slug or a path, with a button that copies it.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "files": [
+        {
+          "path": "src/components/identifier.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "iterate-logo",
       "type": "registry:component",
       "description": "The iterate mark.",
@@ -915,6 +930,37 @@
         {
           "path": "src/components/route-defaults.tsx",
           "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "secrets-page",
+      "type": "registry:component",
+      "description": "The secrets page of a Dash: the mind's secrets with what each may be sent to, an update and a delete per row, and a sheet that sets one. It knows no router: the page gives the list and holds the sheet's state.",
+      "dependencies": [
+        "iterate",
+        "lucide-react",
+        "zod"
+      ],
+      "registryDependencies": [
+        "alert-dialog",
+        "button",
+        "field",
+        "input",
+        "iterate/packages/identifier",
+        "sheet",
+        "spinner",
+        "table",
+        "textarea"
+      ],
+      "files": [
+        {
+          "path": "src/components/secrets-page.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/lib/secrets.ts",
+          "type": "registry:lib"
         }
       ]
     },

@@ -18,7 +18,7 @@ import {
 import { mindApprovalsOf, type HeldRequest } from "@iterate-com/ui/lib/approvals";
 import type { HeldAct } from "@iterate-com/ui/lib/held-acts";
 import { askWaitingApprovals, readMindApprovals } from "@iterate-com/ui/lib/waiting-approvals";
-import { Identifier } from "../../../components/identifier.tsx";
+import { Identifier } from "@iterate-com/ui/components/identifier";
 import { NotServedYet } from "../../../components/not-served-yet.tsx";
 
 export const Route = createFileRoute("/minds/$mind/approvals")({
