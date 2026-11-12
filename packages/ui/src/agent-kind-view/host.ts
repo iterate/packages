@@ -227,6 +227,38 @@ export function AgentKindViewFrame({
  *  editor's default dotted focus ring. The frame's editors write their own. */
 export const frameCarriesStyle = (text: string) => !text.includes("\u037c");
 
+/** A STYLE SHEET THAT THE PAGE LINKS, AS THE FRAME CARRIES IT. The frame has no sign-in: a request
+ *  from it is answered as nobody's. So a sheet on the page's own host (a mind's theme, an app's own
+ *  sheet), which is behind the app's guard, would come back 401 there, and the view would be drawn
+ *  without the mind's theme. Such a sheet goes as TEXT: the rules that the page has loaded. A sheet
+ *  of another host (this package's, on a module server) is public, large and cached, and stays a
+ *  link. `rules` is null when the page cannot read the sheet (it has not loaded yet): then the
+ *  link, which is what the frame had before. A rule's own `url()` is then read from the page's
+ *  address, not from the sheet's. */
+export function frameSheet(
+  sheet: { href: string; media: string; rules: string[] | null },
+  pageOrigin: string,
+): string {
+  const media = sheet.media ? ` media="${attribute(sheet.media)}"` : "";
+  if (!sheet.rules || new URL(sheet.href).origin !== pageOrigin)
+    return `<link rel="stylesheet" href="${attribute(sheet.href)}"${media}>`;
+  return `<style${media}>${styleText(sheet.rules.join("\n"))}</style>`;
+}
+
+/** CSS as the text of a `<style>` element: no `</` in it ends the element early. In CSS a
+ *  backslash before the slash is the same slash. */
+const styleText = (css: string) => css.replaceAll("</", "<\\/");
+
+/** The rules of a sheet that the page has loaded, each as text, or null when the page may not
+ *  read them: a sheet that is still loading has none, and one of another host refuses. */
+function rulesOf(sheet: CSSStyleSheet | null): string[] | null {
+  try {
+    return sheet && [...sheet.cssRules].map((rule) => rule.cssText);
+  } catch {
+    return null;
+  }
+}
+
 /** The frame's page: the host page's own stylesheets (its theme and every class iterate's parts
  *  use), a root that fills it, and the frame's script. */
 function frameDocument(frameScript: string): string {
@@ -235,9 +267,14 @@ function frameDocument(frameScript: string): string {
   const styles = [...document.querySelectorAll<HTMLElement>('link[rel="stylesheet"], style')]
     .flatMap((element) => {
       if (element instanceof HTMLLinkElement)
-        return [`<link rel="stylesheet" href="${attribute(element.href)}">`];
+        return [
+          frameSheet(
+            { href: element.href, media: element.media, rules: rulesOf(element.sheet) },
+            location.origin,
+          ),
+        ];
       const text = element.textContent || "";
-      return frameCarriesStyle(text) ? [`<style>${text}</style>`] : [];
+      return frameCarriesStyle(text) ? [`<style>${styleText(text)}</style>`] : [];
     })
     .join("\n");
   return `<!doctype html>
