@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from "react";
 import type { AuthenticatedApp } from "iterate/app";
 import { mindApprovalsOf, type LogEvent } from "./approvals.ts";
-import { heldActsOf } from "./held-acts.ts";
+import { heldActsOf, proposedRulesOf } from "./held-acts.ts";
 
 type Read = AuthenticatedApp["read"];
 
@@ -61,6 +61,7 @@ export async function readMindApprovals(read: Read) {
     served: true as const,
     ...mindApprovalsOf(logs, now),
     acts: heldActsOf(gate, now),
+    proposed: proposedRulesOf(gate),
   };
 }
 
@@ -112,7 +113,10 @@ async function ask(watch: Watch, afterChange = false) {
       const answer = await readMindApprovals(watch.read).catch(() => null);
       if (answer) {
         watch.answeredAt = Date.now();
-        const count = answer.served ? answer.waiting.length + answer.acts.length : 0;
+        // a proposed rule waits for a member too: to sign it or to reject it
+        const count = answer.served
+          ? answer.waiting.length + answer.acts.length + answer.proposed.length
+          : 0;
         if (watch.count !== count) {
           watch.count = count;
           for (const changed of watch.listeners) changed();

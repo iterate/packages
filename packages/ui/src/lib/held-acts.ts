@@ -52,3 +52,47 @@ export function heldActsOf(events: LogEvent[], now: number): HeldAct[] {
     .filter((act) => Date.parse(act.heldAt) + day > now)
     .sort((a, b) => Date.parse(b.heldAt) - Date.parse(a.heldAt));
 }
+
+export type ProposedRule = {
+  /** The proposal's id, as the gate gave it. */
+  id: string;
+  /** What the rule is for: a secret's path, for a rule on requests with that secret. */
+  secret?: string;
+  /** What the rule is for: `email.send` or a verb, for a rule on a mail or a call. */
+  verb?: string;
+  /** Where the kernel said it came from: a claim, not a proof. */
+  from?: string;
+  proposedAt: string;
+};
+
+/** THE PROPOSED RULES THAT WAIT FOR A MEMBER TO APPROVE OR REJECT THEM, newest first, from the
+ *  same log. The mind's code or an agent proposes a rule, for a mail or a call or for a request
+ *  with a secret, and the gate keeps it until a member signs it into a rule or rejects it
+ *  (`rule-proposed`; its end is `rule-set` with the proposal's id, `rule-proposal-signed`, or
+ *  `rule-proposal-rejected`). What the rule holds is not read here: the mind's own page says it,
+ *  from what the gate kept, and a member approves there. */
+export function proposedRulesOf(events: LogEvent[]): ProposedRule[] {
+  const open = new Map<string, ProposedRule>();
+  for (const event of events) {
+    const fields = fieldsOf(event);
+    if (event.type === "events.iterate.com/approval/rule-proposed") {
+      const id = textOf(fields.get("id"));
+      if (!id) continue;
+      const rule = new Map<string, unknown>(Object.entries(Object(fields.get("rule"))));
+      open.set(id, {
+        id,
+        secret: textOf(rule.get("secret")) || undefined,
+        verb: textOf(rule.get("verb")) || undefined,
+        from: textOf(fields.get("from")) || undefined,
+        proposedAt: event.createdAt,
+      });
+    } else if (
+      event.type === "events.iterate.com/approval/rule-proposal-signed" ||
+      event.type === "events.iterate.com/approval/rule-proposal-rejected"
+    )
+      open.delete(textOf(fields.get("id")));
+    else if (event.type === "events.iterate.com/approval/rule-set")
+      open.delete(textOf(fields.get("proposal")));
+  }
+  return [...open.values()].sort((a, b) => Date.parse(b.proposedAt) - Date.parse(a.proposedAt));
+}

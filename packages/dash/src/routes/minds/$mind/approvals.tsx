@@ -1,5 +1,6 @@
-// The requests that wait for a member's signed yes, across the mind's secrets. The Dash cannot
-// sign: a passkey is bound to the mind's own address, so each request links to the platform's
+// What waits for a member's signed yes: the requests across the mind's secrets, the mail and
+// calls that a rule holds, and the rules that an agent or the mind's code proposed. The Dash
+// cannot sign: a passkey is bound to the mind's own address, so each row links to the platform's
 // `/secrets/approvals` page in a new tab.
 import { useEffect, type ReactNode } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
@@ -16,7 +17,7 @@ import {
   TableRow,
 } from "@iterate-com/ui/components/ui/table";
 import { mindApprovalsOf, type HeldRequest } from "@iterate-com/ui/lib/approvals";
-import type { HeldAct } from "@iterate-com/ui/lib/held-acts";
+import type { HeldAct, ProposedRule } from "@iterate-com/ui/lib/held-acts";
 import { askWaitingApprovals, readMindApprovals } from "@iterate-com/ui/lib/waiting-approvals";
 import { Identifier } from "@iterate-com/ui/components/identifier";
 import { NotServedYet } from "../../../components/not-served-yet.tsx";
@@ -55,11 +56,12 @@ function Approvals({
   decided,
   rules,
   acts,
-}: ReturnType<typeof mindApprovalsOf> & { acts: HeldAct[] }) {
+  proposed,
+}: ReturnType<typeof mindApprovalsOf> & { acts: HeldAct[]; proposed: ProposedRule[] }) {
   const { mind } = Route.useRouteContext();
   const router = useRouter();
   const approvalsPage = `${platformOriginOf(mind)}/secrets/approvals`;
-  const live = waiting.length > 0 || approved.length > 0 || acts.length > 0;
+  const live = waiting.length > 0 || approved.length > 0 || acts.length > 0 || proposed.length > 0;
 
   useEffect(() => {
     if (!live) return;
@@ -137,11 +139,68 @@ function Approvals({
         </Part>
       ) : null}
 
+      {/* a rule that an agent or the mind's code asks for: shown only while one waits */}
+      {proposed.length > 0 ? (
+        <Part
+          id="approvals-proposed"
+          title="Proposed rules that wait"
+          headings={["Rule", "Since", "From", "Action"]}
+          empty={false}
+        >
+          {proposed.map((proposal) => (
+            <TableRow key={proposal.id} data-proposed-rule={proposal.id}>
+              <TableCell className="max-w-md align-top whitespace-normal">
+                {proposedRuleInWords(proposal)}
+                <p className="mt-1 font-mono text-2xs text-muted-foreground">
+                  Proposal {proposal.id.slice(0, 12)}. It holds nothing until you approve it.
+                </p>
+              </TableCell>
+              <TableCell className="align-top text-muted-foreground">
+                {timeOf(proposal.proposedAt)}
+              </TableCell>
+              <TableCell className="align-top">
+                {proposal.from ? (
+                  <>
+                    <span className="font-mono text-xs wrap-anywhere">{proposal.from}</span>
+                    <p className="text-2xs text-muted-foreground">as the platform claims</p>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="align-top">
+                <Button
+                  size="sm"
+                  render={
+                    <a
+                      // the mind's page says what the rule holds, from what its gate kept
+                      href={`${approvalsPage}#proposed`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Review and approve: ${proposedRuleInWords(proposal)}`}
+                    />
+                  }
+                  nativeButton={false}
+                >
+                  Review and approve
+                  <ExternalLink data-icon="inline-end" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </Part>
+      ) : null}
+
       <Part
         id="approvals-waiting"
         title="Waiting"
         headings={["Request", "Secret", "Since", "From", "Action"]}
-        empty={waiting.length === 0 && "Nothing waits for approval."}
+        empty={
+          waiting.length === 0 &&
+          (acts.length > 0 || proposed.length > 0
+            ? "No request with a secret waits."
+            : "Nothing waits for approval.")
+        }
       >
         {waiting.map((request) => (
           <TableRow key={request.digest}>
@@ -311,6 +370,13 @@ function Part({
       )}
     </section>
   );
+}
+
+/** What a proposed rule is for, in a line. What it holds is on the mind's own page. */
+function proposedRuleInWords({ secret, verb }: ProposedRule): string {
+  if (secret) return `A rule for requests with ${secret}`;
+  if (verb === "email.send") return "A rule for mail";
+  return verb ? `A rule for calls of ${verb}` : "A rule";
 }
 
 function RequestLine({ request }: { request: HeldRequest }) {
