@@ -42,7 +42,7 @@ import {
 import frameScript from "virtual:agent-kind-view-frame";
 import { AgentsHome, type NewAgentOffer } from "@iterate-com/ui/components/agents-home";
 import { AgentsNav } from "@iterate-com/ui/components/agents-nav";
-import type { AgentRow } from "@iterate-com/ui/lib/agent-summary";
+import { personOf, type AgentRow } from "@iterate-com/ui/lib/agent-summary";
 import { useAgentRows } from "../lib/use-agent-rows.ts";
 
 // The mind's agents in the sidebar, and beside them one agent's chat or, with no agent in the
@@ -121,6 +121,8 @@ function AgentsPage() {
   const href = useRouterState({ select: (state) => state.location.href });
   const installed = Boolean(data.catalog);
   const agents = useAgentRows(itx, data.catalog);
+  // the folder of this person's agents, from the address they signed in with
+  const person = personOf(data.principal?.email);
   const navigate = useNavigate();
   // the sidebar and the home page import no router: a row is a link to this address, and a plain
   // click on it is a route change here
@@ -147,6 +149,7 @@ function AgentsPage() {
         <AgentsNav
           mind={mind}
           agents={agents}
+          person={person}
           installed={installed}
           agent={agent}
           agentHref={agentHref}
@@ -186,6 +189,7 @@ function AgentsPage() {
               <AgentsHome
                 key={mind}
                 agents={agents}
+                person={person}
                 offers={offers}
                 choice={choice}
                 onChoice={(next) =>
@@ -334,6 +338,8 @@ function NewAgentKinds({
           label: `${option.label} (${kind})`,
           kind,
           choice: option.id,
+          // the kind's word that this choice's agents may live in a person's folder
+          byPerson: option.byPerson === true,
           fields: newAgent?.fields || [],
         }));
       }),

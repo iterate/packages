@@ -19,6 +19,7 @@ import {
 import {
   agentTitle,
   orderAgents,
+  personAt,
   topLevelAgents,
   type AgentRow,
   type AgentStatus,
@@ -59,6 +60,7 @@ export function AgentsNav({
   mind,
   agents,
   agent,
+  person,
   installed = true,
   agentHref,
   onOpen,
@@ -70,16 +72,23 @@ export function AgentsNav({
   agents: AgentRow[];
   /** the open agent; none on the home page */
   agent: string | undefined;
+  /** The folder of the person signed in (lib/agent-summary.ts `personOf`): their agents come
+   *  first, and another person's agent says whose it is. */
+  person?: string;
   agentHref: AgentHref;
   /** A page with a client router navigates here; without it a row is a plain link. */
   onOpen?: OpenAgent;
 }) {
   const { pinned, togglePinned } = usePinnedAgents(mind);
-  const ordered = useMemo(() => orderAgents(topLevelAgents(agents), pinned), [agents, pinned]);
+  const ordered = useMemo(
+    () => orderAgents(topLevelAgents(agents), pinned, person),
+    [agents, pinned, person],
+  );
   const renderRow = (row: AgentRow) => (
     <AgentsNavRow
       key={row.path}
       row={row}
+      other={personAt(row.path) === person ? undefined : personAt(row.path)}
       active={row.path === agent}
       pinned={pinned.has(row.path)}
       onTogglePinned={() => togglePinned(row.path)}
@@ -132,6 +141,7 @@ export function AgentsNav({
 
 function AgentsNavRow({
   row,
+  other,
   active,
   pinned,
   onTogglePinned,
@@ -139,6 +149,8 @@ function AgentsNavRow({
   onOpen,
 }: {
   row: AgentRow;
+  /** The person whose agent this is, when it is another person's. */
+  other: string | undefined;
   active: boolean;
   pinned: boolean;
   onTogglePinned: () => void;
@@ -159,7 +171,14 @@ function AgentsNavRow({
           {row.status ? <StatusDot status={row.status} /> : null}
         </span>
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm">{agentTitle(row)}</span>
+          <span className="truncate text-sm">
+            {other ? (
+              <span className="text-muted-foreground" data-agent-person>
+                {other}{" "}
+              </span>
+            ) : null}
+            {agentTitle(row)}
+          </span>
           <span className="truncate font-mono text-2xs text-muted-foreground">{row.path}</span>
         </span>
       </SidebarMenuButton>

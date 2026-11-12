@@ -4,8 +4,8 @@
 //
 // A new agent is iterate's unless the picker above the composer says otherwise. The page offers
 // other kinds' choices ("opencode (acp)", from each kind file's `newAgent`), and a choice shows its
-// fields beside the picker. Sending then starts that kind's agent on a new path,
-// `/agents/<kind>/<moment>`, and sends the message after. Nothing here knows any kind but iterate.
+// fields beside the picker. Sending then starts that kind's agent on a new path, in the folder of
+// the person signed in (lib/agent-summary.ts `newAgentPath`), and sends the message after.
 import { useMemo, useRef, type ComponentProps } from "react";
 import { BotIcon } from "lucide-react";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
@@ -17,20 +17,11 @@ import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.
 import {
   agentTitle,
   byRecentActivity,
+  mineFirst,
+  newAgentPath,
   topLevelAgents,
   type AgentRow,
 } from "#/lib/agent-summary.ts";
-
-/** A browser-created agent lives at `/agents/<folder>/<moment>`: an iterate agent's folder is
- *  `web`, another kind's its name. An agent is its path; there is no separate name. */
-function newAgentPath(folder: string, date: Date) {
-  const slug = date
-    .toISOString()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `/agents/${folder}/${slug}`;
-}
 
 /** Another kind's choice for a new agent, as the picker lists it. */
 export type NewAgentOffer = {
@@ -41,11 +32,15 @@ export type NewAgentOffer = {
   kind: string;
   /** The kind's own id for the choice. */
   choice: string;
+  /** The kind's word that this choice's agents may live in a person's folder
+   *  (agent-kind-view/types.ts `byPerson`). Without it they are born at `/agents/<kind>/…`. */
+  byPerson?: boolean;
   fields: { name: string; label: string; defaultValue: string }[];
 };
 
 export function AgentsHome({
   agents,
+  person,
   offers,
   choice,
   onChoice,
@@ -57,6 +52,9 @@ export function AgentsHome({
   onOpen,
 }: {
   agents: AgentRow[];
+  /** The folder of the person signed in (lib/agent-summary.ts `personOf`): a new agent is born in
+   *  it, and their agents come first. None: a new agent has no person's folder. */
+  person?: string;
   /** Other kinds' choices for a new agent, each `<kind>/<choice>`. */
   offers: NewAgentOffer[];
   /** The picked offer's value, or `undefined` for iterate: the page's URL. */
@@ -85,7 +83,10 @@ export function AgentsHome({
   // retry leaves no empty agent behind
   const born = useRef<string | undefined>(undefined);
   // a few to pick up again, of those the sidebar lists (no folders or sub-agents); it lists them all
-  const recent = useMemo(() => byRecentActivity(topLevelAgents(agents)).slice(0, 8), [agents]);
+  const recent = useMemo(
+    () => mineFirst(byRecentActivity(topLevelAgents(agents)), person).slice(0, 8),
+    [agents, person],
+  );
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-4 pt-8 md:p-8 md:pt-16">
       <div className="flex flex-col gap-2">
@@ -124,7 +125,11 @@ export function AgentsHome({
           onSubmit={async (input) => {
             if (picked) {
               // another kind's agent: its start events, then the message, on a path of its own
-              const path = newAgentPath(picked.kind, new Date());
+              const path = newAgentPath(
+                picked.kind,
+                new Date(),
+                picked.byPerson ? person : undefined,
+              );
               const values = Object.fromEntries(
                 [...(fields.current?.querySelectorAll("input[name]") || [])].map((element) => {
                   const field = element as HTMLInputElement;
@@ -139,7 +144,7 @@ export function AgentsHome({
             // An agent is its path; a new one is born at this moment's path.
             let path = born.current;
             if (!path) {
-              path = newAgentPath("web", new Date());
+              path = newAgentPath("web", new Date(), person);
               await onCreate(path);
               born.current = path;
             }

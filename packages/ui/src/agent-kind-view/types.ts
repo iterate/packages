@@ -99,7 +99,11 @@ export type AgentKindViewKit = {
  *  and `start`, the events appended to the new agent's path before its first message. Runs in the
  *  frame, like `view`. */
 export type AgentKindNewAgent = {
-  choices: { id: string; label: string }[];
+  /** `byPerson: true`: this choice's new agents may be born in the folder of the person who
+   *  starts them, `/agents/people/<person>/<kind>/<moment>` (lib/agent-summary.ts
+   *  `newAgentPath`). A kind says it when its own file takes that path. Without it they are born at
+   *  `/agents/<kind>/<moment>`. */
+  choices: { id: string; label: string; byPerson?: boolean }[];
   fields?: AgentKindNewAgentField[];
   /** `path` is the new agent's. */
   start(input: { choice: string; fields: Record<string, string>; path: string }): unknown[];

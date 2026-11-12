@@ -18,7 +18,10 @@ and links to the config repo. `itx.agents.create(path)` installs an agent at tha
 The sidebar reads the catalog on `/agents`, which lists every context under `/agents`: an agent is
 any of them, iterate's own or not ([what an agent is](https://github.com/iterate/core/blob/main/core/lib/src/agents/README.md#what-an-agent-is)).
 It lists the agents at the top (no `parent`; a row that only holds others, like `/agents/web`, is a
-folder and is skipped), each with an icon for its `kind` and a dot for its `status`. An agent
+folder and is skipped, and so is each folder under `/agents/people`), each with an icon for its
+`kind` and a dot for its `status`. A new agent is born in the folder of the person who starts it,
+`/agents/people/<person>/<folder>/<moment>`; the list shows a person their own agents first, and
+another person's with that person's folder name before its title. An agent
 iterate does not run opens on its Events tab.
 
 The collection delegates capabilities to each agent: `itx ⇒ itx.cd(<creator>)` and `itx.agents` at
