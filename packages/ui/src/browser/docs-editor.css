@@ -1,0 +1,24 @@
+/* The docs editor's stylesheet (dist/docs-editor.css), which only a page that shows the editor
+   links, after styles.css: Atomic's live preview, which Rich mode draws with classes
+   (src/components/docs-editor/extensions.ts), and the Tailwind classes of the docs editor's files,
+   which styles.css leaves out (its `@source not`). The theme is styles.css's, by reference: this
+   file emits utilities only, no preflight and no tokens. */
+@import "@atomic-editor/editor/styles.css";
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@reference "../styles/globals.css";
+/* globals.css scans all of src/: every folder but the docs editor's is left out here, so a new
+   folder of components adds its classes to this file until it is listed */
+@source not "../agent-kind-view";
+@source not "../apps";
+@source not "../hooks";
+@source not "../lib";
+@source not "../browser";
+@source not "../styles";
+@source not "../components/agent-chat";
+@source not "../components/context-explorer";
+@source not "../components/context-view";
+@source not "../components/repo-ide";
+@source not "../components/ui";
+@source not "../components/virtual-log";
+@source not "../components/*.{ts,tsx}";
+@source "../components/docs-editor";

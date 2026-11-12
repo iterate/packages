@@ -29,6 +29,19 @@ export default defineConfig({
     // React libraries mark their modules "use client", which means nothing outside a server build
     onLog: (level, log, handler) => log.code === "MODULE_LEVEL_DIRECTIVE" || handler(level, log),
   },
+  plugins: [
+    {
+      // the docs editor's file tree loads its own build (scripts/build-docs-tree.ts), beside the
+      // editor's module: bundled here, @pierre/trees would become a chunk the repo IDE shares, one
+      // more file for every page that shows the IDE
+      name: "docs-tree-apart",
+      resolveId(source: string, importer: string | undefined) {
+        if (source === "./doc-tree.ts" && importer?.endsWith("docs-editor/doc-tree-nav.tsx"))
+          return { id: "./doc-tree.mjs", external: true };
+        return null;
+      },
+    },
+  ],
   outputOptions: {
     chunkFileNames: "chunks/[name].mjs",
     codeSplitting: {

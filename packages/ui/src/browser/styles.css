@@ -11,3 +11,5 @@
    out, and this stylesheet is what the components use. */
 @source not "../../registry.json";
 @source not "../../scripts";
+/* the docs editor's classes are its own stylesheet's (docs-editor.css), which only its page links */
+@source not "../components/docs-editor";

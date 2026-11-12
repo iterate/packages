@@ -57,14 +57,26 @@ export function browserEntries(): Record<string, string> {
  *  CodeMirrors, and the editor refused the extensions the other one made. */
 export const vendorChunks = [
   { name: "vendor-react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+  // CodeMirror, without the languages only the docs editor loads: those are the next group's. A
+  // group also takes every module its modules import that no earlier group has taken (rolldown's
+  // `codeSplitting.groups`), so this one comes first and keeps the core
   {
     name: "vendor-codemirror",
-    test: /node_modules[\\/](@codemirror|@lezer|codemirror|crelt|style-mod|w3c-keyname|@marijn)[\\/]/,
+    test: /node_modules[\\/](?!@codemirror[\\/](?:lang-(?:cpp|go|java|php|python|rust|xml)|legacy-modes)[\\/]|@lezer[\\/](?:cpp|go|java|php|python|rust|xml)[\\/])(@codemirror|@lezer|codemirror|crelt|style-mod|w3c-keyname|@marijn)[\\/]/,
+  },
+  // the languages of the docs editor's code blocks (Atomic's `code-languages`) that the repo IDE has
+  // none of: a chunk of their own, so the pages that load vendor-codemirror do not pay for them
+  {
+    name: "vendor-codemirror-more-languages",
+    test: /node_modules[\\/](@codemirror[\\/](lang-(cpp|go|java|php|python|rust|xml)|legacy-modes)|@lezer[\\/](cpp|go|java|php|python|rust|xml))[\\/]/,
   },
   { name: "vendor-codemirror-themes", test: /node_modules[\\/]@fsegurai[\\/]/ },
   { name: "vendor-base-ui", test: /node_modules[\\/](@base-ui|@floating-ui)[\\/]/ },
   { name: "vendor-yaml", test: /node_modules[\\/]yaml[\\/]/ },
   { name: "vendor-zod", test: /node_modules[\\/]zod[\\/]/ },
+  { name: "vendor-yjs", test: /node_modules[\\/](yjs|lib0|y-protocols|y-codemirror\.next)[\\/]/ },
+  // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
+  { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },
   { name: "vendor-posthog", test: /node_modules[\\/]posthog-js[\\/]/ },
 ];
 
@@ -85,6 +97,10 @@ export function publishExports(entries: Record<string, string>, fonts: string[])
       vendorChunks.map(({ name }) => [`./chunks/${name}`, `./dist/chunks/${name}.mjs`]),
     ),
     "./styles.css": "./dist/styles.css",
+    // the docs editor's file tree, its own build (scripts/build-docs-tree.ts)
+    "./components/docs-editor/doc-tree": "./dist/components/docs-editor/doc-tree.mjs",
+    // the docs editor's own stylesheet (src/browser/docs-editor.css): a page that shows it links it
+    "./docs-editor.css": "./dist/docs-editor.css",
     [`./${AGENT_KIND_VIEW_FRAME}`]: `./dist/${AGENT_KIND_VIEW_FRAME}`,
     "./iterate.css": "./dist/iterate.css",
     ...Object.fromEntries(fonts.map((file) => [`./fonts/${file}`, `./dist/fonts/${file}`])),

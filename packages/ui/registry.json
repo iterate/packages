@@ -997,6 +997,138 @@
       ]
     },
     {
+      "name": "docs-editor",
+      "type": "registry:component",
+      "description": "A markdown doc of a mind's repo, co-edited live (Yjs over the doc's context) in Atomic's live-preview editor: its comments, autosave's status, and the repo's docs as a list and a tree.",
+      "dependencies": [
+        "@atomic-editor/editor",
+        "@codemirror/autocomplete",
+        "@codemirror/commands",
+        "@codemirror/lang-markdown",
+        "@codemirror/language",
+        "@codemirror/search",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@pierre/trees",
+        "cn",
+        "iterate",
+        "lucide-react",
+        "y-codemirror.next",
+        "y-protocols",
+        "yjs",
+        "zod"
+      ],
+      "registryDependencies": [
+        "button",
+        "dropdown-menu",
+        "input",
+        "iterate/packages/plain-left-click",
+        "iterate/packages/stream-link",
+        "native-select",
+        "separator",
+        "spinner",
+        "textarea"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-warning": "var(--warning)",
+          "color-info": "var(--info)",
+          "color-highlight": "var(--highlight)",
+          "color-chart-1": "var(--chart-1)",
+          "color-chart-2": "var(--chart-2)",
+          "color-chart-3": "var(--chart-3)",
+          "color-chart-4": "var(--chart-4)",
+          "color-chart-5": "var(--chart-5)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))",
+          "info": "light-dark(oklch(0.5 0.134 242.749), oklch(0.746 0.16 232.661))",
+          "highlight": "light-dark(#ffc53d, #755800)",
+          "chart-1": "light-dark(#2a78d6, #78b4ff)",
+          "chart-2": "light-dark(#eb6834, #ff966b)",
+          "chart-3": "light-dark(#1baf7a, #65d6a6)",
+          "chart-4": "light-dark(#eda100, #f4c45f)",
+          "chart-5": "light-dark(#e87ba4, #f3a0c0)"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/docs-editor/docs-editor.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/anchor.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/collab.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/comment-marks.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/comments-panel.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/comments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/commands.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/create-doc.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/doc-list-panel.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/doc-list.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/doc-session.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/extensions.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/file-kind.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/frames.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/frontmatter.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/install.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/doc-tree.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/docs-editor/doc-tree-nav.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "route-defaults",
       "type": "registry:component",
       "description": "TanStack Router's pending, not-found and error components.",

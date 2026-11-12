@@ -12,6 +12,9 @@ export default defineConfig({
     },
   },
   test: {
+    // @atomic-editor/editor's dist imports its own modules with no extension, which Node's ESM
+    // loader refuses: vitest bundles it as a bundler would (the docs editor's session test)
+    server: { deps: { inline: ["@atomic-editor/editor"] } },
     reporters: vitestReporters,
     restoreMocks: true,
     unstubGlobals: true,
