@@ -16,6 +16,8 @@ runs it and zips `dist/` for its downloads page.
 - `public/icon-{16,32,48,128}.png` — the iterate logo, as
   PNGs (Chrome takes no SVG icons). Flat in `public/`: the SPA's zip packs only top-level files.
 - `public/index.html` — the panel page (its styles inline).
+- `public/indicator.js` — the frame and label the person sees on a tab the mind is attached to
+  (below, **What the person sees**). `panel.js` reads it and runs it in the page through CDP.
 - `public/panel.js` — everything else: the sign-in at the mind through Chrome's identity window (a
   public client registered at each sign-in, so the consent page shows every time; the session in
   `chrome.storage.local`), one WebSocket to the mind's API, `wss://iterate.<address>/api`, and the
@@ -49,6 +51,36 @@ Chrome's debugging bar detaches every tab: the panel then takes every tab out of
 mind cannot attach again. Sign-out, or a switch to another mind, keeps the group: with no lend, or
 a lend to a mind with another address, no tab is drivable.
 
+**What the person sees.** While the mind's debugger is attached to a tab, besides Chrome's
+debugging bar:
+
+- A frame on the edge of the tab's page, in one iterate color, and a small label at the top
+  center: the mind's address and what it does ("iterate.com is using this tab", "iterate.com is
+  clicking"), with a **Stop** button. The frame glows stronger and pulses for 3 s after each
+  command (no pulse with reduced motion). The words come from the command's method: clicking,
+  typing, opening a page, looking (a screenshot), reading the page (`Runtime.*`, `DOM.*`,
+  `Accessibility.*`, `CSS.*`), working.
+- `indicator.js` runs in an isolated world, `iterate-indicator`, of the top frame only, on the page
+  that shows at attach and on every page the tab loads after; its elements sit in a closed shadow
+  root, so the page's scripts and CSS cannot reach inside. It goes before the panel detaches; after
+  a detach Chrome does by itself (Cancel on the bar, a closed or crashed panel), the page cannot tell
+  (a binding outlives its session): the panel writes a heartbeat every 4 s, and the indicator
+  removes itself after 12 s without one.
+- **Stop** calls a CDP binding that only that world has: the tab leaves the group and the
+  debugger lets go, as if the person had dragged it out. It never reaches the stream as a page
+  report.
+- The toolbar button shows "on" on that tab, in a stronger color while the mind acts. The panel's
+  tab list shows the word while the mind acts, "in use" otherwise.
+- A mind's `Page.captureScreenshot` leaves the frame and label out: the panel hides them, waits
+  two frames, takes the screenshot and shows them again.
+- A closed panel leaves its debugger sessions attached (a session is the extension's, not the
+  page's), so Chrome's bar stays. The next panel takes such a session on at its first `cdp` on
+  that tab: Chrome refuses the attach ("Another debugger is already attached"), and a command that
+  still goes through shows the session is this extension's.
+- The panel keeps the Page and Runtime domains on (the indicator, navigation facts and page
+  reports need them): `cdp` answers `Page.disable` and `Runtime.disable` with `{}` and does not
+  send them.
+
 **What reaches the stream.** The CDP wire stays a wire, but the browser's facts go to the mind's
 root stream, each with the `lendName`:
 
@@ -56,10 +88,11 @@ root stream, each with the `lendName`:
   durable: a tab joined or left the group. Each lend announces every member again.
 - `chrome/binding-called { tabId, name, payload }` is durable: a page report. The mind adds a CDP
   binding (`Runtime.addBinding`, best in an isolated world from `Page.createIsolatedWorld`), and
-  each call of it from a tab in the group appends its string. A mind's code cannot use
-  `Page.addScriptToEvaluateOnNewDocument`: the mind reads an argument with a `source` field as a
-  worker. A payload over 8,192 characters is dropped. The event type is always
-  the panel's own: the panel appends as the person.
+  each call of it from a tab in the group appends its string. To keep the script on every page
+  the tab loads, the mind also sends `Page.addScriptToEvaluateOnNewDocument` with
+  `{ source, worldName }` (a mind whose stack is older than this refuses the `source` argument:
+  then the script lives in the current page only). A payload over 8,192 characters is dropped.
+  The event type is always the panel's own: the panel appends as the person.
 - `chrome/attached { tabId, url }`, `chrome/navigated { tabId, url }` (main-frame navigations of
   attached tabs) and `chrome/detached { tabId, reason }` are ephemeral: live subscribers see them,
   and `readEvents` with `includeEphemeral` reads the recent ones.

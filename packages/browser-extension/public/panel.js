@@ -110,19 +110,30 @@ async function addToGroup(tabId, windowId) {
   );
 }
 
-/** The debugger's state per tab: whether it is attached and, while it is being attached, that
- *  promise (so overlapping first calls share one attach). Not a grant: the group is the grant. */
+/** The debugger's state per tab: whether it is attached and, while it is being attached or
+ *  released, that promise (so overlapping calls share one). Not a grant: the group is the grant.
+ *  The rest is what the person sees (below): what the mind does now (`activity`, a word, null once
+ *  it settles), and the indicator's world on the page that shows (`indicatorWorld`, a promise of
+ *  its execution context id). */
 const debuggees = new Map();
 
 /** Let the debugger go from a tab. An attach still in flight settles first, so it cannot leave the
- *  debugger on a tab the mind may no longer drive. */
+ *  debugger on a tab the mind may no longer drive. The indicator goes first: after the detach no
+ *  CDP reaches the page. */
 async function release(tabId) {
   const state = debuggees.get(tabId);
   if (!state) return;
   await state.attaching?.catch(() => undefined);
   if (!state.attached) return;
-  await chrome.debugger.detach({ tabId }).catch(console.error);
-  state.attached = false;
+  state.releasing ??= (async () => {
+    await inIndicator(tabId, REMOVE_INDICATOR).catch(console.warn);
+    await chrome.debugger.detach({ tabId }).catch(console.error);
+    state.attached = false;
+    forgetActivity(tabId);
+  })().finally(() => {
+    state.releasing = null;
+  });
+  await state.releasing;
 }
 /** Let the debugger go from every tab: on sign-out, and when the panel moves to another mind. The
  *  tabs stay in their group: the group is the person's. */
@@ -234,17 +245,31 @@ async function requireMember(tabId) {
 /** Attach the debugger to a tab in the mind's group (once; Chrome shows its bar on the tab). The
  *  membership check runs on every call, so every `cdp` command makes it. */
 async function attach(tabId) {
+  // A release in flight ends first: until it does, the tab still looks attached, and the
+  // membership check after it sees what the release was for (Stop, Remove, sign-out).
+  await debuggees.get(tabId)?.releasing?.catch(() => undefined);
   await requireMember(tabId);
   const state =
     debuggees.get(tabId) ?? debuggees.set(tabId, { attached: false, attaching: null }).get(tabId);
   if (state.attached) return;
   state.attaching ??= (async () => {
-    await chrome.debugger.attach({ tabId }, "1.3").catch((error) => {
-      throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
+    await chrome.debugger.attach({ tabId }, "1.3").catch(async (error) => {
+      if (/No tab with given id/.test(error?.message)) throw tabGone(tabId);
+      // A closed panel leaves its sessions attached: a session is the extension's, not the page's.
+      // A command that goes through means the session is ours, from an earlier panel: take it on.
+      if (!/Another debugger is already attached/.test(error?.message)) throw error;
+      await chrome.debugger
+        .sendCommand({ tabId }, "Runtime.evaluate", { expression: "0" })
+        .catch(() => {
+          throw error;
+        });
     });
     let url;
     try {
-      await chrome.debugger.sendCommand({ tabId }, "Page.enable"); // main-frame navigations, below
+      // Page: main-frame navigations (below), and the indicator on every page the tab loads.
+      // Runtime: page reports and the indicator's Stop (`Runtime.bindingCalled`).
+      await chrome.debugger.sendCommand({ tabId }, "Page.enable");
+      await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
       const { result } = await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
         expression: "location.href",
         returnByValue: true,
@@ -257,11 +282,249 @@ async function attach(tabId) {
     }
     state.attached = true;
     fact("events.iterate.com/chrome/attached", { tabId, url });
+    await showIndicator(tabId);
     showTabs();
   })().finally(() => {
     state.attaching = null;
   });
   await state.attaching;
+}
+
+// ── What the person sees while the mind's debugger is attached to a tab: indicator.js on the page
+// (a frame and a label with Stop), the toolbar button's badge on that tab, and a word in the
+// panel's list. A tab is "acting" for 3 s after each `cdp` command. None of it may fail or slow the
+// mind's command: its errors go to console.warn.
+
+/** The isolated world indicator.js runs in, and the binding its Stop button calls. Only contexts
+ *  of that name get the binding: the page's own scripts cannot call Stop. */
+const INDICATOR_WORLD = "iterate-indicator";
+const STOP_BINDING = "iterateIndicatorStop";
+/** At most one write of the indicator's `data-activity` per tab in this time. */
+const INDICATOR_WRITE_MS = 200;
+/** The longest wait for an indicator call: a page with an open dialog answers no evaluate. */
+const INDICATOR_TIMEOUT_MS = 1_000;
+
+/** The words for what the mind does, from the CDP method of its latest command. */
+const ACTIVITY_WORDS = new Map([
+  ["Input.dispatchMouseEvent", "clicking"],
+  ["Input.dispatchTouchEvent", "clicking"],
+  ["Input.dispatchKeyEvent", "typing"],
+  ["Input.insertText", "typing"],
+  ["Page.navigate", "opening a page"],
+  ["Page.reload", "opening a page"],
+  ["Page.navigateToHistoryEntry", "opening a page"],
+  ["Page.captureScreenshot", "looking"],
+]);
+const activityOf = (method) =>
+  ACTIVITY_WORDS.get(method) ??
+  (/^(Runtime|DOM|Accessibility|CSS)\./.test(method) ? "reading the page" : "working");
+
+/** indicator.js's text, read once. */
+let indicatorSource;
+async function indicatorScript() {
+  indicatorSource ??= fetch(chrome.runtime.getURL("indicator.js")).then((answer) => {
+    if (!answer.ok) throw new Error(`indicator.js answered ${answer.status}.`);
+    return answer.text();
+  });
+  // a failed read is tried again next time
+  return indicatorSource.catch((error) => {
+    indicatorSource = undefined;
+    throw error;
+  });
+}
+const indicatorExpression = async () =>
+  `(${await indicatorScript()})(${JSON.stringify(groupTitle())});`;
+
+/** The indicator's host element, as an expression for its world. */
+const HOST = `document.documentElement?.querySelector(":scope > iterate-indicator")`;
+const REMOVE_INDICATOR = `${HOST}?.remove()`;
+const SHOW_INDICATOR = `${HOST}?.removeAttribute("data-hidden")`;
+// Two frames, so a screenshot taken after it has no indicator; a tab in the background draws no
+// frames, so 100 ms at most.
+const HIDE_INDICATOR = `(async () => {
+  ${HOST}?.setAttribute("data-hidden", "");
+  await Promise.race([
+    new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))),
+    new Promise((waited) => setTimeout(waited, 100)),
+  ]);
+})()`;
+
+/** A promise that rejects after `ms`, unless `promise` settles first. */
+function within(ms, promise) {
+  let timer;
+  const late = new Promise((_settled, failed) => {
+    timer = setTimeout(() => failed(new Error(`No answer in ${ms} ms.`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+// The heartbeat indicator.js waits for (its header says why). One interval writes `data-alive` on
+// every attached tab every 4 s; the write at attach and each `data-activity` write count too.
+let heartbeats = null;
+
+/** On attach: the indicator on every page the tab loads from now on (Chrome runs the script while
+ *  the Page domain is on in this session, and forgets it at detach), and on the page that shows. A
+ *  failure leaves the tab without an indicator, never the mind without the tab. */
+async function showIndicator(tabId) {
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Runtime.addBinding", {
+      name: STOP_BINDING,
+      executionContextName: INDICATOR_WORLD,
+    });
+    await chrome.debugger.sendCommand({ tabId }, "Page.addScriptToEvaluateOnNewDocument", {
+      source: await indicatorExpression(),
+      worldName: INDICATOR_WORLD,
+    });
+  } catch (error) {
+    console.warn(error);
+    return;
+  }
+  showBadge(tabId);
+  heartbeat(tabId);
+  heartbeats ??= setInterval(() => {
+    const attached = [...debuggees].filter(([, state]) => state.attached);
+    if (!attached.length) {
+      clearInterval(heartbeats);
+      heartbeats = null;
+    }
+    for (const [attachedId] of attached) heartbeat(attachedId);
+  }, 4_000);
+}
+
+/** One heartbeat on a tab's indicator, never two in flight. An indicator that is gone (it saw no
+ *  heartbeat in time, or the page removed it) comes back at the next one, in a new world. */
+function heartbeat(tabId) {
+  const state = debuggees.get(tabId);
+  if (!state?.attached || state.heartbeating) return;
+  state.heartbeating = true;
+  const expression = `(() => {
+    const host = ${HOST};
+    host?.setAttribute("data-alive", "${Date.now()}");
+    return Boolean(host);
+  })()`;
+  inIndicator(tabId, expression, { returnByValue: true })
+    .then((found) => {
+      if (found?.value === false) state.indicatorWorld = null;
+    })
+    .catch(console.warn)
+    .finally(() => {
+      state.heartbeating = false;
+    });
+}
+
+/** The indicator's world on the page that shows: an isolated world of the top frame, with the
+ *  indicator in it (indicator.js adds none where the page has one). */
+async function indicatorWorldOf(tabId) {
+  const { frameTree } = await chrome.debugger.sendCommand({ tabId }, "Page.getFrameTree");
+  const { executionContextId } = await chrome.debugger.sendCommand(
+    { tabId },
+    "Page.createIsolatedWorld",
+    { frameId: frameTree.frame.id, worldName: INDICATOR_WORLD },
+  );
+  await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
+    expression: await indicatorExpression(),
+    contextId: executionContextId,
+  });
+  return executionContextId;
+}
+
+/** Evaluate an expression in the indicator's world of an attached tab. The world is made on first
+ *  use; a main-frame navigation drops it, and so does any failure here, so the next call makes a
+ *  new one. A "Cannot find context" (the page went) is tried once more, in a new world. */
+async function inIndicator(tabId, expression, options = {}) {
+  const state = debuggees.get(tabId);
+  if (!state?.attached) return undefined;
+  for (let retried = false; ; retried = true) {
+    const world = (state.indicatorWorld ??= indicatorWorldOf(tabId));
+    try {
+      return await within(
+        INDICATOR_TIMEOUT_MS,
+        world.then(async (contextId) => {
+          const { result, exceptionDetails } = await chrome.debugger.sendCommand(
+            { tabId },
+            "Runtime.evaluate",
+            { expression, contextId, ...options },
+          );
+          if (exceptionDetails)
+            throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+          return result;
+        }),
+      );
+    } catch (error) {
+      if (state.indicatorWorld === world) state.indicatorWorld = null;
+      if (retried || !/Cannot find context/.test(error?.message)) throw error;
+    }
+  }
+}
+
+/** The toolbar button's badge on a tab: "on" while attached, in the stronger color while the mind
+ *  acts. A closed tab refuses it, and needs none. */
+function showBadge(tabId) {
+  const state = debuggees.get(tabId);
+  const text = state?.attached ? "on" : "";
+  chrome.action.setBadgeText({ tabId, text }).catch(() => {});
+  if (text)
+    chrome.action
+      .setBadgeBackgroundColor({ tabId, color: state.activity ? "#6366f1" : "#71717a" })
+      .catch(() => {});
+}
+
+/** A `cdp` command on an attached tab: the word for it, now, on the badge, in the panel's list (on
+ *  a change of word) and on the page (one write per 200 ms at most); it settles after 3 s. */
+function noteActivity(tabId, method) {
+  const state = debuggees.get(tabId);
+  if (!state?.attached) return;
+  const word = activityOf(method);
+  const changed = word !== state.activity;
+  state.activity = word;
+  state.actedAt = Date.now();
+  clearTimeout(state.settleTimer);
+  state.settleTimer = setTimeout(() => {
+    state.activity = null;
+    showBadge(tabId);
+    showTabs();
+  }, 3_000);
+  if (changed) {
+    showBadge(tabId);
+    showTabs();
+  }
+  // The word and its time: a repeat of the same word restarts the indicator's 3 s too.
+  state.indicatorWrite ??= setTimeout(
+    () => {
+      state.indicatorWrite = null;
+      state.indicatorWrittenAt = Date.now();
+      if (!state.activity) return;
+      const value = JSON.stringify(`${state.activity} ${state.actedAt}`);
+      inIndicator(tabId, `${HOST}?.setAttribute("data-activity", ${value})`).catch(console.warn);
+    },
+    Math.max(0, (state.indicatorWrittenAt ?? 0) + INDICATOR_WRITE_MS - Date.now()),
+  );
+}
+
+/** After a detach: no activity, no world, no badge. */
+function forgetActivity(tabId) {
+  const state = debuggees.get(tabId);
+  if (state) {
+    clearTimeout(state.settleTimer);
+    clearTimeout(state.indicatorWrite);
+    state.indicatorWrite = null;
+    state.activity = null;
+    state.indicatorWorld = null;
+  }
+  showBadge(tabId);
+}
+
+/** Stop on a tab's indicator: the person means "the mind lets go of this tab". It leaves the
+ *  group, so the mind cannot attach again. */
+async function stopFromPage(tabId) {
+  try {
+    const target = (await chrome.debugger.getTargets()).find((each) => each.tabId === tabId);
+    await whileNotDragging(() => chrome.tabs.ungroup(tabId));
+    await release(tabId);
+    tellTabCard(`You clicked Stop on ${target?.title || `tab ${tabId}`}: it left the group.`);
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 /** The longest page report the panel appends. */
@@ -270,10 +533,20 @@ const BINDING_PAYLOAD_LIMIT = 8_192;
 let bindingReports = Promise.resolve();
 
 chrome.debugger.onEvent.addListener(({ tabId }, method, params) => {
-  if (method === "Page.frameNavigated" && !params.frame.parentId)
+  if (method === "Page.frameNavigated" && !params.frame.parentId) {
     fact("events.iterate.com/chrome/navigated", { tabId, url: params.frame.url });
+    // The new page has its indicator from the new-document script, but not the panel's world.
+    const state = debuggees.get(tabId);
+    if (state) state.indicatorWorld = null;
+    showBadge(tabId);
+  }
   if (method !== "Runtime.bindingCalled") return;
   const { name, payload } = params;
+  // The indicator's Stop is the panel's own, never a page report.
+  if (name === STOP_BINDING) {
+    void stopFromPage(tabId);
+    return;
+  }
   if (payload.length > BINDING_PAYLOAD_LIMIT) {
     console.warn(`Dropped a ${payload.length}-character ${name} report from tab ${tabId}.`);
     return;
@@ -288,6 +561,9 @@ chrome.debugger.onEvent.addListener(({ tabId }, method, params) => {
 chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
   const state = debuggees.get(tabId);
   if (state) state.attached = false;
+  // The page keeps an indicator the panel did not remove (no CDP after a detach) until it loads
+  // the next page, which gets none: no session, no new-document script.
+  forgetActivity(tabId);
   fact("events.iterate.com/chrome/detached", { tabId, reason });
   // Cancel on Chrome's debugging bar detaches every tab, and the person meant "stop": the tabs
   // leave the group, so the mind cannot attach again. Any other reason leaves the group alone: an
@@ -378,12 +654,30 @@ class ChromeBrowser extends RpcTarget {
   }
 
   /** One CDP command on a tab in the mind's group (attached on first use): the command's result,
-   *  e.g. `cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })`. */
+   *  e.g. `cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })`.
+   *  `Page.disable` and `Runtime.disable` answer `{}` and are not sent: the panel keeps both
+   *  domains on, for the indicator, the navigation facts and page reports. A screenshot leaves the
+   *  indicator out. */
   async cdp(tabId, method, params) {
     await attach(tabId);
-    return chrome.debugger.sendCommand({ tabId }, method, params).catch((error) => {
-      throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
-    });
+    if (method === "Page.disable" || method === "Runtime.disable") return {};
+    noteActivity(tabId, method);
+    const send = () =>
+      chrome.debugger.sendCommand({ tabId }, method, params).catch((error) => {
+        throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
+      });
+    if (method !== "Page.captureScreenshot") return send();
+    // Shown again when the last of overlapping screenshots is taken. One it cannot hide is taken
+    // anyway.
+    const state = debuggees.get(tabId);
+    state.screenshots = (state.screenshots ?? 0) + 1;
+    await inIndicator(tabId, HIDE_INDICATOR, { awaitPromise: true }).catch(console.warn);
+    try {
+      return await send();
+    } finally {
+      state.screenshots -= 1;
+      if (!state.screenshots) inIndicator(tabId, SHOW_INDICATOR).catch(console.warn);
+    }
   }
 
   /** Let go of a tab: the debugger bar goes; the tab stays in the group and stays drivable. */
@@ -614,7 +908,8 @@ function agentInstructions(address, name, members) {
     `- ${call}.openPage({ url })\`: opens an http(s) page in a new tab in the group and answers { tabId, url } once it has loaded.`,
     `- ${call}.cdp(tabId, method, params)\`: one Chrome DevTools Protocol command on a tab in the group, for example \`"Runtime.evaluate", { expression: "document.title", returnByValue: true }\`, \`"Page.navigate", { url }\`, \`"Page.captureScreenshot", {}\` or \`"Accessibility.getFullAXTree", {}\`.`,
     `- ${call}.detach(tabId)\`: removes Chrome's debugging bar; the tab stays drivable.`,
-    `- A page can report to the mind: \`cdp(tabId, "Runtime.enable", {})\` and \`cdp(tabId, "Runtime.addBinding", { name, executionContextName: "iterate" })\`; then \`cdp(tabId, "Page.getFrameTree", {})\` for the main frame's id, \`cdp(tabId, "Page.createIsolatedWorld", { frameId, worldName: "iterate" })\` for its \`executionContextId\`, and \`cdp(tabId, "Runtime.evaluate", { expression, contextId: executionContextId })\` with a script that calls \`window[name](string)\`. The page's own scripts cannot see that world. Each call appends \`events.iterate.com/chrome/binding-called { lendName, tabId, name, payload }\` to the mind's root stream. Not \`Page.addScriptToEvaluateOnNewDocument\`: the mind reads an argument with a \`source\` field as a worker and refuses it.`,
+    `- While you are attached to a tab, I see a frame around it and a label on top with what you do and a Stop button (Stop takes the tab out of the group). Screenshots leave them out. \`detach(tabId)\` when you are done removes them. \`Page.disable\` and \`Runtime.disable\` do nothing: the panel keeps both domains on.`,
+    `- A page can report to the mind: \`cdp(tabId, "Runtime.enable", {})\` and \`cdp(tabId, "Runtime.addBinding", { name, executionContextName: "iterate" })\`; then \`cdp(tabId, "Page.getFrameTree", {})\` for the main frame's id, \`cdp(tabId, "Page.createIsolatedWorld", { frameId, worldName: "iterate" })\` for its \`executionContextId\`, and \`cdp(tabId, "Runtime.evaluate", { expression, contextId: executionContextId })\` with a script that calls \`window[name](string)\`. The page's own scripts cannot see that world. Each call appends \`events.iterate.com/chrome/binding-called { lendName, tabId, name, payload }\` to the mind's root stream. To keep the script on every page the tab loads, also send \`cdp(tabId, "Page.addScriptToEvaluateOnNewDocument", { source: expression, worldName: "iterate" })\` (a mind whose stack is older than this refuses the \`source\` argument: then the script lives in the current page only).`,
     "",
     "Run openPage and cdp in separate scripts, so a failed cdp does not lose the tabId. You can drive only the tabs in the group: I add a tab by dragging it into the group, and take it back by dragging it out.",
     "",
@@ -768,7 +1063,7 @@ async function connect(session) {
                 <div class="title truncate">${escape(tab.title || tab.url)}</div>
                 <div class="muted mono truncate">${escape(tab.url)}</div>
               </div>
-              ${tab.attached ? `<span class="badge">in use</span>` : ""}
+              ${tab.attached ? `<span class="badge">${escape(debuggees.get(tab.tabId)?.activity ?? "in use")}</span>` : ""}
               <button class="btn btn-ghost btn-sm" data-remove="${tab.tabId}">Remove</button>
             </li>`,
               )
