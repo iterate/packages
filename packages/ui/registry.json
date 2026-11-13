@@ -377,6 +377,39 @@
       ]
     },
     {
+      "name": "change-my-mind",
+      "type": "registry:lib",
+      "description": "The words of the Change my mind button, and the instructions it copies for a reader's iterate mind.",
+      "files": [
+        {
+          "path": "src/lib/change-my-mind.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "change-my-mind-button",
+      "type": "registry:component",
+      "description": "The Change my mind button: it copies instructions that a reader gives to their own iterate mind, to make the change a post describes.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "button",
+        "iterate/packages/change-my-mind",
+        "popover",
+        "textarea",
+        "tooltip"
+      ],
+      "files": [
+        {
+          "path": "src/components/change-my-mind-button.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "checklist",
       "type": "registry:component",
       "description": "A list of things that must be true before going on, each turning done by itself, with a link or button that makes it so.",

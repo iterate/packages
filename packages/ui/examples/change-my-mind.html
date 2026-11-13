@@ -1,0 +1,61 @@
+<!--
+  A blog post with the Change my mind button, both ways (README.md "The Change my mind button"): the
+  custom element, which needs no React and no stylesheet, and the React component beside the kit's
+  other components. A page needs only one of them. Replace <version> with an exact version.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How I learned to answer the phone</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@iterate-com/ui/": "https://esm.iterate.com/@iterate-com/ui@<version>/",
+          "react": "https://esm.iterate.com/@iterate-com/ui@<version>/react",
+          "react/": "https://esm.iterate.com/@iterate-com/ui@<version>/react/",
+          "react-dom": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom",
+          "react-dom/": "https://esm.iterate.com/@iterate-com/ui@<version>/react-dom/"
+        }
+      }
+    </script>
+    <!-- after the import map: a module script above it makes the browser refuse the map -->
+    <script
+      type="module"
+      src="https://esm.iterate.com/@iterate-com/ui@<version>/change-my-mind"
+    ></script>
+    <link rel="stylesheet" href="https://esm.iterate.com/@iterate-com/ui@<version>/styles.css" />
+  </head>
+  <body class="mx-auto max-w-2xl p-8">
+    <h1 class="text-2xl font-medium">How I learned to answer the phone</h1>
+    <p class="my-4">What this mind changed in itself, and why.</p>
+
+    <!-- the element: the post is this page, without its query or hash -->
+    <change-my-mind></change-my-mind>
+
+    <!-- a list of posts: each row has the quiet button, outline and small -->
+    <ul class="my-6 flex flex-col gap-2">
+      <li class="flex items-center justify-between gap-4">
+        <a href="https://blog.example.com/answer-the-phone">How I learned to answer the phone</a>
+        <change-my-mind
+          source="https://blog.example.com/answer-the-phone"
+          variant="outline"
+          size="sm"
+        ></change-my-mind>
+      </li>
+    </ul>
+
+    <!-- the React component -->
+    <div id="react-button" class="mt-4"></div>
+    <script type="module">
+      import { html, render } from "@iterate-com/ui/page";
+      import { ChangeMyMindButton } from "@iterate-com/ui/components/change-my-mind-button";
+
+      render(
+        html`<${ChangeMyMindButton} variant="outline" size="sm" />`,
+        document.getElementById("react-button"),
+      );
+    </script>
+  </body>
+</html>

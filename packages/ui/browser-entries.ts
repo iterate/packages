@@ -45,6 +45,8 @@ export function browserEntries(): Record<string, string> {
     // the page's side of a kind's own chat view (src/agent-kind-view/host.ts); the frame's side is
     // one classic script beside these modules (`AGENT_KIND_VIEW_FRAME`)
     "agent-kind-view/host": "src/agent-kind-view/host.ts",
+    // `<change-my-mind>`, the button for a page with no React: one script tag defines it
+    "change-my-mind": "src/browser/change-my-mind.ts",
     ...Object.fromEntries(
       [...items, ...shadcn]
         .sort()
