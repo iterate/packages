@@ -70,6 +70,11 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
 - [src/components/agent-chat/AGENTS.md](src/components/agent-chat/AGENTS.md): one agent's
   conversation.
 - [src/components/repo-ide/AGENTS.md](src/components/repo-ide/AGENTS.md): the IDE over one repo.
+- `components/dash` is a mind's Dash, drawn from lists, for a no-build page: the shell takes
+  the pages and the groups of links, and each kit page (`DashRepo`, `DashSecrets`, …) takes the
+  member's `itx` and does its own reads. A page imports its larger part with `import()` of that
+  item's own entry file, never of a file that is no entry: on esm.sh only an entry stays one
+  module. Its URL is `lib/page-url`; the member's socket is `live`'s `memberItx`.
 - The Agents app's parts (`components/agents-nav`, `components/agents-home`, `lib/agent-summary`)
   serve the hosted app and a mind's own no-build page. None imports a router. They take
   `agentHref(path)` and `onOpen(path)`, so that a page with a client router can make a plain click

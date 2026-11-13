@@ -770,6 +770,44 @@
       ]
     },
     {
+      "name": "dash",
+      "type": "registry:component",
+      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and groups of links, the page the URL names, what waits for a member's yes, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
+      "dependencies": [
+        "iterate"
+      ],
+      "registryDependencies": [
+        "badge",
+        "card",
+        "iterate/packages/analytics-page",
+        "iterate/packages/app-shell",
+        "iterate/packages/approvals-alert",
+        "iterate/packages/context-explorer",
+        "iterate/packages/integrations-page",
+        "iterate/packages/mcp-connect",
+        "iterate/packages/page-url",
+        "iterate/packages/repo-ide",
+        "iterate/packages/secrets-page",
+        "iterate/packages/waiting-approvals",
+        "sidebar",
+        "sonner"
+      ],
+      "files": [
+        {
+          "path": "src/components/dash/dash.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/dash-pages.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/serves.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "copy-text",
       "type": "registry:component",
       "description": "A value to copy, such as a password or a command, with a copy button.",
@@ -948,6 +986,23 @@
       "files": [
         {
           "path": "src/lib/plain-left-click.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "page-url",
+      "type": "registry:lib",
+      "description": "The URL of a page with no router: the page and its keys in the query string, its view as JSON in one key, and links that change it in place.",
+      "dependencies": [
+        "zod"
+      ],
+      "registryDependencies": [
+        "iterate/packages/plain-left-click"
+      ],
+      "files": [
+        {
+          "path": "src/lib/page-url.ts",
           "type": "registry:lib"
         }
       ]
