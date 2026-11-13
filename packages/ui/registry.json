@@ -1458,6 +1458,8 @@
           "input": "light-dark(oklch(0.922 0 0), oklch(1 0 0 / 15%))",
           "ring": "light-dark(oklch(0.708 0 0), oklch(0.556 0 0))",
           "link": "light-dark(oklch(0.205 0 0), oklch(0.922 0 0))",
+          "cloudflare": "#f6821f",
+          "cloudflare-foreground": "oklch(0.145 0 0)",
           "sidebar": "light-dark(oklch(1 0 0), oklch(0.145 0 0))",
           "sidebar-foreground": "light-dark(oklch(0.145 0 0), oklch(0.985 0 0))",
           "sidebar-primary": "light-dark(oklch(0.205 0 0), oklch(0.922 0 0))",
