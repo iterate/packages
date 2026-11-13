@@ -12,7 +12,7 @@ test("a page with no seed says that it loads, and nothing about the registry, un
     root.render(<IntegrationsPage openRegistry={neverOpens} deps={[]} mind="example.com" />),
   );
   expect(host.textContent).toContain("Loading…");
-  expect(host.textContent).not.toContain("No integrations are registered yet");
+  expect(host.textContent).not.toContain("Nothing is connected yet");
   await act(() => root.unmount());
 });
 
@@ -29,7 +29,7 @@ test("a registry that has answered with no card says so, and one with a card dra
       />,
     ),
   );
-  expect(host.textContent).toContain("No integrations are registered yet");
+  expect(host.textContent).toContain("Nothing is connected yet");
   await act(() =>
     root.render(
       <IntegrationsPage
@@ -53,7 +53,7 @@ test("a registry that has answered with no card says so, and one with a card dra
   );
   expect(host.textContent).toContain("Mail");
   expect(host.textContent).toContain("@account");
-  expect(host.textContent).not.toContain("No integrations are registered yet");
+  expect(host.textContent).not.toContain("Nothing is connected yet");
   // a place of the mind is a link to that host of the mind
   expect([...host.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual([
     "https://agents.example.com/",
