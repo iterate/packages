@@ -1,3 +1,5 @@
+/** One row of the tree. `name` is its last segment with its "/" (`/claude`), as a file tree in the
+ *  path's own characters; the root's is `/`. */
 export type TreeRow = { path: string; name: string; depth: number; context: boolean };
 
 /** The paths as tree rows, depth first in segment order; every ancestor a row, `/` the first. */
@@ -19,7 +21,7 @@ export function contextTreeRows(paths: readonly string[]): TreeRow[] {
       const path = `/${segments.join("/")}`;
       return {
         path,
-        name: segments.at(-1) ?? "/",
+        name: `/${segments.at(-1) ?? ""}`,
         depth: segments.length,
         context: known.has(path),
       };

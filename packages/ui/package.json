@@ -72,6 +72,7 @@
       "./components/connect-mind": "./dist/components/connect-mind.mjs",
       "./components/context-catalog/context-catalog": "./dist/components/context-catalog/context-catalog.mjs",
       "./components/context-explorer/context-explorer": "./dist/components/context-explorer/context-explorer.mjs",
+      "./components/context-path-text": "./dist/components/context-path-text.mjs",
       "./components/context-view/context-view": "./dist/components/context-view/context-view.mjs",
       "./components/copy-text": "./dist/components/copy-text.mjs",
       "./components/dash/dash": "./dist/components/dash/dash.mjs",

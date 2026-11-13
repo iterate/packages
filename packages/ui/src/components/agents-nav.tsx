@@ -24,6 +24,7 @@ import {
   type AgentRow,
   type AgentStatus,
 } from "#/lib/agent-summary.ts";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 
 /** Where an agent's chat is, and the home page for `undefined`. */
@@ -170,16 +171,23 @@ function AgentsNavRow({
           <KindIcon data-agent-kind={row.kind || undefined} />
           {row.status ? <StatusDot status={row.status} /> : null}
         </span>
+        {/* an agent with no title is its path, once, on line one */}
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm">
+          <span className="flex min-w-0 items-baseline gap-1 text-sm">
             {other ? (
-              <span className="text-muted-foreground" data-agent-person>
-                {other}{" "}
+              <span className="shrink-0 text-muted-foreground" data-agent-person>
+                {other}
               </span>
             ) : null}
-            {agentTitle(row)}
+            {row.title ? (
+              <span className="truncate">{agentTitle(row)}</span>
+            ) : (
+              <ContextPathText path={row.path} truncate className="text-xs" />
+            )}
           </span>
-          <span className="truncate font-mono text-2xs text-muted-foreground">{row.path}</span>
+          {row.title ? (
+            <ContextPathText path={row.path} truncate className="text-2xs text-muted-foreground" />
+          ) : null}
         </span>
       </SidebarMenuButton>
       <button

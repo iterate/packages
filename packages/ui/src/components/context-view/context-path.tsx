@@ -1,10 +1,11 @@
-// A context's path, once, each segment a link up: `/ repos / config`, the last segment the page's
-// own. The link target is the caller's (`ContextPathLinks`): the UI kit knows no routes, so an app
-// says what URL a path opens and, with a client router, takes the plain click itself — the way
-// AppShell's `mindHref` and `onNavigate` work.
+// A context's path, once, as one plain path, each segment a link up: `/repos/config`, the last
+// segment the page's own. The link target is the caller's (`ContextPathLinks`): the UI kit knows
+// no routes, so an app says what URL a path opens and, with a client router, takes the plain click
+// itself — the way AppShell's `mindHref` and `onNavigate` work.
 import type { ReactNode } from "react";
 import { cn } from "cn";
 import type { ContextPathLinks } from "./context-path-links.ts";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 
 export type { ContextPathLinks };
@@ -42,7 +43,9 @@ export function PathLink({
   );
 }
 
-/** `/ repos / config`: the root and each segment up a muted link, the last segment the page's. */
+/** `/repos/config`: the path, plain and fixed-width, each segment with its "/" a link up, the
+ *  last one the page's. The links' text is the path's own characters, so it reads as one path; a
+ *  long one wraps (`ContextPathText`). */
 export function ContextPath({
   path,
   links,
@@ -53,39 +56,23 @@ export function ContextPath({
   className?: string;
 }) {
   const segments = path.split("/").filter(Boolean);
-  const up = "text-muted-foreground hover:text-foreground";
   return (
-    <nav
-      aria-label="Context path"
-      className={cn("flex min-w-0 items-baseline gap-1 text-sm", className)}
-    >
-      {segments.length === 0 ? (
-        <span aria-current="page" className="font-semibold">
-          /
-        </span>
-      ) : (
-        <PathLink path="/" links={links} className={up} aria-label="/">
-          /
-        </PathLink>
-      )}
-      {segments.map((segment, index) => {
-        const last = index === segments.length - 1;
-        const to = `/${segments.slice(0, index + 1).join("/")}`;
-        return (
-          <span key={to} className="flex min-w-0 items-baseline gap-1">
-            {index ? <span className="text-muted-foreground">/</span> : null}
-            {last ? (
-              <span aria-current="page" className="truncate font-semibold">
-                {segment}
-              </span>
-            ) : (
-              <PathLink path={to} links={links} className={up}>
-                {segment}
-              </PathLink>
-            )}
-          </span>
-        );
-      })}
+    <nav aria-label="Context path" className={cn("min-w-0 text-sm", className)}>
+      <ContextPathText path={path}>
+        {segments.length === 0 ? <span aria-current="page">/</span> : null}
+        {segments.map((segment, index) => {
+          const to = `/${segments.slice(0, index + 1).join("/")}`;
+          return index === segments.length - 1 ? (
+            <span key={to} aria-current="page">
+              /{segment}
+            </span>
+          ) : (
+            <PathLink key={to} path={to} links={links} className="hover:underline">
+              /{segment}
+            </PathLink>
+          );
+        })}
+      </ContextPathText>
     </nav>
   );
 }

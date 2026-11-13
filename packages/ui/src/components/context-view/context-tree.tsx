@@ -17,6 +17,7 @@ import { navigateToPath, type ContextPathLinks } from "./context-path-links.ts";
 import { AwakeDot } from "./awake-dot.tsx";
 import { PathLink } from "./context-path.tsx";
 import { contextTreeRows, type TreeRow } from "./context-tree-rows.ts";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   Sheet,
@@ -146,7 +147,7 @@ function TreeList({
     overscan: 16,
   });
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto text-xs">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
       <ul className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => (
           <li
@@ -181,12 +182,17 @@ function TreeRowLink({
   links: ContextPathLinks;
   awake: boolean;
 }) {
-  const label = (
+  // filtered, the whole path; else the segment with its "/", as a file tree; either is cut at its
+  // end, so that it still starts with "/"
+  const label = flat ? (
+    <ContextPathText path={item.path} truncate className="pr-1 pl-2" />
+  ) : (
     <span
-      style={{ paddingLeft: `${String(8 + (flat ? 0 : item.depth) * 12)}px` }}
-      className="truncate"
+      title={item.path}
+      style={{ paddingLeft: `${String(8 + item.depth * 12)}px` }}
+      className="min-w-0 truncate pr-1"
     >
-      {flat ? item.path : item.name}
+      {item.name}
     </span>
   );
   if (!item.context) return <span className={cn(TREE_ROW, "text-muted-foreground")}>{label}</span>;
@@ -226,12 +232,12 @@ export function ContextTreeSheet({ className, ...tree }: Parameters<typeof Conte
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         className={cn(
-          "flex min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-sm",
+          "flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-sm",
           className,
         )}
         aria-label={`Contexts: ${tree.current}`}
       >
-        <span className="truncate">{tree.current}</span>
+        <ContextPathText path={tree.current} truncate />
         <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
       </SheetTrigger>
       <SheetContent side="left" className="gap-2 p-3">

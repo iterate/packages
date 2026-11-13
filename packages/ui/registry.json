@@ -24,6 +24,7 @@
         "empty",
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
+        "iterate/packages/context-path-text",
         "iterate/packages/context-view",
         "iterate/packages/virtual-log",
         "sheet",
@@ -160,6 +161,7 @@
       ],
       "registryDependencies": [
         "iterate/packages/agent-summary",
+        "iterate/packages/context-path-text",
         "iterate/packages/plain-left-click",
         "sidebar"
       ],
@@ -194,6 +196,7 @@
         "iterate/packages/agent-chat",
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
+        "iterate/packages/context-path-text",
         "iterate/packages/new-agent",
         "iterate/packages/new-agent-picker"
       ],
@@ -575,6 +578,7 @@
         "command",
         "dialog",
         "input",
+        "iterate/packages/context-path-text",
         "iterate/packages/context-view",
         "popover",
         "textarea"
@@ -634,6 +638,7 @@
         "input-group",
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
+        "iterate/packages/context-path-text",
         "iterate/packages/plain-left-click",
         "iterate/packages/virtual-log",
         "sheet",
@@ -991,6 +996,20 @@
       "files": [
         {
           "path": "src/components/not-recorded.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "context-path-text",
+      "type": "registry:component",
+      "description": "A context path as one plain path from the root, in the fixed-width face; a short line keeps its end.",
+      "dependencies": [
+        "cn"
+      ],
+      "files": [
+        {
+          "path": "src/components/context-path-text.tsx",
           "type": "registry:component"
         }
       ]

@@ -1,6 +1,6 @@
 // What ⌘K lists for a mind's contexts (`ContextPalette`), as plain functions: which rows, in which
-// sections and order, the folder chips over a search, how a row's path reads, and the row that
-// opens a typed path. No React here.
+// sections and order, the folder chips over a search, what a row says after its path, and the row
+// that opens a typed path. No React here. A row shows its path whole (`ContextPathText`).
 //
 // With no query the palette lists the contexts that work now or were active in the last five
 // minutes. A query searches every row: the recent matches first, then all other matches.
@@ -203,35 +203,6 @@ function typedPathOf(query: string, rows: readonly ContextListing[]): string | u
 }
 
 // ── how a row reads ──
-
-/** A path in two parts: its folder, as segments, and its own name, whole. A long folder segment
- *  keeps its start and its end (`3b5e4c2a…8730`), so two ids rarely read the same. The root's name
- *  is "/". */
-export function pathCrumbs(path: string): { folder: string[]; name: string } {
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length === 0) return { folder: [], name: "/" };
-  return { folder: segments.slice(0, -1).map(shortSegment), name: segments.at(-1)! };
-}
-
-/** A segment of more than 16 characters as its first eight, "…" and its last four. */
-export function shortSegment(segment: string): string {
-  return segment.length > 16 ? `${segment.slice(0, 8)}…${segment.slice(-4)}` : segment;
-}
-
-/** The crumbs of each row, by path. Two rows whose short crumbs read the same both show their
- *  folder whole: no two rows on screen read alike. */
-export function distinctCrumbs(
-  paths: readonly string[],
-): Map<string, { folder: string[]; name: string }> {
-  const crumbs = new Map(paths.map((path) => [path, pathCrumbs(path)]));
-  const seen = new Map<string, number>();
-  const key = ({ folder, name }: { folder: string[]; name: string }) => [...folder, name].join("/");
-  for (const shown of crumbs.values()) seen.set(key(shown), (seen.get(key(shown)) || 0) + 1);
-  for (const [path, shown] of crumbs)
-    if ((seen.get(key(shown)) || 0) > 1)
-      crumbs.set(path, { folder: path.split("/").filter(Boolean).slice(0, -1), name: shown.name });
-  return crumbs;
-}
 
 /** What a row says after its path: what matched, when a word matched only a part the row does
  *  not show (`runs ai-linter`, `had github/webhook-received`), or else what it last did in plain

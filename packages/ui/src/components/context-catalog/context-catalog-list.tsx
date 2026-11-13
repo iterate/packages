@@ -14,11 +14,13 @@ import {
   timeAgo,
   type ContextListing,
 } from "./context-catalog-rows.ts";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
 import { PathLink, type ContextPathLinks } from "#/components/context-view/context-path.tsx";
 import { Input } from "#/components/ui/input.tsx";
 
-/** Each row's height: `h-11` below. */
+/** A row's height, as a guess: `min-h-11` below. A row with a long path wraps it and is taller;
+ *  the list measures each row it draws. */
 const ROW_HEIGHT = 44;
 
 export function ContextCatalog({
@@ -88,6 +90,8 @@ export function ContextCatalogList({
         {virtualizer.getVirtualItems().map((virtualItem) => (
           <li
             key={virtualItem.key}
+            ref={virtualizer.measureElement}
+            data-index={virtualItem.index}
             className="absolute top-0 left-0 w-full"
             style={{ transform: `translateY(${String(virtualItem.start)}px)` }}
           >
@@ -122,13 +126,11 @@ function ContextCatalogRow({
       path={row.path}
       links={links}
       aria-current={row.path === current ? "page" : undefined}
-      className="flex h-11 min-w-0 flex-col justify-center rounded-md px-2 hover:bg-muted/60 aria-[current=page]:bg-muted"
+      className="flex min-h-11 min-w-0 flex-col justify-center rounded-md px-2 py-1 hover:bg-muted/60 aria-[current=page]:bg-muted"
     >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <AwakeDot awake={Boolean(row.awake)} />
-        <span className="min-w-0 flex-1 truncate text-foreground/90" title={row.path}>
-          {row.path}
-        </span>
+      <span className="flex min-w-0 items-start gap-1.5">
+        <AwakeDot awake={Boolean(row.awake)} className="mt-1.5" />
+        <ContextPathText path={row.path} className="min-w-0 flex-1 text-foreground/90" />
         <time
           dateTime={activeAt}
           title={activeAt}

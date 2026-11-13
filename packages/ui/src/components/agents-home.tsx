@@ -12,6 +12,7 @@ import { BotIcon } from "lucide-react";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
 import { useComposerDraft } from "#/components/agent-chat/use-composer-attachments.ts";
 import { AgentLink, type AgentHref, type OpenAgent } from "#/components/agents-nav.tsx";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { NewAgentPicker } from "#/components/new-agent-picker.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
@@ -143,13 +144,20 @@ export function AgentsHome({
                 >
                   <Card size="sm" className="transition-colors hover:bg-accent/40">
                     <CardHeader>
+                      {/* an agent with no title is its path, once, as the card's title */}
                       <CardTitle className="flex items-center gap-2">
                         <BotIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                        <span className="truncate">{agentTitle(row)}</span>
+                        {row.title ? (
+                          <span className="truncate">{agentTitle(row)}</span>
+                        ) : (
+                          <ContextPathText path={row.path} className="min-w-0" />
+                        )}
                       </CardTitle>
-                      <CardDescription className="truncate font-mono text-2xs">
-                        {row.path}
-                      </CardDescription>
+                      {row.title ? (
+                        <CardDescription>
+                          <ContextPathText path={row.path} className="text-2xs" />
+                        </CardDescription>
+                      ) : null}
                     </CardHeader>
                   </Card>
                 </AgentLink>

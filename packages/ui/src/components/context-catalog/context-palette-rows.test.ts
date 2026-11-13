@@ -1,12 +1,10 @@
 // What ⌘K lists for a mind's contexts: the five-minute selection and its order, the two sections of
-// a search and their caps, the folder chips, how a path reads, and the row that opens a typed path.
-// The dialog that draws them (context-palette.tsx) is not covered here.
+// a search and their caps, the folder chips, what a row says after its path, and the row that
+// opens a typed path. The dialog that draws them (context-palette.tsx) is not covered here.
 import { expect, test } from "vitest";
 import {
   contextPaletteView,
-  distinctCrumbs,
   markedRanges,
-  pathCrumbs,
   queryWithFolder,
   rowNoteOf,
   SECTION_CAP,
@@ -232,45 +230,6 @@ test.for([
   const rows = [listing({ path: "/agents/known", secondsAgo: 10 })];
   expect(contextPaletteView({ rows, found: undefined, query, nowMs: NOW })).toMatchObject({
     openPath: expected,
-  });
-});
-
-test.for([
-  { name: "the root", path: "/", expected: { folder: [], name: "/" } },
-  { name: "a top-level context", path: "/agents", expected: { folder: [], name: "agents" } },
-  {
-    name: "a long folder segment keeps its start and end; the name stays whole",
-    path: "/agents/claude/session-of-monday-morning/review-the-docs",
-    expected: { folder: ["agents", "claude", "session-…ning"], name: "review-the-docs" },
-  },
-  {
-    name: "a segment of 16 characters stays whole",
-    path: "/integrations/google/jonas@nustom.com/inbox",
-    expected: { folder: ["integrations", "google", "jonas@nustom.com"], name: "inbox" },
-  },
-])("a path's crumbs: $name", ({ path, expected }) => {
-  expect(pathCrumbs(path)).toEqual(expected);
-});
-
-test("two paths whose short crumbs read the same both show their folder whole", () => {
-  const twins = [
-    "/agents/claude/session-of-monday-morning/x",
-    "/agents/claude/session-of-sunday-morning/x",
-  ];
-  const crumbs = distinctCrumbs([...twins, "/agents/claude/session-of-tuesday-noon/y"]);
-  expect(Object.fromEntries(crumbs)).toEqual({
-    [twins[0]!]: {
-      folder: ["agents", "claude", "session-of-monday-morning"],
-      name: "x",
-    },
-    [twins[1]!]: {
-      folder: ["agents", "claude", "session-of-sunday-morning"],
-      name: "x",
-    },
-    "/agents/claude/session-of-tuesday-noon/y": {
-      folder: ["agents", "claude", "session-…noon"],
-      name: "y",
-    },
   });
 });
 

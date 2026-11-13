@@ -16,6 +16,7 @@ import { agentEventInspectors } from "./agent-event-inspectors.tsx";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import type { EventInspectors } from "#/components/context-view/types.tsx";
 import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 
 /** What the strip says the agent is doing, and how loudly. */
 export type AgentShellStatus = {
@@ -120,7 +121,7 @@ export function AgentShell({
             // the view scrolls its own feed: it fills the tab
             // and it is as wide as the tab: a log's rows are long
             className="min-h-0 w-full flex-1 py-2"
-            title={path}
+            title={<ContextPathText path={path} />}
             context={context}
             error={hostError}
             inspectors={allInspectors}

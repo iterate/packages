@@ -2,11 +2,12 @@
 // five minutes, and searches every context as you type. Each row has two lines:
 //
 //   ● Fix the flaky stack smoke check                                        working
-//     agents / claude / session-…ning / review-the-docs · hook received
+//     /agents/claude/fix-the-smoke-check · hook received
 //
-// Line one is the description; a row without one shows its path's last segment there. Line two is
-// the folder as quiet crumbs (a segment of more than 16 characters keeps its start and end), then
-// what the context last did. While you type, chips under the input narrow the search to one top
+// Line one is the description, and line two the path, then what the context last did. A row
+// without a description shows its path on line one, and line two says only what it last did. A
+// path is one plain path in the fixed-width face (`ContextPathText`), whole: a long one wraps.
+// While you type, chips under the input narrow the search to one top
 // folder, and a path that no context has gets a row that opens it. On a wide screen a pane beside
 // the list shows the facts of the highlighted row (`ContextFacts`). Which rows show, in which
 // order, is context-palette-rows.ts.
@@ -28,15 +29,14 @@ import {
 } from "./context-catalog-rows.ts";
 import {
   contextPaletteView,
-  distinctCrumbs,
   freeWordsOf,
   markedRanges,
-  pathCrumbs,
   queryWithFolder,
   rowNoteOf,
   type FolderChip,
   type PaletteSection,
 } from "./context-palette-rows.ts";
+import { ContextPathText } from "#/components/context-path-text.tsx";
 import { Command, CommandGroup, CommandItem, CommandList } from "#/components/ui/command.tsx";
 import {
   Dialog,
@@ -144,7 +144,6 @@ function PaletteBody({
   );
   const sections = useMemo(() => (rows ? view.sections : []), [rows, view]);
   const shown = useMemo(() => sections.flatMap((part) => part.rows), [sections]);
-  const crumbs = useMemo(() => distinctCrumbs(shown.map((row) => row.path)), [shown]);
   const words = useMemo(() => freeWordsOf(query), [query]);
   // the highlighted row; the first while cmdk has not said
   const highlighted = shown.find((row) => row.path === selected) || shown[0];
@@ -187,7 +186,6 @@ function PaletteBody({
               key={part.heading}
               part={part}
               first={index === 0}
-              crumbs={crumbs}
               words={words}
               nowMs={now}
               current={current}
@@ -231,7 +229,7 @@ function FolderChips({
           // cmdk's own Enter would open the highlighted row instead of pressing the chip
           onKeyDown={(event) => event.stopPropagation()}
         >
-          {chip.folder}
+          /{chip.folder}
           <span className="tabular-nums opacity-70">{chip.count.toLocaleString("en")}</span>
         </button>
       ))}
@@ -244,7 +242,6 @@ function FolderChips({
 function Section({
   part,
   first,
-  crumbs,
   words,
   nowMs,
   current,
@@ -252,7 +249,6 @@ function Section({
 }: {
   part: PaletteSection;
   first: boolean;
-  crumbs: Map<string, { folder: string[]; name: string }>;
   words: string[];
   nowMs: number;
   current: string | undefined;
@@ -282,7 +278,6 @@ function Section({
         <PaletteRow
           key={row.path}
           row={row}
-          crumbs={crumbs.get(row.path) || pathCrumbs(row.path)}
           words={words}
           nowMs={nowMs}
           current={row.path === current}
@@ -306,30 +301,29 @@ const ROW = cn(
   "[&>svg:last-child]:hidden",
 );
 
-/** A context: what it is, then where it is and what it last did, and whether it works now. */
+/** A context: what it is and its path, what it last did, and whether it works now. Without a
+ *  description, the path is line one and is not said again. */
 function PaletteRow({
   row,
-  crumbs,
   words,
   nowMs,
   current,
   onOpenPath,
 }: {
   row: ContextListing;
-  crumbs: { folder: string[]; name: string };
   words: string[];
   nowMs: number;
   current: boolean;
   onOpenPath: (path: string) => void;
 }) {
   const activeAt = activeAtOf(row);
+  const path = (
+    <ContextPathText path={row.path}>
+      <Marked text={row.path} words={words} />
+    </ContextPathText>
+  );
   return (
-    <CommandItem
-      value={row.path}
-      title={row.path}
-      className={ROW}
-      onSelect={() => onOpenPath(row.path)}
-    >
+    <CommandItem value={row.path} className={ROW} onSelect={() => onOpenPath(row.path)}>
       <span
         aria-hidden
         className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", row.awake && "bg-success")}
@@ -337,22 +331,21 @@ function PaletteRow({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-1.5">
           {row.description ? (
-            <span className="truncate">
+            <span className="truncate" title={row.description}>
               <Marked text={row.description} words={words} />
             </span>
           ) : (
-            <span className="truncate font-mono text-xs">
-              <Marked text={crumbs.name} words={words} />
-            </span>
+            <span className="min-w-0 text-xs">{path}</span>
           )}
           {current ? (
             <span className="shrink-0 text-xs text-muted-foreground">· open now</span>
           ) : null}
         </span>
-        <span className="flex min-w-0 items-baseline gap-1.5 text-2xs text-muted-foreground">
-          <Crumbs crumbs={crumbs} withName={Boolean(row.description)} words={words} />
-          <span className="shrink-0 truncate max-sm:hidden">
-            {crumbs.folder.length || row.description ? "· " : null}
+        {/* a long path wraps, and what the context last did follows it */}
+        <span className="min-w-0 text-2xs text-muted-foreground">
+          {row.description ? path : null}
+          <span className={cn(row.description && "max-sm:hidden")}>
+            {row.description ? " · " : null}
             {rowNoteOf(row, words)}
           </span>
         </span>
@@ -365,35 +358,6 @@ function PaletteRow({
         </time>
       )}
     </CommandItem>
-  );
-}
-
-/** The folder as quiet crumbs, and the name after them, whole and stronger, when line one does
- *  not show it already. The crumbs give way first when the line is short. */
-function Crumbs({
-  crumbs,
-  withName,
-  words,
-}: {
-  crumbs: { folder: string[]; name: string };
-  withName: boolean;
-  words: string[];
-}) {
-  if (!crumbs.folder.length && !withName) return null;
-  return (
-    <span className="flex min-w-0 items-baseline font-mono">
-      {crumbs.folder.length ? (
-        <span className="min-w-0 shrink truncate">
-          {crumbs.folder.join("\u2009/\u2009")}
-          {withName ? "\u2009/\u2009" : null}
-        </span>
-      ) : null}
-      {withName ? (
-        <span className="max-w-full shrink-0 truncate text-foreground/80">
-          <Marked text={crumbs.name} words={words} />
-        </span>
-      ) : null}
-    </span>
   );
 }
 
@@ -425,15 +389,16 @@ function OpenPathRow({ path, onOpenPath }: { path: string; onOpenPath: (path: st
     <CommandGroup heading="Path" className="p-0 pt-2">
       <CommandItem value={OPEN_PATH_VALUE} className={ROW} onSelect={() => onOpenPath(path)}>
         <CornerDownLeftIcon className="mt-0.5 size-3.5 text-muted-foreground" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">
-          Open <span className="font-mono text-xs">{path}</span>
+        <span className="min-w-0 flex-1">
+          Open <ContextPathText path={path} className="text-xs" />
         </span>
       </CommandItem>
     </CommandGroup>
   );
 }
 
-/** The highlighted row's facts, on a wide screen: what it is, its whole path, and `ContextFacts`. */
+/** The highlighted row's facts, on a wide screen: what it is and its whole path (the path alone
+ *  when it has no description), and `ContextFacts`. */
 function Preview({ row }: { row: ContextListing }) {
   return (
     <aside
@@ -441,8 +406,15 @@ function Preview({ row }: { row: ContextListing }) {
       className="hidden w-96 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-muted/30 p-4 text-xs lg:flex"
     >
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">{row.description || pathCrumbs(row.path).name}</p>
-        <p className="font-mono text-2xs break-all text-muted-foreground">{row.path}</p>
+        {row.description ? <p className="text-sm font-medium">{row.description}</p> : null}
+        <p
+          className={cn(
+            "font-mono break-all",
+            row.description ? "text-2xs text-muted-foreground" : "text-sm",
+          )}
+        >
+          {row.path}
+        </p>
       </div>
       <ContextFacts row={row} typeLimit={PREVIEW_TYPES} />
     </aside>
