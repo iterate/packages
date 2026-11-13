@@ -559,6 +559,49 @@
       ]
     },
     {
+      "name": "context-catalog",
+      "type": "registry:component",
+      "description": "A mind's catalog of its contexts: the most recently active as a filtered list, what one context says about itself (description, processors, event types, metadata), the rows for a command palette, and the hook that reads the catalog.",
+      "dependencies": [
+        "@tanstack/react-virtual",
+        "cn",
+        "lucide-react",
+        "zod"
+      ],
+      "registryDependencies": [
+        "badge",
+        "button",
+        "input",
+        "iterate/packages/context-view",
+        "popover",
+        "textarea"
+      ],
+      "cssVars": {
+        "theme": {
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/context-catalog/context-catalog.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-catalog/context-catalog-list.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-catalog/context-about.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-catalog/context-catalog-rows.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "context-view",
       "type": "registry:component",
       "description": "One context's event stream, its processors' live state and who is here: the Contexts page's view.",
@@ -699,6 +742,10 @@
         {
           "path": "src/components/context-view/print-expression.ts",
           "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-view/awake-dot.tsx",
+          "type": "registry:component"
         }
       ]
     },
@@ -711,7 +758,9 @@
         "zod"
       ],
       "registryDependencies": [
-        "iterate/packages/context-view"
+        "iterate/packages/context-catalog",
+        "iterate/packages/context-view",
+        "tabs"
       ],
       "files": [
         {

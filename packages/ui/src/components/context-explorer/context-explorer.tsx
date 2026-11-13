@@ -14,7 +14,7 @@
 //     state={state}
 //     onStateChange={(patch) => setState((before) => ({ ...before, ...patch }))}
 //   />
-import { useMemo, type DependencyList } from "react";
+import { useMemo, useState, type DependencyList } from "react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { resolveContextPath } from "iterate/lib";
@@ -23,6 +23,10 @@ import { ContextPath, type ContextPathLinks } from "#/components/context-view/co
 import { ContextTree, ContextTreeSheet } from "#/components/context-view/context-tree.tsx";
 import { ContextViewState } from "#/components/context-view/context-view-search.ts";
 import { ContextView } from "#/components/context-view/context-view.tsx";
+import { ContextAbout } from "#/components/context-catalog/context-about.tsx";
+import { ContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
+import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
+import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 
 /** A held context, as a mind's root hands it (`itx.cd(path)`). */
 type ContextStub = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
@@ -34,7 +38,11 @@ export function ContextExplorer({
   links,
   state,
   onStateChange,
+  catalog,
 }: {
+  /** The mind's catalog of its contexts (`useContextCatalog` of components/context-catalog), when the app reads it: the tree
+   *  marks the awake ones, a "Recent" list joins the tree, and the context shown says what it is. */
+  catalog?: readonly ContextListing[];
   /** Opens a handle of its own on the mind's root, which the explorer holds while `deps` stand and
    *  then releases: never the page's own `itx`. Null while the root cannot be named yet. */
   openRoot: (() => PromiseLike<ContextStub>) | null;
@@ -56,8 +64,15 @@ export function ContextExplorer({
     () => Object.keys(Registry.safeParse(registry.value).data?.contexts || {}),
     [registry.value],
   );
+  const awake = useMemo(
+    () => new Set((catalog || []).flatMap((row) => (row.awake ? [row.path] : []))),
+    [catalog],
+  );
+  const [sidebar, setSidebar] = useState<"tree" | "recent">("tree");
+  const { stub } = shown;
   const tree = {
     paths,
+    awake,
     current: path,
     links,
     // a typed path resolves against the one shown
@@ -71,12 +86,48 @@ export function ContextExplorer({
     <>
       <ContextTreeSheet {...tree} className="lg:hidden" />
       <ContextPath path={path} links={links} className="max-lg:hidden" />
+      {catalog ? (
+        <ContextAbout
+          // a draft of a description is one context's: another path starts afresh
+          key={path}
+          row={catalog.find((row) => row.path === path)}
+          onDescribe={
+            stub
+              ? (description) =>
+                  stub.append({
+                    type: "events.iterate.com/itx/described",
+                    payload: { description: description || null },
+                  })
+              : undefined
+          }
+        />
+      ) : null}
     </>
   );
-  const { stub } = shown;
   return (
     <div className="flex min-h-0 flex-1">
-      <ContextTree {...tree} className="hidden w-60 shrink-0 border-r px-2 pt-1.5 pb-2 lg:flex" />
+      <div className="hidden w-64 shrink-0 flex-col gap-1.5 border-r px-2 pt-1.5 pb-2 lg:flex">
+        {catalog ? (
+          <Tabs
+            value={sidebar}
+            onValueChange={(value) => setSidebar(value === "recent" ? "recent" : "tree")}
+          >
+            <TabsList className="w-full" aria-label="How the contexts are listed">
+              <TabsTrigger value="tree" className="text-xs">
+                Tree
+              </TabsTrigger>
+              <TabsTrigger value="recent" className="text-xs">
+                Recent
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        ) : null}
+        {catalog && sidebar === "recent" ? (
+          <ContextCatalog rows={catalog} current={path} links={links} className="flex-1" />
+        ) : (
+          <ContextTree {...tree} className="flex-1" />
+        )}
+      </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {error ? (
           <>

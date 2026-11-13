@@ -14,6 +14,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "cn";
 import { navigateToPath, type ContextPathLinks } from "./context-path-links.ts";
+import { AwakeDot } from "./awake-dot.tsx";
 import { PathLink } from "./context-path.tsx";
 import { contextTreeRows, type TreeRow } from "./context-tree-rows.ts";
 import { Input } from "#/components/ui/input.tsx";
@@ -30,10 +31,13 @@ export function ContextTree({
   current,
   links,
   resolvePath,
+  awake,
   className,
 }: {
   /** Every context path known; `/` is always listed. */
   paths: readonly string[];
+  /** The paths that have work now (the catalog's awake rows): each gets a dot. */
+  awake?: ReadonlySet<string>;
   /** The path shown. */
   current: string;
   links: ContextPathLinks;
@@ -95,7 +99,13 @@ export function ContextTree({
           {needle ? "↵ go" : "/"}
         </kbd>
       </form>
-      <TreeList rows={matches || rows} flat={Boolean(matches)} current={current} links={links} />
+      <TreeList
+        rows={matches || rows}
+        flat={Boolean(matches)}
+        current={current}
+        links={links}
+        awake={awake}
+      />
       <p className="px-2 text-2xs text-muted-foreground">
         {matches
           ? `${String(matches.length)} of ${String(total)} contexts`
@@ -118,12 +128,14 @@ function TreeList({
   flat,
   current,
   links,
+  awake,
 }: {
   rows: readonly TreeRow[];
   /** Filtered: the matches read flat, as whole paths. */
   flat: boolean;
   current: string;
   links: ContextPathLinks;
+  awake: ReadonlySet<string> | undefined;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -147,6 +159,7 @@ function TreeList({
               flat={flat}
               current={current}
               links={links}
+              awake={Boolean(awake?.has(rows[virtualItem.index]!.path))}
             />
           </li>
         ))}
@@ -160,11 +173,13 @@ function TreeRowLink({
   flat,
   current,
   links,
+  awake,
 }: {
   item: TreeRow;
   flat: boolean;
   current: string;
   links: ContextPathLinks;
+  awake: boolean;
 }) {
   const label = (
     <span
@@ -187,6 +202,7 @@ function TreeRowLink({
       )}
     >
       {label}
+      {awake ? <AwakeDot awake className="ml-auto" /> : null}
     </PathLink>
   );
 }
