@@ -1,29 +1,32 @@
 # Iterate browser extension
 
-A Chrome side panel that lends this Chrome to an iterate mind — the [static SPA archetype](../spa/README.md)
+A Chrome side panel that lends this Chrome to an iterate mind, at the mind's own address
+(`iterate.<address>`) — the [static SPA archetype](../spa/README.md)
 as an extension: the files in `public/` run as written, and
 `pnpm --filter @iterate-com/browser-extension build` writes `dist/`, the unpacked extension:
 `public/` plus capnweb's browser bundle as `capnweb.js` and the SPA's `oauth.js`. The SPA's build
 runs it and zips `dist/` for its downloads page.
 
-- `public/manifest.json` — MV3; `debugger`, `identity`, `sidePanel`, `storage`; no host permissions.
+- `public/manifest.json` — MV3; `debugger`, `declarativeNetRequestWithHostAccess`, `identity`,
+  `sidePanel`, `storage`. No host permission at install: at sign-in the panel asks for the mind's
+  host (`https://iterate.<address>/*` and its `wss:` twin), from `optional_host_permissions`.
 - `public/background.js` — the service worker: makes the toolbar button open the panel, from
   install on.
 - `public/icon-{16,32,48,128}.png` — the iterate logo, as
   PNGs (Chrome takes no SVG icons). Flat in `public/`: the SPA's zip packs only top-level files.
 - `public/index.html` — the panel page (its styles inline).
-- `public/panel.js` — everything else: the sign-in through Chrome's identity window (a public
-  client registered at each sign-in, so the consent page shows every time; the session in
-  `chrome.storage.local`), one bare WebSocket to the platform's `/api` with the token IN
-  `authenticate`, and the lend: `itx.provide("itx.chrome", new ChromeBrowser())` on the chosen
-  mind's root context — an `RpcTarget` with `tabs()` (the tabs it may drive: id, URL, title),
+- `public/panel.js` — everything else: the sign-in at the mind through Chrome's identity window (a
+  public client registered at each sign-in, so the consent page shows every time; the session in
+  `chrome.storage.local`), one WebSocket to the mind's API, `wss://iterate.<address>/api`, and the
+  lend: `itx.provide("itx.chrome", new ChromeBrowser())` on the mind's root context — an
+  `RpcTarget` with `tabs()` (the tabs it may drive: id, URL, title),
   `openPage({ url })` (a new tab, answered once loaded), `cdp(tabId, method, params)` (one raw Chrome DevTools Protocol command, commands only — no event
   channel; `Runtime.evaluate`, `Page.captureScreenshot`, `Accessibility.getFullAXTree`, `Page.navigate`,
   `Input.dispatchMouseEvent` cover most of what an agent wants) and `detach(tabId)`.
 - `dist/oauth.js` — the SPA's OAuth client, `packages/spa/public/oauth.js`, copied by the build: one
   client for both.
 - `dist/capnweb.js` — capnweb's browser bundle, copied from `node_modules` by the build: the
-  catalog's version, the one the platform speaks. Chrome loads no remote code from an
+  catalog's version, the one a mind speaks. Chrome loads no remote code from an
   extension, so this is the one thing the SPA's CDN import map cannot give us.
 
 **Which tabs.** The mind drives the tabs it opened through `openPage` and the tabs the person
@@ -37,6 +40,13 @@ root stream as ephemeral events: `events.iterate.com/chrome/attached { tabId, ur
 `chrome/navigated { tabId, url }` (main-frame navigations of attached tabs) and
 `chrome/detached { tabId, reason }` — live subscribers see them, and `readEvents` with
 `includeEphemeral` reads the recent ones. Nothing about a tab is written durably.
+
+**The socket.** A mind's API takes its bearer on the WebSocket upgrade request (`Authorization:
+Bearer …`), a header a page cannot set on a WebSocket. Before each connect the panel adds one
+`declarativeNetRequest` session rule that sets it, for this extension's own `websocket` request to
+that one URL. The next connect replaces the rule and sign-out removes it; Chrome drops session
+rules when it quits. When the socket closes (the hourly token ends, the grant ends) the panel
+connects again with a fresh token.
 
 The lend is a rewrite rule of the mind's root context, `/`: anything calling
 `itx.chrome.openPage(...)` there runs it in the panel for as long as the panel is open; from another
@@ -55,12 +65,12 @@ so Chrome derives the ID from its folder. The panel heading shows the version.
 
 Chrome 114 or newer. Open `chrome://extensions`, enable **Developer mode**, **Load unpacked**, select
 the unzipped folder or `packages/browser-extension/dist`. Pin it from the toolbar's extensions menu and
-click its button to open the panel. Sign in — the platform's own login and consent
-pages open in a Chrome identity window (the panel's Platform field, os.iterate.com by default; the
-panel speaks its API, `api.minds.get`, which a mind's own stack does not serve);
-tick the mind — then enter the mind's slug or `mind_…` id and click **Open a page through the mind**: the panel calls `itx.chrome.openPage`
-and then `itx.chrome.cdp(tabId, "Runtime.evaluate", …)` through the platform, which calls back into
-the panel, which opens the tab and reads its title.
+click its button to open the panel. Enter the mind's address (`iterate.com`, or
+`iterate.iterate.com`) and click **Sign in with Iterate**: Chrome asks for access to the mind's
+host, then the mind's own sign-in and consent pages open in a Chrome identity window. Once
+connected, click **Open a page through the mind**: the panel calls `itx.chrome.openPage` and then
+`itx.chrome.cdp(tabId, "Runtime.evaluate", …)` through the mind, which calls back into the panel,
+which opens the tab and reads its title.
 After editing a file, build again and click **Reload** on the extension's card.
 Unpacked extensions do not update automatically: the downloads page says how to update one.
 

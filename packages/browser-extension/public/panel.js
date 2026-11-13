@@ -1,9 +1,9 @@
-// panel.js — the whole extension, after packages/spa/public/app.js: a sign-in through Chrome's identity
-// window, then ONE WebSocket to the platform's /api opened bare, the credential presented IN the
-// `authenticate` call, and this Chrome lent to the mind's root context as `itx.chrome` — a live
-// RpcTarget (open a page, raw CDP on the tabs the mind may drive) that the mind's agents and
-// workers call back into while the panel is open. capnweb.js (the package's own browser bundle) and
-// oauth.js (the SPA's) are copied beside this file by the build (README).
+// panel.js — the whole extension, after packages/spa/public/app.js: a sign-in at the mind through
+// Chrome's identity window, then ONE WebSocket to the mind's API (`https://iterate.<address>/api`)
+// with the bearer on the upgrade request, and this Chrome lent to the mind's root context as
+// `itx.chrome` — a live RpcTarget (open a page, raw CDP on the tabs the mind may drive) that the
+// mind's agents and workers call back into while the panel is open. capnweb.js (the package's own
+// browser bundle) and oauth.js (the SPA's) are copied beside this file by the build (README).
 import { newWebSocketRpcSession, RpcTarget } from "./capnweb.js";
 import { oauthClient } from "./oauth.js";
 
@@ -31,7 +31,6 @@ const oauth = oauthClient({
   registration: {
     client_name: "iterate Chrome extension",
     client_uri: "https://iterate.com",
-    logo_uri: "https://os.iterate.com/client-logos/browser-extension.svg",
   },
 });
 
@@ -140,10 +139,73 @@ class ChromeBrowser extends RpcTarget {
 
 // ── The panel.
 
-/** Which platform and which mind — remembered across panel openings. */
+/** The mind's address as it was typed last — remembered across panel openings. */
 async function settings() {
-  const stored = await chrome.storage.local.get(["issuer", "mind"]);
-  return { issuer: stored.issuer || "https://os.iterate.com", mind: stored.mind || "" };
+  const stored = await chrome.storage.local.get(["mind"]);
+  return { mind: stored.mind || "" };
+}
+
+/** Where a typed mind may sign in, in the order to ask (iterate/mind-api `mindAddressCandidatesOf`):
+ *  a mind at `example.com` serves its sign-in and its API at `iterate.example.com`, and a person
+ *  may type either. Only discovery says which one is the mind. */
+function issuerCandidatesOf(typed) {
+  const text = typed.trim().toLowerCase();
+  const { hostname } = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`);
+  if (!hostname.includes(".")) throw new Error("Enter the mind's address, like example.com.");
+  const under = hostname.startsWith("iterate.") ? hostname.slice("iterate.".length) : "";
+  const addresses = under.includes(".") ? [under, hostname] : [hostname];
+  return addresses.map((address) => `https://iterate.${address}`);
+}
+
+/** The first candidate that answers as an OAuth issuer. */
+async function issuerOf(candidates) {
+  for (const issuer of candidates) {
+    const answer = await fetch(`${issuer}/.well-known/oauth-authorization-server`).catch(
+      () => null,
+    );
+    if (answer?.ok) return issuer;
+  }
+  throw new Error(`No mind signs in at ${candidates.join(" or ")}.`);
+}
+
+// ── The socket. A mind's API takes its bearer on the upgrade request, a header a page cannot set
+// on a WebSocket: one session rule sets it, for this extension's own socket to that one URL. Each
+// connect replaces the rule with its own token and sign-out removes it; the rule is never removed
+// on a handshake, so a superseded socket cannot take the rule from the connect that replaced it.
+// Every write to the rule waits in one queue, and a connect's write runs only while its generation
+// is current: sign-out bumps the generation before it queues the removal, so a connect still in
+// flight cannot put the token back after it.
+const BEARER_RULE = 1;
+let bearerRuleWrites = Promise.resolve();
+const writeBearerRule = (write) => (bearerRuleWrites = bearerRuleWrites.then(write, write));
+
+/** The socket, or null when a newer connect or a sign-out came first. */
+async function openApiSocket(issuer, token, mine) {
+  const url = new URL("/api", issuer);
+  url.protocol = "wss:";
+  const addRules = [
+    {
+      id: BEARER_RULE,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [{ header: "authorization", operation: "set", value: `Bearer ${token}` }],
+      },
+      condition: {
+        urlFilter: `|${url.href}|`,
+        // never a web page's socket to the same URL
+        initiatorDomains: [chrome.runtime.id],
+        resourceTypes: ["websocket"],
+      },
+    },
+  ];
+  await writeBearerRule(async () => {
+    if (mine !== generation) return;
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [BEARER_RULE],
+      addRules,
+    });
+  });
+  return mine === generation ? new WebSocket(url) : null;
 }
 
 /** An element the page holds, by id and kind — the templates below always render it. */
@@ -170,25 +232,36 @@ function fail(into, error) {
 // generation to this counter before touching the page or the socket.
 let generation = 0;
 let live = null;
-let liveApi = null;
-let connectedMind = "";
+let connectedIssuer = "";
 
-async function signedOut(issuer) {
+async function signedOut(mind) {
   generation += 1;
   live?.[Symbol.dispose]();
   live = null;
   app.innerHTML = `
     <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
-    <p class="muted">Sign in at an iterate platform and pick a mind: this Chrome becomes that
-    mind's <code>itx.chrome</code>.</p>
-    <label>Platform <input id="issuer" value="${escape(issuer)}" spellcheck="false" /></label>
+    <p class="muted">Sign in at an iterate mind: this Chrome becomes that mind's
+    <code>itx.chrome</code>.</p>
+    <label>Mind
+      <input id="mind" value="${escape(mind)}" placeholder="example.com" spellcheck="false" />
+    </label>
     <p><button id="login">Sign in with Iterate</button></p>`;
-  const input = element("issuer", HTMLInputElement);
+  const input = element("mind", HTMLInputElement);
   element("login", HTMLButtonElement).onclick = async () => {
-    const chosen = input.value.trim().replace(/\/$/, "");
-    await chrome.storage.local.set({ issuer: chosen });
     try {
-      await signedIn(await oauth.signIn(chosen));
+      const candidates = issuerCandidatesOf(input.value);
+      // First, while the click still counts as the person's gesture: Chrome asks them for the
+      // mind's hosts. The bearer rule needs the `wss:` origin: an `https:` one does not cover the
+      // socket.
+      const granted = await chrome.permissions.request({
+        origins: candidates.flatMap((issuer) => [
+          `${issuer}/*`,
+          `${issuer.replace(/^https/, "wss")}/*`,
+        ]),
+      });
+      if (!granted) throw new Error("The panel needs access to the mind's host to connect to it.");
+      await chrome.storage.local.set({ mind: input.value.trim() });
+      await signedIn(await oauth.signIn(await issuerOf(candidates)));
     } catch (error) {
       fail(app, error);
     }
@@ -196,78 +269,64 @@ async function signedOut(issuer) {
 }
 
 async function signedIn(session) {
-  const { mind } = await settings();
   app.innerHTML = `
     <header>
       <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
       <button id="logout" class="secondary">Sign out</button>
     </header>
     <p class="muted">Signed in at <code>${escape(session.issuer)}</code>.</p>
-    <label>Mind
-      <input id="mind" value="${escape(mind)}" placeholder="slug or mind_… id" spellcheck="false" />
-    </label>
     <section id="connection"></section>`;
   element("logout", HTMLButtonElement).onclick = async () => {
-    // End the grant on the platform too, when connected; the tokens go regardless.
-    try {
-      await liveApi?.logout();
-    } catch (error) {
-      console.error(error);
-    }
+    generation += 1;
+    live?.[Symbol.dispose]();
+    live = null;
     await releaseTabs();
+    await writeBearerRule(() =>
+      chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BEARER_RULE] }),
+    ).catch(console.error);
     await oauth.signOut();
-    await signedOut(session.issuer);
+    await signedOut((await settings()).mind);
   };
-  const input = element("mind", HTMLInputElement);
-  input.onchange = async () => {
-    const chosen = input.value.trim();
-    // A change event that names the connected mind again (Enter, then a click elsewhere) must
-    // not tear the live lend down to make the same one.
-    if (chosen === connectedMind) return;
-    await chrome.storage.local.set({ mind: chosen });
-    await connect(session, chosen);
-  };
-  await connect(session, mind);
+  await connect(session);
 }
 
-/** One socket, one lend. When the platform closes the socket (the hour-old access token expired,
- *  the grant ended) the panel connects again — a fresh token is a fresh socket, and the lend goes
- *  with the socket, so it is made again too. */
-async function connect(session, mind) {
+/** One socket, one lend. When the mind closes the socket (the hour-old access token expired, the
+ *  grant ended) the panel connects again — a fresh token is a fresh socket, and the lend goes with
+ *  the socket, so it is made again too. */
+async function connect(session) {
   const mine = ++generation;
   live?.[Symbol.dispose]();
   live = null;
-  liveApi = null;
   // Another mind must not inherit this one's tabs (a reconnect to the same mind keeps them).
-  if (mind !== connectedMind) await releaseTabs();
-  connectedMind = mind;
+  if (session.issuer !== connectedIssuer) await releaseTabs();
+  connectedIssuer = session.issuer;
   const view = element("connection", HTMLElement);
-  view.innerHTML = mind ? `<p class="muted">Connecting…</p>` : "";
-  if (!mind) return;
+  view.innerHTML = `<p class="muted">Connecting…</p>`;
 
-  const socket = new WebSocket(`${session.issuer.replace(/^http/, "ws")}/api`);
-  const iterate = newWebSocketRpcSession(socket);
-  live = iterate;
+  let socket;
+  let itx;
   try {
-    const token = await oauth.freshAccessToken();
-    // capnweb answers `authenticate` with a pipelined stub of the session: the calls below ride the
-    // same round trip as the token.
-    const api = iterate.authenticate({ type: "bearer", token });
-    const itx = await api.minds.get(mind);
-    // The lend is a rewrite rule of THIS context — the mind's root, `/` — so a caller in another
-    // context of the mind (an agent's script runs in its own) spells it `itx.cd('/').chrome`.
-    const [info, whoami] = await Promise.all([
-      api.info(),
+    socket = await openApiSocket(session.issuer, await oauth.freshAccessToken(), mine);
+    if (!socket) return;
+    // The session's root is the mind's root context, `/`, as the person signed in. The lend is a
+    // rewrite rule of THAT context, so a caller in another context of the mind (an agent's script
+    // runs in its own) spells it `itx.cd('/').chrome`.
+    itx = newWebSocketRpcSession(socket);
+    live = itx;
+    const [whoami] = await Promise.all([
       itx.whoami(),
-      itx.provide("itx.chrome", new ChromeBrowser()),
+      itx.provide("itx.chrome", new ChromeBrowser(), {
+        description:
+          "A person's Chrome: tabs(), openPage({ url }), cdp(tabId, method, params), detach(tabId).",
+      }),
     ]);
     if (mine !== generation) return;
-    liveApi = api;
     report = (event) => itx.append(event).catch(console.error);
-    const proofUrl = `https://example.com/?iterate-chrome-proof=${encodeURIComponent(whoami.mindId)}`;
+    const mindName = whoami.mindSlug || new URL(session.issuer).hostname;
+    const proofUrl = `https://example.com/?iterate-chrome-proof=${encodeURIComponent(mindName)}`;
     view.innerHTML = `
-      <p>Connected as <strong>${escape(info.principal.email || info.principal.actor)}</strong>,
-      mind <code>${escape(whoami.mindId)}</code>.</p>
+      <p>Connected as <strong>${escape(whoami.principal?.email || whoami.principal?.actor || "a member")}</strong>,
+      mind <code>${escape(mindName)}</code>.</p>
       <div class="capability">
         <div class="status"><span>Chrome capability</span><span>lent as <code>itx.chrome</code></span></div>
         <p><button id="prove">Open a page through the mind</button>
@@ -282,7 +341,7 @@ async function connect(session, mind) {
     element("prove", HTMLButtonElement).onclick = async () => {
       result.textContent = "Calling…";
       try {
-        // The round trip: these calls leave for the platform, whose rule resolves `itx.chrome` to
+        // The round trip: these calls leave for the mind, whose rule resolves `itx.chrome` to
         // the stub lent above and calls back into this very panel.
         const opened = await itx.invoke(["itx", "chrome", ["openPage", { url: proofUrl }]]);
         const evaluated = await itx.invoke([
@@ -317,14 +376,14 @@ async function connect(session, mind) {
     if (mine !== generation) return;
     view.innerHTML = `<p><button id="retry" class="secondary">Retry</button></p>`;
     fail(view, error);
-    element("retry", HTMLButtonElement).onclick = () => connect(session, mind);
+    element("retry", HTMLButtonElement).onclick = () => connect(session);
     return;
   }
   socket.addEventListener("close", () => {
     if (mine !== generation) return;
     view.innerHTML = `<p class="muted">The connection closed; connecting again…</p>`;
     setTimeout(() => {
-      if (mine === generation) void connect(session, mind);
+      if (mine === generation) void connect(session);
     }, 2_000);
   });
   // THE HEARTBEAT, iterate's own (core/lib/src/client/heartbeat.ts says why): `whoami()` every
@@ -332,7 +391,7 @@ async function connect(session, mind) {
   const beat = setInterval(async () => {
     if (mine !== generation) return clearInterval(beat);
     const answered = await Promise.race([
-      liveApi.whoami().then(
+      itx.whoami().then(
         () => true,
         () => true,
       ),
@@ -341,14 +400,20 @@ async function connect(session, mind) {
     if (answered || mine !== generation) return;
     clearInterval(beat);
     view.innerHTML = `<p class="muted">The connection stopped answering; connecting again…</p>`;
-    void connect(session, mind);
+    void connect(session);
   }, 30_000);
 }
 
+/** A mind signs in at `https://iterate.<address>`. A session from before 0.4.0 is the old
+ *  platform's (os.iterate.com), whose API a mind does not speak: it goes, and the person signs in
+ *  again. */
+const isMindSession = (session) => session?.issuer.startsWith("https://iterate.");
+
 try {
-  const [session, { issuer }] = await Promise.all([oauth.session(), settings()]);
-  if (session) await signedIn(session);
-  else await signedOut(issuer);
+  const [session, { mind }] = await Promise.all([oauth.session(), settings()]);
+  if (session && !isMindSession(session)) await oauth.signOut();
+  if (isMindSession(session)) await signedIn(session);
+  else await signedOut(mind);
 } catch (error) {
   fail(app, error);
 }
