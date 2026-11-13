@@ -21,6 +21,7 @@ import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub } from "iterate/react";
 import { servesOf } from "./serves.ts";
+import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
 import { go, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -65,6 +66,9 @@ export type DashPageProps = {
   /** the Dash's lists, for a page that draws them (the overview) */
   pages: DashPage[];
   links: DashLinks[];
+  /** the catalog of the mind's contexts, which the Dash reads once for every page (⌘K lists it);
+   *  undefined while it loads, and for a mind whose platform has no catalog */
+  catalog: readonly ContextListing[] | undefined;
 };
 
 /** A module, imported the first time a page asks for it and kept: the same promise after. */
@@ -134,7 +138,7 @@ export function DashPartIsOff({ title, children }: { title: string; children: Re
 }
 
 /** Any context of the mind, live: `?context=<path>`, and the explorer's own state in `?view`. */
-export function DashContexts({ itx, page }: DashPageProps) {
+export function DashContexts({ itx, page, catalog }: DashPageProps) {
   const { ContextExplorer, contextPathOf, contextViewStateOf } = use(contextsPart());
   const path = usePageParam("context") || "";
   const { view, patchView } = useView();
@@ -157,6 +161,7 @@ export function DashContexts({ itx, page }: DashPageProps) {
       links={links}
       state={contextViewStateOf(view)}
       onStateChange={patchView}
+      catalog={catalog}
     />
   );
 }

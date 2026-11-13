@@ -1,11 +1,13 @@
 // What one context says about itself, behind a button beside its path: its description (which a
-// person can write here), whether it is awake, when it was made and last active, how much it
-// holds, the processors on it, every event type its log has seen with a count, and its metadata.
+// person can write here), whether it works now, when it was made and last active, how much it
+// holds, its last events, the processors on it, every event type its log has seen with a count,
+// and its metadata. ⌘K's preview (context-palette.tsx) shows the same facts.
 // Pure: the catalog's row for the context and what "Save" does are props.
 import { useState } from "react";
 import { InfoIcon } from "lucide-react";
 import {
   activeAtOf,
+  eventRunsOf,
   formatBytes,
   shortEventType,
   type ContextListing,
@@ -105,16 +107,19 @@ function DescriptionField({
   );
 }
 
-/** The facts of one row, each under its own small heading. */
-export function ContextFacts({ row }: { row: ContextListing }) {
+/** The facts of one row, each under its own small heading. `typeLimit` shows only that many
+ *  event types, the most frequent, and a line that counts the rest. */
+export function ContextFacts({ row, typeLimit }: { row: ContextListing; typeLimit?: number }) {
   const types = Object.entries(row.eventTypes).toSorted(
     ([leftType, left], [rightType, right]) => right - left || leftType.localeCompare(rightType),
   );
+  const shownTypes = typeLimit === undefined ? types : types.slice(0, typeLimit);
+  const runs = eventRunsOf(row.recentTypes);
   const lastActive = activeAtOf(row);
   const facts: [string, string | undefined][] = [
-    ["Awake", row.awake ? `since ${new Date(row.awake.since).toLocaleTimeString()}` : "no"],
-    ["Created", row.createdAt && new Date(row.createdAt).toLocaleString()],
+    ["Working", row.awake ? `since ${new Date(row.awake.since).toLocaleTimeString()}` : "no"],
     ["Last active", lastActive && new Date(lastActive).toLocaleString()],
+    ["Created", row.createdAt && new Date(row.createdAt).toLocaleString()],
     ["Events", String(row.eventCount)],
     ["Storage", row.storageBytes === undefined ? undefined : formatBytes(row.storageBytes)],
   ];
@@ -130,6 +135,22 @@ export function ContextFacts({ row }: { row: ContextListing }) {
           ) : null,
         )}
       </dl>
+      {runs.length ? (
+        <Section title="Last events, newest first">
+          <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+            {runs.map(({ type, count, at }) => (
+              <li key={at} className="flex min-w-0 gap-2">
+                <span className="min-w-0 truncate" title={type}>
+                  {shortEventType(type)}
+                </span>
+                {count > 1 ? (
+                  <span className="shrink-0 text-muted-foreground tabular-nums">×{count}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
       <Section title={`Processors (${String(row.processors.length)})`}>
         {row.processors.length ? (
           <div className="flex flex-wrap gap-1">
@@ -145,7 +166,7 @@ export function ContextFacts({ row }: { row: ContextListing }) {
       </Section>
       <Section title={`Event types (${String(types.length)})`}>
         <ul className="flex flex-col gap-0.5">
-          {types.map(([type, count]) => (
+          {shownTypes.map(([type, count]) => (
             <li key={type} className="flex min-w-0 gap-2">
               <span className="min-w-0 flex-1 truncate" title={type}>
                 {shortEventType(type)}
@@ -154,6 +175,11 @@ export function ContextFacts({ row }: { row: ContextListing }) {
             </li>
           ))}
         </ul>
+        {shownTypes.length < types.length ? (
+          <p className="text-muted-foreground">
+            {String(types.length - shownTypes.length)} more types.
+          </p>
+        ) : null}
       </Section>
       {row.metadata ? (
         <Section title="Metadata">

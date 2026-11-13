@@ -51,7 +51,15 @@ async function draw(Page: (props: DashPageProps) => ReactNode, itx: DashPageProp
   await act(() =>
     root.render(
       <Suspense fallback="Loading the page…">
-        <Page itx={itx} mind="example.com" principal={null} page={row} pages={[row]} links={[]} />
+        <Page
+          itx={itx}
+          mind="example.com"
+          principal={null}
+          page={row}
+          pages={[row]}
+          links={[]}
+          catalog={undefined}
+        />
       </Suspense>,
     ),
   );

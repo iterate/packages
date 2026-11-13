@@ -1,10 +1,10 @@
-// The plain functions over the catalog's rows: the parse, the filter, a row's words and the
-// palette's rows. The components that draw them are not covered here.
+// The plain functions over the catalog's rows: the parse, the filter, a row's words and its last
+// events. The components that draw them are not covered here.
 import { expect, test } from "vitest";
 import {
   contextListingsOf,
-  contextPaletteEntries,
   contextRowDetail,
+  eventRunsOf,
   filterContextListings,
   formatBytes,
   timeAgo,
@@ -69,26 +69,20 @@ test("a row says its description, or else its last event types, the newest first
   );
 });
 
-test("the palette's rows name each context, when it was active and what it is, and open it", () => {
-  const opened: string[] = [];
-  const now = Date.parse("2026-11-13T12:00:00.000Z");
-  const entries = contextPaletteEntries(
-    [
-      listing({
-        path: "/agents/a",
-        awake: { since: now - 1000 },
-        description: "Chases an invoice",
-      }),
-      listing({ path: "/repos/config", lastActivityAt: "2026-11-13T11:57:00.000Z" }),
+test.for([
+  { name: "no events", types: [], expected: [] },
+  {
+    name: "a run of one type is one entry with its count, the newest first",
+    types: ["a/x", "b/y", "b/y", "b/y", "a/x"],
+    expected: [
+      { type: "a/x", count: 1, at: 4 },
+      { type: "b/y", count: 3, at: 3 },
+      { type: "a/x", count: 1, at: 0 },
     ],
-    { current: "/repos/config", nowMs: now, onOpen: (path) => opened.push(path) },
-  );
-  expect(entries).toMatchObject([
-    { label: "/agents/a", group: "Contexts", detail: "awake · Chases an invoice", active: false },
-    { label: "/repos/config", group: "Contexts", detail: "3 min", active: true },
-  ]);
-  entries[1]!.onSelect();
-  expect(opened).toEqual(["/repos/config"]);
+  },
+])("the last events: $name", ({ types, expected }) => {
+  // exact: no entry more and none less
+  expect(eventRunsOf(types)).toEqual(expected);
 });
 
 function listing(row: Partial<ContextListing> & { path: string }): ContextListing {

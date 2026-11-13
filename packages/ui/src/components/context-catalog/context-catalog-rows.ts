@@ -1,6 +1,6 @@
 // The mind's catalog of its contexts as a page reads it: what `itx.contexts.list()` answers, parsed,
-// and the plain functions every view of it shares: the filter, the words of a row and the rows a
-// command palette lists. No React here.
+// and the plain functions every view of it shares: the filter and the words of a row. No React
+// here.
 import { z } from "zod";
 
 /** One context as the catalog lists it (iterate/api `ContextListing`). */
@@ -88,21 +88,18 @@ export function contextRowDetail(row: ContextListing): string {
   return row.description || row.recentTypes.map(shortEventType).toReversed().join(" · ");
 }
 
-/** The rows a command palette lists for the catalog, the most recently active first, under the
- *  heading "Contexts" (`AppShell`'s `paletteEntries`). A row's detail is what the palette also
- *  searches: when it was active, and its description or last event types. */
-export function contextPaletteEntries(
-  rows: readonly ContextListing[],
-  options: { current?: string; nowMs: number; onOpen: (path: string) => void; limit?: number },
-) {
-  return rows.slice(0, options.limit ?? 100).map((row) => ({
-    label: row.path,
-    group: "Contexts",
-    detail:
-      [row.awake ? "awake" : timeAgo(activeAtOf(row), options.nowMs), contextRowDetail(row)]
-        .filter(Boolean)
-        .join(" · ") || undefined,
-    active: row.path === options.current,
-    onSelect: () => options.onOpen(row.path),
-  }));
+/** The newest event types first, each run of one type as one entry with its count: the last
+ *  events of a context in a few words. `at` is where the run's newest event is in
+ *  `recentTypes`, which names the run among the others. */
+export function eventRunsOf(
+  recentTypes: readonly string[],
+): { type: string; count: number; at: number }[] {
+  const runs: { type: string; count: number; at: number }[] = [];
+  for (let at = recentTypes.length - 1; at >= 0; at--) {
+    const type = recentTypes[at]!;
+    const last = runs.at(-1);
+    if (last?.type === type) last.count += 1;
+    else runs.push({ type, count: 1, at });
+  }
+  return runs;
 }

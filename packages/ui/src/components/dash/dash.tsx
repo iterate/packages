@@ -23,6 +23,7 @@ import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { servesOf } from "./serves.ts";
 import {
+  DashContexts,
   DashNote,
   DashScroll,
   type DashLinks,
@@ -31,6 +32,9 @@ import {
 } from "./dash-pages.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
+import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
+import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
+import { ContextPalette } from "#/components/context-catalog/context-palette.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
@@ -43,7 +47,7 @@ import {
   SidebarMenuItem,
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
-import { linkTo, pageHref, usePageParam, useSearch } from "#/lib/page-url.ts";
+import { go, linkTo, pageHref, usePageParam, useSearch } from "#/lib/page-url.ts";
 import { titleWithCount, useWaitingApprovals } from "#/lib/waiting-approvals.ts";
 
 export {
@@ -98,6 +102,12 @@ export function Dash({
   const page = pages.find((row) => row.id === asked) || pages[0];
   if (!page) throw new Error("A Dash has at least one page");
   const Page = page.component;
+  // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: ⌘K lists it, and the Contexts
+  // page shows its awake dots and its Recent list. A platform without it rejects: the rows stay
+  // undefined, and ⌘K says so.
+  const listContexts = useCallback(() => itx.contexts.list({ limit: 500 }), [itx]);
+  const catalog = useContextCatalog(listContexts, { of: mind });
+  const contextsPage = pages.find((row) => row.component === DashContexts);
   return (
     <>
       <AppShell
@@ -115,6 +125,21 @@ export function Dash({
           />
         }
         account={principal}
+        palette={
+          contextsPage
+            ? ({ open, onClose }) => (
+                <DashPalette
+                  itx={itx}
+                  rows={catalog.rows}
+                  error={catalog.error}
+                  open={open}
+                  onClose={onClose}
+                  contextsPage={contextsPage}
+                  shown={page === contextsPage}
+                />
+              )
+            : undefined
+        }
         locationKey={search}
       >
         <PageBoundary key={page.id}>
@@ -126,12 +151,57 @@ export function Dash({
               page={page}
               pages={pages}
               links={links}
+              catalog={catalog.rows}
             />
           </Suspense>
         </PageBoundary>
       </AppShell>
       <Toaster theme={scheme} />
     </>
+  );
+}
+
+/** ⌘K: the mind's contexts (`ContextPalette`). Enter shows one on the Dash's Contexts page; the
+ *  mind's own search finds a context that the page's 500 rows do not hold. */
+function DashPalette({
+  itx,
+  rows,
+  error,
+  open,
+  onClose,
+  contextsPage,
+  shown,
+}: {
+  itx: Itx;
+  rows: readonly ContextListing[] | undefined;
+  error: string | undefined;
+  open: boolean;
+  onClose: () => void;
+  contextsPage: DashPage;
+  /** whether the Contexts page is the page shown: then its context is the current row */
+  shown: boolean;
+}) {
+  const context = usePageParam("context");
+  const search = useCallback(
+    (query: string) => itx.contexts.list({ search: query, limit: 200 }),
+    [itx],
+  );
+  const openPath = useCallback(
+    (path: string) => go(pageHref(contextsPage.id, { context: path === "/" ? undefined : path })),
+    [contextsPage.id],
+  );
+  return (
+    <ContextPalette
+      rows={rows}
+      error={error}
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      onOpenPath={openPath}
+      current={shown ? context || "/" : undefined}
+      search={search}
+    />
   );
 }
 

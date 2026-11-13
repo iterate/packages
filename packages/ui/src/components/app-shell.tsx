@@ -3,8 +3,9 @@
 // account menu in its footer, the rail) and the page
 // beside it under a header row that carries the phone's sidebar trigger, a page's own row
 // (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the minds
-// and the sidebar's pages (app-shell-palette.tsx). Router-agnostic on purpose: the app
-// hands over hrefs and its current location, nothing from TanStack comes in here.
+// and the sidebar's pages (app-shell-palette.tsx), or the app's own (`palette`). Router-agnostic
+// on purpose: the app hands over hrefs and its current location, nothing from TanStack comes in
+// here.
 import {
   createContext,
   useCallback,
@@ -14,6 +15,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type MouseEvent,
   type ReactNode,
   type RefObject,
@@ -92,6 +94,7 @@ export function AppShell({
   switcher,
   nav,
   paletteEntries,
+  palette: appPalette,
   commandPalette = true,
   searchRow = true,
   header,
@@ -120,6 +123,9 @@ export function AppShell({
   /** rows for ⌘K beside what it reads off `nav`: what the sidebar shows in a way it can't read
    *  (a file tree in its own shadow DOM) */
   paletteEntries?: AppPaletteEntry[];
+  /** the app's own palette in place of the shell's (the Dash's: its contexts). The shell keeps
+   *  ⌘K, the "Search" row and the phone's Search button, and says whether the palette is open */
+  palette?: (state: { open: boolean; onClose: () => void }) => ReactNode;
   /** ⌘K, the sidebar's "Search" row and the phone's Search button; false for an app with nothing
    *  to search (the Cloud's installer: one page, no navigation) */
   commandPalette?: boolean;
@@ -164,6 +170,7 @@ export function AppShell({
   const navRef = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<SidebarNavItem[] | null>(null);
   const openPalette = useCallback(() => setPalette(readSidebarNav(navRef.current)), []);
+  const closePalette = useCallback(() => setPalette(null), []);
   // the header row's middle and end, where a page's own row (`AppShellPageHeader`) and its menu
   // (`AppShellPageMenu`) go
   const [pageHeaderSlot, setPageHeaderSlot] = useState<HTMLElement | null>(null);
@@ -245,10 +252,11 @@ export function AppShell({
         </PageSlotsContext>
       </SidebarInset>
       {commandPalette ? (
-        <AppShellPalette
+        <ShellPalette
+          appPalette={appPalette}
           nav={palette}
           entries={paletteEntries || []}
-          onClose={() => setPalette(null)}
+          onClose={closePalette}
           minds={minds}
           mind={mind}
           mindHref={mindHref}
@@ -257,6 +265,17 @@ export function AppShell({
       ) : null}
     </SidebarProvider>
   );
+}
+
+/** ⌘K's dialog: the app's own palette when it brings one, else the shell's. */
+function ShellPalette({
+  appPalette,
+  ...shells
+}: ComponentProps<typeof AppShellPalette> & {
+  appPalette: ((state: { open: boolean; onClose: () => void }) => ReactNode) | undefined;
+}) {
+  if (appPalette) return appPalette({ open: Boolean(shells.nav), onClose: shells.onClose });
+  return <AppShellPalette {...shells} />;
 }
 
 const PageSlotsContext = createContext<{

@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
-import { Dash, DashOverview, type DashPage } from "./dash.tsx";
+import { Dash, DashContexts, DashOverview, type DashPage } from "./dash.tsx";
 import type { DashPageProps } from "./dash-pages.tsx";
 
 test("one list makes the sidebar and the cards; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
@@ -55,6 +55,34 @@ test("a page that did not load says so on its own page alone, with the way to lo
   await act(() => linksNamed(host, "Overview")[0]!.click());
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.querySelector("h1")?.textContent).toBe("example.com");
+});
+
+test("with a Contexts page, ⌘K lists the contexts active in the last five minutes, and Enter shows one there", async () => {
+  // the Contexts page draws the explorer, which this test's itx cannot open: its page says so
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const now = new Date().toISOString();
+  const rows = [
+    { path: "/agents/a", description: "Chases an invoice", lastActivityAt: now },
+    { path: "/secrets/old", lastActivityAt: "2026-01-01T00:00:00.000Z" },
+  ].map((row) => ({ eventCount: 1, eventTypes: {}, recentTypes: [], processors: [], ...row }));
+  await using _dash = await draw("/", [], {
+    pages: [...pages, { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts }],
+    contexts: rows,
+  });
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain("Active in the last 5 minutes");
+  expect(
+    [...document.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("data-value")),
+  ).toEqual(["/agents/a"]);
+  await act(() =>
+    document
+      .querySelector("[cmdk-input]")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+  );
+  expect(location).toMatchObject({ search: "?page=contexts&context=%2Fagents%2Fa" });
 });
 
 test("a page the URL does not name is the first page", async () => {
@@ -111,7 +139,11 @@ const links = [
 /** The Dash at `url`, for a mind that serves the roots `serves` names and has no vault (nothing
  *  waits for approval). The sidebar asks the viewport's width, and the switcher this host's
  *  minds. */
-async function draw(url: string, serves: string[]) {
+async function draw(
+  url: string,
+  serves: string[],
+  { pages: drawn = pages, contexts }: { pages?: DashPage[]; contexts?: unknown[] } = {},
+) {
   history.replaceState(null, "", url);
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -122,8 +154,25 @@ async function draw(url: string, serves: string[]) {
   vi.stubGlobal("fetch", async () =>
     Response.json({ minds: [{ address: "example.com", lastUsedAt: 0 }], lastUsed: "example.com" }),
   );
+  // jsdom lays nothing out: cmdk asks for both
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Element.prototype.scrollIntoView ||= () => {};
   const asked: string[] = [];
   const itx = {
+    // a platform with no catalog rejects; `contexts` is a mind's catalog
+    contexts: {
+      list: async () => {
+        if (!contexts) throw new Error("No such method: contexts.list");
+        return contexts;
+      },
+    },
     rewriteRules: {
       get: async (root: string) => {
         asked.push(root);
@@ -140,7 +189,7 @@ async function draw(url: string, serves: string[]) {
         itx={itx}
         mind="example.com"
         principal={{ actor: "/members/a", email: "a@example.com" }}
-        pages={pages}
+        pages={drawn}
         links={links}
       />,
     ),
