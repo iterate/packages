@@ -4,8 +4,8 @@
 // with the custom element `<change-my-mind>` (src/browser/change-my-mind.ts) for a page with no
 // React.
 //
-// The look is the kit's default Button with the iterate mark in a square of its own at the left,
-// as the old "Connect with Facebook" button had its "f".
+// The look is the kit's Button at its large size (`size="sm"`: its default size), with the iterate
+// mark in a square of its own at the left, as the old "Connect with Facebook" button had its "f".
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { Check } from "lucide-react";
 import { cn } from "cn";
@@ -112,7 +112,7 @@ export function ChangeMyMindButton({
                 nativeButton
                 render={
                   <Button
-                    size={small ? "sm" : "default"}
+                    size={small ? "default" : "lg"}
                     variant={variant}
                     className="gap-0 overflow-hidden p-0 motion-reduce:transition-none"
                     onClick={() => void copy()}
@@ -127,13 +127,13 @@ export function ChangeMyMindButton({
                 variant === "outline"
                   ? "border-border text-foreground dark:border-input"
                   : "border-primary-foreground/20",
-                small ? "w-7" : "w-8",
+                small ? "w-8" : "w-9",
               )}
             >
-              <IterateMark className={small ? "size-3.5" : "size-4"} />
+              <IterateMark className={small ? "size-4" : "size-4.5"} />
             </span>
             {/* both labels in one cell, so the button keeps its width when the label changes */}
-            <span className={cn("grid", small ? "px-2" : "px-2.5")}>
+            <span className={cn("grid", small ? "px-2.5" : "px-3")}>
               <span className={cn("col-start-1 row-start-1", labelCopied && "invisible")}>
                 {changeMyMindText.label}
               </span>

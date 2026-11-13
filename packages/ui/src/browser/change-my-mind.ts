@@ -31,8 +31,8 @@ const checkSvg = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" 
 const fonts = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 const hoverDelay = 300;
 
-// The kit's Button (default variant), Tooltip and Popover, in plain CSS: each value is the kit's
-// token, with shadcn's neutral value (globals.css) for a page that has none.
+// The kit's Button (its large size; `size="sm"` is its default size), Tooltip and Popover, in plain
+// CSS: each value is the kit's token, with shadcn's neutral value (globals.css) for a page that has none.
 const css = `
 :host{display:inline-block;vertical-align:middle;font-family:inherit;letter-spacing:normal;text-align:left;line-height:normal}
 .wrap{position:relative;display:inline-block;
@@ -43,15 +43,15 @@ const css = `
   --ring-c:var(--ring,light-dark(oklch(.708 0 0),oklch(.556 0 0)));
   --in:var(--input,light-dark(oklch(.922 0 0),oklch(1 0 0/15%)));--mbg:var(--muted,light-dark(oklch(.97 0 0),oklch(.269 0 0)));--o-line:light-dark(var(--line),var(--in));--r:var(--radius,.625rem)}
 *{box-sizing:border-box}
-button{all:unset;box-sizing:border-box;display:inline-flex;align-items:stretch;height:2rem;border:1px solid transparent;background-clip:padding-box;border-radius:var(--r);overflow:hidden;
+button{all:unset;box-sizing:border-box;display:inline-flex;align-items:stretch;height:2.25rem;border:1px solid transparent;background-clip:padding-box;border-radius:var(--r);overflow:hidden;
   background:var(--p);color:var(--pf);font-family:inherit;font-size:.875rem;font-weight:500;line-height:1.25rem;white-space:nowrap;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;
   transition:all .15s cubic-bezier(.4,0,.2,1)}
 button:hover{background:color-mix(in oklab,var(--p) 80%,transparent)}
 button:active{translate:0 1px}
 button:focus-visible{border-color:var(--ring-c);box-shadow:0 0 0 3px color-mix(in oklab,var(--ring-c) 50%,transparent)}
-.mark{display:flex;align-items:center;justify-content:center;width:2rem;flex:none;border-right:1px solid color-mix(in oklab,var(--pf) 20%,transparent)}
-.mark svg{width:1rem;height:1rem;display:block}
-.label{display:grid;padding:0 .625rem}
+.mark{display:flex;align-items:center;justify-content:center;width:2.25rem;flex:none;border-right:1px solid color-mix(in oklab,var(--pf) 20%,transparent)}
+.mark svg{width:1.125rem;height:1.125rem;display:block}
+.label{display:grid;padding:0 .75rem}
 .label>span{grid-area:1/1;display:inline-flex;align-items:center;justify-content:center;gap:.375rem}
 .label svg{width:1rem;height:1rem;flex:none}
 .copied .label .idle,.label .done{visibility:hidden}
@@ -60,10 +60,10 @@ button:focus-visible{border-color:var(--ring-c);box-shadow:0 0 0 3px color-mix(i
 :host([variant=outline]) button:hover,:host([variant=outline]) .open button{background:light-dark(var(--mbg),color-mix(in oklab,var(--in) 50%,transparent));color:var(--fg)}
 :host([variant=outline]) button:focus-visible{border-color:var(--ring-c)}
 :host([variant=outline]) .mark{border-right-color:var(--o-line);color:var(--fg)}
-:host([size=sm]) button{height:1.75rem;font-size:.8rem;border-radius:min(calc(var(--r) - 2px),12px)}
-:host([size=sm]) .mark{width:1.75rem}
-:host([size=sm]) .mark svg,:host([size=sm]) .label svg{width:.875rem;height:.875rem}
-:host([size=sm]) .label{padding:0 .5rem}
+:host([size=sm]) button{height:2rem}
+:host([size=sm]) .mark{width:2rem}
+:host([size=sm]) .mark svg{width:1rem;height:1rem}
+:host([size=sm]) .label{padding:0 .625rem}
 .pop{position:absolute;left:0;z-index:9999;width:max-content;opacity:0;visibility:hidden;pointer-events:none;
   transition:opacity .1s,visibility .1s,scale .1s;scale:.95;font-family:inherit;text-align:left}
 :host([align=end]) .pop{left:auto;right:0}

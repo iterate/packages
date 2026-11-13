@@ -134,7 +134,8 @@ html`<${ChangeMyMindButton} source="https://blog.example.com/a-post" />`;
 - `scope`: `"post"` (the default), or `"blog"` for the whole blog: its `/feed.xml` and `/README.md`.
 - `instructions`: the exact text to copy, in place of the built one (the element also takes its own
   text).
-- `size`: `"sm"` for a list. The element also takes `align="end"`.
+- `size`: `"sm"` for a list. The button is 36px high, the kit's large Button; `"sm"` is 32px, its
+  default Button. Its corners are the page's `--radius`. The element also takes `align="end"`.
 - `variant`: `"default"`, the solid button, or `"outline"`, the kit's outline Button: quieter, for
   a list of posts (with `size="sm"`). The copied state, the tooltip and the card are the same.
 - `changeMyMindInstructions({ source, scope })` (`@iterate-com/ui/lib/change-my-mind`) gives the
