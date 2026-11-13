@@ -110,6 +110,9 @@ export const vendorChunks = [
   // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
   { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },
   { name: "vendor-posthog", test: /node_modules[\\/]posthog-js[\\/]/ },
+  // Prettier's browser build, which prettifies a script in the Agents app's Script tab
+  // (lib/format-script.ts): only a page that shows a script loads it
+  { name: "vendor-prettier", test: /node_modules[\\/]prettier[\\/]/ },
   // FEWER FILES FOR A PAGE TO ASK FOR, AT NO COST IN BYTES. Without these three, each icon is a
   // chunk of its own, and a page asks for each vendored shadcn component by its own file of two
   // kilobytes. A group also takes what its files import and no earlier group holds, so the order

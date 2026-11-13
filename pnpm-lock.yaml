@@ -775,6 +775,9 @@ importers:
       posthog-js:
         specifier: 'catalog:'
         version: 1.434.12(@types/react@19.3.0)(preact-render-to-string@6.6.5)(react@19.3.0)
+      prettier:
+        specifier: 3.9.9
+        version: 3.9.9
       react:
         specifier: 'catalog:'
         version: 19.3.0

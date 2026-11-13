@@ -529,7 +529,7 @@ function ScriptPane({
 }) {
   return (
     <>
-      <CodeBlock code={source} language="typescript" showLineNumbers={false} reindent />
+      <CodeBlock code={source} language="typescript" showLineNumbers={false} prettify />
       {error ? (
         <pre
           data-type="error"

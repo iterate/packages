@@ -445,6 +445,7 @@
         "cn",
         "codemirror",
         "lucide-react",
+        "prettier",
         "sonner",
         "yaml"
       ],
@@ -473,6 +474,10 @@
         {
           "path": "src/components/source-code-block.client.tsx",
           "type": "registry:component"
+        },
+        {
+          "path": "src/lib/format-script.ts",
+          "type": "registry:lib"
         }
       ]
     },
