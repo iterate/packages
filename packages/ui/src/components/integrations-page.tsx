@@ -15,7 +15,6 @@ import {
   IntegrationCard,
   IntegrationConnection,
   type IntegrationIcon,
-  IntegrationSection,
   type IntegrationStatus,
   type IntegrationTarget,
 } from "iterate/integrations";
@@ -29,8 +28,6 @@ import { Spinner } from "#/components/ui/spinner.tsx";
 const RegistryLive = z.looseObject({
   integrations: z.record(z.string(), z.unknown()),
   connections: z.record(z.string(), z.unknown()),
-  // absent in the state of a mind whose registry has no sections yet
-  sections: z.record(z.string(), z.unknown()).default({}),
 });
 
 export function IntegrationsPage({
@@ -111,16 +108,18 @@ function IntegrationsGrid({
   // by title: the registry keeps the card that changed last at its end, and a card that moves
   // each time its package says something is hard to find again
   cards.sort((a, b) => a.card.title.localeCompare(b.card.title));
-  const sections = Object.entries(registry.sections)
-    .flatMap(([section, value]) => {
-      const heading = IntegrationSection.safeParse(value).data;
-      const own = cards.filter(({ card }) => card.section === section);
-      // a heading with no card under it says nothing
-      return heading && own.length ? [{ section, heading, cards: own }] : [];
+  // A card that other cards name as their `section` is a heading: its mark, title and
+  // description stand above them. One that no card names is a card like any other.
+  const sections = cards
+    .flatMap((entry) => {
+      const own = cards.filter(({ card }) => card.section === entry.integration);
+      return own.length
+        ? [{ section: entry.integration, heading: entry.card, entry, cards: own }]
+        : [];
     })
     .sort((a, b) => a.heading.title.localeCompare(b.heading.title));
   // a card that names no section, or one with no heading, stands with the mind's other cards
-  const placed = new Set(sections.flatMap((entry) => entry.cards));
+  const placed = new Set(sections.flatMap((section) => [section.entry, ...section.cards]));
   const others = cards.filter((entry) => !placed.has(entry));
   const cardsOf = (entries: typeof cards) =>
     entries.map(({ integration, card }) => (
