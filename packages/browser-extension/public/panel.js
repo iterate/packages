@@ -36,70 +36,209 @@ const oauth = oauthClient({
 });
 
 // ── What this Chrome lends: an RpcTarget (capnweb passes it by reference, so a call on the mind's
-// root context runs HERE). The mind drives the tabs it opened and the tabs the person lent it,
-// over raw CDP, commands only: the wire stays a wire, and the browser's FACTS — a tab attached,
-// navigated, detached — go to the root stream as ephemeral events.
+// root context runs HERE). The mind drives the tabs in its tab group, over raw CDP, commands only:
+// the wire stays a wire. The browser's facts go to the root stream: who joined and left the group
+// (durable, per lend), and a tab attached, navigated, detached (ephemeral).
 
-/** The tabs the mind may drive — opened by it, or lent by the person — each with whether the
- *  debugger is attached and, while it is being attached, that promise (so overlapping first calls
- *  share one attach). */
-const tabs = new Map();
-const grant = (tabId) =>
-  tabs.get(tabId) ?? tabs.set(tabId, { attached: false, attaching: null }).get(tabId);
-
-/** Let a tab go: on its Stop button. An attach still in flight settles first, so it cannot leave
- *  the debugger on a tab nobody tracks any more. With `keep`, the tab stays drivable. */
-async function release(tabId, { keep = false } = {}) {
-  const known = tabs.get(tabId);
-  if (!known) return;
-  await known.attaching?.catch(() => undefined);
-  if (known.attached) await chrome.debugger.detach({ tabId }).catch(console.error);
-  if (!keep && tabs.get(tabId) === known) tabs.delete(tabId);
+/** The mind's tab group: every Chrome tab group, in any window, whose title is exactly this. No
+ *  group id is kept: membership is read live from Chrome on every call, so a Chrome restart, a
+ *  group moved to another window and one group per window all just work. */
+const groupTitle = () => lend?.title ?? "";
+const GROUP_COLORS = ["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+/** A fixed color per mind, set only when the panel makes a group: the person may change it. */
+function groupColorOf(title) {
+  let hash = 0;
+  for (const char of title) hash = (hash * 31 + char.charCodeAt(0)) % 2_147_483_647;
+  return GROUP_COLORS[hash % GROUP_COLORS.length];
 }
-/** Let every tab go: on sign-out, and when the panel moves to another mind. */
+
+/** The mind's groups. `tabGroups.query({ title })` matches titles as globs, so compare here. */
+async function mindGroups() {
+  const title = groupTitle();
+  if (!title) return [];
+  return (await chrome.tabGroups.query({})).filter((group) => group.title === title);
+}
+
+/** The ids of the tabs in the mind's groups. `tabs.query({ groupId })` needs no `tabs` permission
+ *  (the tabs it answers carry no URL or title). */
+async function memberIds() {
+  const lists = await Promise.all(
+    (await mindGroups()).map((group) => chrome.tabs.query({ groupId: group.id })),
+  );
+  return lists.flat().map((tab) => tab.id);
+}
+
+/** Whether a tab is in the mind's group right now; a closed tab is `tabGone`. */
+async function isMember(tabId) {
+  const title = groupTitle();
+  if (!title) return false;
+  const tab = await chrome.tabs.get(tabId).catch(() => {
+    throw tabGone(tabId);
+  });
+  if (tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) return false;
+  const group = await chrome.tabGroups.get(tab.groupId).catch(() => null);
+  return group?.title === title;
+}
+
+/** Chrome refuses tab and group edits while the person drags a tab: try again, 10 times at most,
+ *  200 ms apart. */
+async function whileNotDragging(edit) {
+  for (let retries = 0; ; retries += 1) {
+    try {
+      return await edit();
+    } catch (error) {
+      if (retries === 10 || !/user may be dragging a tab/.test(error?.message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+}
+
+/** Put a tab in the mind's group of its window, or in a new group there. */
+async function addToGroup(tabId, windowId) {
+  const title = groupTitle();
+  if (!title) throw new Error("This Chrome is not lent to a mind.");
+  const existing = (await mindGroups()).find((group) => group.windowId === windowId);
+  if (existing) {
+    await whileNotDragging(() => chrome.tabs.group({ groupId: existing.id, tabIds: [tabId] }));
+    return;
+  }
+  const groupId = await whileNotDragging(() =>
+    chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId } }),
+  );
+  await whileNotDragging(() =>
+    chrome.tabGroups.update(groupId, { title, color: groupColorOf(title), collapsed: false }),
+  );
+}
+
+/** The debugger's state per tab: whether it is attached and, while it is being attached, that
+ *  promise (so overlapping first calls share one attach). Not a grant: the group is the grant. */
+const debuggees = new Map();
+
+/** Let the debugger go from a tab. An attach still in flight settles first, so it cannot leave the
+ *  debugger on a tab the mind may no longer drive. */
+async function release(tabId) {
+  const state = debuggees.get(tabId);
+  if (!state) return;
+  await state.attaching?.catch(() => undefined);
+  if (!state.attached) return;
+  await chrome.debugger.detach({ tabId }).catch(console.error);
+  state.attached = false;
+}
+/** Let the debugger go from every tab: on sign-out, and when the panel moves to another mind. The
+ *  tabs stay in their group: the group is the person's. */
 async function releaseTabs() {
-  for (const tabId of [...tabs.keys()]) await release(tabId);
-  tabs.clear();
+  for (const tabId of [...debuggees.keys()]) await release(tabId);
 }
-/** Where the browser's facts go, and the name this Chrome is lent under: both set by `connect`. */
-let report = () => {};
-let lendName = "";
+
+/** This Chrome's lend, set by `connect`: its name, the group's title, where its events go, and the
+ *  tabs it announced as added. A new lend announces every member again: the facts belong to a lend. */
+let lend = null;
 const fact = (type, payload) =>
-  report({ type, ephemeral: true, payload: { ...payload, lendName } });
-/** Redraws the panel's list of tabs, when one is shown (`connect` sets it). */
+  lend?.append({ type, ephemeral: true, payload: { ...payload, lendName: lend.name } });
+const record = (type, payload) =>
+  lend?.append({ type, payload: { ...payload, lendName: lend.name } });
+/** Redraws the panel's list of tabs, and writes a line in its tab card (`connect` sets both). */
 let showTabs = () => {};
+let tellTabCard = () => {};
 
-// A closed tab leaves the map; a tab Chrome replaces (a prerendered page swapped in) keeps its grant
-// under its new id.
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabs.delete(tabId)) showTabs();
-});
-chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
-  if (!tabs.delete(removedTabId)) return;
-  grant(addedTabId);
+/** Brings the announced members and the debugger in step with the group: a tab that joined is
+ *  `chrome/tab-added`; a tab that left (or closed) loses the debugger and is `chrome/tab-removed`. */
+async function reconcile() {
+  const current = lend;
+  const members = new Set(await memberIds());
+  const announced = current?.announced ?? new Set();
+  const attached = [...debuggees].filter(([, state]) => state.attached || state.attaching);
+  const left = new Set(
+    [...announced, ...attached.map(([tabId]) => tabId)].filter((tabId) => !members.has(tabId)),
+  );
+  for (const tabId of left) {
+    await release(tabId);
+    if (announced.delete(tabId) && lend === current)
+      record("events.iterate.com/chrome/tab-removed", { tabId });
+  }
+  const joined = [...members].filter((tabId) => !announced.has(tabId));
+  if (joined.length && current && lend === current) {
+    const targets = await chrome.debugger.getTargets();
+    for (const tabId of joined) {
+      announced.add(tabId);
+      const url = targets.find((target) => target.tabId === tabId)?.url;
+      record("events.iterate.com/chrome/tab-added", { tabId, url });
+    }
+  }
   showTabs();
-});
-chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (tabs.has(tabId) && (change.title || change.status === "complete")) showTabs();
-});
+}
 
-/** Chrome's "No tab with given id", in words an agent can act on. The map is left to Chrome's
- *  own events: `onReplaced` moves a replaced tab's grant only while its old id is still there. */
+// One reconcile at a time, and a request while one runs makes exactly one more. Requests wait
+// 500 ms for quiet: Chrome sends short-lived `groupId = -1` updates while a group is dragged or
+// moved to another window.
+let reconcileTimer;
+let reconciling = false;
+let reconcileAgain = false;
+async function reconcileNow() {
+  if (reconciling) {
+    reconcileAgain = true;
+    return;
+  }
+  reconciling = true;
+  try {
+    await reconcile();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    reconciling = false;
+    if (reconcileAgain) {
+      reconcileAgain = false;
+      void reconcileNow();
+    }
+  }
+}
+function reconcileSoon() {
+  clearTimeout(reconcileTimer);
+  reconcileTimer = setTimeout(reconcileNow, 500);
+}
+
+chrome.tabs.onUpdated.addListener((_tabId, change) => {
+  // `status` too: Chrome opens a grouped tab's child inside the group and sends no groupId change.
+  if ("groupId" in change || change.status) reconcileSoon();
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  debuggees.delete(tabId);
+  reconcileSoon();
+});
+// A tab Chrome replaces (a prerendered page swapped in) is a new debuggee: the debugger stayed with
+// the old page, so the next `cdp` attaches again.
+chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
+  debuggees.delete(removedTabId);
+  reconcileSoon();
+});
+chrome.tabGroups.onCreated.addListener(reconcileSoon);
+chrome.tabGroups.onUpdated.addListener(reconcileSoon);
+chrome.tabGroups.onRemoved.addListener(reconcileSoon);
+
+/** Chrome's "No tab with given id", in words an agent can act on. */
 function tabGone(tabId) {
   return new Error(
     `Tab ${tabId} is gone: it was closed, or Chrome replaced it. Call tabs() for the tabs you may drive.`,
   );
 }
 
-/** Attach the debugger to a tab the mind may drive (once; Chrome shows its bar on the tab). */
+/** Refuse a tab that is not in the mind's group right now, attached or not. */
+async function requireMember(tabId) {
+  if (await isMember(tabId)) return;
+  const title = groupTitle();
+  throw new Error(
+    `Tab ${tabId} is not in the "${title}" tab group: the mind drives only the tabs in that group. Call tabs() for them.`,
+  );
+}
+
+/** Attach the debugger to a tab in the mind's group (once; Chrome shows its bar on the tab). The
+ *  membership check runs on every call, so every `cdp` command makes it. */
 async function attach(tabId) {
-  const known = tabs.get(tabId);
-  if (!known)
-    throw new Error(
-      `Tab ${tabId} is not one you may drive: it was closed, or it was never opened by the mind or lent. Call tabs() for the tabs you may drive.`,
-    );
-  if (known.attached) return;
-  known.attaching ??= (async () => {
+  await requireMember(tabId);
+  const state =
+    debuggees.get(tabId) ?? debuggees.set(tabId, { attached: false, attaching: null }).get(tabId);
+  if (state.attached) return;
+  state.attaching ??= (async () => {
     await chrome.debugger.attach({ tabId }, "1.3").catch((error) => {
       throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
     });
@@ -116,39 +255,79 @@ async function attach(tabId) {
       await chrome.debugger.detach({ tabId }).catch(() => {});
       throw error;
     }
-    known.attached = true;
+    state.attached = true;
     fact("events.iterate.com/chrome/attached", { tabId, url });
     showTabs();
   })().finally(() => {
-    known.attaching = null;
+    state.attaching = null;
   });
-  await known.attaching;
+  await state.attaching;
 }
+
+/** The longest page report the panel appends. */
+const BINDING_PAYLOAD_LIMIT = 8_192;
+/** Page reports in the order the pages made them: the membership check is async. */
+let bindingReports = Promise.resolve();
 
 chrome.debugger.onEvent.addListener(({ tabId }, method, params) => {
   if (method === "Page.frameNavigated" && !params.frame.parentId)
     fact("events.iterate.com/chrome/navigated", { tabId, url: params.frame.url });
+  if (method !== "Runtime.bindingCalled") return;
+  const { name, payload } = params;
+  if (payload.length > BINDING_PAYLOAD_LIMIT) {
+    console.warn(`Dropped a ${payload.length}-character ${name} report from tab ${tabId}.`);
+    return;
+  }
+  // The type is always the panel's own: the panel appends as the signed-in person, and some mind
+  // code trusts only a person's own append, so a type the page chose would let it act as them.
+  bindingReports = bindingReports.then(async () => {
+    if (await isMember(tabId).catch(() => false))
+      record("events.iterate.com/chrome/binding-called", { tabId, name, payload });
+  });
 });
 chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
-  const known = tabs.get(tabId);
-  if (known) known.attached = false;
+  const state = debuggees.get(tabId);
+  if (state) state.attached = false;
   fact("events.iterate.com/chrome/detached", { tabId, reason });
+  // Cancel on Chrome's debugging bar detaches every tab, and the person meant "stop": the tabs
+  // leave the group, so the mind cannot attach again. Any other reason leaves the group alone: an
+  // injected iframe's stray `target_closed` must not take a tab away.
+  if (reason === "canceled_by_user") void ungroupMembers();
   showTabs();
 });
 
+async function ungroupMembers() {
+  try {
+    const ids = await memberIds();
+    if (ids.length) await whileNotDragging(() => chrome.tabs.ungroup(ids));
+    tellTabCard("You clicked Cancel on Chrome's debugging bar: the tabs left the group.");
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+/** The tabs in the mind's group, still open. URLs and titles come from the debugger's target list,
+ *  which carries them without the `tabs` permission. */
+async function memberTabs() {
+  const [ids, targets] = await Promise.all([memberIds(), chrome.debugger.getTargets()]);
+  return ids.map((tabId) => {
+    const target = targets.find((candidate) => candidate.tabId === tabId);
+    return {
+      tabId,
+      url: target?.url,
+      title: target?.title,
+      attached: debuggees.get(tabId)?.attached ?? false,
+    };
+  });
+}
+
 class ChromeBrowser extends RpcTarget {
-  /** The tabs the mind may drive, still open: how an agent finds a tab the person lent. The
-   *  `chrome/attached` event says the same, but only while the root context stays awake. */
+  /** The tabs in the mind's group: how an agent finds a tab the person added. */
   async tabs() {
-    // The debugger's target list, not chrome.tabs: it carries each tab's URL and title without the
-    // `tabs` permission.
-    const targets = await chrome.debugger.getTargets();
-    return targets
-      .filter((target) => target.tabId !== undefined && tabs.has(target.tabId))
-      .map(({ tabId, url, title }) => ({ tabId, url, title, attached: tabs.get(tabId).attached }));
+    return memberTabs();
   }
 
-  /** Open an http(s) page in a new active tab the mind may drive; answers once the page has
+  /** Open an http(s) page in a new active tab in the mind's group; answers once the page has
    *  loaded (or after ten seconds) with the tab's id and URL. A tab Chrome replaces while it loads
    *  answers with its new id; a tab closed while it loads is an error. */
   async openPage(input) {
@@ -156,9 +335,17 @@ class ChromeBrowser extends RpcTarget {
     const target = new URL(input.url);
     if (target.protocol !== "http:" && target.protocol !== "https:")
       throw new Error("openPage() only accepts http and https URLs.");
-    const tab = await chrome.tabs.create({ active: true, url: target.href });
-    grant(tab.id);
-    showTabs();
+    // The group in the panel's own window, else any window's, else a new one in the panel's.
+    const [panelWindow, groups] = await Promise.all([chrome.windows.getCurrent(), mindGroups()]);
+    const group = groups.find((candidate) => candidate.windowId === panelWindow.id) ?? groups[0];
+    const windowId = group?.windowId ?? panelWindow.id;
+    const tab = await chrome.tabs.create({ active: true, url: target.href, windowId });
+    try {
+      await addToGroup(tab.id, windowId);
+    } catch (error) {
+      await chrome.tabs.remove(tab.id).catch(() => {});
+      throw error;
+    }
     let tabId = tab.id;
     await new Promise((loaded, failed) => {
       const done = (settle) => {
@@ -190,7 +377,7 @@ class ChromeBrowser extends RpcTarget {
     return { tabId, url: target.href };
   }
 
-  /** One CDP command on a tab the mind may drive (attached on first use): the command's result,
+  /** One CDP command on a tab in the mind's group (attached on first use): the command's result,
    *  e.g. `cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })`. */
   async cdp(tabId, method, params) {
     await attach(tabId);
@@ -199,9 +386,9 @@ class ChromeBrowser extends RpcTarget {
     });
   }
 
-  /** Let go of a tab: the debugger bar goes; the tab stays open and stays drivable later. */
+  /** Let go of a tab: the debugger bar goes; the tab stays in the group and stays drivable. */
   async detach(tabId) {
-    await release(tabId, { keep: true });
+    await release(tabId);
   }
 }
 
@@ -352,8 +539,8 @@ async function signedOut(mind) {
     <section class="card">
       <div class="card-head">
         <h2>Lend this Chrome to a mind</h2>
-        <p class="muted">The mind's agents can then open pages here and drive the tabs you lend,
-        while this panel stays open.</p>
+        <p class="muted">The mind's agents can then open pages here and drive the tabs in its tab
+        group, while this panel stays open.</p>
       </div>
       <label class="field">Mind
         <input id="mind" class="input" value="${escape(mind)}" placeholder="example.com"
@@ -396,6 +583,8 @@ async function signedIn(session) {
     live?.[Symbol.dispose]();
     live = null;
     showTabs = () => {};
+    tellTabCard = () => {};
+    lend = null;
     await releaseTabs();
     await writeBearerRule(() =>
       chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BEARER_RULE] }),
@@ -413,22 +602,24 @@ const statusCard = (dot, title, { corner = "", body = "" } = {}) => `
     ${body}
   </section>`;
 
-/** What a person pastes to one of the mind's agents: how to reach this Chrome, and what is lent. */
-function agentInstructions(address, name, lent) {
+/** What a person pastes to one of the mind's agents: how to reach this Chrome, and which tabs it
+ *  may drive. */
+function agentInstructions(address, name, members) {
   const spelled = `itx.cd("/").${name.replace(/^itx\./, "")}`;
   const call = `\`await ${spelled}`;
   return [
-    `My Chrome is lent to the mind ${address} as \`${name}\` on its root context, while my Iterate side panel is open. From an agent's script, spell it \`${spelled}\`:`,
+    `My Chrome is lent to the mind ${address} as \`${name}\` on its root context, while my Iterate side panel is open. You drive the tabs in the "${address}" tab group of this Chrome. From an agent's script, spell it \`${spelled}\`:`,
     "",
-    `- ${call}.tabs()\`: the tabs you may drive, as [{ tabId, url, title, attached }]. If this call fails, my panel is closed: tell me.`,
-    `- ${call}.openPage({ url })\`: opens an http(s) page in a new tab and answers { tabId, url } once it has loaded.`,
-    `- ${call}.cdp(tabId, method, params)\`: one Chrome DevTools Protocol command on a tab you may drive, for example \`"Runtime.evaluate", { expression: "document.title", returnByValue: true }\`, \`"Page.navigate", { url }\`, \`"Page.captureScreenshot", {}\` or \`"Accessibility.getFullAXTree", {}\`.`,
+    `- ${call}.tabs()\`: the tabs in the group, as [{ tabId, url, title, attached }]. If this call fails, my panel is closed: tell me.`,
+    `- ${call}.openPage({ url })\`: opens an http(s) page in a new tab in the group and answers { tabId, url } once it has loaded.`,
+    `- ${call}.cdp(tabId, method, params)\`: one Chrome DevTools Protocol command on a tab in the group, for example \`"Runtime.evaluate", { expression: "document.title", returnByValue: true }\`, \`"Page.navigate", { url }\`, \`"Page.captureScreenshot", {}\` or \`"Accessibility.getFullAXTree", {}\`.`,
     `- ${call}.detach(tabId)\`: removes Chrome's debugging bar; the tab stays drivable.`,
+    `- A page can report to the mind: \`cdp(tabId, "Runtime.enable", {})\` and \`cdp(tabId, "Runtime.addBinding", { name, executionContextName: "iterate" })\`; then \`cdp(tabId, "Page.getFrameTree", {})\` for the main frame's id, \`cdp(tabId, "Page.createIsolatedWorld", { frameId, worldName: "iterate" })\` for its \`executionContextId\`, and \`cdp(tabId, "Runtime.evaluate", { expression, contextId: executionContextId })\` with a script that calls \`window[name](string)\`. The page's own scripts cannot see that world. Each call appends \`events.iterate.com/chrome/binding-called { lendName, tabId, name, payload }\` to the mind's root stream. Not \`Page.addScriptToEvaluateOnNewDocument\`: the mind reads an argument with a \`source\` field as a worker and refuses it.`,
     "",
-    "Run openPage and cdp in separate scripts, so a failed cdp does not lose the tabId. You can drive only the tabs you open and the tabs I lend you.",
+    "Run openPage and cdp in separate scripts, so a failed cdp does not lose the tabId. You can drive only the tabs in the group: I add a tab by dragging it into the group, and take it back by dragging it out.",
     "",
-    lent.length ? "Tabs lent right now:" : "No tabs are lent right now.",
-    ...lent.map((tab) => `- ${tab.tabId}: ${tab.title || "(no title)"} (${tab.url})`),
+    members.length ? "Tabs in the group right now:" : "No tabs are in the group right now.",
+    ...members.map((tab) => `- ${tab.tabId}: ${tab.title || "(no title)"} (${tab.url})`),
   ].join("\n");
 }
 
@@ -454,7 +645,10 @@ async function connect(session) {
   live?.[Symbol.dispose]();
   live = null;
   // Another mind must not inherit this one's tabs (a reconnect to the same mind keeps them).
-  if (session.issuer !== connectedIssuer) await releaseTabs();
+  if (session.issuer !== connectedIssuer) {
+    lend = null;
+    await releaseTabs();
+  }
   connectedIssuer = session.issuer;
   const address = addressOf(session.issuer);
   const view = element("connection", HTMLElement);
@@ -476,21 +670,29 @@ async function connect(session) {
     const [whoami, browserName] = await Promise.all([itx.whoami(), browserSegment()]);
     const personSegment = personSegmentOf(whoami.principal);
     const name = `itx.chrome.${personSegment}.${browserName}`;
-    const lend = await itx.provide(name, browser, {
+    const provided = await itx.provide(name, browser, {
       description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), cdp(tabId, method, params), detach(tabId).`,
     });
     if (mine !== generation) return;
-    lendName = name;
-    report = (event) => itx.append(event).catch(console.error);
+    lend = {
+      name,
+      title: address,
+      append: (event) => itx.append(event).catch(console.error),
+      announced: new Set(),
+    };
+    void reconcileNow();
     // The newest lend of a name wins. When another panel takes this one's name, this panel stops
     // and says so: lending again by itself would take the name back, and two panels would trade it
     // forever. A closed socket rejects this instead, and the reconnect below handles it.
-    void Promise.resolve(lend.lendEnded()).then(
+    void Promise.resolve(provided.lendEnded()).then(
       (reason) => {
         if (mine !== generation) return;
         generation += 1;
         live?.[Symbol.dispose]();
         live = null;
+        // no lend, no drivable tab: the debugging bars go too
+        lend = null;
+        void releaseTabs();
         view.innerHTML = statusCard("bad", "No longer lent", {
           corner: `<button id="lend-again" class="btn btn-outline btn-sm">Lend again</button>`,
           body: `<p class="muted">The mind ended the lend of <code>${escape(name)}</code>: the lent stub
@@ -523,13 +725,14 @@ async function connect(session) {
       })}
       <section class="card">
         <div class="card-head">
-          <h2>Tabs the mind can drive</h2>
-          <p class="muted">Tabs it opens, and tabs you lend. Chrome shows a debugging bar on each one
-          in use.</p>
+          <h2>Tab group <code class="badge mono">${escape(address)}</code></h2>
+          <p class="muted">The mind drives the tabs in this group. Drag a tab into it, or click Add
+          this tab; drag it out, or click Remove, to take it back. Chrome shows a debugging bar on
+          each tab in use.</p>
         </div>
         <ul id="tabs" class="tabs"></ul>
         <div class="actions">
-          <button id="lend" class="btn btn-primary btn-sm">Lend this tab</button>
+          <button id="add" class="btn btn-primary btn-sm">Add this tab</button>
           <button id="prove" class="btn btn-outline btn-sm">Test: open a page</button>
         </div>
         <div id="proof-result" class="muted"></div>
@@ -546,16 +749,18 @@ async function connect(session) {
 
     const list = element("tabs", HTMLUListElement);
     const instructions = element("instructions", HTMLPreElement);
-    let lent = [];
+    const result = element("proof-result", HTMLElement);
+    let members = [];
     let drawing = null;
     // Chrome's tab events come in bursts: one redraw for each burst.
     showTabs = () => {
       drawing ??= setTimeout(async () => {
         drawing = null;
         if (mine !== generation) return;
-        lent = await browser.tabs();
-        list.innerHTML = lent.length
-          ? lent
+        members = await memberTabs();
+        if (mine !== generation) return;
+        list.innerHTML = members.length
+          ? members
               .map(
                 (tab) => `
             <li>
@@ -564,26 +769,36 @@ async function connect(session) {
                 <div class="muted mono truncate">${escape(tab.url)}</div>
               </div>
               ${tab.attached ? `<span class="badge">in use</span>` : ""}
-              <button class="btn btn-ghost btn-sm" data-stop="${tab.tabId}">Stop</button>
+              <button class="btn btn-ghost btn-sm" data-remove="${tab.tabId}">Remove</button>
             </li>`,
               )
               .join("")
-          : `<li class="empty">No tabs yet. Lend this tab, or let an agent open one.</li>`;
-        instructions.textContent = agentInstructions(address, name, lent);
+          : `<li class="empty">No tabs in the group yet. Add this tab, or let an agent open one.</li>`;
+        instructions.textContent = agentInstructions(address, name, members);
       }, 100);
+    };
+    tellTabCard = (text) => {
+      if (mine === generation) result.textContent = text;
     };
     showTabs();
 
+    // Out of the group is out of the mind's reach: the reconcile detaches it and says so.
     list.onclick = async (event) => {
-      const stop = event.target instanceof Element && event.target.closest("[data-stop]");
-      if (!stop) return;
-      await release(Number(stop.getAttribute("data-stop")));
-      showTabs();
+      const remove = event.target instanceof Element && event.target.closest("[data-remove]");
+      if (!remove) return;
+      result.textContent = "";
+      try {
+        const tabId = Number(remove.getAttribute("data-remove"));
+        await whileNotDragging(() => chrome.tabs.ungroup(tabId));
+        await reconcileNow();
+      } catch (error) {
+        fail(result, error);
+      }
     };
 
     const copy = element("copy", HTMLButtonElement);
     copy.onclick = async () => {
-      await copyText(agentInstructions(address, name, lent));
+      await copyText(agentInstructions(address, name, members));
       copy.textContent = "Copied";
       setTimeout(() => (copy.textContent = "Copy instructions for an agent"), 2_000);
     };
@@ -600,7 +815,6 @@ async function connect(session) {
       await connect(session);
     };
 
-    const result = element("proof-result", HTMLElement);
     const path = name.split(".");
     element("prove", HTMLButtonElement).onclick = async () => {
       result.textContent = "Calling the mind…";
@@ -623,21 +837,18 @@ async function connect(session) {
         fail(result, error);
       }
     };
-    element("lend", HTMLButtonElement).onclick = async () => {
+    element("add", HTMLButtonElement).onclick = async () => {
       result.textContent = "";
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (!tab?.id) return;
-      if (tabs.has(tab.id)) {
-        result.textContent = "This tab is lent already.";
-        return;
-      }
-      grant(tab.id);
       try {
-        await attach(tab.id);
-        result.textContent = `Lent: agents can drive it as tab ${tab.id}.`;
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tab?.id) return;
+        if (await isMember(tab.id)) {
+          result.textContent = "This tab is in the group already.";
+          return;
+        }
+        await addToGroup(tab.id, tab.windowId);
+        result.textContent = `Added: agents can drive it as tab ${tab.id}.`;
       } catch (error) {
-        tabs.delete(tab.id);
-        showTabs();
         fail(result, error);
       }
     };

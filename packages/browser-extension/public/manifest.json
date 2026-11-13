@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Iterate",
-  "description": "Lend this Chrome to an iterate mind, so its agents can drive the tabs you lend.",
-  "version": "0.5.0",
+  "description": "Lend this Chrome to an iterate mind: its agents drive the tabs in the mind's tab group.",
+  "version": "0.6.0",
   "minimum_chrome_version": "123",
   "key": "<CHROME_EXTENSION_KEY: scripts/build.ts sets it, or leaves the key out>",
   "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
@@ -17,7 +17,8 @@
     "declarativeNetRequestWithHostAccess",
     "identity",
     "sidePanel",
-    "storage"
+    "storage",
+    "tabGroups"
   ],
   "optional_host_permissions": ["https://*/*", "wss://*/*"]
 }

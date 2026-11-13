@@ -8,7 +8,8 @@ as an extension: the files in `public/` run as written, and
 runs it and zips `dist/` for its downloads page.
 
 - `public/manifest.json` — MV3; `debugger`, `declarativeNetRequestWithHostAccess`, `identity`,
-  `sidePanel`, `storage`. No host permission at install: at sign-in the panel asks for the mind's
+  `sidePanel`, `storage`, `tabGroups`. Not `tabs`: URLs and titles come from the debugger's target
+  list. No host permission at install: at sign-in the panel asks for the mind's
   host (`https://iterate.<address>/*` and its `wss:` twin), from `optional_host_permissions`.
 - `public/background.js` — the service worker: makes the toolbar button open the panel, from
   install on.
@@ -20,9 +21,9 @@ runs it and zips `dist/` for its downloads page.
   `chrome.storage.local`), one WebSocket to the mind's API, `wss://iterate.<address>/api`, and the
   lend: `itx.provide("itx.chrome.<person>.<browser>", new ChromeBrowser())` on the mind's root
   context (below, **The name**) — an
-  `RpcTarget` with `tabs()` (the tabs it may drive: id, URL, title),
-  `openPage({ url })` (a new tab, answered once loaded), `cdp(tabId, method, params)` (one raw Chrome DevTools Protocol command, commands only — no event
-  channel; `Runtime.evaluate`, `Page.captureScreenshot`, `Accessibility.getFullAXTree`, `Page.navigate`,
+  `RpcTarget` with `tabs()` (the tabs in the mind's tab group: id, URL, title),
+  `openPage({ url })` (a new tab in the group, answered once loaded), `cdp(tabId, method, params)` (one raw Chrome DevTools Protocol command; of CDP's events only
+  `Runtime.bindingCalled` comes back, as a page report, below; `Runtime.evaluate`, `Page.captureScreenshot`, `Accessibility.getFullAXTree`, `Page.navigate`,
   `Input.dispatchMouseEvent` cover most of what an agent wants) and `detach(tabId)`.
 - `dist/oauth.js` — the SPA's OAuth client, `packages/spa/public/oauth.js`, copied by the build: one
   client for both.
@@ -30,18 +31,38 @@ runs it and zips `dist/` for its downloads page.
   catalog's version, the one a mind speaks. Chrome loads no remote code from an
   extension, so this is the one thing the SPA's CDN import map cannot give us.
 
-**Which tabs.** The mind drives the tabs it opened through `openPage` and the tabs the person
-lent it with the panel's **Lend this tab** button, which `tabs()` lists; `cdp` on any other tab is
-refused. The panel lists the same tabs, each with a **Stop** button that takes it back. A tab
-closed in Chrome leaves the list; a tab Chrome replaces keeps its place under its new id. The
-debugger attaches on the first `cdp` (Chrome shows its "is debugging this browser" bar on the tab)
-and lets go on `detach`, on **Stop**, or on sign-out for every tab.
+**Which tabs.** The mind drives the tabs in its tab group: every Chrome tab group whose title is
+exactly the mind's address (`iterate.com`), in any window. Membership is the permission. The panel
+reads it live from Chrome on every call, and stores no group id. So a Chrome restart, a group moved
+to another window and one group per window all work. A renamed group loses its tabs; a group named
+back gets them back.
+
+A tab joins when the person drags it into the group or clicks **Add this tab** in the panel, and
+when the mind opens it with `openPage`. A page that a grouped tab opens joins too, by Chrome's
+opener rule. A tab leaves when the person drags it out, clicks **Remove** in the panel's list, or
+closes it. `cdp` on a tab outside the group is refused, also while the debugger is still attached.
+The panel makes a group with a fixed color per mind, and never changes a group after that.
+
+The debugger attaches on the first `cdp` (Chrome shows its "is debugging this browser" bar on the
+tab). It lets go on `detach`, when the tab leaves the group, and on sign-out. **Cancel** on
+Chrome's debugging bar detaches every tab: the panel then takes every tab out of the group, so the
+mind cannot attach again. Sign-out, or a switch to another mind, keeps the group: with no lend, or
+a lend to a mind with another address, no tab is drivable.
 
 **What reaches the stream.** The CDP wire stays a wire, but the browser's facts go to the mind's
-root stream as ephemeral events: `events.iterate.com/chrome/attached { tabId, url, lendName }`,
-`chrome/navigated { tabId, url, lendName }` (main-frame navigations of attached tabs) and
-`chrome/detached { tabId, reason, lendName }` — live subscribers see them, and `readEvents` with
-`includeEphemeral` reads the recent ones. Nothing about a tab is written durably.
+root stream, each with the `lendName`:
+
+- `events.iterate.com/chrome/tab-added { tabId, url }` and `chrome/tab-removed { tabId }` are
+  durable: a tab joined or left the group. Each lend announces every member again.
+- `chrome/binding-called { tabId, name, payload }` is durable: a page report. The mind adds a CDP
+  binding (`Runtime.addBinding`, best in an isolated world from `Page.createIsolatedWorld`), and
+  each call of it from a tab in the group appends its string. A mind's code cannot use
+  `Page.addScriptToEvaluateOnNewDocument`: the mind reads an argument with a `source` field as a
+  worker. A payload over 8,192 characters is dropped. The event type is always
+  the panel's own: the panel appends as the person.
+- `chrome/attached { tabId, url }`, `chrome/navigated { tabId, url }` (main-frame navigations of
+  attached tabs) and `chrome/detached { tabId, reason }` are ephemeral: live subscribers see them,
+  and `readEvents` with `includeEphemeral` reads the recent ones.
 
 **The socket.** A mind's API takes its bearer on the WebSocket upgrade request (`Authorization:
 Bearer …`), a header a page cannot set on a WebSocket. Before each connect the panel adds one
@@ -67,8 +88,8 @@ The lend is a rewrite rule of the mind's root context, `/`: anything calling
 `itx.chrome.jonas.mac3f9a.openPage(...)` there runs it in the panel for as long as the panel is
 open; from another context of the mind (an agent's script runs in its own) the spelling is
 `itx.cd('/').chrome.jonas.mac3f9a.openPage(...)`. The panel's **Copy instructions for an agent**
-button copies that spelling, the four methods and the tabs lent right now, for a person to paste to
-an agent.
+button copies that spelling, the four methods, how a page reports to the mind and the tabs in
+the group right now, for a person to paste to an agent.
 
 ## Install
 
