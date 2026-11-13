@@ -1,5 +1,5 @@
-// The integrations page in a server render: no browser, so no `window`. The hosted Dash renders
-// its pages on a server first.
+// The integrations page in a server render: no browser, so no `window`. A TanStack Start app
+// renders its pages on a server first.
 import { renderToString } from "react-dom/server";
 import { expect, test } from "vitest";
 import { IntegrationsPage } from "./integrations-page.tsx";

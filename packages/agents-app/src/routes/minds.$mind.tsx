@@ -1,7 +1,7 @@
 // registers `itx.agents` on InstalledAppRoots
 import type {} from "iterate/agents";
 import type { IterateContextApiWith } from "iterate/api";
-import { createFileRoute, getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -235,13 +235,10 @@ function AgentsPage() {
   );
 }
 
-const root = getRouteApi("__root__");
-
 /** A mind without `itx.agents`: its config repo installs agents (`installAgents(itx)` in its
- *  init case, as the default template does), so the page says so and links to the mind in the
- *  Dash, when this deployment names one. */
+ *  init case, as the default template does), so the page says so and links to the config repo
+ *  page of the mind's own Dash, at `dash.<address>`. */
 function NotInstalled({ mind }: { mind: string }) {
-  const { dashOrigin } = root.useLoaderData();
   return (
     <Empty>
       <EmptyHeader>
@@ -249,11 +246,9 @@ function NotInstalled({ mind }: { mind: string }) {
         <EmptyDescription>
           A mind&apos;s config repo installs its agents: <code>installAgents(itx)</code> in its init
           case, as the default template does.{" "}
-          {dashOrigin ? (
-            <a href={`${dashOrigin}/minds/${mind}`} className="underline underline-offset-2">
-              Open the config repo
-            </a>
-          ) : null}
+          <a href={`https://dash.${mind}/?page=repo`} className="underline underline-offset-2">
+            Open the config repo
+          </a>
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

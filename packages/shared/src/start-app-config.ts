@@ -1,9 +1,9 @@
-// start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: dash, agents, notes,
-// admin and voice, TanStack Start apps that are each an OAuth client of the platform and nothing
+// start-app-config.ts — THE CONFIGURATION OF AN APP ON TOP of the platform: agents, notes, admin
+// and voice, TanStack Start apps that are each an OAuth client of the platform and nothing
 // else — but notes, which a mind's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
 // as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps its own copy of this file, with two fields (`denyZones`, `pkgPrNewRef`) that it reads and no app here does.
 //
-//   { urls: { os, dash, agents, notes, admin, voice, kit }, posthogProjectKey }
+//   { urls: { os, agents, notes, admin, voice, kit }, posthogProjectKey }
 //
 // scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
@@ -26,11 +26,9 @@ export const StartAppConfig = z.object({
        *  resource. Blank for an app hosted apart from any mind, which a person points at a
        *  mind by its address (packages/agents-app/scripts/standalone.ts). */
       os: optionalOrigin,
-      // THE FIRST-PARTY APPS, what a link from one app to another follows: the dash's directory of
-      // apps (packages/dash/src/apps.ts), the admin app's "View dash as". The same environment's as
-      // `os`. Blank ⇒ no link: a per-PR preview names only the apps its run deploys, because
+      // THE FIRST-PARTY APPS, what a link from one app to another follows. The same environment's
+      // as `os`. Blank ⇒ no link: a per-PR preview names only the apps its run deploys, because
       // production does not know the preview's minds.
-      dash: optionalOrigin,
       agents: optionalOrigin,
       /** read by no app: nothing links to Notes, which is served under each mind's hosts. It
        *  is here because `FIRST_PARTY_APPS` is typed against `urls`, which gives a per-PR preview
