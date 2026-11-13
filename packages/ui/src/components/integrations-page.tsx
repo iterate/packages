@@ -145,10 +145,15 @@ function IntegrationsGrid({
         >
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              <IntegrationMark title={heading.title} icon={heading.icon} hrefOf={hrefOf} small />
+              {/* a heading's mark is its icon alone: a letter in a box beside a heading reads as
+                  a placeholder */}
+              {heading.icon ? (
+                <IntegrationMark title={heading.title} icon={heading.icon} hrefOf={hrefOf} small />
+              ) : null}
+              {/* one step above a card's title, so a section reads as the level above its cards */}
               <h2
                 id={`integrations-section-${section}`}
-                className="text-sm font-semibold tracking-tight"
+                className="text-base font-semibold tracking-tight"
               >
                 {heading.title}
               </h2>
@@ -164,7 +169,7 @@ function IntegrationsGrid({
         <section aria-label="This mind's own integrations" className="flex flex-col gap-3">
           {/* a heading only when a section stands above: alone, the page's title says it */}
           {sections.length ? (
-            <h2 className="text-sm font-semibold tracking-tight">This mind's own</h2>
+            <h2 className="text-base font-semibold tracking-tight">This mind's own</h2>
           ) : null}
           {list(others)}
         </section>
@@ -204,7 +209,13 @@ function IntegrationCardView({
       <div className="flex min-w-0 flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
           <IntegrationMark title={card.title} icon={card.icon} hrefOf={hrefOf} />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {/* a title alone stands level with its mark, and the header is no taller than the mark */}
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 flex-col gap-0.5",
+              !card.description && !shown && "self-center",
+            )}
+          >
             <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
               <h3 id={heading} className="text-sm font-semibold [overflow-wrap:anywhere]">
                 {card.title}
@@ -228,8 +239,10 @@ function IntegrationCardView({
         />
       </div>
       {rows.length === 0 ? null : (
+        // inset on both sides: the hairlines start at the title's indent and end at the buttons'
+        // edge, and the last row keeps the header's padding below it
         <ul
-          className="ml-15 flex flex-col divide-y border-t"
+          className="mr-4 mb-1 ml-15 flex flex-col divide-y border-t"
           aria-label={`${card.title} connections`}
         >
           {rows.map(({ connection, row }) => (
@@ -242,7 +255,8 @@ function IntegrationCardView({
 }
 
 /** A card's or a section's mark: its icon (a URL, or a file its package serves in the mind), or
- *  the title's first letter. A section's is small: it stands beside a small heading. */
+ *  the title's first letter. A section's is small, and the section shows it only when it has an
+ *  icon. */
 function IntegrationMark({
   title,
   icon,
@@ -281,7 +295,7 @@ function RegistryRow({
   hrefOf: (target: IntegrationTarget) => string | null;
 }) {
   return (
-    <li className="flex flex-col gap-2 py-2.5 pr-4 sm:flex-row sm:items-start sm:gap-3">
+    <li className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-start sm:gap-3">
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
         {row.status ? (
           <StatusDot status={row.status} className="mt-1.5" />
