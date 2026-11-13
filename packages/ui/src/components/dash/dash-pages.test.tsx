@@ -63,7 +63,8 @@ async function draw(Page: (props: DashPageProps) => ReactNode, itx: DashPageProp
       </Suspense>,
     ),
   );
-  for (let tick = 0; tick < 20 && host.textContent?.match(/Loading|Reading/); tick += 1)
+  // up to four seconds, inside the test's five: under a full test run a page's part takes two to load
+  for (let tick = 0; tick < 80 && host.textContent?.match(/Loading|Reading/); tick += 1)
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
   return {
     host,
