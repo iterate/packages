@@ -1,9 +1,10 @@
 // panel.js — the whole extension, after packages/spa/public/app.js: a sign-in at the mind through
 // Chrome's identity window, then ONE WebSocket to the mind's API (`https://iterate.<address>/api`)
-// with the bearer on the upgrade request, and this Chrome lent to the mind's root context as
-// `itx.chrome` — a live RpcTarget (open a page, raw CDP on the tabs the mind may drive) that the
-// mind's agents and workers call back into while the panel is open. capnweb.js (the package's own
-// browser bundle) and oauth.js (the SPA's) are copied beside this file by the build (README).
+// with the bearer on the upgrade request, and this Chrome lent to the mind's root context under its
+// own name, `itx.chrome.<person>.<browser>` — a live RpcTarget (open a page, raw CDP on the tabs the
+// mind may drive) that the mind's agents and workers call back into while the panel is open.
+// capnweb.js (the package's own browser bundle) and oauth.js (the SPA's) are copied beside this
+// file by the build (README).
 import { newWebSocketRpcSession, RpcTarget } from "./capnweb.js";
 import { oauthClient } from "./oauth.js";
 
@@ -46,33 +47,78 @@ const tabs = new Map();
 const grant = (tabId) =>
   tabs.get(tabId) ?? tabs.set(tabId, { attached: false, attaching: null }).get(tabId);
 
-/** Let every tab go: on sign-out, and when the panel moves to another mind. An attach still in
- *  flight settles first, so it cannot leave the debugger on a tab nobody tracks any more. */
+/** Let a tab go: on its Stop button. An attach still in flight settles first, so it cannot leave
+ *  the debugger on a tab nobody tracks any more. With `keep`, the tab stays drivable. */
+async function release(tabId, { keep = false } = {}) {
+  const known = tabs.get(tabId);
+  if (!known) return;
+  await known.attaching?.catch(() => undefined);
+  if (known.attached) await chrome.debugger.detach({ tabId }).catch(console.error);
+  if (!keep && tabs.get(tabId) === known) tabs.delete(tabId);
+}
+/** Let every tab go: on sign-out, and when the panel moves to another mind. */
 async function releaseTabs() {
-  for (const [tabId, known] of tabs) {
-    await known.attaching?.catch(() => undefined);
-    if (known.attached) await chrome.debugger.detach({ tabId }).catch(console.error);
-  }
+  for (const tabId of [...tabs.keys()]) await release(tabId);
   tabs.clear();
 }
-/** Where the browser's facts go: the connected root context's append, set by `connect`. */
+/** Where the browser's facts go, and the name this Chrome is lent under: both set by `connect`. */
 let report = () => {};
-const fact = (type, payload) => report({ type, ephemeral: true, payload });
+let lendName = "";
+const fact = (type, payload) =>
+  report({ type, ephemeral: true, payload: { ...payload, lendName } });
+/** Redraws the panel's list of tabs, when one is shown (`connect` sets it). */
+let showTabs = () => {};
+
+// A closed tab leaves the map; a tab Chrome replaces (a prerendered page swapped in) keeps its grant
+// under its new id.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabs.delete(tabId)) showTabs();
+});
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  if (!tabs.delete(removedTabId)) return;
+  grant(addedTabId);
+  showTabs();
+});
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (tabs.has(tabId) && (change.title || change.status === "complete")) showTabs();
+});
+
+/** Chrome's "No tab with given id", in words an agent can act on. The map is left to Chrome's
+ *  own events: `onReplaced` moves a replaced tab's grant only while its old id is still there. */
+function tabGone(tabId) {
+  return new Error(
+    `Tab ${tabId} is gone: it was closed, or Chrome replaced it. Call tabs() for the tabs you may drive.`,
+  );
+}
 
 /** Attach the debugger to a tab the mind may drive (once; Chrome shows its bar on the tab). */
 async function attach(tabId) {
   const known = tabs.get(tabId);
-  if (!known) throw new Error(`Tab ${tabId} is not one this mind opened or was lent.`);
+  if (!known)
+    throw new Error(
+      `Tab ${tabId} is not one you may drive: it was closed, or it was never opened by the mind or lent. Call tabs() for the tabs you may drive.`,
+    );
   if (known.attached) return;
   known.attaching ??= (async () => {
-    await chrome.debugger.attach({ tabId }, "1.3");
-    known.attached = true;
-    await chrome.debugger.sendCommand({ tabId }, "Page.enable"); // main-frame navigations, below
-    const { result } = await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
-      expression: "location.href",
-      returnByValue: true,
+    await chrome.debugger.attach({ tabId }, "1.3").catch((error) => {
+      throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
     });
-    fact("events.iterate.com/chrome/attached", { tabId, url: result.value });
+    let url;
+    try {
+      await chrome.debugger.sendCommand({ tabId }, "Page.enable"); // main-frame navigations, below
+      const { result } = await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
+        expression: "location.href",
+        returnByValue: true,
+      });
+      url = result.value;
+    } catch (error) {
+      // never a debugging bar on a tab whose attach failed halfway
+      await chrome.debugger.detach({ tabId }).catch(() => {});
+      throw error;
+    }
+    known.attached = true;
+    fact("events.iterate.com/chrome/attached", { tabId, url });
+    showTabs();
   })().finally(() => {
     known.attaching = null;
   });
@@ -87,6 +133,7 @@ chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
   const known = tabs.get(tabId);
   if (known) known.attached = false;
   fact("events.iterate.com/chrome/detached", { tabId, reason });
+  showTabs();
 });
 
 class ChromeBrowser extends RpcTarget {
@@ -102,7 +149,8 @@ class ChromeBrowser extends RpcTarget {
   }
 
   /** Open an http(s) page in a new active tab the mind may drive; answers once the page has
-   *  loaded (or after ten seconds) with the tab's id and URL. */
+   *  loaded (or after ten seconds) with the tab's id and URL. A tab Chrome replaces while it loads
+   *  answers with its new id; a tab closed while it loads is an error. */
   async openPage(input) {
     if (!input || typeof input.url !== "string") throw new Error("openPage() takes { url }.");
     const target = new URL(input.url);
@@ -110,30 +158,50 @@ class ChromeBrowser extends RpcTarget {
       throw new Error("openPage() only accepts http and https URLs.");
     const tab = await chrome.tabs.create({ active: true, url: target.href });
     grant(tab.id);
-    await new Promise((loaded) => {
-      const onUpdated = (tabId, change) => {
-        if (tabId !== tab.id || change.status !== "complete") return;
+    showTabs();
+    let tabId = tab.id;
+    await new Promise((loaded, failed) => {
+      const done = (settle) => {
         chrome.tabs.onUpdated.removeListener(onUpdated);
-        loaded();
+        chrome.tabs.onReplaced.removeListener(onReplaced);
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+        clearTimeout(timer);
+        settle();
+      };
+      const onUpdated = (id, change) => {
+        if (id === tabId && change.status === "complete") done(loaded);
+      };
+      const onReplaced = (added, removed) => {
+        if (removed === tabId) tabId = added;
+      };
+      const onRemoved = (id) => {
+        if (id === tabId) done(() => failed(new Error(`Tab ${id} was closed before it loaded.`)));
       };
       chrome.tabs.onUpdated.addListener(onUpdated);
-      // Listener first, then the current status: a page that was already complete fires nothing.
-      void chrome.tabs.get(tab.id).then((current) => onUpdated(tab.id, { status: current.status }));
-      setTimeout(() => onUpdated(tab.id, { status: "complete" }), 10_000);
+      chrome.tabs.onReplaced.addListener(onReplaced);
+      chrome.tabs.onRemoved.addListener(onRemoved);
+      const timer = setTimeout(() => done(loaded), 10_000);
+      // Listeners first, then the current status: a page that was already complete fires nothing.
+      void chrome.tabs.get(tabId).then(
+        (current) => onUpdated(tabId, { status: current.status }),
+        () => onRemoved(tabId),
+      );
     });
-    return { tabId: tab.id, url: target.href };
+    return { tabId, url: target.href };
   }
 
   /** One CDP command on a tab the mind may drive (attached on first use): the command's result,
    *  e.g. `cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })`. */
   async cdp(tabId, method, params) {
     await attach(tabId);
-    return chrome.debugger.sendCommand({ tabId }, method, params);
+    return chrome.debugger.sendCommand({ tabId }, method, params).catch((error) => {
+      throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
+    });
   }
 
   /** Let go of a tab: the debugger bar goes; the tab stays open and stays drivable later. */
   async detach(tabId) {
-    if (tabs.get(tabId)?.attached) await chrome.debugger.detach({ tabId });
+    await release(tabId, { keep: true });
   }
 }
 
@@ -143,6 +211,38 @@ class ChromeBrowser extends RpcTarget {
 async function settings() {
   const stored = await chrome.storage.local.get(["mind"]);
   return { mind: stored.mind || "" };
+}
+
+// ── The lend's name. Every lent Chrome has its own: `itx.chrome.<person>.<browser>`, so two people,
+// or one person's two Chrome profiles, never take each other's. `chrome` comes first: a lent name
+// never starts with a name of the platform's (core's `lendRefusal`), and a person's segment could be
+// one (`email`, `run`). A name is letters and digits, each segment starting with a letter
+// (`iterate provide`'s rule).
+const SEGMENT = /^[a-zA-Z][a-zA-Z0-9]*$/;
+
+/** The person's segment: the signed-in address before its `@`, letters and digits only. */
+function personSegmentOf(principal) {
+  const local = (principal?.email || "")
+    .split("@")[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return SEGMENT.test(local) ? local : "member";
+}
+
+/** This Chrome's segment: a name the person gave it, or one made at its first connect from the
+ *  platform and a random suffix (`mac3f9a`), kept in this install's storage. */
+async function browserSegment() {
+  const { browserName } = await chrome.storage.local.get("browserName");
+  if (browserName && SEGMENT.test(browserName)) return browserName;
+  const platform = (navigator.userAgentData?.platform || navigator.platform || "chrome")
+    .toLowerCase()
+    .replace(/^macos$|^macintel$/, "mac")
+    .replace(/^win.*/, "windows")
+    .replace(/[^a-z0-9]/g, "");
+  const suffix = crypto.getRandomValues(new Uint16Array(1))[0].toString(16).padStart(4, "0");
+  const made = `${SEGMENT.test(platform) ? platform : "chrome"}${suffix}`;
+  await chrome.storage.local.set({ browserName: made });
+  return made;
 }
 
 /** Where a typed mind may sign in, in the order to ask (iterate/mind-api `mindAddressCandidatesOf`):
@@ -234,20 +334,38 @@ let generation = 0;
 let live = null;
 let connectedIssuer = "";
 
+const version = () => escape(chrome.runtime.getManifest().version);
+const header = (right) => `
+  <header class="header">
+    <div class="brand"><img src="icon-32.png" alt="" />Iterate</div>
+    ${right}
+  </header>`;
+/** The mind's address, from its issuer `https://iterate.<address>`. */
+const addressOf = (issuer) => new URL(issuer).hostname.replace(/^iterate\./, "");
+
 async function signedOut(mind) {
   generation += 1;
   live?.[Symbol.dispose]();
   live = null;
   app.innerHTML = `
-    <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
-    <p class="muted">Sign in at an iterate mind: this Chrome becomes that mind's
-    <code>itx.chrome</code>.</p>
-    <label>Mind
-      <input id="mind" value="${escape(mind)}" placeholder="example.com" spellcheck="false" />
-    </label>
-    <p><button id="login">Sign in with Iterate</button></p>`;
+    ${header(`<span class="badge">v${version()}</span>`)}
+    <section class="card">
+      <div class="card-head">
+        <h2>Lend this Chrome to a mind</h2>
+        <p class="muted">The mind's agents can then open pages here and drive the tabs you lend,
+        while this panel stays open.</p>
+      </div>
+      <label class="field">Mind
+        <input id="mind" class="input" value="${escape(mind)}" placeholder="example.com"
+          spellcheck="false" autocomplete="off" />
+      </label>
+      <button id="login" class="btn btn-primary btn-block">Sign in with Iterate</button>
+      <div id="sign-in-error"></div>
+    </section>`;
   const input = element("mind", HTMLInputElement);
+  const errors = element("sign-in-error", HTMLElement);
   element("login", HTMLButtonElement).onclick = async () => {
+    errors.replaceChildren();
     try {
       const candidates = issuerCandidatesOf(input.value);
       // First, while the click still counts as the person's gesture: Chrome asks them for the
@@ -263,23 +381,21 @@ async function signedOut(mind) {
       await chrome.storage.local.set({ mind: input.value.trim() });
       await signedIn(await oauth.signIn(await issuerOf(candidates)));
     } catch (error) {
-      fail(app, error);
+      fail(errors, error);
     }
   };
 }
 
 async function signedIn(session) {
   app.innerHTML = `
-    <header>
-      <h1>Iterate <small class="muted">v${escape(chrome.runtime.getManifest().version)}</small></h1>
-      <button id="logout" class="secondary">Sign out</button>
-    </header>
-    <p class="muted">Signed in at <code>${escape(session.issuer)}</code>.</p>
-    <section id="connection"></section>`;
+    ${header(`<div class="row"><span class="badge">v${version()}</span>
+      <button id="logout" class="btn btn-ghost btn-sm">Sign out</button></div>`)}
+    <div id="connection" class="stack"></div>`;
   element("logout", HTMLButtonElement).onclick = async () => {
     generation += 1;
     live?.[Symbol.dispose]();
     live = null;
+    showTabs = () => {};
     await releaseTabs();
     await writeBearerRule(() =>
       chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BEARER_RULE] }),
@@ -288,6 +404,46 @@ async function signedIn(session) {
     await signedOut((await settings()).mind);
   };
   await connect(session);
+}
+
+/** A card with a status dot (`wait`, `ok` or `bad`), a title, and HTML for its corner and body. */
+const statusCard = (dot, title, { corner = "", body = "" } = {}) => `
+  <section class="card">
+    <div class="row"><span class="dot ${dot}"></span><h2 class="grow">${title}</h2>${corner}</div>
+    ${body}
+  </section>`;
+
+/** What a person pastes to one of the mind's agents: how to reach this Chrome, and what is lent. */
+function agentInstructions(address, name, lent) {
+  const spelled = `itx.cd("/").${name.replace(/^itx\./, "")}`;
+  const call = `\`await ${spelled}`;
+  return [
+    `My Chrome is lent to the mind ${address} as \`${name}\` on its root context, while my Iterate side panel is open. From an agent's script, spell it \`${spelled}\`:`,
+    "",
+    `- ${call}.tabs()\`: the tabs you may drive, as [{ tabId, url, title, attached }]. If this call fails, my panel is closed: tell me.`,
+    `- ${call}.openPage({ url })\`: opens an http(s) page in a new tab and answers { tabId, url } once it has loaded.`,
+    `- ${call}.cdp(tabId, method, params)\`: one Chrome DevTools Protocol command on a tab you may drive, for example \`"Runtime.evaluate", { expression: "document.title", returnByValue: true }\`, \`"Page.navigate", { url }\`, \`"Page.captureScreenshot", {}\` or \`"Accessibility.getFullAXTree", {}\`.`,
+    `- ${call}.detach(tabId)\`: removes Chrome's debugging bar; the tab stays drivable.`,
+    "",
+    "Run openPage and cdp in separate scripts, so a failed cdp does not lose the tabId. You can drive only the tabs you open and the tabs I lend you.",
+    "",
+    lent.length ? "Tabs lent right now:" : "No tabs are lent right now.",
+    ...lent.map((tab) => `- ${tab.tabId}: ${tab.title || "(no title)"} (${tab.url})`),
+  ].join("\n");
+}
+
+/** Copy text from a click: the clipboard API, or a selection where the panel's focus refuses it. */
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
 }
 
 /** One socket, one lend. When the mind closes the socket (the hour-old access token expired, the
@@ -300,8 +456,11 @@ async function connect(session) {
   // Another mind must not inherit this one's tabs (a reconnect to the same mind keeps them).
   if (session.issuer !== connectedIssuer) await releaseTabs();
   connectedIssuer = session.issuer;
+  const address = addressOf(session.issuer);
   const view = element("connection", HTMLElement);
-  view.innerHTML = `<p class="muted">Connecting…</p>`;
+  view.innerHTML = statusCard("wait", "Connecting…", {
+    body: `<p class="muted">to ${escape(address)}</p>`,
+  });
 
   let socket;
   let itx;
@@ -310,43 +469,147 @@ async function connect(session) {
     if (!socket) return;
     // The session's root is the mind's root context, `/`, as the person signed in. The lend is a
     // rewrite rule of THAT context, so a caller in another context of the mind (an agent's script
-    // runs in its own) spells it `itx.cd('/').chrome`.
+    // runs in its own) spells it `itx.cd('/').chrome.<person>.<browser>`.
     itx = newWebSocketRpcSession(socket);
     live = itx;
-    const [whoami] = await Promise.all([
-      itx.whoami(),
-      itx.provide("itx.chrome", new ChromeBrowser(), {
-        description:
-          "A person's Chrome: tabs(), openPage({ url }), cdp(tabId, method, params), detach(tabId).",
-      }),
-    ]);
+    const browser = new ChromeBrowser();
+    const [whoami, browserName] = await Promise.all([itx.whoami(), browserSegment()]);
+    const personSegment = personSegmentOf(whoami.principal);
+    const name = `itx.chrome.${personSegment}.${browserName}`;
+    const lend = await itx.provide(name, browser, {
+      description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), cdp(tabId, method, params), detach(tabId).`,
+    });
     if (mine !== generation) return;
+    lendName = name;
     report = (event) => itx.append(event).catch(console.error);
-    const mindName = whoami.mindSlug || new URL(session.issuer).hostname;
+    // The newest lend of a name wins. When another panel takes this one's name, this panel stops
+    // and says so: lending again by itself would take the name back, and two panels would trade it
+    // forever. A closed socket rejects this instead, and the reconnect below handles it.
+    void Promise.resolve(lend.lendEnded()).then(
+      (reason) => {
+        if (mine !== generation) return;
+        generation += 1;
+        live?.[Symbol.dispose]();
+        live = null;
+        view.innerHTML = statusCard("bad", "No longer lent", {
+          corner: `<button id="lend-again" class="btn btn-outline btn-sm">Lend again</button>`,
+          body: `<p class="muted">The mind ended the lend of <code>${escape(name)}</code>: the lent stub
+            ${escape(reason)}. Another panel may hold the same name: lend again to take it back, then
+            rename one of the two.</p>`,
+        });
+        element("lend-again", HTMLButtonElement).onclick = () => connect(session);
+      },
+      () => {},
+    );
+    const mindName = whoami.mindSlug || address;
+    const person = whoami.principal?.email || whoami.principal?.actor || "a member";
     const proofUrl = `https://example.com/?iterate-chrome-proof=${encodeURIComponent(mindName)}`;
     view.innerHTML = `
-      <p>Connected as <strong>${escape(whoami.principal?.email || whoami.principal?.actor || "a member")}</strong>,
-      mind <code>${escape(mindName)}</code>.</p>
-      <div class="capability">
-        <div class="status"><span>Chrome capability</span><span>lent as <code>itx.chrome</code></span></div>
-        <p><button id="prove">Open a page through the mind</button>
-          <button id="lend" class="secondary">Lend the current tab</button></p>
-        <p id="proof-result" class="muted"></p>
-        <p class="muted">Or post this to one of the mind's agents:</p>
-        <p class="prompt">Call itx.cd('/').chrome.openPage({ url: "${escape(proofUrl)}" }), then
-          itx.cd('/').chrome.cdp(tabId, "Runtime.evaluate", { expression: "document.title", returnByValue: true })
-          on the tabId it returned, and report the title.</p>
-      </div>`;
+      ${statusCard("ok", "Connected", {
+        body: `<dl class="facts">
+          <dt>Mind</dt><dd>${escape(mindName)} · ${escape(address)}</dd>
+          <dt>Signed in as</dt><dd>${escape(person)}</dd>
+          <dt>Lent as</dt><dd><code>${escape(name)}</code></dd>
+        </dl>
+        <details id="rename">
+          <summary>Rename this browser</summary>
+          <form id="rename-form" class="row rename">
+            <input id="browser-name" class="input grow" value="${escape(browserName)}"
+              spellcheck="false" autocomplete="off" aria-label="Browser name" />
+            <button class="btn btn-outline">Save</button>
+          </form>
+          <div id="rename-error"></div>
+        </details>`,
+      })}
+      <section class="card">
+        <div class="card-head">
+          <h2>Tabs the mind can drive</h2>
+          <p class="muted">Tabs it opens, and tabs you lend. Chrome shows a debugging bar on each one
+          in use.</p>
+        </div>
+        <ul id="tabs" class="tabs"></ul>
+        <div class="actions">
+          <button id="lend" class="btn btn-primary btn-sm">Lend this tab</button>
+          <button id="prove" class="btn btn-outline btn-sm">Test: open a page</button>
+        </div>
+        <div id="proof-result" class="muted"></div>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h2>Tell an agent</h2>
+          <p class="muted">Paste this to any agent of ${escape(mindName)}: it says how to use this
+          browser.</p>
+        </div>
+        <button id="copy" class="btn btn-outline btn-block">Copy instructions for an agent</button>
+        <details><summary>Show the instructions</summary><pre id="instructions"></pre></details>
+      </section>`;
+
+    const list = element("tabs", HTMLUListElement);
+    const instructions = element("instructions", HTMLPreElement);
+    let lent = [];
+    let drawing = null;
+    // Chrome's tab events come in bursts: one redraw for each burst.
+    showTabs = () => {
+      drawing ??= setTimeout(async () => {
+        drawing = null;
+        if (mine !== generation) return;
+        lent = await browser.tabs();
+        list.innerHTML = lent.length
+          ? lent
+              .map(
+                (tab) => `
+            <li>
+              <div class="grow">
+                <div class="title truncate">${escape(tab.title || tab.url)}</div>
+                <div class="muted mono truncate">${escape(tab.url)}</div>
+              </div>
+              ${tab.attached ? `<span class="badge">in use</span>` : ""}
+              <button class="btn btn-ghost btn-sm" data-stop="${tab.tabId}">Stop</button>
+            </li>`,
+              )
+              .join("")
+          : `<li class="empty">No tabs yet. Lend this tab, or let an agent open one.</li>`;
+        instructions.textContent = agentInstructions(address, name, lent);
+      }, 100);
+    };
+    showTabs();
+
+    list.onclick = async (event) => {
+      const stop = event.target instanceof Element && event.target.closest("[data-stop]");
+      if (!stop) return;
+      await release(Number(stop.getAttribute("data-stop")));
+      showTabs();
+    };
+
+    const copy = element("copy", HTMLButtonElement);
+    copy.onclick = async () => {
+      await copyText(agentInstructions(address, name, lent));
+      copy.textContent = "Copied";
+      setTimeout(() => (copy.textContent = "Copy instructions for an agent"), 2_000);
+    };
+
+    element("rename-form", HTMLFormElement).onsubmit = async (event) => {
+      event.preventDefault();
+      const errors = element("rename-error", HTMLElement);
+      errors.replaceChildren();
+      const chosen = element("browser-name", HTMLInputElement).value.trim();
+      if (!SEGMENT.test(chosen))
+        return fail(errors, new Error("Letters and digits only, starting with a letter."));
+      if (chosen === browserName) return;
+      await chrome.storage.local.set({ browserName: chosen });
+      await connect(session);
+    };
+
     const result = element("proof-result", HTMLElement);
+    const path = name.split(".");
     element("prove", HTMLButtonElement).onclick = async () => {
-      result.textContent = "Calling…";
+      result.textContent = "Calling the mind…";
       try {
-        // The round trip: these calls leave for the mind, whose rule resolves `itx.chrome` to
+        // The round trip: these calls leave for the mind, whose rule resolves the lend's name to
         // the stub lent above and calls back into this very panel.
-        const opened = await itx.invoke(["itx", "chrome", ["openPage", { url: proofUrl }]]);
+        const opened = await itx.invoke([...path, ["openPage", { url: proofUrl }]]);
         const evaluated = await itx.invoke([
-          "itx",
-          "chrome",
+          ...path,
           [
             "cdp",
             opened.tabId,
@@ -354,34 +617,44 @@ async function connect(session) {
             { expression: "document.title", returnByValue: true },
           ],
         ]);
-        result.textContent = `The mind opened tab ${opened.tabId} and read its title: ${JSON.stringify(evaluated.result.value)}`;
+        result.textContent = `The mind opened tab ${opened.tabId} and read its title: ${JSON.stringify(evaluated.result.value)}.`;
       } catch (error) {
         result.textContent = "";
         fail(result, error);
       }
     };
     element("lend", HTMLButtonElement).onclick = async () => {
+      result.textContent = "";
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (!tab?.id) return;
+      if (tabs.has(tab.id)) {
+        result.textContent = "This tab is lent already.";
+        return;
+      }
       grant(tab.id);
       try {
         await attach(tab.id);
-        result.textContent = `Tab ${tab.id} is lent: the mind may drive it with cdp(${tab.id}, …).`;
+        result.textContent = `Lent: agents can drive it as tab ${tab.id}.`;
       } catch (error) {
-        result.textContent = "";
+        tabs.delete(tab.id);
+        showTabs();
         fail(result, error);
       }
     };
   } catch (error) {
     if (mine !== generation) return;
-    view.innerHTML = `<p><button id="retry" class="secondary">Retry</button></p>`;
-    fail(view, error);
+    view.innerHTML = statusCard("bad", "Not connected", {
+      corner: `<button id="retry" class="btn btn-outline btn-sm">Retry</button>`,
+    });
+    fail(view.firstElementChild, error);
     element("retry", HTMLButtonElement).onclick = () => connect(session);
     return;
   }
   socket.addEventListener("close", () => {
     if (mine !== generation) return;
-    view.innerHTML = `<p class="muted">The connection closed; connecting again…</p>`;
+    view.innerHTML = statusCard("wait", "Reconnecting…", {
+      body: `<p class="muted">The connection closed.</p>`,
+    });
     setTimeout(() => {
       if (mine === generation) void connect(session);
     }, 2_000);
@@ -399,7 +672,9 @@ async function connect(session) {
     ]);
     if (answered || mine !== generation) return;
     clearInterval(beat);
-    view.innerHTML = `<p class="muted">The connection stopped answering; connecting again…</p>`;
+    view.innerHTML = statusCard("wait", "Reconnecting…", {
+      body: `<p class="muted">The connection stopped answering.</p>`,
+    });
     void connect(session);
   }, 30_000);
 }
