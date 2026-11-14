@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The chat's status strip when the agent's live state is not there to read: it says what the
 // catalog heard from the agent, or else that it cannot tell, and the log alone then decides when a
-// turn is over, instead of waiting on "Connecting…" for good.
+// turn is over, instead of waiting on "Connecting…" for good. And the chat with no strip, where the
+// status is the feed's last row.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -132,13 +133,78 @@ test("a request the agent facet has not reported yet still shows as running: a p
   expect(document.querySelector("button[title='Stop generation']")).not.toBeNull();
 });
 
+test.for<{ name: string; value: Record<string, unknown>; row: string | null; spinner: boolean }>([
+  {
+    name: "a request is open and the log holds no step of it",
+    value: { paused: null, openRequest: { model: "m" }, pendingLlmRequestTrigger: null },
+    row: "Working…",
+    spinner: true,
+  },
+  {
+    name: "the agent is paused",
+    value: { paused: { reason: "over budget" }, openRequest: null, pendingLlmRequestTrigger: null },
+    row: "Paused — over budget",
+    spinner: false,
+  },
+  {
+    name: "the agent holds no obligation",
+    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
+    row: null,
+    spinner: false,
+  },
+])("with no strip, when $name, the feed's last row is $row", async ({ value, row, spinner }) => {
+  using _layout = laidOut();
+  using chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: { agent: { status: "live", value } },
+      events: [
+        {
+          offset: 4,
+          type: "events.iterate.com/agent/context-added",
+          createdAt: "2026-11-06T00:00:00.000Z",
+          payload: { role: "user", content: "hello", actor: { type: "user" } },
+        },
+      ],
+    },
+    { strip: false, state: { view: "events" }, aboveComposer: <p data-testid="above">progress</p> },
+  );
+  // no strip, and no Events tab even when the state asks for it: the chat and its composer
+  expect(chat.status()).toBeUndefined();
+  expect(document.querySelector("[role=tab]")).toBeNull();
+  expect(document.body.textContent).toContain("hello");
+  expect(document.querySelector("[data-testid=above]")?.textContent).toBe("progress");
+  const shown = document.querySelector("[data-testid=agent-turn-status]");
+  expect(shown ? shown.textContent : null).toBe(row);
+  expect(Boolean(shown?.querySelector("[data-slot=spinner]"))).toBe(spinner);
+});
+
 type Context = ComponentProps<typeof AgentChat>["context"];
+
+/** A page with height, which jsdom lacks, so the virtual log draws its rows; disposing takes it
+ *  back. */
+function laidOut() {
+  const sizes = { clientHeight: 600, offsetHeight: 0 };
+  const own = Object.keys(sizes).map(
+    (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
+  );
+  for (const [name, value] of Object.entries(sizes))
+    Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+  return {
+    [Symbol.dispose]: () => {
+      for (const [name, descriptor] of own)
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    },
+  };
+}
 
 /** The chat mounted in the document over an empty log; disposing
  *  unmounts it and clears the page. */
 async function mount(
   context: Pick<Context, "processors" | "liveState"> &
     Partial<Pick<Context, "events" | "head" | "older">>,
+  props: Partial<ComponentProps<typeof AgentChat>> = {},
 ) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () =>
@@ -157,6 +223,7 @@ async function mount(
         onMessage={async () => {}}
         onAppend={async () => {}}
         signedUrl={async () => ""}
+        {...props}
       />,
     ),
   );

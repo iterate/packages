@@ -20,7 +20,7 @@ import {
   formatAgentUiActivitySummary,
   formatAgentUiDuration,
   groupActivityRounds,
-  isAgentUiActivityWorking,
+  isAgentUiLiveRowWorking,
   summarizeAgentUiActivity,
   type AgentUiActivity,
   type AgentUiActivityRound,
@@ -650,9 +650,7 @@ export function AgentLiveActivity({
   const liveStep = runningSteps.at(-1);
   const doneSteps = live.steps.filter((step) => step.status === "done");
   const status = deriveAgentUiLiveStatus(state);
-  // "processing": no step runs, but the journal already owes one (a script the model wrote, or the
-  // round after a script's value), so the live row keeps its spinner through the gap.
-  const working = isAgentUiActivityWorking(live) || status?.phase === "processing";
+  const working = isAgentUiLiveRowWorking(state);
   const activityExpanded = toggledIds.has(activityToggleId);
   const showStepRail =
     activityExpanded &&
@@ -693,6 +691,21 @@ export function AgentLiveActivity({
         deadlineMs={liveStep?.kind === "code" ? liveStep.deadlineAtMs : null}
         onInspect={inspectStep(liveStep, inspect)}
       />
+    </div>
+  );
+}
+
+/** The turn's state as one quiet row at the end of the feed. When it shows: `chatStatusRow`
+ *  (agent-chat.tsx). */
+export function AgentTurnStatus({ text, working }: { text: string; working: boolean }) {
+  return (
+    <div
+      className="flex h-7 items-center gap-1.5 text-sm text-muted-foreground"
+      data-testid="agent-turn-status"
+      role="status"
+    >
+      {working ? <Spinner className="size-3 shrink-0" /> : null}
+      <span className="truncate">{text}</span>
     </div>
   );
 }

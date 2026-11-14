@@ -208,7 +208,7 @@ export function formatAgentUiDuration(durationMs: number): string {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-export function isAgentUiActivityWorking(activity: AgentUiActivity | null): boolean {
+function isAgentUiActivityWorking(activity: AgentUiActivity | null): boolean {
   return Boolean(activity?.steps.some((step) => step.status === "running"));
 }
 
@@ -281,6 +281,16 @@ export function deriveAgentUiLiveStatus(state: AgentUiState): AgentUiLiveStatus 
     return "working";
   };
   return { phase: phase(), statusText };
+}
+
+/** Whether the live row shows its spinner: a step runs, or none does but the journal already owes
+ *  one ("processing": a script the model wrote, or the round after a script's value), so the spinner
+ *  stays through the gap. */
+export function isAgentUiLiveRowWorking(state: AgentUiState): boolean {
+  if (!state.live) return false;
+  return (
+    isAgentUiActivityWorking(state.live) || deriveAgentUiLiveStatus(state)?.phase === "processing"
+  );
 }
 
 /** A file attachment shown alongside a user message in the agent UI. */

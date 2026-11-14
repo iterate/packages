@@ -98,6 +98,11 @@ export function ComposerTextareaClient({
                 backgroundColor: "color-mix(in oklab, var(--primary) 20%, transparent) !important",
               },
               ".cm-cursor": { borderLeftColor: "var(--foreground)" },
+              // below `sm`, where the pill is compact (composer.tsx): the words start nearer the `+`
+              "@media (max-width: 639px)": {
+                ".cm-content": { padding: "8px 2px" },
+                ".cm-line": { paddingLeft: "2px" },
+              },
             }),
           ],
         }),

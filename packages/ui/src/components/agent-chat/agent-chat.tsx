@@ -5,6 +5,8 @@
 // agent-UI reducer's items: messages, and the activities that open into rounds of script + result)
 // over a composer, the EVENTS (the raw log, `ContextView`), and the TRACES (one right-edge sheet:
 // an LLM request or a script run). It fills its parent, a flex column with a bounded height.
+// `strip={false}` is the chat alone, for a page whose reader is no developer: no strip and no
+// Events tab, and the agent's status is the feed's last row while it works.
 // CONTROLLED, as `ContextView` is: the tab, the open trace and the Events tab's every choice are
 // `state` (agent-chat-search.ts) and come back as an `onStateChange` patch, so a chat is a link.
 // Only the activity rows opened in place stay local.
@@ -35,8 +37,10 @@ import { z } from "zod";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
+import { AgentTurnStatus } from "./agent-feed.tsx";
 import {
   initialAgentUiState,
+  isAgentUiLiveRowWorking,
   type AgentUiItem,
   type AgentUiLlmStep,
   type AgentUiState,
@@ -77,6 +81,8 @@ export function AgentChat({
   onAppend,
   signedUrl,
   itemFooter,
+  strip = true,
+  aboveComposer,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -100,6 +106,12 @@ export function AgentChat({
   /** A row of the page's own under a feed item, such as what the page recorded about a message
    *  (`item.offset` is the offset of the event that carried it). */
   itemFooter?: (item: AgentUiItem) => ReactNode;
+  /** `false`: the chat alone, with no strip and no Events tab; the agent's status is the feed's last
+   *  row instead. */
+  strip?: boolean;
+  /** A row of the page's own over the composer, in view while the person writes: what the agent is
+   *  doing for them elsewhere on the page, say. */
+  aboveComposer?: ReactNode;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -122,6 +134,7 @@ export function AgentChat({
     context.caughtUp && !older.exhausted && feed.items.length === 0 && !feed.state.live;
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
+  const status = chatStatus(turn, feed.state);
   return (
     <AgentShell
       path={path}
@@ -130,7 +143,8 @@ export function AgentChat({
       state={state}
       onStateChange={onStateChange}
       onAppend={onAppend}
-      status={chatStatus(turn, feed.state)}
+      status={status}
+      strip={strip}
       closeSheet={TRACES_CLOSED}
       sheet={
         <InspectorSheet
@@ -154,6 +168,8 @@ export function AgentChat({
         inspect={inspect}
         signedUrl={signedUrl}
         itemFooter={itemFooter}
+        statusRow={strip ? null : chatStatusRow(status, feed.state)}
+        aboveComposer={aboveComposer}
         draft={draft}
         onMessage={onMessage}
         onAppend={onAppend}
@@ -245,6 +261,16 @@ function chatStatus(
   return { text: "Idle", tone: "muted" as const };
 }
 
+/** The status as the feed's last row, for a chat with no strip: a pause, or work the live row does
+ *  not show already (a request not yet in the log, or a page that shows no steps). Idle and
+ *  connecting say nothing. */
+function chatStatusRow({ text, tone }: AgentShellStatus, feedState: AgentUiState) {
+  if (tone === "amber") return <AgentTurnStatus text={text} working={false} />;
+  if (tone === "live" && !isAgentUiLiveRowWorking(feedState))
+    return <AgentTurnStatus text="Working…" working />;
+  return null;
+}
+
 /** The conversation over the composer. */
 function ChatTab({
   feed,
@@ -258,6 +284,8 @@ function ChatTab({
   inspect,
   signedUrl,
   itemFooter,
+  statusRow,
+  aboveComposer,
   draft,
   onMessage,
   onAppend,
@@ -273,6 +301,8 @@ function ChatTab({
   inspect: Inspect;
   signedUrl: SignedUrl;
   itemFooter: ((item: AgentUiItem) => ReactNode) | undefined;
+  statusRow: ReactNode;
+  aboveComposer: ReactNode;
   draft: ComposerDraft;
   onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
@@ -312,9 +342,11 @@ function ChatTab({
       empty={
         <ChatEmpty caughtUp={caughtUp} readProgress={readingForFirstRow ? logShare : undefined} />
       }
+      after={statusRow}
       footer={
-        <div className="pointer-events-none bg-linear-to-t from-background from-80% to-transparent px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
+        <div className="pointer-events-none bg-linear-to-t from-background from-80% to-transparent px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-4 sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
           <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+            {aboveComposer}
             {/* Queued input grows the composer column; the feed follows on resize. */}
             <QueuedMessagesPanel
               messages={feed.state.queuedUserMessages}

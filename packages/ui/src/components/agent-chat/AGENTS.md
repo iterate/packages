@@ -18,6 +18,9 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   every older page, because its prompt is every context item before the request.
 - Inputs with `llmRequestPolicy: "dont-trigger-request"` fold into one quiet row per run. They close
   no activity and join no queue. Inputs that start a turn stay bubbles.
+- `strip={false}` is the chat alone, for a page whose reader is no developer (a mind's own
+  sign-up page): no strip and no Events tab, and the agent's status is the feed's last row.
+  `aboveComposer` takes a row of the page's own over the composer.
 - The page's own rows go under a feed item through `itemFooter`. `inspectors` gives the Events
   tab's inspector a body for the page's own event types. The rows of the Events tab are the same
   for every type: the type as stored and a glance at the payload.

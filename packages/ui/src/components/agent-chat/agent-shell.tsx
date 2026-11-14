@@ -1,7 +1,8 @@
 // THE SHELL every kind's chat sits in: a strip (one line of status, Chat | Events), the Events tab
 // (the raw log, `ContextView`) and a slot for one right-edge sheet. The Chat tab is the kind's own:
 // its `children`. With none, the shell is the Events tab alone, which is what an agent whose kind has
-// no view gets. It fills its parent, a flex column with a bounded height.
+// no view gets. `strip={false}` drops the strip, and with it the Events tab: the Chat tab alone, for
+// a page whose reader is no developer. It fills its parent, a flex column with a bounded height.
 //
 // A kind's view (agent-kind-view/) builds on this, as iterate's `AgentChat` does:
 //
@@ -34,6 +35,7 @@ export function AgentShell({
   onStateChange,
   onAppend,
   status,
+  strip = true,
   inspectors,
   sheet,
   closeSheet,
@@ -52,6 +54,9 @@ export function AgentShell({
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** The strip's line. Omitted: the strip shows the tabs alone. */
   status?: AgentShellStatus;
+  /** `false`: no strip, and the Chat tab alone, whatever `state.view` says. Without `children` the
+   *  Events tab stays, with no strip over it. */
+  strip?: boolean;
   /** Inspector bodies for the kind's own event types, over the agent ones. */
   inspectors?: EventInspectors;
   /** One right-edge sheet of the kind's own (iterate's traces), drawn over both tabs. */
@@ -63,53 +68,20 @@ export function AgentShell({
   children?: ReactNode;
 }) {
   const error = hostError || context.error;
-  const view = children ? state.view : "events";
+  const view = !children ? "events" : strip ? state.view : undefined;
   const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
-  const held = context.events.length;
-  const wholeLogHeld = !context.older || context.older.exhausted;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 px-4 py-1">
-        {status ? (
-          <span
-            className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
-            title={status.detail}
-            data-status={status.tone}
-          >
-            <CircleIcon
-              className={cn(
-                "size-2 shrink-0",
-                status.tone === "live" && "animate-pulse fill-success text-success",
-                status.tone === "amber" && "fill-warning text-warning",
-                status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
-              )}
-            />
-            <span className="truncate">{status.text}</span>
-          </span>
-        ) : null}
-        <Tabs
-          value={view || "chat"}
-          onValueChange={(value) =>
-            onStateChange({ view: value === "chat" ? undefined : "events" })
-          }
-          className="ml-auto"
-        >
-          <TabsList className="h-8 pointer-coarse:h-10">
-            {children ? (
-              <TabsTrigger value="chat" className="text-xs">
-                Chat
-              </TabsTrigger>
-            ) : null}
-            <TabsTrigger value="events" className="text-xs">
-              Events
-              <span className="font-mono text-2xs text-muted-foreground/70">
-                {held}
-                {wholeLogHeld ? "" : "+"}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {strip ? (
+        <ShellStrip
+          status={status}
+          view={view}
+          hasChat={Boolean(children)}
+          held={context.events.length}
+          wholeLogHeld={!context.older || context.older.exhausted}
+          onStateChange={onStateChange}
+        />
+      ) : null}
       {error ? (
         <p data-type="error" className="px-4 py-2 text-sm text-destructive">
           {error}
@@ -141,6 +113,66 @@ export function AgentShell({
         children
       )}
       {sheet}
+    </div>
+  );
+}
+
+/** The strip: one line of status, and Chat | Events. */
+function ShellStrip({
+  status,
+  view,
+  hasChat,
+  held,
+  wholeLogHeld,
+  onStateChange,
+}: {
+  status: AgentShellStatus | undefined;
+  view: AgentChatState["view"];
+  hasChat: boolean;
+  /** How many events are held, and whether they are the whole log: the Events tab's count. */
+  held: number;
+  wholeLogHeld: boolean;
+  onStateChange: (patch: Partial<AgentChatState>) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 px-4 py-1">
+      {status ? (
+        <span
+          className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
+          title={status.detail}
+          data-status={status.tone}
+        >
+          <CircleIcon
+            className={cn(
+              "size-2 shrink-0",
+              status.tone === "live" && "animate-pulse fill-success text-success",
+              status.tone === "amber" && "fill-warning text-warning",
+              status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
+            )}
+          />
+          <span className="truncate">{status.text}</span>
+        </span>
+      ) : null}
+      <Tabs
+        value={view || "chat"}
+        onValueChange={(value) => onStateChange({ view: value === "chat" ? undefined : "events" })}
+        className="ml-auto"
+      >
+        <TabsList className="h-8 pointer-coarse:h-10">
+          {hasChat ? (
+            <TabsTrigger value="chat" className="text-xs">
+              Chat
+            </TabsTrigger>
+          ) : null}
+          <TabsTrigger value="events" className="text-xs">
+            Events
+            <span className="font-mono text-2xs text-muted-foreground/70">
+              {held}
+              {wholeLogHeld ? "" : "+"}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
     </div>
   );
 }

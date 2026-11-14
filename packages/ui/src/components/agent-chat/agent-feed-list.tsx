@@ -1,5 +1,6 @@
 // The chat, on the virtual log (virtual-log/virtual-log.tsx): the feed's settled items are its rows,
-// the work in flight is its tail, and the composer is its footer.
+// the work in flight is its tail (with the chat's own status row after it, if any), and the
+// composer is its footer.
 import { useCallback, type ComponentProps, type ReactNode } from "react";
 import { AgentFeedItemRow, AgentLiveActivity } from "./agent-feed.tsx";
 import type { AgentUiItem, AgentUiState } from "./agent-ui-reducer.ts";
@@ -30,6 +31,7 @@ export function AgentFeedList({
   logShare,
   followTail,
   empty,
+  after,
   footer,
   toggledIds,
   onToggle,
@@ -47,6 +49,8 @@ export function AgentFeedList({
   followTail: number;
   /** What shows when there are no rows: the empty log, the first read. */
   empty: ReactNode;
+  /** A row after the work in flight, the last of the list: the chat's status, when it has no strip. */
+  after?: ReactNode;
   /** The composer, under the rows. */
   footer: ReactNode;
   toggledIds: ReadonlySet<string>;
@@ -79,13 +83,18 @@ export function AgentFeedList({
       rowInfo={CHAT_ROWS}
       renderRow={renderRow}
       tail={
-        state.live ? (
-          <AgentLiveActivity
-            state={state}
-            toggledIds={toggledIds}
-            onToggle={onToggle}
-            inspect={inspect}
-          />
+        state.live || after ? (
+          <>
+            {state.live ? (
+              <AgentLiveActivity
+                state={state}
+                toggledIds={toggledIds}
+                onToggle={onToggle}
+                inspect={inspect}
+              />
+            ) : null}
+            {after}
+          </>
         ) : undefined
       }
       older={older}

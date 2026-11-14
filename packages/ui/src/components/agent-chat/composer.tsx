@@ -2,7 +2,9 @@
 // editor that grows with the draft, a raw-event editor that appends YAML or JSON to the agent's
 // log, attachment chips with drag-and-drop, and one round button that sends — or, while a turn
 // runs, STOPS it (an interruption is a property of the person's next input). A composer for an
-// agent that does not exist yet has no log to append to, so it has no raw mode.
+// agent that does not exist yet has no log to append to, so it has no raw mode. On a narrow screen
+// (below `sm`) it is compact: the buttons and padding shrink, so the words get the width and the
+// chat keeps the height (a phone's keyboard takes half the screen).
 import { useState, type DragEvent, type ReactNode } from "react";
 import { parse as parseYaml } from "yaml";
 import {
@@ -103,7 +105,7 @@ function AgentPillComposer({
         {...dropHandlers}
         data-drop-active={isDragging ? "true" : undefined}
         className={cn(
-          "flex items-end gap-2 rounded-3xl border bg-background py-2 pl-1.5 pr-2 shadow-sm transition-shadow",
+          "flex items-end gap-1 rounded-3xl border bg-background p-1 shadow-sm transition-shadow sm:gap-2 sm:py-2 sm:pr-2 sm:pl-1.5",
           isDragging && "ring-2 ring-primary/40 border-primary/40",
         )}
       >
@@ -147,7 +149,7 @@ function AgentPillComposer({
             title={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
             onClick={submit}
             disabled={!canSubmit}
-            className="relative overflow-hidden rounded-full pointer-coarse:size-11"
+            className="relative overflow-hidden rounded-full sm:pointer-coarse:size-11"
           >
             {isSubmitting ? <Spinner className="size-4" /> : <ArrowUpIcon className="size-4" />}
           </Button>
@@ -230,7 +232,7 @@ function ComposerModeMenu({
             variant="ghost"
             size="icon-lg"
             title="Composer mode"
-            className="rounded-full pointer-coarse:size-11"
+            className="rounded-full sm:pointer-coarse:size-11"
           />
         }
       >
@@ -298,7 +300,7 @@ function ComposerStopButton({
       title="Stop generation"
       onClick={onClick}
       disabled={disabled}
-      className="relative overflow-hidden rounded-full pointer-coarse:size-11"
+      className="relative overflow-hidden rounded-full sm:pointer-coarse:size-11"
     >
       <span
         aria-hidden
