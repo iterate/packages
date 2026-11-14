@@ -5,7 +5,6 @@
 import type { EditorState, Extension, RangeSet } from "@codemirror/state";
 import type { GutterMarker } from "@codemirror/view";
 import type { RepoFileLanguage } from "./repo-file-kinds.ts";
-import { systemCodeMirrorTheme } from "#/lib/codemirror-theme.ts";
 
 async function loadLanguage(language: RepoFileLanguage): Promise<Extension> {
   switch (language) {
@@ -35,21 +34,18 @@ async function loadLanguage(language: RepoFileLanguage): Promise<Extension> {
 }
 
 export async function loadCodeMirror(language: RepoFileLanguage) {
-  const [view, state, merge, setup, themes, languageSupport] = await Promise.all([
+  const [view, state, merge, source, languageSupport] = await Promise.all([
     import("@codemirror/view"),
     import("@codemirror/state"),
     import("@codemirror/merge"),
-    import("codemirror"),
-    import("@fsegurai/codemirror-theme-bundle"),
+    import("#/lib/source-editor.ts"),
     loadLanguage(language),
   ]);
   return {
     view,
     state,
     merge,
-    basicSetup: setup.basicSetup,
-    vsCodeLight: themes.vsCodeLight,
-    vsCodeDark: themes.vsCodeDark,
+    sourceEditorExtensions: source.sourceEditorExtensions,
     languageSupport,
   };
 }
@@ -191,13 +187,7 @@ export function editorExtensions(
 ): Extension[] {
   const { EditorView } = cm.view;
   return [
-    cm.basicSetup,
-    systemCodeMirrorTheme({
-      Compartment: cm.state.Compartment,
-      ViewPlugin: cm.view.ViewPlugin,
-      vsCodeLight: cm.vsCodeLight,
-      vsCodeDark: cm.vsCodeDark,
-    }),
+    cm.sourceEditorExtensions({ history: "local" }),
     cm.languageSupport,
     cm.state.EditorState.readOnly.of(input.readOnly),
     EditorView.editable.of(!input.readOnly),
@@ -207,12 +197,6 @@ export function editorExtensions(
     input.language === "markdown" ? EditorView.lineWrapping : [],
     EditorView.updateListener.of((update) => {
       if (update.docChanged) input.onChange(update.state.doc.toString());
-    }),
-    EditorView.theme({
-      "&": { height: "100%", fontSize: "12px" },
-      "&.cm-focused": { outline: "none" },
-      ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono, monospace)" },
-      ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
     }),
     // a baseline of "" is an empty file, a missing one is no baseline at all
     // oxlint-disable-next-line iterate/simple-truthiness-check -- "" is a baseline, undefined is none

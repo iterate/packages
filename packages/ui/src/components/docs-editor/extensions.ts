@@ -19,7 +19,7 @@ import { ATOMIC_CODE_LANGUAGES } from "@atomic-editor/editor/code-languages";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, indentOnInput, LanguageDescription } from "@codemirror/language";
+import { indentOnInput, LanguageDescription } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import {
@@ -27,14 +27,13 @@ import {
   dropCursor,
   EditorView,
   highlightActiveLine,
-  highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
-  lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
 import { promptLink, toggleWrap } from "./commands.ts";
 import { frontmatterProperties } from "./frontmatter.ts";
+import { sourceEditorExtensions } from "#/lib/source-editor.ts";
 
 /** A markdown file's two views of one editor, Rich (the live preview) and Markdown. */
 export type EditorMode = "rich" | "markdown";
@@ -197,50 +196,10 @@ export function docEditorExtensions(options: {
   ];
 }
 
-/** Any other text file: a code editor, highlighted in its language once `language` holds it
- *  (`codeLanguage`), in Atomic's syntax colours (`theme` above). */
+/** Source files use the repo IDE's setup, with Yjs undo and the doc's sticky find panel. */
 export function codeEditorExtensions(options: { language: Extension }): Extension {
-  return [
-    lineNumbers(),
-    highlightActiveLineGutter(),
-    highlightSpecialChars(),
-    drawSelection(),
-    dropCursor(),
-    EditorState.allowMultipleSelections.of(true),
-    indentOnInput(),
-    bracketMatching(),
-    closeBrackets(),
-    rectangularSelection(),
-    highlightActiveLine(),
-    // Atomic's highlight style (its name says markdown; its tags are every language's)
-    atomicMarkdownSyntax,
-    atomicEditorTheme,
-    theme,
-    // over Atomic's theme, which hides the gutters
-    Prec.highest(codeTheme),
-    find,
-    keymap.of([...closeBracketsKeymap, ...searchKeymap, indentWithTab, ...defaultKeymap]),
-    options.language,
-  ];
+  return [sourceEditorExtensions({ history: "external" }), find, options.language];
 }
-
-/** Code reads as code: monospace, the whole width, no page margins. */
-const codeTheme = EditorView.theme({
-  ".cm-content": {
-    fontFamily: "var(--font-mono, ui-monospace, monospace)",
-    fontSize: "13px",
-    maxWidth: "none",
-  },
-  ".cm-line": { lineHeight: "1.55" },
-  ".cm-activeLineGutter": { backgroundColor: "var(--muted)", color: "var(--foreground)" },
-  // Atomic hides the gutters (a document has none); a code file's line numbers are shown
-  ".cm-gutters": {
-    display: "flex",
-    backgroundColor: "var(--background)",
-    color: "var(--muted-foreground)",
-    border: "none",
-  },
-});
 
 /** The language a file is written in, by its name, from the same list code blocks use; none for
  *  a name no language claims. Each grammar is fetched the first time it's needed. */

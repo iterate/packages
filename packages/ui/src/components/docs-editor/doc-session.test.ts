@@ -4,6 +4,8 @@
 // edits out and in, two tabs converging, comment threads, the save state. The real processor, its
 // saves and merges are the mind's config's; the editor's look is not tested here.
 import { expect, test, vi } from "vitest";
+import { runScopeHandlers } from "@codemirror/view";
+import { openSearchPanel, searchPanelOpen } from "@codemirror/search";
 import * as Y from "yjs";
 import { reduceComments } from "./comments.ts";
 import type { DocsMind } from "./create-doc.ts";
@@ -64,10 +66,10 @@ test("a tab that the browser froze for its back-forward cache and brought back j
   await vi.waitFor(() => expect(mind.text()).toBe("While away\n# Plan\nBack again.\n"));
 });
 
-test("two tabs on one doc type at once and converge on the same text", async () => {
+test.for(["markdown", "code"] as const)("two tabs on one %s file converge", async (kind) => {
   const mind = fakeMind("# Plan\n");
-  using ada = open(mind, "ada@example.com", "# Plan\n");
-  using grace = open(mind, "grace@example.com", "# Plan\n");
+  using ada = open(mind, "ada@example.com", "# Plan\n", kind);
+  using grace = open(mind, "grace@example.com", "# Plan\n", kind);
   await vi.waitFor(() => {
     expect(ada.session.state()).toMatchObject({ status: { kind: "saved" } });
     expect(grace.session.state()).toMatchObject({ status: { kind: "saved" } });
@@ -87,6 +89,45 @@ test("two tabs on one doc type at once and converge on the same text", async () 
     expect(grace.session.state()).toMatchObject({ others: ["Ada"] });
   });
   expect(mind.frames).toContainEqual(expect.objectContaining({ type: AWARENESS_FRAME }));
+});
+
+test("source editor undo keeps the other person's edit", async () => {
+  const initial = "const plan = 1;\n";
+  const mind = fakeMind(initial);
+  using ada = open(mind, "ada@example.com", initial, "code");
+  using grace = open(mind, "grace@example.com", initial, "code");
+  await vi.waitFor(() => {
+    expect(ada.readOnly()).toBe(false);
+    expect(grace.readOnly()).toBe(false);
+  });
+  ada.type(0, "// Ada\n");
+  await vi.waitFor(() => expect(grace.text()).toBe(`// Ada\n${initial}`));
+  grace.type(grace.text().length, "// Grace\n");
+  await vi.waitFor(() => expect(ada.text()).toBe(`// Ada\n${initial}// Grace\n`));
+
+  ada.session.run((view) =>
+    runScopeHandlers(view, new KeyboardEvent("keydown", { key: "z", ctrlKey: true }), "editor"),
+  );
+  await vi.waitFor(() => {
+    expect(ada.text()).toBe(`${initial}// Grace\n`);
+    expect(grace.text()).toBe(ada.text());
+    expect(mind.text()).toBe(ada.text());
+  });
+});
+
+test("Escape closes Find in a source file even with text selected", async () => {
+  const initial = "const plan = 1;\n";
+  const mind = fakeMind(initial);
+  using ada = open(mind, "ada@example.com", initial, "code");
+  await vi.waitFor(() => expect(ada.readOnly()).toBe(false));
+  ada.select("plan");
+  ada.session.run((view) => {
+    openSearchPanel(view);
+    expect(searchPanelOpen(view.state)).toBe(true);
+    runScopeHandlers(view, new KeyboardEvent("keydown", { key: "Escape" }), "editor");
+    expect(searchPanelOpen(view.state)).toBe(false);
+    return true;
+  });
 });
 
 test("a comment on the selection is added, replied to, resolved and reopened", async () => {
@@ -203,7 +244,12 @@ test("a person's cursor colour is one of the page's tokens, the same in every ta
 
 /** A tab: a session on /repos/config's plan.md for `email`, mounted in its own element. Disposing
  *  it unmounts the editor, which leaves the doc. */
-function open(mind: ReturnType<typeof fakeMind>, email: string, text: string) {
+function open(
+  mind: ReturnType<typeof fakeMind>,
+  email: string,
+  text: string,
+  kind: "markdown" | "code" = "markdown",
+) {
   // jsdom lays nothing out, and CodeMirror measures the cursor's place with a Range's rects:
   // empty ones, once for the file, keep its measuring quiet
   Range.prototype.getClientRects ||= () => Object.assign([], { item: () => null });
@@ -212,8 +258,8 @@ function open(mind: ReturnType<typeof fakeMind>, email: string, text: string) {
   const session = new DocSession({
     itx: mind.as(email),
     repo: "/repos/config",
-    path: "plan.md",
-    kind: "markdown",
+    path: kind === "code" ? "plan.js" : "plan.md",
+    kind,
     text,
     user: { name, email, color: cursorColor(email) },
     commentOnly: false,

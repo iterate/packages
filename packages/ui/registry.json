@@ -547,6 +547,30 @@
       ]
     },
     {
+      "name": "source-editor",
+      "type": "registry:lib",
+      "description": "The shared source editor setup for the repo IDE and collaborative Docs buffers.",
+      "dependencies": [
+        "@codemirror/autocomplete",
+        "@codemirror/commands",
+        "@codemirror/language",
+        "@codemirror/lint",
+        "@codemirror/search",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@fsegurai/codemirror-theme-bundle"
+      ],
+      "registryDependencies": [
+        "iterate/packages/codemirror-theme"
+      ],
+      "files": [
+        {
+          "path": "src/lib/source-editor.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
       "name": "codemirror-theme",
       "type": "registry:lib",
       "description": "VS Code light or dark for a CodeMirror editor, as the OS is, swapped in place when it changes.",
@@ -1091,10 +1115,8 @@
         "@codemirror/merge",
         "@codemirror/state",
         "@codemirror/view",
-        "@fsegurai/codemirror-theme-bundle",
         "@pierre/trees",
         "cn",
-        "codemirror",
         "iterate",
         "lucide-react",
         "sonner",
@@ -1105,7 +1127,7 @@
         "badge",
         "button",
         "input",
-        "iterate/packages/codemirror-theme",
+        "iterate/packages/source-editor",
         "tabs"
       ],
       "cssVars": {
@@ -1226,6 +1248,7 @@
         "dropdown-menu",
         "input",
         "iterate/packages/plain-left-click",
+        "iterate/packages/source-editor",
         "iterate/packages/stream-link",
         "native-select",
         "separator",

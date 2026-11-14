@@ -13,9 +13,10 @@ export default {
       },
       // The docs editor IS the page that loads it: DocEditor mounts CodeMirror bound to the doc's
       // Y.Text as the page opens, showing the text the page read, so a lazy import would only
-      // delay that first paint (src/components/docs-editor/AGENTS.md).
+      // delay that first paint (src/components/docs-editor/AGENTS.md). The shared source setup is
+      // also loaded on demand by the repo IDE (src/components/repo-ide/codemirror.ts).
       {
-        files: ["src/components/docs-editor/*.ts"],
+        files: ["src/components/docs-editor/*.ts", "src/lib/source-editor.ts"],
         rules: ["react-doctor/prefer-dynamic-import"],
       },
       // AN ENTRY OF THE PUBLISHED PACKAGE hands a page its component AND the readers of that

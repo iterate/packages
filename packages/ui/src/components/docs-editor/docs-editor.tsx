@@ -99,6 +99,7 @@ export function DocEditor({
 }) {
   const state = useSyncExternalStore(session.subscribe, session.state, session.state);
   const { kind, commentOnly, path, repo } = session.options;
+  const layout = editorLayout(state.mode, kind);
   const comment = (
     <CommentButton
       session={session}
@@ -107,8 +108,8 @@ export function DocEditor({
     />
   );
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="sticky top-0 z-10 bg-background">
+    <div className={layout.container}>
+      <div className="sticky top-0 z-10 shrink-0 bg-background">
         <div className="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-1.5">
           <p className="flex min-w-0 gap-2 font-mono text-xs text-muted-foreground">
             <DocLink href={listHref} onNavigate={onNavigate} className="hover:text-foreground">
@@ -152,8 +153,8 @@ export function DocEditor({
         {/* the find panel (Cmd/Ctrl-F) */}
         <div ref={session.mountPanels} />
       </div>
-      <div className="flex flex-1 flex-col md:flex-row">
-        <div className={textColumn(state.mode, kind)}>
+      <div className={layout.body}>
+        <div className={layout.column}>
           {state.status.kind === "unavailable" ? (
             <div
               role="alert"
@@ -174,10 +175,7 @@ export function DocEditor({
           ) : null}
           {state.mode === "preview" ? <Preview path={path} html={state.previewText} /> : null}
           {/* mounted in Preview too: the text stays live, and the preview follows it */}
-          <div
-            ref={session.mount}
-            className={state.mode === "preview" ? "hidden" : "docs-editor pt-4"}
-          />
+          <div ref={session.mount} className={layout.editor} />
         </div>
         {state.threads.length > 0 || state.draft ? (
           <CommentsPanel session={session} state={state} />
@@ -185,7 +183,7 @@ export function DocEditor({
       </div>
       <p
         role="status"
-        className="sticky bottom-0 border-t bg-background px-4 py-1.5 font-readme text-xs text-muted-foreground"
+        className="sticky bottom-0 shrink-0 border-t bg-background px-4 py-1.5 font-readme text-xs text-muted-foreground"
       >
         <StatusText status={state.status} onRetry={() => session.reconnect()} />
       </p>
@@ -193,13 +191,27 @@ export function DocEditor({
   );
 }
 
-/** The text's column: an html file's Preview fills it, markdown reads at a page's width, code takes
- *  the whole width. */
-function textColumn(mode: DocMode, kind: DocSession["options"]["kind"]) {
-  if (mode === "preview") return "flex min-w-0 flex-1 flex-col";
-  return kind === "markdown"
-    ? "mx-auto w-full max-w-3xl min-w-0 flex-1 px-4 md:px-8"
-    : "flex w-full min-w-0 flex-1 flex-col px-4";
+/** Markdown scrolls as a page; source files scroll inside the editor. */
+function editorLayout(mode: DocMode, kind: DocSession["options"]["kind"]) {
+  const markdown = kind === "markdown";
+  return {
+    container: markdown ? "flex min-w-0 flex-1 flex-col" : "flex min-h-0 min-w-0 flex-1 flex-col",
+    body: markdown
+      ? "flex flex-1 flex-col md:flex-row"
+      : "flex min-h-0 flex-1 flex-col overflow-auto md:flex-row",
+    column:
+      mode === "preview"
+        ? "flex min-h-0 min-w-0 flex-1 flex-col"
+        : markdown
+          ? "mx-auto w-full max-w-3xl min-w-0 flex-1 px-4 md:px-8"
+          : "flex min-h-64 w-full min-w-0 flex-1 flex-col md:min-h-0",
+    editor:
+      mode === "preview"
+        ? "hidden"
+        : markdown
+          ? "docs-editor pt-4"
+          : "docs-editor min-h-0 min-w-0 flex-1 overflow-hidden",
+  };
 }
 
 /** A link of the editor's: a plain left click is the page's `onNavigate` when it has one. */
