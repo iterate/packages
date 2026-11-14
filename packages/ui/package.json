@@ -93,6 +93,7 @@
       "./components/secrets-page": "./dist/components/secrets-page.mjs",
       "./components/setup-steps": "./dist/components/setup-steps.mjs",
       "./components/standalone-page": "./dist/components/standalone-page.mjs",
+      "./components/step-row": "./dist/components/step-row.mjs",
       "./components/stream-link": "./dist/components/stream-link.mjs",
       "./components/time-chart": "./dist/components/time-chart.mjs",
       "./components/ui/alert-dialog": "./dist/components/ui/alert-dialog.mjs",

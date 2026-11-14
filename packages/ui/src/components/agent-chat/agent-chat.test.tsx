@@ -179,6 +179,29 @@ test.for<{ name: string; value: Record<string, unknown>; row: string | null; spi
   expect(Boolean(shown?.querySelector("[data-slot=spinner]"))).toBe(spinner);
 });
 
+test.for<{ name: string; caughtUp: boolean; shown: string; greeting: boolean }>([
+  {
+    name: "the first read is under way",
+    caughtUp: false,
+    shown: "Reading the log…",
+    greeting: false,
+  },
+  { name: "nothing has been said", caughtUp: true, shown: "Good afternoon", greeting: true },
+])("a page's own empty feed: while $name, the feed shows $shown", async (row) => {
+  using _chat = await mount(
+    { processors: { rows: [], loaded: true }, liveState: {}, caughtUp: row.caughtUp },
+    { strip: false, empty: <h2>Good afternoon</h2>, placeholder: "How can I help you today?" },
+  );
+  expect(document.querySelector("[role=log]")?.textContent?.trim()).toBe(row.shown);
+  expect(Boolean(document.querySelector("[data-slot=agent-chat-empty] h2"))).toBe(row.greeting);
+  // the composer's editor is a lazy chunk
+  await vi.waitFor(() =>
+    expect(document.querySelector("[aria-placeholder]")?.getAttribute("aria-placeholder")).toBe(
+      "How can I help you today?",
+    ),
+  );
+});
+
 type Context = ComponentProps<typeof AgentChat>["context"];
 
 /** A page with height, which jsdom lacks, so the virtual log draws its rows; disposing takes it
@@ -203,7 +226,7 @@ function laidOut() {
  *  unmounts it and clears the page. */
 async function mount(
   context: Pick<Context, "processors" | "liveState"> &
-    Partial<Pick<Context, "events" | "head" | "older">>,
+    Partial<Pick<Context, "events" | "head" | "older" | "caughtUp">>,
   props: Partial<ComponentProps<typeof AgentChat>> = {},
 ) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));

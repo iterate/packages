@@ -1,7 +1,7 @@
 // The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
 // mind switcher in its header, the app's own navigation in its body, the collapse button and the
-// account menu in its footer, the rail) and the page
-// beside it under a header row that carries the phone's sidebar trigger, a page's own row
+// account menu in its footer, the rail) and the page beside it under a header row (on a phone, over
+// it: `phoneHeader`) that carries the phone's sidebar trigger, a page's own row
 // (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the minds
 // and the sidebar's pages (app-shell-palette.tsx), or the app's own (`palette`). Router-agnostic
 // on purpose: the app hands over hrefs and its current location, nothing from TanStack comes in
@@ -19,6 +19,8 @@ import {
   type MouseEvent,
   type ReactNode,
   type RefObject,
+  type TouchEvent,
+  type WheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -82,10 +84,22 @@ const CONNECT_PAGE = "/connect";
  *  `defaultOpen` once, when it mounts. */
 const subscribeToNothing = () => () => {};
 
+/** The sidebar as the person left it, from the cookie shadcn's provider writes: undefined until
+ *  they have toggled it. */
+function sidebarCookie() {
+  const cookies = document.cookie.split("; ");
+  if (cookies.includes("sidebar_state=false")) return false;
+  if (cookies.includes("sidebar_state=true")) return true;
+  return undefined;
+}
+
+/** How far a finger or a wheel goes one way before the floating phone header follows it. */
+const HEADER_MOVE_PX = 16;
+
 /** Frames a signed-in page. It reads the `sidebar_state` cookie shadcn's provider writes, so the
  *  sidebar reopens the way it was left — through `useSyncExternalStore`, which keeps the read out
- *  of render: a server render (the dash's frame before sign-in, routes/_auth.tsx) gets shadcn's
- *  default, open, until the page hydrates. */
+ *  of render: a server render (the dash's frame before sign-in, routes/_auth.tsx) gets the default
+ *  (`sidebarDefaultOpen`) until the page hydrates. */
 export function AppShell({
   app,
   mind,
@@ -98,6 +112,8 @@ export function AppShell({
   commandPalette = true,
   searchRow = true,
   header,
+  sidebarDefaultOpen = true,
+  phoneHeader = "row",
   account,
   accountActions,
   locationKey,
@@ -135,6 +151,15 @@ export function AppShell({
   /** what sits beside the phone's sidebar trigger in the header row; without it, a desktop shows
    *  the row only while a page puts its own in it (`AppShellPageHeader`) */
   header?: ReactNode;
+  /** the desktop sidebar for a person who has not toggled it yet (no `sidebar_state` cookie):
+   *  open, shadcn's default, or false to start collapsed to its rail. Their toggle wins after. */
+  sidebarDefaultOpen?: boolean;
+  /** the header row on a phone. "row": a row above the page. "floating": its controls alone (the
+   *  sidebar trigger, a page's ⋯) on the page's background, with no rule, over the page, so that
+   *  nothing under it moves when it comes or goes. It goes as the person scrolls down a page that
+   *  scrolls, and comes back as they scroll up or pull down; on a page that cannot scroll it stays.
+   *  A desktop's header is the same either way. */
+  phoneHeader?: "row" | "floating";
   /** who the app is signed in as, when it knows; null when the app is signed in to `mind` but
    *  does not know as whom (the menu then names the mind). "Sign out" posts to the gate's
    *  `/.auth/logout?mind=<address>`, which ends that mind's sign-in alone. Undefined while the
@@ -163,9 +188,10 @@ export function AppShell({
   );
   const defaultOpen = useSyncExternalStore(
     subscribeToNothing,
-    () => !document.cookie.split("; ").includes("sidebar_state=false"),
-    () => true,
+    () => sidebarCookie() ?? sidebarDefaultOpen,
+    () => sidebarDefaultOpen,
   );
+  const floating = phoneHeader === "floating";
   // the palette: the sidebar's navigation as it read when ⌘K opened it, null while closed
   const navRef = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<SidebarNavItem[] | null>(null);
@@ -223,34 +249,18 @@ export function AppShell({
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
-      <SidebarInset className="min-w-0 overflow-hidden">
-        <header
-          className={cn(
-            "group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1",
-            // a page's own row is a toolbar: even padding, a rule under it
-            "has-[[data-page-header]]:border-b has-[[data-page-header]]:py-1.5",
-            // the trigger, Search and the ⋯ are a phone's: on a desktop the row would be empty
-            !header && "md:hidden md:has-[[data-page-header]]:flex",
-          )}
-        >
-          <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
-          {/* in a page's menu instead on a phone, while it has one */}
-          <div
-            className={cn(
-              "flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden",
-              !header && "md:hidden",
-            )}
-          >
-            {commandPalette ? <PaletteHeaderButton onOpen={openPalette} /> : null}
-            {header}
-          </div>
-          <div ref={setPageHeaderSlot} className="flex min-w-0 flex-1 items-center empty:hidden" />
-          <div ref={setPageMenuSlot} className="ml-auto flex items-center md:hidden" />
-        </header>
+      <ShellInset floatingHeader={floating} locationKey={locationKey}>
+        <ShellHeader
+          header={header}
+          floating={floating}
+          onOpenPalette={commandPalette ? openPalette : undefined}
+          pageHeaderRef={setPageHeaderSlot}
+          pageMenuRef={setPageMenuSlot}
+        />
         <PageSlotsContext value={pageSlots}>
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
         </PageSlotsContext>
-      </SidebarInset>
+      </ShellInset>
       {commandPalette ? (
         <ShellPalette
           appPalette={appPalette}
@@ -265,6 +275,130 @@ export function AppShell({
       ) : null}
     </SidebarProvider>
   );
+}
+
+/** The row over the page: the phone's sidebar trigger, Search and the app's `header`, and the slots
+ *  a page's own row (`AppShellPageHeader`) and its ⋯ (`AppShellPageMenu`) are drawn into. */
+function ShellHeader({
+  header,
+  floating,
+  onOpenPalette,
+  pageHeaderRef,
+  pageMenuRef,
+}: {
+  header: ReactNode;
+  /** the phone's floating header (`phoneHeader`) */
+  floating: boolean;
+  /** opens ⌘K's palette; the row has no Search button without it */
+  onOpenPalette: (() => void) | undefined;
+  pageHeaderRef: (element: HTMLElement | null) => void;
+  pageMenuRef: (element: HTMLElement | null) => void;
+}) {
+  return (
+    <header
+      className={cn(
+        "group/header flex shrink-0 items-center gap-3 px-4 pt-2.5 pb-1",
+        // a page's own row is a toolbar: even padding, a rule under it
+        "has-[[data-page-header]]:border-b has-[[data-page-header]]:py-1.5",
+        // the trigger, Search and the ⋯ are a phone's: on a desktop the row would be empty
+        !header && "md:hidden md:has-[[data-page-header]]:flex",
+        // over the page, which shows through it; only its controls take a touch. Out of sight,
+        // it is above the inset, which clips it, unless a key has brought focus into it
+        floating &&
+          "max-md:pointer-events-none max-md:absolute max-md:inset-x-0 max-md:top-0 max-md:z-20 max-md:bg-linear-to-b max-md:from-background max-md:from-40% max-md:to-transparent max-md:*:pointer-events-auto max-md:motion-safe:transition-transform max-md:motion-safe:duration-200 max-md:group-data-[phone-header=hidden]/inset:not-focus-within:-translate-y-full",
+      )}
+    >
+      <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
+      {/* in a page's menu instead on a phone, while it has one */}
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-3 max-md:group-has-[[data-page-menu]]/header:hidden",
+          !header && "md:hidden",
+        )}
+      >
+        {onOpenPalette ? <PaletteHeaderButton onOpen={onOpenPalette} /> : null}
+        {header}
+      </div>
+      <div ref={pageHeaderRef} className="flex min-w-0 flex-1 items-center empty:hidden" />
+      <div ref={pageMenuRef} className="ml-auto flex items-center md:hidden" />
+    </header>
+  );
+}
+
+/** The page beside the sidebar. With a floating phone header, the person's own moves over the page
+ *  say whether it shows: a finger or a wheel toward the end of a page that can scroll on puts it
+ *  away, one back toward the top brings it back. Their moves and not scroll events, because the
+ *  page also scrolls by itself: a feed follows its end as rows land, and holds a reader's row
+ *  still as older pages land above it. Nothing here moves the page. Put away, it is put away on
+ *  one page: a new location shows it again. */
+function ShellInset({
+  floatingHeader,
+  locationKey,
+  children,
+}: {
+  floatingHeader: boolean;
+  locationKey: string;
+  children: ReactNode;
+}) {
+  // the location where the person put the header away, while it is away
+  const [hiddenAt, setHiddenAt] = useState<string | null>(null);
+  const shown = hiddenAt !== locationKey;
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  // one way's wheel deltas so far: a trackpad's last nudge the other way is no turn
+  const wheelRef = useRef(0);
+  // toward the end of what cannot scroll on (a short page, the end of a long one): it stays as it is
+  const moved = (towardEnd: boolean, target: EventTarget, inset: Element) => {
+    if (!towardEnd) setHiddenAt(null);
+    else if (scrollsOn(target, inset)) setHiddenAt(locationKey);
+  };
+  return (
+    <SidebarInset
+      className="group/inset min-w-0 overflow-hidden"
+      data-phone-header={floatingHeader ? (shown ? "shown" : "hidden") : undefined}
+      {...(floatingHeader && {
+        onTouchStartCapture: (event: TouchEvent<HTMLElement>) => {
+          const touch = event.touches[0];
+          touchRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+        },
+        onTouchMoveCapture: (event: TouchEvent<HTMLElement>) => {
+          const touch = event.touches[0];
+          const from = touchRef.current;
+          if (!touch || !from) return;
+          const down = touch.clientY - from.y;
+          // a sideways swipe (a wide table) says nothing
+          if (Math.abs(down) < HEADER_MOVE_PX || Math.abs(down) < Math.abs(touch.clientX - from.x))
+            return;
+          touchRef.current = { x: touch.clientX, y: touch.clientY };
+          // a finger going up takes the page toward its end
+          moved(down < 0, event.target, event.currentTarget);
+        },
+        onWheelCapture: (event: WheelEvent<HTMLElement>) => {
+          const sum =
+            Math.sign(event.deltaY) === Math.sign(wheelRef.current)
+              ? wheelRef.current + event.deltaY
+              : event.deltaY;
+          wheelRef.current = Math.abs(sum) < HEADER_MOVE_PX ? sum : 0;
+          if (Math.abs(sum) >= HEADER_MOVE_PX) moved(sum > 0, event.target, event.currentTarget);
+        },
+      })}
+    >
+      {children}
+    </SidebarInset>
+  );
+}
+
+/** Whether something under `target`, up to `inset`, can scroll further toward its end. */
+function scrollsOn(target: EventTarget, inset: Element) {
+  for (
+    let element = target instanceof Element ? target : null;
+    element && element !== inset;
+    element = element.parentElement
+  ) {
+    const { overflowY } = getComputedStyle(element);
+    if (overflowY !== "auto" && overflowY !== "scroll") continue;
+    if (element.scrollHeight - element.clientHeight - element.scrollTop > 1) return true;
+  }
+  return false;
 }
 
 /** ⌘K's dialog: the app's own palette when it brings one, else the shell's. */

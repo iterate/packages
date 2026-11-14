@@ -1444,6 +1444,34 @@
       ]
     },
     {
+      "name": "step-row",
+      "type": "registry:component",
+      "description": "One step of work in a feed, as a quiet line among the messages: done, running, waiting on the person with their buttons, or failed.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "spinner"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "color-warning": "var(--warning)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))",
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/step-row.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "stream-link",
       "type": "registry:component",
       "description": "Stream ↗: a link from a page to the context its data lives on, in the Dash's Contexts page.",

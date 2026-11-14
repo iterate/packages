@@ -83,6 +83,8 @@ export function AgentChat({
   itemFooter,
   strip = true,
   aboveComposer,
+  empty,
+  placeholder = "Message this agent",
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -112,6 +114,11 @@ export function AgentChat({
   /** A row of the page's own over the composer, in view while the person writes: what the agent is
    *  doing for them elsewhere on the page, say. */
   aboveComposer?: ReactNode;
+  /** What the feed shows, centred, once the read is done and nothing has been said: a page's own
+   *  greeting, in place of "Nothing said yet". The first read still shows its progress. */
+  empty?: ReactNode;
+  /** The composer's text while it is empty. */
+  placeholder?: string;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -170,6 +177,8 @@ export function AgentChat({
         itemFooter={itemFooter}
         statusRow={strip ? null : chatStatusRow(status, feed.state)}
         aboveComposer={aboveComposer}
+        empty={empty}
+        placeholder={placeholder}
         draft={draft}
         onMessage={onMessage}
         onAppend={onAppend}
@@ -286,6 +295,8 @@ function ChatTab({
   itemFooter,
   statusRow,
   aboveComposer,
+  empty,
+  placeholder,
   draft,
   onMessage,
   onAppend,
@@ -303,6 +314,8 @@ function ChatTab({
   itemFooter: ((item: AgentUiItem) => ReactNode) | undefined;
   statusRow: ReactNode;
   aboveComposer: ReactNode;
+  empty: ReactNode;
+  placeholder: string;
   draft: ComposerDraft;
   onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
@@ -340,7 +353,11 @@ function ChatTab({
       logShare={logShare}
       followTail={followTail}
       empty={
-        <ChatEmpty caughtUp={caughtUp} readProgress={readingForFirstRow ? logShare : undefined} />
+        <ChatEmpty
+          caughtUp={caughtUp}
+          readProgress={readingForFirstRow ? logShare : undefined}
+          empty={empty}
+        />
       }
       after={statusRow}
       footer={
@@ -356,7 +373,7 @@ function ChatTab({
             />
             <AgentComposer
               draft={draft}
-              placeholder="Message this agent"
+              placeholder={placeholder}
               autoFocusMessage
               interrupt={interrupt}
               onSubmit={(message) => {
@@ -383,13 +400,15 @@ function ChatTab({
 }
 
 /** What the chat shows with no rows: the first read, older pages being read for a first row, or a
- *  log with nothing said on it. */
+ *  log with nothing said on it (the page's own `empty`, in the middle of the feed, if it gave one). */
 function ChatEmpty({
   caughtUp,
   readProgress,
+  empty,
 }: {
   caughtUp: boolean;
   readProgress: number | undefined;
+  empty: ReactNode;
 }) {
   if (!caughtUp)
     return (
@@ -401,6 +420,12 @@ function ChatEmpty({
     return (
       <div className="py-6">
         <ReadProgress label="Reading the log" value={readProgress} />
+      </div>
+    );
+  if (empty)
+    return (
+      <div data-slot="agent-chat-empty" className="flex h-full items-center justify-center py-6">
+        {empty}
       </div>
     );
   return (

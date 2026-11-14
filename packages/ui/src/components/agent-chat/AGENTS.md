@@ -20,7 +20,8 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   no activity and join no queue. Inputs that start a turn stay bubbles.
 - `strip={false}` is the chat alone, for a page whose reader is no developer (a mind's own
   sign-up page): no strip and no Events tab, and the agent's status is the feed's last row.
-  `aboveComposer` takes a row of the page's own over the composer.
+  `aboveComposer` takes a row of the page's own over the composer. `empty` is the page's own
+  greeting, centred in the feed while nothing has been said, and `placeholder` the composer's text.
 - The page's own rows go under a feed item through `itemFooter`. `inspectors` gives the Events
   tab's inspector a body for the page's own event types. The rows of the Events tab are the same
   for every type: the type as stored and a glance at the payload.
