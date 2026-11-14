@@ -13,6 +13,7 @@ test.for<{ name: string; state: StepRowState; mark: string; spoken: string }>([
   { name: "running", state: "running", mark: "animate-spin", spoken: "In progress: " },
   { name: "waiting", state: "waiting", mark: "lucide-circle-alert", spoken: "Waiting for you: " },
   { name: "failed", state: "failed", mark: "lucide-circle-x", spoken: "Failed: " },
+  { name: "note", state: "note", mark: "lucide-info", spoken: "Note: " },
 ])(
   "a $name step shows its own mark and says its state in words",
   async ({ state, mark, spoken }) => {

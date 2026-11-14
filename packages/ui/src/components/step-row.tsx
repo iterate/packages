@@ -1,14 +1,16 @@
 // step-row.tsx — one step of work a page does for the person, as a quiet line among the messages of
 // a feed: done with a green check, running with a spinner, waiting on the person with an alert mark
-// and what they can do about it, or failed. No card: an icon, a line of text, a line under it, and the
-// page's own buttons under that. Its spacing is padding, so it can be a row of a virtual list.
+// and what they can do about it, failed, or a note (an info mark: it ended, neither done nor failed,
+// such as an optional step that was skipped). No card: an icon, a line of text, a line under it, and
+// the page's own buttons under that. Its spacing is padding, so it can be a row of a virtual list.
 import type { ComponentProps, ReactNode } from "react";
-import { CircleAlert, CircleCheck, CircleX } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, Info } from "lucide-react";
 import { cn } from "cn";
 import { Spinner } from "#/components/ui/spinner.tsx";
 
-/** done; running (under way); waiting (on the person: its buttons say for what); failed. */
-export type StepRowState = "done" | "running" | "waiting" | "failed";
+/** done; running (under way); waiting (on the person: its buttons say for what); failed; note (it
+ *  ended, neither done nor failed). */
+export type StepRowState = "done" | "running" | "waiting" | "failed" | "note";
 
 /** The state in words, for a screen reader: the icon alone says it only to the eye. */
 const SPOKEN: Record<StepRowState, string> = {
@@ -16,6 +18,15 @@ const SPOKEN: Record<StepRowState, string> = {
   running: "In progress",
   waiting: "Waiting for you",
   failed: "Failed",
+  note: "Note",
+};
+
+const MARK: Record<StepRowState, ReactNode> = {
+  done: <CircleCheck className="size-4 fill-success text-background" />,
+  running: <Spinner className="size-3.5 text-muted-foreground" />,
+  waiting: <CircleAlert className="size-4 fill-warning text-background" />,
+  failed: <CircleX className="size-4 fill-destructive text-background" />,
+  note: <Info className="size-4 fill-muted-foreground text-background" />,
 };
 
 /** One step. `children` are its actions (`Button size="sm"`), shown in every state the page gives
@@ -41,21 +52,13 @@ export function StepRow({
       {...props}
     >
       <span aria-hidden className="grid h-5 w-4 shrink-0 place-items-center">
-        {state === "done" ? (
-          <CircleCheck className="size-4 fill-success text-background" />
-        ) : state === "running" ? (
-          <Spinner className="size-3.5 text-muted-foreground" />
-        ) : state === "waiting" ? (
-          <CircleAlert className="size-4 fill-warning text-background" />
-        ) : (
-          <CircleX className="size-4 fill-destructive text-background" />
-        )}
+        {MARK[state]}
       </span>
       <div className="min-w-0 flex-1">
         <div
           className={cn(
             state === "waiting" && "font-medium",
-            state === "done" && "text-muted-foreground",
+            (state === "done" || state === "note") && "text-muted-foreground",
           )}
         >
           <span className="sr-only">{SPOKEN[state]}: </span>
