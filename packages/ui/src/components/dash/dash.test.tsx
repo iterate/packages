@@ -205,6 +205,43 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   ).toEqual([false, true, false, false, false, false]);
 });
 
+test("in the icon rail an agent row is its icon alone: its words hide by the sidebar's classes, and its tooltip says its title, its line and its path", async () => {
+  // the sidebar as a person left it: collapsed to its icons
+  document.cookie = "sidebar_state=false; path=/";
+  const now = new Date().toISOString();
+  const agents = {
+    "/agents/flights": {
+      createdAt: now,
+      kind: "iterate",
+      title: "Find a flight to Lisbon",
+      status: "working",
+      activity: "comparing fares",
+      lastActivityAt: now,
+    },
+  };
+  await using dash = await draw("/", [], { pages: withAgentPages, agents });
+  document.cookie = "sidebar_state=; path=/; max-age=0";
+  const { host } = dash;
+  expect(host.querySelector('[data-collapsible="icon"]')).not.toBeNull();
+  const link = host.querySelector<HTMLAnchorElement>('[data-agent-path="/agents/flights"] a')!;
+  // the words are one span that the rail hides; the icon and its status dot stay
+  const words = [...link.children].at(-1)!;
+  expect(words).toMatchObject({ textContent: "Find a flight to Lisboncomparing fares" });
+  expect(words.classList).toContain("group-data-[collapsible=icon]:hidden");
+  // the link keeps its name where its words are not drawn
+  expect(link.getAttribute("aria-label")).toBe("Find a flight to Lisbon");
+  expect(link.querySelector("[data-agent-status]")).toMatchObject({ title: "working" });
+  // the large row is the pages' square in the rail, its icon centred
+  expect(link.classList).toContain("group-data-[collapsible=icon]:p-2!");
+  expect(link.classList).not.toContain("group-data-[collapsible=icon]:p-0!");
+  // focus opens its tooltip, as a hover does
+  await act(() => link.focus());
+  await until(() => document.querySelector("[data-agent-tooltip]"));
+  expect(
+    [...document.querySelector("[data-agent-tooltip]")!.children].map((line) => line.textContent),
+  ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
+});
+
 test("⌘K is one palette on every page: Agents first, then Raw contexts, and / completes paths", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const now = new Date().toISOString();

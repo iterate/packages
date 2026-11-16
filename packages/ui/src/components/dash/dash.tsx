@@ -354,12 +354,15 @@ function DashNav({
         </SidebarGroup>
       ) : null}
       {newAgent ? (
-        <SidebarGroup className="pb-0">
+        // in the icon rail, the same gap below it as between the other groups
+        <SidebarGroup className="pb-0 group-data-[collapsible=icon]:pb-2">
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   variant="outline"
+                  // in the icon rail, a bare icon as the pages' rows are: the box is the open sidebar's
+                  className="group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:hover:bg-sidebar-accent"
                   tooltip="New agent"
                   render={
                     <RowLink

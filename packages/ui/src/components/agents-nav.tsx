@@ -4,6 +4,10 @@
 // its path), an icon for what runs it and a dot for its status (lib/agent-summary.ts). Pinned agents sit in their own list above, pins kept
 // per mind in this browser. It imports no router: a row is a link to `agentHref(path)`, and a
 // plain left click on it is `onOpen`'s when the page has one.
+//
+// IN THE ICON RAIL (the sidebar collapsed) a row is its icon and its status dot alone, centred as
+// the other rows' icons are, and its tooltip (`AgentTooltip`) says its title, its line and its
+// path. The words hide by the sidebar's own `group-data-[collapsible=icon]` classes.
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { PinIcon, SquarePenIcon } from "lucide-react";
 import { cn } from "cn";
@@ -132,7 +136,9 @@ export function AgentsNav({
         <SidebarGroupContent>
           <SidebarMenu>
             {agents.length === 0 ? (
-              <p className="font-readme px-2 py-1 text-xs text-muted-foreground">No agents yet.</p>
+              <p className="font-readme px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+                No agents yet.
+              </p>
             ) : null}
             {ordered.recent.map(renderRow)}
           </SidebarMenu>
@@ -166,18 +172,29 @@ function AgentsNavRow({
     <SidebarMenuItem data-agent-path={row.path}>
       <SidebarMenuButton
         size="lg"
-        // a phone gives what the agent is doing two lines, so the row grows
-        className="max-md:h-auto max-md:min-h-12"
+        // a phone gives what the agent is doing two lines, so the row grows; in the icon rail the
+        // large row is the same square as the other rows, its icon centred
+        className="max-md:h-auto max-md:min-h-12 group-data-[collapsible=icon]:p-2!"
         isActive={active}
-        tooltip={row.activity ? `${row.path}: ${row.activity}` : row.path}
-        render={<AgentLink path={row.path} agentHref={agentHref} onOpen={onOpen} />}
+        tooltip={{
+          children: <AgentTooltip title={agentTitle(row)} line={doing} path={row.path} />,
+        }}
+        // the link's name, also in the rail, where the row's words are not drawn
+        render={
+          <AgentLink
+            aria-label={agentTitle(row)}
+            path={row.path}
+            agentHref={agentHref}
+            onOpen={onOpen}
+          />
+        }
       >
         <span className="relative">
           <KindIcon data-agent-kind={row.kind || undefined} />
           {row.status ? <StatusDot status={row.status} /> : null}
         </span>
         {/* an agent with no title is its path, once, on line one */}
-        <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
           <span className="flex min-w-0 items-baseline gap-1 text-sm">
             {other ? (
               <span className="shrink-0 text-muted-foreground" data-agent-person>
@@ -218,6 +235,25 @@ function AgentsNavRow({
         <PinIcon className={cn(pinned && "fill-current")} />
       </button>
     </SidebarMenuItem>
+  );
+}
+
+/** An agent row's tooltip, which shows in the icon rail: its title, its one line, and its path. */
+export function AgentTooltip({
+  title,
+  line,
+  path,
+}: {
+  title: string;
+  line?: string | null;
+  path: string;
+}) {
+  return (
+    <span className="flex max-w-72 min-w-0 flex-col gap-0.5" data-agent-tooltip>
+      <span className="line-clamp-2">{title}</span>
+      {line ? <span className="truncate opacity-70">{line}</span> : null}
+      <ContextPathText path={path} truncate className="opacity-70" />
+    </span>
   );
 }
 
