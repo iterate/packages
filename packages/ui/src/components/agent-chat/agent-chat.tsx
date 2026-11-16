@@ -26,7 +26,7 @@
 //     onStateChange={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
 //     onMessage={({ message, files }) => mind.agents.get(path).message({ message, files })}
 //     onAppend={(events) => agent.append(...events)}
-//     signedUrl={async (file) => (await agent.files.get(file).url()).url}
+//     signedUrl={async (file) => (await mind.files.get(file).url()).url}
 //   />
 import {
   useCallback,
@@ -165,7 +165,9 @@ export function AgentChat({
    *  the interrupt, and the Events tab's composer. The events are as a person wrote them, and the
    *  platform parses each. `undefined` until the host holds the context: nothing can be appended. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
-  /** A signed download URL for a file under the agent's path: `stub.files.get(path).url()`. */
+  /** A signed download URL for a file under the agent's path, asked of the mind's root and not
+   *  of the agent's context (`mind.files.get(path).url()`): only an iterate agent's context has
+   *  `files`. */
   signedUrl: SignedUrl;
   /** A row of the page's own under a feed item, such as what the page recorded about a message
    *  (`item.offset` is the offset of the event that carried it). */

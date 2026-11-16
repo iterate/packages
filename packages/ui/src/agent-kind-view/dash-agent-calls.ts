@@ -59,3 +59,17 @@ export async function messageAgent(
     agent[Symbol.dispose]();
   }
 }
+
+/** A SIGNED DOWNLOAD URL FOR A FILE, ASKED OF THE MIND (`itx.files.get(path).url()`), never of an
+ *  agent's context. Only an agent of the mind's own kind links its context to the root, where
+ *  `files` is. The context of a Claude Code, Codex, ACP or Herdr agent has its own names alone, so
+ *  `itx.cd(path).files` matches no rule there, and no attachment of its chat would show. Lets go
+ *  of the file's handle, whatever the answer. */
+export async function fileUrl(itx: Itx, filePath: string): Promise<string> {
+  const file = itx.files.get(filePath);
+  try {
+    return (await file.url()).url;
+  } finally {
+    file[Symbol.dispose]();
+  }
+}

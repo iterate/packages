@@ -98,6 +98,33 @@ test("the agent view takes any path, links to its raw view, and says the opener 
   expect(appended).toHaveLength(1);
 });
 
+test("a chat draws a message's image for an agent whose context has no `files`: the mind signs its URL", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/claude/c";
+  const file = { contentType: "image/png", filename: "photo.png", path: `${path}/photo.png` };
+  const { itx } = mind({
+    logs: {
+      [path]: [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "user", content: "A photo", files: [{ ...file, size: 3 }] },
+        },
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  await using page = await draw(DashAgents, itx, { waiting: 0 });
+  await act(() =>
+    vi.waitFor(() =>
+      expect(page.host.querySelector('img[alt="photo.png"]')?.getAttribute("src")).toBe(
+        `https://files.example.com${file.path}`,
+      ),
+    ),
+  );
+});
+
 test("an agent of another kind, before the catalog says its kind: no chat of iterate's, and never its words for an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
@@ -162,20 +189,30 @@ test("New agent is the composer alone, on the home and the Agents page, whatever
   }
 });
 
-/** A mind of empty logs: what the page appends is kept in `appended`. `kinds`: each kind's file in
- *  the config repo, by kind. */
+/** A mind whose logs are empty but for `logs`: what the page appends is kept in `appended`.
+ *  `kinds`: each kind's file in the config repo, by kind. Its root has `files`, and a context has
+ *  none: only an iterate agent's context links to the root, and the page must not count on it. */
 function mind({
   serves = [],
   integrations,
   kinds,
+  logs = {},
 }: {
   serves?: string[];
   integrations?: object;
   kinds?: Record<string, string>;
+  logs?: Record<string, { offset: number; type: string; payload: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
   const contextOf = (path: string) => ({
-    readEvents: async () => ({ events: [], atHead: true, scannedThroughOffset: 0 }),
+    readEvents: async (after = 0) => {
+      const held = (logs[path] || []).map((event) => ({ ...event, path, createdAt: now }));
+      return {
+        events: held.filter((event) => event.offset > after),
+        atHead: true,
+        scannedThroughOffset: held.at(-1)?.offset || 0,
+      };
+    },
     subscribe: async () => ({ [Symbol.dispose]() {} }),
     subscriptions: { list: async () => [] },
     rpcStubs: { list: async () => [] },
@@ -183,7 +220,6 @@ function mind({
     append: async (...events: unknown[]) => {
       appended.push({ path, events });
     },
-    files: { get: () => ({ url: async () => ({ url: "https://files.example.com/x" }) }) },
     [Symbol.dispose]() {},
   });
   const itx = {
@@ -193,8 +229,33 @@ function mind({
     repos: { get: () => ({ readFile: async () => (kinds ? "export default {};" : null) }) },
     rewriteRules: { get: async (root: string) => (serves.includes(root) ? { target: "x" } : null) },
     cd: async (path: string) => contextOf(path),
+    files: {
+      get: (path: string) => ({
+        url: async () => ({ url: `https://files.example.com${path}` }),
+        [Symbol.dispose]() {},
+      }),
+    },
   } as unknown as DashPageProps["itx"];
   return { itx, appended };
+}
+
+/** A page with height, which jsdom lacks, so the chat's virtual log draws its rows; disposing takes
+ *  it back. */
+function laidOut() {
+  const sizes = { clientHeight: 600, offsetHeight: 0 };
+  const own = Object.keys(sizes).map(
+    (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
+  );
+  for (const [name, value] of Object.entries(sizes))
+    Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+  return {
+    [Symbol.dispose]: () => {
+      for (const [name, descriptor] of own)
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        // the cast: the prototype's own keys are not indexable by a string in its type
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    },
+  };
 }
 
 /** The new-agent composer of a drawn page. Its editor is a part that loads after the page drew,

@@ -28,7 +28,7 @@ import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { facetSnapshotOf, useContextStub, useIterateContext } from "iterate/react";
 import type { AgentKindViewInputs } from "./bridge.ts";
-import { appendEvents, messageAgent, withAgents } from "./dash-agent-calls.ts";
+import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-shell.tsx";
@@ -514,10 +514,7 @@ function IterateChat({
         await messageAgent(itx, path, { message, files });
       }}
       onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
-      signedUrl={async (file) => {
-        if (!stub) throw new Error("not connected");
-        return (await stub.files.get(file).url()).url;
-      }}
+      signedUrl={(file) => fileUrl(itx, file)}
     />
   );
 }
@@ -584,9 +581,8 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
       await appendEvents(stub, events);
     },
     fileUrl: async (filePath) => {
-      if (!stub) throw new Error("not connected");
       if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
-      return (await stub.files.get(filePath).url()).url;
+      return fileUrl(itx, filePath);
     },
     setState: patchView,
     loadOlder: log.older.loadOlder,

@@ -388,10 +388,16 @@ function AgentKindView({
       // the events as a person wrote them; the platform parses each
       await context.append(...(events as Parameters<Context["append"]>));
     },
+    // asked of the mind: only an iterate agent's context links to the root, where `files` is
     fileUrl: async (filePath) => {
-      if (!context) throw new Error("not connected");
       if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
-      return (await context.files.get(filePath).url()).url;
+      const file = itx.files.get(filePath);
+      try {
+        return (await file.url()).url;
+      } finally {
+        // the caller lets go of each handle it gets, a refusal included
+        file[Symbol.dispose]();
+      }
     },
     setState: onStateChange,
     loadOlder: log.older.loadOlder,

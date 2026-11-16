@@ -81,8 +81,9 @@ export async function agentChatPage(scope: {
           }}
           onAppend=\${agent.stub ? (events) => agent.stub.append(...events) : undefined}
           signedUrl=\${async (file) => {
-            if (!agent.stub) throw new Error("not connected");
-            return (await agent.stub.files.get(file).url()).url;
+            // asked of the mind: only an iterate agent's context links to the root, where files is
+            if (!root.stub) throw new Error("not connected");
+            return (await root.stub.files.get(file).url()).url;
           }}
           itemFooter=\${(item) =>
             item.kind === "user" &&
