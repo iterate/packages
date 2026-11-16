@@ -262,6 +262,13 @@ function hrefOfPage(pages: DashPage[], page: DashPage) {
  *  Another page is another boundary (its `key`). On the Agents page `shows` is the open agent's
  *  path: the error is the view's it came from, so another agent, or none, draws again. Nothing is
  *  mounted anew while there is no error, and the page's own `?view=` state is not in `shows`. */
+declare global {
+  interface Window {
+    /** A page's own error capture, when it has one (a mind's `page-errors.js`). */
+    reportPageError?: (error: unknown, kind?: string) => void;
+  }
+}
+
 type Shown = { error: string | null; shows: string };
 class PageBoundary extends Component<{ shows: string; children: ReactNode }, Shown> {
   override state: Shown = { error: null, shows: this.props.shows };
@@ -271,6 +278,20 @@ class PageBoundary extends Component<{ shows: string; children: ReactNode }, Sho
   }
   static getDerivedStateFromError(error: unknown): Partial<Shown> {
     return { error: error instanceof Error ? error.message : String(error) };
+  }
+  /** A render error never reaches `window.onerror`. So it goes to the page's own error capture,
+   *  when the page has one: a mind's `page-errors.js` sets `window.reportPageError`, and the
+   *  error becomes an event of the mind. With no capture, nothing happens. A capture that throws
+   *  cannot report its own failure, so that is said in the console, where its line names it. */
+  override componentDidCatch(error: unknown) {
+    try {
+      window.reportPageError?.(error);
+    } catch (captureError) {
+      console.error("The page's error capture failed; the page's error was not reported.", {
+        captureError,
+        error,
+      });
+    }
   }
   override render() {
     if (this.state.error === null) return this.props.children;

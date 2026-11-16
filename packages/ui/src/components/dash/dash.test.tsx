@@ -50,6 +50,36 @@ test("a page that did not load says so on its own page alone, with the way to lo
   expect(host.querySelector("h1")?.textContent).toBe("example.com");
 });
 
+test("a page that threw is handed to the page's error capture, once, when the page has one", async () => {
+  const reported: unknown[] = [];
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  window.reportPageError = (error) => reported.push(error);
+  try {
+    await using dash = await draw("/?page=broken", []);
+    expect(dash.host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(reported.map((error) => (error as Error).message)).toEqual([
+      "Failed to fetch dynamically imported module",
+    ]);
+    // a capture that throws does not take the note away
+    window.reportPageError = () => {
+      throw new Error("the capture broke");
+    };
+    await act(() => linksNamed(dash.host, "Home")[0]!.click());
+    await act(() => go("/?page=broken"));
+    expect(dash.host.querySelector('[role="alert"]')?.textContent).toContain(
+      "This page did not load",
+    );
+    // and the capture's own failure is said once in the console
+    expect(
+      errors.mock.calls.filter((call) =>
+        String(call[0]).startsWith("The page's error capture failed"),
+      ),
+    ).toHaveLength(1);
+  } finally {
+    delete window.reportPageError;
+  }
+});
+
 test("with a Contexts page, ⌘K lists the contexts active in the last five minutes, and Enter shows one there", async () => {
   // the Contexts page draws the explorer, which this test's itx cannot open: its page says so
   vi.spyOn(console, "error").mockImplementation(() => {});
