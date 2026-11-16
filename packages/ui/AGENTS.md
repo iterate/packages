@@ -79,6 +79,6 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
   `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
 - The Agents app's parts (`components/agents-nav`, `components/agents-home`, `lib/agent-summary`)
-  serve the hosted app and a mind's own no-build page. None imports a router. They take
+  serve the hosted app; the Dash takes `StatusDot` and `lib/agent-summary`. None imports a router. They take
   `agentHref(path)` and `onOpen(path)`, so that a page with a client router can make a plain click
   a route change.

@@ -1,10 +1,9 @@
 // dash.tsx — A MIND'S DASH, drawn from lists: `Dash` takes the mind's pages (each a row with its
 // id, name, icon and component) and its groups of links (other apps, the stack's pages), and draws
 // the shell, the sidebar, the page the URL names and, on every page, what waits for a member's yes.
-// ONE list of pages drives the sidebar and the overview's cards (`DashOverview`). A page is any
-// component: the kit's (`DashContexts`, `DashRepo`, … in ./dash-pages.tsx; `DashHome` and
-// `DashAgents` in agent-kind-view/dash-agents.tsx) or one of the mind's own, which takes the same
-// props (`DashPageProps`).
+// ONE list of pages drives the sidebar. A page is any component: the kit's (`DashContexts`,
+// `DashRepo`, … in ./dash-pages.tsx; `DashHome` and `DashAgents` in agent-kind-view/dash-agents.tsx)
+// or one of the mind's own, which takes the same props (`DashPageProps`).
 //
 // TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
 //   agents    the Agents page. The sidebar lists the most recently active agents above the pages,
@@ -25,7 +24,6 @@ import {
   useMemo,
   useSyncExternalStore,
   type ComponentProps,
-  type MouseEvent,
   type ReactNode,
 } from "react";
 import type { AuthenticatedApp } from "iterate/app";
@@ -34,19 +32,11 @@ import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
 import { DashAgentsNav } from "./dash-agents-nav.tsx";
 import { agentViewHref, rawViewHref } from "./dash-href.ts";
-import {
-  DashNote,
-  DashScroll,
-  type DashLinks,
-  type DashPage,
-  type DashPageProps,
-} from "./dash-pages.tsx";
+import { DashNote, type DashLinks, type DashPage } from "./dash-pages.tsx";
 import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -382,105 +372,5 @@ function DashNav({
         </SidebarGroup>
       ))}
     </>
-  );
-}
-
-/** THE OVERVIEW: the mind's address, the page's own words (`children`), and a card for each page
- *  with an `about` (under `pagesTitle`) and for each link of each group. */
-export function DashOverview({
-  itx,
-  mind,
-  pages,
-  links,
-  pagesTitle,
-  children,
-}: DashPageProps & { pagesTitle: string; children?: ReactNode }) {
-  return (
-    <DashScroll>
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-8">
-        <header>
-          <h1 className="mb-1.5 text-2xl font-semibold tracking-tight">{mind}</h1>
-          <p className="text-sm text-muted-foreground">{children}</p>
-        </header>
-        <DashCards title={pagesTitle}>
-          {pages
-            .filter((row) => row.about)
-            .map((row) => (
-              <Off key={row.id} itx={itx} serves={row.serves}>
-                {(off) => (
-                  <DashCard
-                    name={row.name}
-                    icon={row.icon}
-                    about={(off && row.offAbout) || row.about}
-                    off={off}
-                    link={linkTo(hrefOfPage(pages, row))}
-                  />
-                )}
-              </Off>
-            ))}
-        </DashCards>
-        {links.map((group) => (
-          <DashCards key={group.title} title={group.title}>
-            {group.rows.map((row) => (
-              <DashCard
-                key={row.name}
-                name={row.name}
-                icon={row.icon}
-                about={row.about}
-                link={{ href: row.href }}
-              />
-            ))}
-          </DashCards>
-        ))}
-      </div>
-    </DashScroll>
-  );
-}
-
-/** One group of cards: as many in a row as fit. */
-export function DashCards({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-3 text-sm font-medium text-muted-foreground">{title}</h2>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">{children}</div>
-    </section>
-  );
-}
-
-/** A card that is a link, whole. `off`: "Off" beside the name, for a part the mind does not
- *  have. */
-export function DashCard({
-  name,
-  icon: Icon,
-  about,
-  off,
-  link,
-}: {
-  name: string;
-  icon: DashPage["icon"];
-  about: string | undefined;
-  off?: boolean;
-  link: { href: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void };
-}) {
-  return (
-    <a
-      {...link}
-      className="block rounded-xl text-inherit no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&>*]:h-full [&>*]:transition-shadow hover:[&>*]:ring-ring"
-    >
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-            {name}
-            {off ? (
-              <Badge variant="outline" className="ml-auto text-muted-foreground">
-                Off
-              </Badge>
-            ) : null}
-          </CardTitle>
-          <CardDescription>{about}</CardDescription>
-        </CardHeader>
-      </Card>
-    </a>
   );
 }

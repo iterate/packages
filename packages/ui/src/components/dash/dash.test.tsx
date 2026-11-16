@@ -1,47 +1,39 @@
 // @vitest-environment jsdom
-// A mind's Dash drawn from lists: one list of pages makes the sidebar and the overview's cards, the
-// URL names the page shown, a part the mind does not have says "Off", and a page that fails says
+// A mind's Dash drawn from lists: one list of pages makes the sidebar, the URL names the page shown, a part the mind does not have says "Off", and a page that fails says
 // so in its own place.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
-import { Dash, DashContexts, DashOverview, type DashPage } from "./dash.tsx";
+import { Dash, DashContexts, type DashPage } from "./dash.tsx";
 import type { DashPageProps } from "./dash-pages.tsx";
 import { usePageParam } from "#/lib/page-url.ts";
 
-test("one list makes the sidebar and the cards; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
+test("one list makes the sidebar; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
   await using dash = await draw("/", []);
   const { host } = dash;
   expect(host.querySelector("h1")?.textContent).toBe("example.com");
-  // the overview's cards: each page with an `about`, then each group of links
-  expect([...host.querySelectorAll("h2")].map((title) => title.textContent)).toEqual([
-    "The mind",
-    "Access",
-  ]);
-  expect(host.textContent).toContain("Telemetry is off.");
-  expect(host.textContent).not.toContain("The mind's telemetry.");
-  // the sidebar's row and the card both lead to ?page=analytics, and both say Off
+  // the sidebar's row leads to ?page=analytics, and says Off
   expect(linksNamed(host, "Analytics").map((link) => link.getAttribute("href"))).toEqual([
     "?page=analytics",
-    "?page=analytics",
   ]);
-  expect(host.textContent?.match(/Off/g)).toHaveLength(2);
-  expect(linksNamed(host, "Overview")[0]?.getAttribute("href")).toBe("./");
+  expect(host.textContent?.match(/Off/g)).toHaveLength(1);
+  expect(linksNamed(host, "Home")[0]?.getAttribute("href")).toBe("./");
+  // and each group of links follows the pages
+  expect(linksNamed(host, "Approvals")).toHaveLength(1);
   expect(dash.asked.filter((root) => root === "itx.telemetry")).toHaveLength(1);
 });
 
-test("a mind with telemetry has no Off; a click on a page's card shows that page and keeps the sidebar", async () => {
+test("a mind with telemetry has no Off; a click on a page's row shows that page and keeps the sidebar", async () => {
   await using dash = await draw("/", ["itx.telemetry"]);
   const { host } = dash;
-  expect(host.textContent).toContain("The mind's telemetry.");
   expect(host.textContent).not.toContain("Off");
-  const card = linksNamed(host, "Analytics").at(-1)!;
-  await act(() => card.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+  const row = linksNamed(host, "Analytics")[0]!;
+  await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
   expect(location).toMatchObject({ search: "?page=analytics" });
   expect(host.textContent).toContain("the charts");
   expect(host.querySelector("h1")).toBeNull();
-  expect(linksNamed(host, "Overview")).toHaveLength(1);
+  expect(linksNamed(host, "Home")).toHaveLength(1);
 });
 
 test("a page that did not load says so on its own page alone, with the way to load again", async () => {
@@ -53,7 +45,7 @@ test("a page that did not load says so on its own page alone, with the way to lo
     "This page did not load: Failed to fetch dynamically imported module. Load the page again to try once more.",
   );
   // the sidebar stays, and another page draws as before
-  await act(() => linksNamed(host, "Overview")[0]!.click());
+  await act(() => linksNamed(host, "Home")[0]!.click());
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.querySelector("h1")?.textContent).toBe("example.com");
 });
@@ -217,29 +209,22 @@ async function typeInto(input: HTMLInputElement, value: string) {
 
 const pages: DashPage[] = [
   {
-    id: "overview",
-    name: "Overview",
+    id: "home",
+    name: "Home",
     icon: LayoutDashboardIcon,
-    component: (props: DashPageProps) => (
-      <DashOverview {...props} pagesTitle="The mind">
-        Signed in.
-      </DashOverview>
-    ),
+    component: ({ mind }: DashPageProps) => <h1>{mind}</h1>,
   },
   {
     id: "analytics",
     name: "Analytics",
     icon: ChartLineIcon,
-    about: "The mind's telemetry.",
     serves: "telemetry",
-    offAbout: "Telemetry is off.",
     component: () => <p>the charts</p>,
   },
   {
     id: "broken",
     name: "Broken",
     icon: BotIcon,
-    about: "A page that fails.",
     component: () => {
       throw new Error("Failed to fetch dynamically imported module");
     },
@@ -270,7 +255,6 @@ const links = [
         name: "Approvals",
         href: "https://iterate.example.com/secrets/approvals",
         icon: ShieldCheckIcon,
-        about: "What waits for your yes.",
         count: "approvals" as const,
       },
     ],

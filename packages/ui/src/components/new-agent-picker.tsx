@@ -1,8 +1,6 @@
-// NEW AGENT'S PICKER, the one copy for every page that starts agents: the hosted Agents app's
-// home page (agents-home.tsx), and the no-build Agents app in a mind's config repo, which imports
-// this module by its name in the published package. What a kind's file may ask of the picker (a
-// field for some of its choices, a tick box, a line about the choice) is read and drawn here, so
-// the two pages cannot drift apart.
+// NEW AGENT'S PICKER, for the hosted Agents app's home page (agents-home.tsx). What a kind's file
+// may ask of the picker (a field for some of its choices, a tick box, a line about the choice) is
+// read here (lib/new-agent.ts, which the Dash's home reads too) and drawn.
 //
 // It fetches nothing and keeps no state. The page keeps what the person typed (in its URL or its
 // own state), asks the kind for its line (`newAgent.describe`, through the kind's frame) and

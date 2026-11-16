@@ -30,18 +30,15 @@ type Itx = AuthenticatedApp["itx"];
 
 type Icon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>;
 
-/** One page of the Dash: a row of the sidebar, and a card of the overview. */
+/** One page of the Dash: a row of the sidebar. */
 export type DashPage = {
   /** `?page=<id>`; the first page of the list has none */
   id: string;
   name: string;
   icon: Icon;
-  /** the overview's line for it; a page with none has no card (the overview itself) */
-  about?: string;
   /** a part that not every stack has (`telemetry`): when the mind does not serve `itx.<serves>`,
-   *  the row is muted with "Off" beside it, and its card says `offAbout` */
+   *  the row is muted with "Off" beside it */
   serves?: string;
-  offAbout?: string;
   /** The Agents page's: what the mind says first in an agent's empty chat, by the agent's path.
    *  The first time anyone opens it, the agent view appends the words as a developer's note,
    *  which starts the agent's first turn (`/agents/onboarding`'s greeting). */
@@ -55,7 +52,6 @@ export type DashLink = {
   name: string;
   href: string;
   icon: Icon;
-  about: string;
   count?: "approvals";
 };
 export type DashLinks = { title: string; rows: DashLink[] };

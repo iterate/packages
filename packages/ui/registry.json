@@ -833,8 +833,6 @@
         "lucide-react"
       ],
       "registryDependencies": [
-        "badge",
-        "card",
         "command",
         "dialog",
         "iterate/packages/agent-summary",

@@ -1,7 +1,7 @@
 // NEW AGENT'S RULES: what a page that starts agents reads from a kind's file (its `newAgent`, as
 // the kind's frame reports it), with no React in it. The picker that draws them is
-// components/new-agent-picker.tsx. The hosted Agents app and the no-build Agents app in a mind's
-// config repo both import these, so a kind's file means the same in both.
+// components/new-agent-picker.tsx. The hosted Agents app and the Dash's home
+// (agent-kind-view/dash-agents.tsx) both import these, so a kind's file means the same in both.
 
 /** A field beside the picker, as a kind's file says it (agent-kind-view/types.ts
  *  `AgentKindNewAgentField`): a line of text, or a tick box, whose value is "on" when ticked and
