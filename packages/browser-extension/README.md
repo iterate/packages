@@ -121,8 +121,74 @@ The lend is a rewrite rule of the mind's root context, `/`: anything calling
 `itx.chrome.jonas.mac3f9a.openPage(...)` there runs it in the panel for as long as the panel is
 open; from another context of the mind (an agent's script runs in its own) the spelling is
 `itx.cd('/').chrome.jonas.mac3f9a.openPage(...)`. The panel's **Copy instructions for an agent**
-button copies that spelling, the four methods, how a page reports to the mind and the tabs in
+button copies that spelling, the methods, how a page reports to the mind and the tabs in
 the group right now, for a person to paste to an agent.
+
+## Playwright-shaped controls (prototype)
+
+`page(tabId)` returns an RPC handle for one tab. Agents can pipeline locator calls:
+
+```js
+const chrome = itx.cd("/").chrome.jonas.mybrowser;
+const { tabId } = await chrome.openPage({ url: "https://example.com/form" });
+const page = chrome.page(tabId);
+await page.getByLabel("Email", { exact: true }).fill("agent@example.com");
+await page.getByRole("button", { name: "Save", exact: true }).click({ timeout: 5000 });
+```
+
+Use a browser name from the capability tree. `page` does not navigate or authorize tabs.
+All of its CDP calls pass through the existing `cdp` method, including calls from retained
+handles. The mind's tab group remains the grant. Raw `cdp` and `detach` remain available.
+
+Supported methods:
+
+- `page.getByRole(role, { name, exact, disabled, includeHidden, checked, expanded, level,
+pressed, selected })`, `getByText(text, { exact })`, `getByLabel(text, { exact })`,
+  and `locator(selector)`. These can also chain from a locator.
+- `locator.first()`, `nth(index)` (nonnegative), `count()`, and `textContent({ timeout })`.
+- `locator.click({ timeout })`, `fill(text, { timeout })`, and `press(key, { timeout })`.
+  Keys: `Enter`, `Tab`, `Backspace`, `Escape`, `ArrowLeft`, `ArrowRight`.
+
+Matchers are strings. Matching defaults to substring matching; use `exact: true` where needed.
+[`ivya` 1.8.2](https://github.com/vitest-dev/ivya) supplies selector, role, label and accessible-name
+semantics. [Vitest's locator API](https://vitest.dev/api/browser/locators) uses the same engine.
+We bundle it at build time; there is no runtime CDN dependency or copied selector engine.
+The preview provider uses synthetic user events; this prototype uses CDP for trusted mouse,
+text and keyboard input. Focus and text selection happen in an isolated world in the target tab.
+
+Actions resolve the locator again on every poll. They wait for visibility, enabled state,
+a stable bounding box, and a center point that receives input. Fill also requires an editable
+text input or textarea. Duplicate matches fail immediately with sample HTML. A timeout includes
+the locator and the last unmet condition. Calls on one tab run in order. Queue wait counts toward
+the deadline: default 5,000 ms, allowed range 1–30,000 ms. Mouse/key release has a separate bounded
+cleanup allowance of 1,000 ms, including on failure. A stalled CDP command cannot hold the caller
+forever, but a command already sent to Chrome cannot be cancelled.
+
+This is a small subset, not Playwright compatibility. It supports the main frame and open shadow
+roots. Frames, regular expressions over RPC, modifiers, contenteditable, numeric/date/select/file
+inputs, assertions, screenshots and navigation methods are outside this facade. Use raw CDP where
+needed. A locator retained across a completed navigation resolves in the new document. A navigation
+that destroys a context or changes the document before input fails the action. Actions do not wait
+for navigation and never replay dispatched input. DOM and navigation changes can still race the
+separate CDP commands; this does not give atomic or exactly-once interaction guarantees. Raw CDP
+input can also race the facade's queue.
+
+### Development checks and release
+
+`pnpm --filter @iterate-com/browser-extension test` builds the extension and runs real Chromium
+fixture tests, including the packaged facade through `chrome.debugger` in a fresh headless
+extension profile. Install the test browser with
+`pnpm --filter @iterate-com/browser-extension exec playwright install chromium` first.
+Tests use local HTTP fixtures only. The signed-in lifecycle test uses fixture-only session
+values and a mock mind API with the unmodified panel. It covers group removal and restoration,
+group rename, detach and reattach, sign-out, switching minds and closing the panel. No real
+account, credential, browser profile or user tab is imported. It exercises the lending and group
+policy; it does not automate a member's passkey login and consent.
+
+Before release: review the subset and input races, run the controlled fixture tests, bump the
+manifest version, and publish the SPA's downloads bundle through
+the normal release process, and reload each unpacked install. A source change alone does not
+update an installed extension.
 
 ## Install
 

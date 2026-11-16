@@ -32,6 +32,7 @@ catalog:
   # the fork `capnweb` names below, under its own name: petshop-sdk publishes and imports it so
   "@iterate-com/capnweb": 0.13.0
   "@pierre/trees": 1.0.0-beta.6
+  "@playwright/test": 1.63.0
   "@tailwindcss/cli": ^4.3.3
   "@tailwindcss/vite": ^4.3.3
   "@tanstack/react-router": 1.170.39

@@ -3,10 +3,17 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/build.ts && vitest run"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "capnweb": "catalog:",
-    "typescript": "catalog:"
+    "esbuild": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "ivya": "1.8.2"
   }
 }

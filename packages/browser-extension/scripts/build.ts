@@ -3,6 +3,7 @@
 // platform speaks) and the SPA's oauth.js, the one OAuth client both run. README.md says why the extension
 // carries its code itself.
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { build } from "esbuild";
 
 const dist = new URL("../dist/", import.meta.url);
 rmSync(dist, { recursive: true, force: true });
@@ -19,3 +20,25 @@ const manifestPath = new URL("manifest.json", dist);
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 manifest.key = process.env.CHROME_EXTENSION_KEY || undefined;
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+const runtime = await build({
+  entryPoints: [new URL("../src/locator-runtime.ts", import.meta.url).pathname],
+  bundle: true,
+  write: false,
+  format: "iife",
+  globalName: "globalThis.__iterateControls",
+  minify: true,
+  legalComments: "inline",
+});
+writeFileSync(
+  new URL("locator-source.js", dist),
+  `export const locatorSource = ${JSON.stringify(runtime.outputFiles[0].text)};\n`,
+);
+await build({
+  entryPoints: [new URL("../src/page.ts", import.meta.url).pathname],
+  bundle: true,
+  format: "esm",
+  outfile: new URL("page.js", dist).pathname,
+  external: ["./capnweb.js"],
+  alias: { capnweb: "./capnweb.js" },
+});

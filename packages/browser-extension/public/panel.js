@@ -6,6 +6,8 @@
 // capnweb.js (the package's own browser bundle) and oauth.js (the SPA's) are copied beside this
 // file by the build (README).
 import { newWebSocketRpcSession, RpcTarget } from "./capnweb.js";
+import { ChromePage } from "./page.js";
+import { locatorSource } from "./locator-source.js";
 import { oauthClient } from "./oauth.js";
 
 // ── Signing in: the SPA's oauth.js, through Chrome's identity window, everything kept in
@@ -213,12 +215,14 @@ chrome.tabs.onUpdated.addListener((_tabId, change) => {
   if ("groupId" in change || change.status) reconcileSoon();
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
+  if (lend) ChromeBrowser.evictPage(lend.browser, tabId);
   debuggees.delete(tabId);
   reconcileSoon();
 });
 // A tab Chrome replaces (a prerendered page swapped in) is a new debuggee: the debugger stayed with
 // the old page, so the next `cdp` attaches again.
 chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
+  if (lend) ChromeBrowser.evictPage(lend.browser, removedTabId);
   debuggees.delete(removedTabId);
   reconcileSoon();
 });
@@ -598,6 +602,24 @@ async function memberTabs() {
 }
 
 class ChromeBrowser extends RpcTarget {
+  #pages = new Map();
+
+  static evictPage(browser, tabId) {
+    browser.#pages.delete(tabId);
+  }
+
+  /** A retained handle still checks live group membership on every CDP command. */
+  async page(tabId) {
+    if (!Number.isInteger(tabId) || tabId < 0) throw new Error("page() requires a tab id");
+    await requireMember(tabId);
+    if (!this.#pages.has(tabId))
+      this.#pages.set(
+        tabId,
+        new ChromePage((method, params) => this.cdp(tabId, method, params), locatorSource),
+      );
+    return this.#pages.get(tabId);
+  }
+
   /** The tabs in the mind's group: how an agent finds a tab the person added. */
   async tabs() {
     return memberTabs();
@@ -898,7 +920,7 @@ const statusCard = (dot, title, { corner = "", body = "" } = {}) => `
 
 /** What a person pastes to one of the mind's agents: how to reach this Chrome, and which tabs it
  *  may drive. */
-function agentInstructions(address, name, members) {
+export function agentInstructions(address, name, members) {
   const spelled = `itx.cd("/").${name.replace(/^itx\./, "")}`;
   const call = `\`await ${spelled}`;
   return [
@@ -908,8 +930,10 @@ function agentInstructions(address, name, members) {
     `- ${call}.openPage({ url })\`: opens an http(s) page in a new tab in the group and answers { tabId, url } once it has loaded.`,
     `- ${call}.cdp(tabId, method, params)\`: one Chrome DevTools Protocol command on a tab in the group, for example \`"Runtime.evaluate", { expression: "document.title", returnByValue: true }\`, \`"Page.navigate", { url }\`, \`"Page.captureScreenshot", {}\` or \`"Accessibility.getFullAXTree", {}\`.`,
     `- ${call}.detach(tabId)\`: removes Chrome's debugging bar; the tab stays drivable.`,
+    `- ${call}.page(tabId)\`: prototype Playwright-shaped handle. ${call}.page(tabId).getByRole("button", { name: "Save", exact: true }).click()\`. Locators also support getByText/getByLabel/locator, nth/first, count/textContent, fill(text), press("Enter" | "Tab" | "Backspace" | "Escape" | "ArrowLeft" | "ArrowRight"). Actions take { timeout: 5000 } (1–30000 ms). Main frame only; string matchers only. No navigation wait or automatic action replay.`,
     `- While you are attached to a tab, I see a frame around it and a label on top with what you do and a Stop button (Stop takes the tab out of the group). Screenshots leave them out. \`detach(tabId)\` when you are done removes them. \`Page.disable\` and \`Runtime.disable\` do nothing: the panel keeps both domains on.`,
     `- A page can report to the mind: \`cdp(tabId, "Runtime.enable", {})\` and \`cdp(tabId, "Runtime.addBinding", { name, executionContextName: "iterate" })\`; then \`cdp(tabId, "Page.getFrameTree", {})\` for the main frame's id, \`cdp(tabId, "Page.createIsolatedWorld", { frameId, worldName: "iterate" })\` for its \`executionContextId\`, and \`cdp(tabId, "Runtime.evaluate", { expression, contextId: executionContextId })\` with a script that calls \`window[name](string)\`. The page's own scripts cannot see that world. Each call appends \`events.iterate.com/chrome/binding-called { lendName, tabId, name, payload }\` to the mind's root stream. To keep the script on every page the tab loads, also send \`cdp(tabId, "Page.addScriptToEvaluateOnNewDocument", { source: expression, worldName: "iterate" })\` (a mind whose stack is older than this refuses the \`source\` argument: then the script lives in the current page only).`,
+
     "",
     "Run openPage and cdp in separate scripts, so a failed cdp does not lose the tabId. You can drive only the tabs in the group: I add a tab by dragging it into the group, and take it back by dragging it out.",
     "",
@@ -966,10 +990,11 @@ async function connect(session) {
     const personSegment = personSegmentOf(whoami.principal);
     const name = `itx.chrome.${personSegment}.${browserName}`;
     const provided = await itx.provide(name, browser, {
-      description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), cdp(tabId, method, params), detach(tabId).`,
+      description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), page(tabId) (prototype: Playwright-shaped getByRole/getByText/getByLabel/locator, click/fill/press), cdp(tabId, method, params), detach(tabId).`,
     });
     if (mine !== generation) return;
     lend = {
+      browser,
       name,
       title: address,
       append: (event) => itx.append(event).catch(console.error),

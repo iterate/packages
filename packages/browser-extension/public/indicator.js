@@ -56,7 +56,7 @@ function iterateIndicator(mind) {
       left: 50%;
       transform: translateX(-50%);
       z-index: ${TOP};
-      pointer-events: auto;
+      pointer-events: none;
       box-sizing: border-box;
       height: 28px;
       max-width: calc(100vw - 16px);
@@ -99,6 +99,7 @@ function iterateIndicator(mind) {
     }
     button {
       all: unset;
+      pointer-events: auto;
       flex: none;
       height: 20px;
       padding: 0 9px;
