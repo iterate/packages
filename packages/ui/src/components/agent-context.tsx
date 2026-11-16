@@ -1,8 +1,34 @@
-/** One conversation layout; hosts supply their authorized snapshots, rows and media parts. */
+// agent-context.tsx — ONE CONVERSATION LAYOUT for a page whose feed is a HOST's log (a room, a
+// call), not an agent's: the host's own rows (`renderers`), messages from other agents, the agent's
+// SETTLED WORK from the agent's own log (`agentContext`: the chat's folded activity rows and its
+// trace sheet), and the lines SAID in a call (`spokenLine`), every run of them one quiet row. The
+// agent's work in flight is one progress line in the tail. Slots take the call bar, the captions
+// over the composer and a canvas. The rows and their merge by time are agent-context-rows.ts.
+// `activityRows={false}` keeps the agent's scripts from a reader who must not see them.
 import { useCallback, useMemo, type ComponentProps, type ReactNode } from "react";
 import { cn } from "cn";
+import {
+  agentLogTrailsHost,
+  placeRows,
+  rolledUp,
+  settledActivities,
+  type AgentContextRow,
+} from "./agent-context-rows.ts";
 import { AgentShell } from "#/components/agent-chat/agent-shell.tsx";
-import { AgentProgress } from "#/components/agent-chat/agent-chat.tsx";
+import {
+  AgentProgress,
+  useAgentFeed,
+  useReadOlderWhile,
+  useToggledIds,
+  useTraces,
+} from "#/components/agent-chat/agent-chat.tsx";
+import { TRACES_CLOSED, traceWantsOlder } from "#/components/agent-chat/agent-traces.ts";
+import {
+  AgentFeedItemRow,
+  type Inspect,
+  type SignedUrl,
+} from "#/components/agent-chat/agent-feed.tsx";
+import { InspectorSheet } from "#/components/agent-chat/agent-inspectors.tsx";
 import { Composer, Feed, Markdown } from "#/components/agent-chat/chat-parts.tsx";
 import { toAgentEvent } from "#/components/agent-chat/agent-events.ts";
 import type { StreamEvent } from "#/components/agent-chat/stream-event.ts";
@@ -12,12 +38,28 @@ import type {
   SubagentActivity,
 } from "#/components/agent-chat/agent-progress.ts";
 import type { ContextViewSource } from "#/components/context-view/context-view.tsx";
+import { heldShare, OLDER_EXHAUSTED } from "#/components/virtual-log/older-pages.ts";
+import type { SpokenLine } from "#/components/call/spoken-lines.ts";
+import { TranscriptRollup } from "#/components/call/transcript-rollup.tsx";
+
+/** The agent's log when there is none to fold, or none to show: never caught up, so no rows. */
+const NO_AGENT_LOG: AgentLog = {
+  events: [],
+  caughtUp: false,
+  processors: { rows: [], loaded: false },
+  presence: { actors: [], rpcStubs: [] },
+  liveState: {},
+};
+
+/** No rows of these, as constants: a fresh `[]` each render would make the rows anew. */
+const NO_MESSAGES: readonly AgentMessageRow[] = [];
+const NO_ACTIVITIES: readonly SubagentActivity[] = [];
+
+/** An activity row has no attachment to sign. */
+const NO_FILES: SignedUrl = () => Promise.reject(new Error("an activity row has no files"));
 
 type Append = ComponentProps<typeof AgentShell>["onAppend"];
-type Row = { key: string; at: string; order: number; offset?: number } & (
-  | { kind: "event"; event: StreamEvent }
-  | { kind: "message"; message: AgentMessageRow }
-);
+type AgentLog = Extract<ComponentProps<typeof AgentProgress>, { context: unknown }>["context"];
 export type AgentContextRenderer = (event: StreamEvent, actions: { onAppend: Append }) => ReactNode;
 
 type Source = Pick<ContextViewSource, "events" | "caughtUp" | "older" | "head" | "error"> &
@@ -33,11 +75,14 @@ export function AgentContext({
   onMessage,
   onAppend = context.append,
   renderers,
+  spokenLine,
+  me = "",
   progress,
   agentContext,
   agentError,
-  messages = [],
-  activities = [],
+  activityRows = true,
+  messages = NO_MESSAGES,
+  activities = NO_ACTIVITIES,
   call,
   captions,
   canvas,
@@ -45,6 +90,7 @@ export function AgentContext({
   empty,
   placeholder,
   status,
+  strip,
   bodyClassName,
   feedClassName,
 }: {
@@ -55,9 +101,19 @@ export function AgentContext({
   onMessage: ComponentProps<typeof Composer>["onMessage"];
   onAppend?: Append;
   renderers: Readonly<Record<string, AgentContextRenderer>>;
+  /** A line said in the call, for an event that is one: such an event needs no renderer, and every
+   *  run of them is one quiet row that opens. */
+  spokenLine?: (event: StreamEvent) => SpokenLine | null;
+  /** The viewer's address, for "(you)" in an opened run of spoken lines. */
+  me?: string;
   progress?: AgentProgressData;
-  agentContext?: Extract<ComponentProps<typeof AgentProgress>, { context: unknown }>["context"];
+  /** The agent's own log: its work in flight is the progress line, its settled work rows of the
+   *  feed that open into rounds of script and result, and into the trace sheet. */
+  agentContext?: AgentLog;
   agentError?: string;
+  /** `false`: no row of the agent's work and no trace sheet, for a reader who must not see the
+   *  agent's scripts. The progress line stays. */
+  activityRows?: boolean;
   messages?: readonly AgentMessageRow[];
   activities?: readonly SubagentActivity[];
   call?: ReactNode;
@@ -67,49 +123,43 @@ export function AgentContext({
   empty?: ReactNode;
   placeholder?: string;
   status?: ComponentProps<typeof AgentShell>["status"];
+  /** `false`: the feed alone, with no strip and no Events tab (the shell's `strip`), for a reader
+   *  who must not see the host's raw log. */
+  strip?: ComponentProps<typeof AgentShell>["strip"];
   bodyClassName?: string;
   feedClassName?: string;
 }) {
-  const rows = useMemo(() => {
-    const events: Row[] = context.events.flatMap((raw) => {
-      const event = toAgentEvent(raw);
-      if (!event || !renderers[event.type]) return [];
-      return [
-        {
-          key: `event:${event.offset}`,
-          at: event.createdAt,
-          order: event.offset,
-          offset: event.offset,
-          kind: "event",
-          event,
-        },
-      ];
-    });
-    return [
-      ...events,
-      ...messages.map((message): Row => ({
-        key: message.key,
-        at: message.createdAt,
-        order: message.offset,
-        kind: "message",
-        message,
-      })),
-    ].toSorted(
-      (a, b) =>
-        a.at.localeCompare(b.at) ||
-        a.kind.localeCompare(b.kind) ||
-        a.order - b.order ||
-        a.key.localeCompare(b.key),
-    );
-  }, [context.events, renderers, messages]);
+  const work = useAgentWork(activityRows ? agentContext : undefined, state, onStateChange);
+  const events = useMemo(
+    () => context.events.flatMap((raw) => toAgentEvent(raw) ?? []),
+    [context.events],
+  );
+  const placed = useMemo(
+    () => placeRows({ events, renderers, spokenLine, messages, activities: work.settled }),
+    [events, renderers, spokenLine, messages, work.settled],
+  );
+  const rows = useMemo(() => rolledUp(placed), [placed]);
+  // a trace reads the agent's older pages, and so does a host's row older than the agent's log
+  useReadOlderWhile(
+    work.readingForTrace || agentLogTrailsHost(placed, work.events, work.older),
+    work.older,
+    work.events,
+  );
+  const [toggled, onToggle] = useToggledIds();
+  const { inspect } = work;
   const render = useCallback(
-    (row: Row) =>
-      row.kind === "message" ? (
-        <AgentMessage message={row.message} />
-      ) : (
-        renderers[row.event.type]?.(row.event, { onAppend })
-      ),
-    [renderers, onAppend],
+    (row: AgentContextRow) => (
+      <ContextRow
+        row={row}
+        renderers={renderers}
+        onAppend={onAppend}
+        toggled={toggled}
+        onToggle={onToggle}
+        inspect={inspect}
+        me={me}
+      />
+    ),
+    [renderers, onAppend, toggled, onToggle, inspect, me],
   );
   // HTTP snapshots deliberately carry no processor or presence introspection.
   const shellContext = {
@@ -138,6 +188,9 @@ export function AgentContext({
             onStateChange={onStateChange}
             onAppend={onAppend}
             status={status}
+            strip={strip}
+            closeSheet={work.sheet && TRACES_CLOSED}
+            sheet={work.sheet}
           >
             <Feed
               rows={rows}
@@ -147,11 +200,7 @@ export function AgentContext({
               tail={
                 <>
                   {rows.length === 0 ? emptyContent : null}
-                  {progress ? (
-                    <AgentProgress progress={progress} />
-                  ) : agentContext ? (
-                    <AgentProgress context={agentContext} error={agentError} />
-                  ) : null}
+                  <ProgressLine progress={progress} context={agentContext} error={agentError} />
                   <SubagentActivities activities={activities} />
                 </>
               }
@@ -169,6 +218,101 @@ export function AgentContext({
       </div>
     </div>
   );
+}
+
+/** The agent's settled work, from its own log folded as the chat folds it: the activities, the
+ *  trace sheet over them, and what reading its older pages needs. No log: none of it. */
+function useAgentWork(
+  agentContext: AgentLog | undefined,
+  state: ComponentProps<typeof AgentShell>["state"],
+  onStateChange: ComponentProps<typeof AgentShell>["onStateChange"],
+) {
+  const log = agentContext || NO_AGENT_LOG;
+  const { fold, feed } = useAgentFeed(log);
+  const older = (!log.error && log.older) || OLDER_EXHAUSTED;
+  const settled = useMemo(() => settledActivities(feed.items), [feed.items]);
+  const { inspected, inspect, onInspect } = useTraces(state, onStateChange);
+  const readingForTrace = traceWantsOlder(inspected, older, fold.events);
+  const sheet = agentContext ? (
+    <InspectorSheet
+      events={fold.events}
+      live={feed.state.live}
+      inspected={inspected}
+      readProgress={readingForTrace ? heldShare(fold.events, log.head) : undefined}
+      onInspect={onInspect}
+    />
+  ) : undefined;
+  return { events: fold.events, older, settled, inspect, readingForTrace, sheet };
+}
+
+/** One row of the feed, by its kind. */
+function ContextRow({
+  row,
+  renderers,
+  onAppend,
+  toggled,
+  onToggle,
+  inspect,
+  me,
+}: {
+  row: AgentContextRow;
+  renderers: Readonly<Record<string, AgentContextRenderer>>;
+  onAppend: Append;
+  toggled: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  inspect: Inspect;
+  me: string;
+}) {
+  switch (row.kind) {
+    case "message":
+      return <AgentMessage message={row.message} />;
+    case "activity":
+      return (
+        <AgentFeedItemRow
+          item={row.activity}
+          expanded={toggled.has(row.activity.id)}
+          onToggle={onToggle}
+          inspect={inspect}
+          traceOffset={undefined}
+          signedUrl={NO_FILES}
+        />
+      );
+    case "rollup": {
+      // A run's open state is held by one of its LINES, not by the row's key: the key names the
+      // row before the run, and that row changes when the agent's older work lands in front of
+      // the run or inside it. The run that holds an opened line is open.
+      const opened = row.lines.filter((line) => toggled.has(line.key));
+      const first = row.lines[0];
+      return (
+        <TranscriptRollup
+          lines={row.lines}
+          me={me}
+          expanded={opened.length > 0}
+          onToggle={() => {
+            if (opened.length > 0) for (const line of opened) onToggle(line.key);
+            else if (first) onToggle(first.key);
+          }}
+        />
+      );
+    }
+    case "event":
+      return renderers[row.event.type]?.(row.event, { onAppend });
+  }
+}
+
+/** The agent's work in flight: the host's own progress, or else the agent's log's. */
+function ProgressLine({
+  progress,
+  context,
+  error,
+}: {
+  progress: AgentProgressData | undefined;
+  context: AgentLog | undefined;
+  error: string | undefined;
+}) {
+  if (progress) return <AgentProgress progress={progress} />;
+  if (context) return <AgentProgress context={context} error={error} />;
+  return null;
 }
 
 export function AgentMessage({ message }: { message: AgentMessageRow }) {

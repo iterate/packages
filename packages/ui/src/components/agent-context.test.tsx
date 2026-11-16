@@ -155,6 +155,279 @@ test.for([
   );
 });
 
+// THE AGENT'S WORK AND THE CALL'S WORDS: a room's log (typed lines, spoken lines) and its agent's
+// own log, which folds into one settled activity (the chat's fixture turn: agent-events.test.ts).
+test("a settled activity of the agent sits between the line that asked for it and the answer", async () => {
+  using _page = await mount({
+    context: { events: [room(1, "typed"), room(30, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(agentTurn(1)),
+  });
+  expect(kinds()).toEqual(["typed", "activity", "typed"]);
+});
+
+test("a press opens the activity in place, and its trace control opens the trace in the state", async () => {
+  const onStateChange = vi.fn();
+  using _page = await mount({
+    context: { events: [room(1, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(agentTurn(1)),
+    onStateChange,
+  });
+  const row = document.querySelector("[data-kind=activity]");
+  const toggle = row?.querySelector("button[aria-expanded]");
+  expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  await press(toggle);
+  expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  await press(row?.querySelector('button[title^="Open this script"]'));
+  expect(onStateChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({ scriptRun: 5, llmRequest: undefined }),
+  );
+});
+
+test("a guest's page shows none of the agent's scripts: activityRows={false} draws no activity row and no trace, and still the progress line", async () => {
+  using page = await mount({
+    context: { events: [room(1, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(agentTurn(1)),
+    activityRows: false,
+    state: { llmRequest: 2 },
+  });
+  expect(document.querySelector("[data-kind=activity]")).toBeNull();
+  expect(document.querySelector("[role=dialog]")).toBeNull();
+  expect(document.body.textContent).not.toContain("itx.kv.put");
+  await page.render({
+    context: { events: [room(1, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(agentTurn(1), WORKING),
+    activityRows: false,
+  });
+  expect(document.querySelector("[data-testid=agent-progress]")?.textContent).toContain(
+    "Thinking · m",
+  );
+  expect(document.querySelector("[data-kind=activity]")).toBeNull();
+});
+
+test("an activity still running is no row: it is the progress line", async () => {
+  using _page = await mount({
+    context: { events: [room(1, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(
+      agentTurn(1).filter((event) => event.type !== "events.iterate.com/itx/run-settled"),
+      { ...IDLE, awaitingRun: {} },
+    ),
+  });
+  expect(document.querySelector("[data-kind=activity]")).toBeNull();
+  expect(document.querySelector("[data-testid=agent-progress]")).not.toBeNull();
+});
+
+test("three lines said in a row are one closed rollup; a press opens it, with (you) for the viewer", async () => {
+  using _page = await mount({
+    context: { events: [room(1, "said"), room(2, "said"), room(3, "said")], caughtUp: true },
+    renderers: roomRenderers,
+    spokenLine,
+    me: "ann@example.com",
+  });
+  expect(kinds()).toEqual(["rollup"]);
+  const toggle = document.querySelector("[data-kind=rollup] button[aria-expanded]");
+  expect(toggle?.textContent).toMatch(/3 lines said · /);
+  expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  expect(document.body.textContent).not.toContain("said 2");
+  await press(toggle);
+  expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  expect(document.querySelector("[data-kind=rollup]")?.textContent).toContain("(you)");
+});
+
+test("a typed row, and an activity row, each split the spoken lines into two rollups", async () => {
+  using page = await mount({
+    context: { events: [room(1, "said"), room(2, "typed"), room(3, "said")], caughtUp: true },
+    renderers: roomRenderers,
+    spokenLine,
+  });
+  expect(kinds()).toEqual(["rollup", "typed", "rollup"]);
+  // the agent's turn starts at second 11; its activity starts with its request, at second 13
+  await page.render({
+    context: { events: [room(10, "said"), room(30, "said")], caughtUp: true },
+    renderers: roomRenderers,
+    spokenLine,
+    agentContext: agentLog(agentTurn(10)),
+  });
+  expect(kinds()).toEqual(["rollup", "activity", "rollup"]);
+});
+
+test("an opened rollup stays open as lines are said and as older lines load in front of it", async () => {
+  const props = (events: ReturnType<typeof room>[]): Partial<Props> => ({
+    context: { events, caughtUp: true },
+    renderers: roomRenderers,
+    spokenLine,
+  });
+  const now = [room(5, "typed"), room(6, "said"), room(7, "said")];
+  using page = await mount(props(now));
+  const last = () => [...document.querySelectorAll("[data-kind=rollup] button")].at(-1);
+  await press(last());
+  expect(last()?.getAttribute("aria-expanded")).toBe("true");
+  await page.render(props([...now, room(8, "said"), room(9, "said")]));
+  expect(last()?.textContent).toMatch(/^4 lines said/);
+  expect(last()?.getAttribute("aria-expanded")).toBe("true");
+  await page.render(props([room(2, "said"), room(3, "said"), ...now, room(8, "said")]));
+  expect(kinds()).toEqual(["rollup", "typed", "rollup"]);
+  expect(last()?.textContent).toMatch(/^3 lines said/);
+  expect(last()?.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("an opened rollup stays open when the agent's older work lands in front of it, and the part with the opened line when work lands inside it", async () => {
+  const props = (agentContext?: Props["agentContext"]): Partial<Props> => ({
+    context: { events: [room(20, "said"), room(40, "said")], caughtUp: true },
+    renderers: roomRenderers,
+    spokenLine,
+    agentContext,
+  });
+  using page = await mount(props());
+  const rollups = () => [...document.querySelectorAll("[data-kind=rollup] > button")];
+  await press(rollups()[0]);
+  expect(rollups().map((button) => button.getAttribute("aria-expanded"))).toEqual(["true"]);
+  // the agent's older page arrives: its work of second 5 lands in front of the run, which is
+  // then named by that row
+  await page.render(props(agentLog(agentTurn(5))));
+  expect(kinds()).toEqual(["activity", "rollup"]);
+  expect(rollups().map((button) => button.getAttribute("aria-expanded"))).toEqual(["true"]);
+  // work that began between the two lines splits the run
+  await page.render(props(agentLog(agentTurn(25))));
+  expect(kinds()).toEqual(["rollup", "activity", "rollup"]);
+  expect(rollups().map((button) => button.getAttribute("aria-expanded"))).toEqual([
+    "true",
+    "false",
+  ]);
+  // a press closes it again
+  await press(rollups()[0]);
+  expect(rollups()[0]?.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("strip={false} is the feed alone: no Events tab over the host's raw log", async () => {
+  const props: Partial<Props> = {
+    context: { events: [room(5, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    status: { text: "Quiet", tone: "muted" },
+  };
+  using page = await mount(props);
+  expect(document.body.textContent).toContain("Events");
+  expect(document.body.textContent).toContain("Quiet");
+  await page.render({ ...props, strip: false });
+  expect(document.body.textContent).not.toContain("Events");
+  expect(kinds()).toEqual(["typed"]);
+});
+
+test.for([
+  { name: "a room row is older than the agent's oldest event", roomAt: 1, reads: true },
+  { name: "no room row is older than the agent's oldest event", roomAt: 40, reads: false },
+])("the agent's older page is read when $name", async ({ roomAt, reads }) => {
+  const loadOlder = vi.fn();
+  using _page = await mount({
+    context: { events: [room(roomAt, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    agentContext: agentLog(agentTurn(20), IDLE, { loading: false, exhausted: false, loadOlder }),
+  });
+  expect(loadOlder.mock.calls.length > 0).toBe(reads);
+});
+
+const T = Date.parse("2026-11-16T12:00:00Z");
+const time = (seconds: number) => new Date(T + seconds * 1000).toISOString();
+
+/** A room event at `offset`, `offset` seconds after T. */
+const room = (offset: number, type: "typed" | "said", text = `${type} ${String(offset)}`) => ({
+  offset,
+  type: `room/${type}`,
+  createdAt: time(offset),
+  payload: { text, who: "ann@example.com" },
+});
+
+const roomRenderers: Props["renderers"] = {
+  "room/typed": (event) => <p data-kind="typed">{(event.payload as { text: string }).text}</p>,
+};
+
+const spokenLine: NonNullable<Props["spokenLine"]> = (event) => {
+  if (event.type !== "room/said") return null;
+  const { text, who } = event.payload as { text: string; who: string };
+  return { key: `line:${String(event.offset)}`, who, at: Date.parse(event.createdAt), text };
+};
+
+/** The agent's log: one turn whose script settled, from second `start`, its first event at
+ *  offset 1. */
+function agentTurn(start: number) {
+  const at = (offset: number, type: string, payload: Record<string, unknown>, extra = {}) => ({
+    offset,
+    type,
+    createdAt: time(start + offset),
+    payload,
+    ...extra,
+  });
+  return [
+    at(1, "events.iterate.com/agent/context-added", {
+      role: "user",
+      content: "store 42",
+      actor: { type: "user" },
+    }),
+    at(2, "events.iterate.com/agent/llm-request-requested", {
+      model: "m",
+      expiresAt: 9e12,
+      triggerOffset: 1,
+    }),
+    at(3, "events.iterate.com/agent/llm-request-settled", {
+      requestOffset: 2,
+      result: { status: "succeeded", text: "ok" },
+    }),
+    at(4, "events.iterate.com/agent/context-added", {
+      role: "assistant",
+      llmRequestOffset: 2,
+      content:
+        "Storing.\n<codemode status=\"Storing\">\nawait itx.kv.put('answer', '42')\n</codemode>",
+    }),
+    at(
+      5,
+      "events.iterate.com/itx/run-requested",
+      { code: "async (itx) => { await itx.kv.put('answer', '42'); return { stored: true } }" },
+      {
+        idempotencyKey: "agent/run-requested@4",
+        source: {
+          processor: { slug: "agent", version: "1", whileProcessing: { offset: 4, type: "x" } },
+        },
+      },
+    ),
+    at(6, "events.iterate.com/itx/run-settled", {
+      requestOffset: 5,
+      settlement: { status: "succeeded", result: { stored: true } },
+    }),
+  ];
+}
+
+const IDLE = { paused: null, openRequest: null, pendingLlmRequestTrigger: null };
+const WORKING = { paused: null, openRequest: { model: "m" }, pendingLlmRequestTrigger: null };
+
+/** The agent's context: `events`, its facet's live value, and its older pages. */
+const agentLog = (
+  events: ReturnType<typeof agentTurn>,
+  value: Record<string, unknown> = IDLE,
+  older?: NonNullable<Props["agentContext"]>["older"],
+): NonNullable<Props["agentContext"]> => ({
+  events,
+  caughtUp: true,
+  processors: { rows: [], loaded: true },
+  presence: { actors: [], rpcStubs: [] },
+  liveState: { agent: { status: "live", value } },
+  older,
+});
+
+/** The feed's rows, top to bottom, by their kind. */
+const kinds = () =>
+  [...document.querySelectorAll("[role=log] [data-kind]")]
+    .map((row) => row.getAttribute("data-kind"))
+    .filter((kind) => kind === "typed" || kind === "activity" || kind === "rollup");
+
+const press = async (element: Element | null | undefined) => {
+  if (!(element instanceof HTMLElement)) throw new Error("nothing to press");
+  await act(async () => element.click());
+};
+
 type Props = ComponentProps<typeof AgentContext>;
 
 /** Give the virtual log a measured height in jsdom. */

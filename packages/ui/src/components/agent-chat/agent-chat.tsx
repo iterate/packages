@@ -52,6 +52,7 @@ import {
 } from "./agent-ui-reducer.ts";
 import type { Inspect, SignedUrl } from "./agent-feed.tsx";
 import { AgentFeedList } from "./agent-feed-list.tsx";
+import { TRACES_CLOSED, traceWantsOlder } from "./agent-traces.ts";
 import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
@@ -121,7 +122,7 @@ function AgentContextProgress({ context, error }: { context: AgentChatContext; e
   );
 }
 
-function useAgentFeed(context: AgentChatContext) {
+export function useAgentFeed(context: AgentChatContext) {
   const [foldLog] = useState(() => remembered(foldAgentLog));
   const fold = useMemo(() => foldLog(context.events), [foldLog, context.events]);
   const turn = agentTurnOf(context);
@@ -257,9 +258,6 @@ export function AgentChat({
     </AgentShell>
   );
 }
-
-/** The patch that closes the chat's traces. */
-const TRACES_CLOSED: Partial<AgentChatState> = { llmRequest: undefined, scriptRun: undefined };
 
 /** What a host passes `useIterateContext` for a chat. `consumes`: every durable event (the Events
  *  tab is the whole log) and, named, since a wildcard never matches an ephemeral, the streamed chunk
@@ -517,7 +515,7 @@ function ChatEmpty({
 }
 
 /** Which rows are opened in place, local to this page. */
-function useToggledIds() {
+export function useToggledIds() {
   const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set());
   const onToggle = useCallback(
     (id: string) =>
@@ -532,7 +530,10 @@ function useToggledIds() {
 }
 
 /** The open trace, which the chat's state carries, and the ways to open one. */
-function useTraces(state: AgentChatState, onStateChange: (patch: Partial<AgentChatState>) => void) {
+export function useTraces(
+  state: AgentChatState,
+  onStateChange: (patch: Partial<AgentChatState>) => void,
+) {
   const inspected: Inspected = state.llmRequest
     ? { kind: "llmRequest", llmRequestOffset: state.llmRequest }
     : state.scriptRun
@@ -557,17 +558,12 @@ function useTraces(state: AgentChatState, onStateChange: (patch: Partial<AgentCh
   return { inspected, inspect, onInspect };
 }
 
-/** A trace reads what the chat does not: an LLM request's prompt is every context item before it,
- *  and a link can name a run below the pages held. */
-function traceWantsOlder(inspected: Inspected, older: OlderPages, events: readonly StreamEvent[]) {
-  if (older.exhausted) return false;
-  if (inspected?.kind === "scriptRun")
-    return inspected.requestOffset < (events[0]?.offset ?? Infinity);
-  return inspected?.kind === "llmRequest";
-}
-
 /** Pages down the log for as long as `wanted`. */
-function useReadOlderWhile(wanted: boolean, older: OlderPages, events: readonly StreamEvent[]) {
+export function useReadOlderWhile(
+  wanted: boolean,
+  older: OlderPages,
+  events: readonly StreamEvent[],
+) {
   const { loadOlder, loading } = older;
   const heldFrom = events[0]?.offset;
   // `heldFrom` too: a page can come and go inside one frame, with `loading` never seen to change

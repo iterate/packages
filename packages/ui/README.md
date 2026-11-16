@@ -184,9 +184,11 @@ html`<${CaptionStrip}
 />`;
 ```
 
-A page that uses `AgentContext` (`@iterate-com/ui/components/agent-context`) passes both through
-its `captions` prop, which sits over the composer: the open `TranscriptHistory` first, then the
-`CaptionStrip`.
+A page that uses `AgentContext` (`@iterate-com/ui/components/agent-context`) passes the strip and
+the open transcript through `captions`, over the composer. `spokenLine(event)` answers a line for
+an event said in the call: `AgentContext` rolls up each run of them, and `me` marks "(you)".
+`agentContext`, the agent's own log, adds its settled work as rows that open into the scripts and
+traces. `activityRows={false}` hides those rows for a reader who must not see them.
 
 ### Your mind's data
 
