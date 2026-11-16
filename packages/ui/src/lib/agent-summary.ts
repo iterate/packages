@@ -2,6 +2,7 @@
 // (components/agents-nav.tsx, agents-home.tsx), tested in agent-summary.test.ts. A page keeps the
 // rows live from the catalog on `/agents`: `agentRowsOf(useFacetLiveState(stub, "agents").value)`.
 import { z } from "zod";
+import { agentAtWork } from "iterate/agents/mind-now";
 
 const AgentStatus = z.enum(["working", "idle", "waiting", "ended"]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
@@ -89,6 +90,14 @@ export function topLevelAgents(rows: readonly AgentRow[]): AgentRow[] {
 /** What a list calls an agent: its title, or else the last segment of its path. */
 export function agentTitle(row: AgentRow): string {
   return row.title || row.path.split("/").filter(Boolean).at(-1) || row.path;
+}
+
+/** What an agent is doing now, the line a list shows under its title: its `activity` (its newest
+ *  status label, or what it waits for) while it is at work by the rule the mind-now note uses
+ *  (`agentAtWork`: a script at work counts, though its row says idle); otherwise null, as the line
+ *  is stale. The rule reads the clock when the row renders. */
+export function agentDoing(row: AgentRow, now = Date.now()): string | null {
+  return agentAtWork(row, now) ? row.activity : null;
 }
 
 /** When an agent last did anything, as far as the catalog knows: its last activity, or else when

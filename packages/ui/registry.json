@@ -141,6 +141,7 @@
       "type": "registry:lib",
       "description": "The rows of a mind's agents, from the catalog's live state: which to list, in what order, and what to call each.",
       "dependencies": [
+        "iterate",
         "zod"
       ],
       "files": [

@@ -1,7 +1,7 @@
 // The Agents app's sidebar body (the frame around it is AppShell): "New agent" and the mind's
 // agents at the top (sub-agents are not listed), most recently active first. Each shows its name or
-// the first thing a person said to it, with its path beneath, an icon for what runs it and a dot
-// for what it is doing (lib/agent-summary.ts). Pinned agents sit in their own list above, pins kept
+// the first thing a person said to it, with what it is doing beneath while it works or waits (else
+// its path), an icon for what runs it and a dot for its status (lib/agent-summary.ts). Pinned agents sit in their own list above, pins kept
 // per mind in this browser. It imports no router: a row is a link to `agentHref(path)`, and a
 // plain left click on it is `onOpen`'s when the page has one.
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
@@ -17,6 +17,7 @@ import {
   SidebarMenuItem,
 } from "#/components/ui/sidebar.tsx";
 import {
+  agentDoing,
   agentTitle,
   orderAgents,
   personAt,
@@ -159,10 +160,13 @@ function AgentsNavRow({
   onOpen: OpenAgent | undefined;
 }) {
   const KindIcon = kindIcon(row.kind);
+  const doing = agentDoing(row);
   return (
     <SidebarMenuItem data-agent-path={row.path}>
       <SidebarMenuButton
         size="lg"
+        // a phone gives what the agent is doing two lines, so the row grows
+        className="max-md:h-auto max-md:min-h-12"
         isActive={active}
         tooltip={row.activity ? `${row.path}: ${row.activity}` : row.path}
         render={<AgentLink path={row.path} agentHref={agentHref} onOpen={onOpen} />}
@@ -185,7 +189,14 @@ function AgentsNavRow({
               <ContextPathText path={row.path} truncate className="text-xs" />
             )}
           </span>
-          {row.title ? (
+          {doing ? (
+            <span
+              className="line-clamp-2 text-2xs text-muted-foreground md:line-clamp-1"
+              data-agent-doing
+            >
+              {doing}
+            </span>
+          ) : row.title ? (
             <ContextPathText path={row.path} truncate className="text-2xs text-muted-foreground" />
           ) : null}
         </span>

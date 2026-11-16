@@ -16,6 +16,7 @@ import { ContextPathText } from "#/components/context-path-text.tsx";
 import { NewAgentPicker } from "#/components/new-agent-picker.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
+  agentDoing,
   agentTitle,
   byRecentActivity,
   mineFirst,
@@ -156,6 +157,11 @@ export function AgentsHome({
                       {row.title ? (
                         <CardDescription>
                           <ContextPathText path={row.path} className="text-2xs" />
+                        </CardDescription>
+                      ) : null}
+                      {agentDoing(row) ? (
+                        <CardDescription className="line-clamp-2 md:line-clamp-1" data-agent-doing>
+                          {agentDoing(row)}
                         </CardDescription>
                       ) : null}
                     </CardHeader>
