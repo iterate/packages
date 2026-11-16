@@ -40,6 +40,7 @@ import { z } from "zod";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { ChatReading } from "./agent-reading.tsx";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
+import { AgentFootStatus } from "./agent-strip.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
 import type { AgentProgressData } from "./agent-progress.ts";
 import { AgentTurnStatus } from "./agent-feed.tsx";
@@ -144,6 +145,7 @@ export function AgentChat({
   empty,
   placeholder = "Message this agent",
   eventsTab = true,
+  tabsInHeader,
   attach = true,
   onChoice,
   choiceState,
@@ -186,6 +188,9 @@ export function AgentChat({
   placeholder?: string;
   /** `false`: the strip keeps the agent's status and has no Events tab (the raw log). */
   eventsTab?: boolean;
+  /** `true`: the page draws Chat | Events in its own header (`AgentTabs`), the tab being
+   *  `state.view`. No strip: the agent's status is a line at the feed's foot, over the composer. */
+  tabsInHeader?: boolean;
   /** `false`: the composer takes words only: no `+`, so no files and no raw mode. */
   attach?: boolean;
   /** What a press of a choice in the agent's words does. Absent: a choice is its plain words. */
@@ -219,6 +224,7 @@ export function AgentChat({
       status={status}
       strip={strip}
       eventsTab={eventsTab}
+      tabsInHeader={tabsInHeader}
       closeSheet={TRACES_CLOSED}
       sheet={
         <InspectorSheet
@@ -438,6 +444,7 @@ function ChatTab({
       footer={
         <div className="pointer-events-none bg-linear-to-t from-background from-80% to-transparent px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-4 sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
           <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+            <AgentFootStatus />
             {aboveComposer}
             {/* Queued input grows the composer column; the feed follows on resize. */}
             <QueuedMessagesPanel

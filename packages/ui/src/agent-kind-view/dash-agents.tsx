@@ -7,7 +7,7 @@
 //               `?agent=<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
-//               header names the path and links to the raw view of the same context. The row's
+//               header is one row: the agent's title and path, and Chat | Events. The row's
 //               `openers` are what the mind says first in an empty chat.
 //
 // They live here, out of the shadcn registry, because they host kinds' frames: a registry item may
@@ -33,6 +33,7 @@ import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } fro
 import { useHeldContext, useKeptContext } from "#/hooks/use-itx-session.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
+import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
 import {
@@ -41,7 +42,7 @@ import {
   type DashPage,
   type DashPageProps,
 } from "#/components/dash/dash.tsx";
-import { agentViewHref, rawViewHref } from "#/components/dash/dash-href.ts";
+import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
@@ -411,28 +412,79 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
 
 // ── one context as an agent ──
 
-/** ANY CONTEXT AS AN AGENT. Its header names the path and links to the raw view of the same
- *  context. What draws it is its kind's: iterate's chat, or a kind's own view in a frame. Under
- *  the header one loading state stands from the first paint to the view's own: the kinds, the
- *  catalog and the chat's part are all read behind it. */
-function AgentView({ itx, pages, page, agents, path }: DashPageProps & { path: string }) {
-  const contexts = pages.find((one) => one.id === "contexts");
+/** ANY CONTEXT AS AN AGENT. Its header is one row: the agent's title and path, and Chat | Events,
+ *  which the view under it draws no strip for (its status is a line at the feed's foot). What
+ *  draws it is its kind's: iterate's chat, or a kind's own view in a frame. One loading state
+ *  stands from the first paint to the view's own, under a header of the same shape whose tabs
+ *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. */
+function AgentView({ itx, page, agents, path }: DashPageProps & { path: string }) {
+  return (
+    <Suspense fallback={<AgentPageReading path={path} agents={agents} />}>
+      <AgentViewOfKind itx={itx} path={path} agents={agents} opener={page.openers?.[path]} />
+    </Suspense>
+  );
+}
+
+/** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
+ *  cut at its end where it does not fit, and Chat | Events at the right, which never wrap. With no
+ *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet. */
+function AgentPageHeader({
+  path,
+  agents,
+  tabs,
+}: {
+  path: string;
+  agents: readonly AgentRow[] | undefined;
+  tabs?: Omit<ComponentProps<typeof AgentTabs>, "className">;
+}) {
+  const title = agents?.find((agent) => agent.path === path)?.title;
+  return (
+    <AppShellPageHeader>
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        {title ? (
+          <span className="hidden max-w-1/2 shrink-0 truncate text-sm font-medium md:block">
+            {title}
+          </span>
+        ) : null}
+        <ContextPathText
+          path={path}
+          truncate
+          className={title ? "text-sm md:text-xs md:text-muted-foreground" : "text-sm"}
+        />
+      </span>
+      {tabs ? (
+        <AgentTabs {...tabs} className="shrink-0" />
+      ) : (
+        <div inert className="shrink-0">
+          <AgentTabs
+            view={undefined}
+            hasChat
+            held={undefined}
+            wholeLogHeld
+            onStateChange={nothingToChange}
+          />
+        </div>
+      )}
+    </AppShellPageHeader>
+  );
+}
+
+/** Tabs that cannot be pressed have no state to change. */
+function nothingToChange() {}
+
+/** The page while it does not know yet which view the agent has: the header, and the chat's
+ *  loading line where the first row will stand. */
+function AgentPageReading({
+  path,
+  agents,
+}: {
+  path: string;
+  agents: readonly AgentRow[] | undefined;
+}) {
   return (
     <>
-      <AppShellPageHeader>
-        <ContextPathText path={path} truncate className="min-w-0 flex-1 text-sm" />
-        {contexts ? (
-          <a
-            {...linkTo(rawViewHref(contexts.id, path))}
-            className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            Raw view
-          </a>
-        ) : null}
-      </AppShellPageHeader>
-      <Suspense fallback={<AgentReading />}>
-        <AgentViewOfKind itx={itx} path={path} agents={agents} opener={page.openers?.[path]} />
-      </Suspense>
+      <AgentPageHeader path={path} agents={agents} />
+      <AgentReading strip={false} />
     </>
   );
 }
@@ -447,14 +499,14 @@ function AgentViewOfKind({
   opener,
 }: Pick<DashPageProps, "itx" | "agents"> & { path: string; opener: string | undefined }) {
   const kinds = use(kindFilesOf(itx));
-  if (!agents) return <AgentReading />;
+  if (!agents) return <AgentPageReading path={path} agents={agents} />;
   const row = agents.find((agent) => agent.path === path);
   const kind = row?.kind;
   const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
   return file ? (
-    <KindChat itx={itx} path={path} file={file} />
+    <KindChat itx={itx} path={path} file={file} agents={agents} />
   ) : (
-    <IterateChat itx={itx} path={path} row={row} opener={opener} />
+    <IterateChat itx={itx} path={path} row={row} agents={agents} opener={opener} />
   );
 }
 
@@ -480,11 +532,13 @@ function IterateChat({
   itx,
   path,
   row,
+  agents,
   opener,
 }: {
   itx: Itx;
   path: string;
   row: AgentRow | undefined;
+  agents: readonly AgentRow[];
   /** What the mind says first, if the chat is empty: a developer's note, which starts a turn. */
   opener: string | undefined;
 }) {
@@ -516,18 +570,33 @@ function IterateChat({
       .catch(() => {}); // another tab said it first, or the chat is not empty after all
   }, [opener, stub, empty, path]);
   return (
-    <AgentChat
-      path={path}
-      context={context}
-      error={agent.error}
-      state={shown}
-      onStateChange={patchView}
-      onMessage={async ({ message, files }) => {
-        await messageAgent(itx, path, { message, files });
-      }}
-      onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
-      signedUrl={(file) => fileUrl(itx, file)}
-    />
+    <>
+      <AgentPageHeader
+        path={path}
+        agents={agents}
+        tabs={{
+          view: shown.view,
+          hasChat: true,
+          // no count until the first read has answered
+          held: context.caughtUp || context.events.length ? context.events.length : undefined,
+          wholeLogHeld: context.older.exhausted,
+          onStateChange: patchView,
+        }}
+      />
+      <AgentChat
+        path={path}
+        context={context}
+        error={agent.error}
+        state={shown}
+        onStateChange={patchView}
+        tabsInHeader
+        onMessage={async ({ message, files }) => {
+          await messageAgent(itx, path, { message, files });
+        }}
+        onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
+        signedUrl={(file) => fileUrl(itx, file)}
+      />
+    </>
   );
 }
 
@@ -544,7 +613,17 @@ function watchDocumentClass(changed: () => void) {
  *  frame's few verbs for this one agent. The frame is another document, which loads its script and
  *  the kind's file before it draws: the page's own loading state stands over it until the first
  *  read has answered, so the wait is one state, whatever the kind's view draws meanwhile. */
-function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile }) {
+function KindChat({
+  itx,
+  path,
+  file,
+  agents,
+}: {
+  itx: Itx;
+  path: string;
+  file: KindFile;
+  agents: readonly AgentRow[];
+}) {
   const { view, patchView } = useView();
   const agent = useHeldContext(itxSessionOf(itx), () => itx.cd(path), [itx, path]);
   const { link, loaded } = useAgentKindViewLink(file.name, file.source);
@@ -584,7 +663,11 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
     state: AgentChatState.loose().safeParse(view).data || {},
     // the page's theme, for the frame's own
     documentClass,
+    // Chat | Events are the page's header's
+    tabsInHeader: true,
   };
+  // the view's state, as the frame reads it
+  const state = inputs.state;
   // everything the frame may do, to this agent alone: never the agent's stub, which reaches the
   // whole mind
   const verbs: AgentKindViewVerbs = {
@@ -600,20 +683,36 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
     setState: patchView,
     loadOlder: log.older.loadOlder,
   };
+  // a kind with no view, or one that failed to load, is the Events tab alone
+  const hasChat = !loaded || "ephemeralEvents" in loaded;
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <AgentKindViewFrame
-        link={link}
-        frameScript={frameScriptOfPage()}
-        inputs={inputs}
-        verbs={verbs}
+    <>
+      <AgentPageHeader
+        path={path}
+        agents={agents}
+        tabs={{
+          view: hasChat ? state.view : "events",
+          hasChat,
+          // no count until the first read has answered
+          held: loaded && !reading ? log.events.length : undefined,
+          wholeLogHeld: log.older.exhausted,
+          onStateChange: patchView,
+        }}
       />
-      {reading ? (
-        <div className="absolute inset-0 bg-background">
-          <AgentReading />
-        </div>
-      ) : null}
-    </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <AgentKindViewFrame
+          link={link}
+          frameScript={frameScriptOfPage()}
+          inputs={inputs}
+          verbs={verbs}
+        />
+        {reading ? (
+          <div className="absolute inset-0 bg-background">
+            <AgentReading strip={false} />
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 

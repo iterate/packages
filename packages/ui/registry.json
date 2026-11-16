@@ -88,6 +88,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/agent-shell-contexts.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/agent-strip.tsx",
           "type": "registry:component"
         },

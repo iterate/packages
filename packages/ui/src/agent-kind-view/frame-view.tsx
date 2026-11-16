@@ -4,6 +4,7 @@ import { Component, useMemo, useSyncExternalStore, type ReactNode } from "react"
 import type { RpcStub } from "capnweb";
 import { AgentReading } from "../components/agent-chat/agent-reading.tsx";
 import { AgentShell } from "../components/agent-chat/agent-shell.tsx";
+import { AgentTabsInHeader } from "../components/agent-chat/agent-shell-contexts.ts";
 import { OLDER_FAILED } from "../components/virtual-log/older-pages.ts";
 import type { AgentKindViewHostApi, AgentKindViewInputs } from "./bridge.ts";
 import type { InputsStore, LoadedView } from "./frame.ts";
@@ -27,6 +28,15 @@ export function FrameView({
     () => held && propsOf(held, host, kindFileError),
     [held, host, kindFileError],
   );
+  // the page's header has the tabs: every shell in the frame draws none
+  return (
+    <AgentTabsInHeader value={Boolean(held?.tabsInHeader)}>
+      <FrameBody props={props} view={view} />
+    </AgentTabsInHeader>
+  );
+}
+
+function FrameBody({ props, view }: { props: AgentKindViewProps | undefined; view: LoadedView }) {
   // before the host's first word: the loading state the view's own feed goes on with
   if (!props) return <AgentReading />;
   // the shell takes the view's props: its state is the page's search, which the shell reads whole

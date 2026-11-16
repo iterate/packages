@@ -13,21 +13,24 @@ export function ChatReading({ progress }: { progress?: number }) {
 /** THE LOADING STATE OF AN AGENT'S VIEW BEFORE THERE IS A VIEW: what a page shows while it does not
  *  know yet which view the agent has, or while that view's own document loads. It is what the
  *  view's shell then draws in the same place: the strip, which cannot be pressed yet and says no
- *  count, and the chat's loading line in the feed's column. */
-export function AgentReading() {
+ *  count, and the chat's loading line in the feed's column. `strip={false}`: the line alone, for a
+ *  page that draws the tabs in its own header (the shell's `tabsInHeader`). */
+export function AgentReading({ strip = true }: { strip?: boolean }) {
   return (
     <>
-      <div inert>
-        <AgentStrip
-          status={undefined}
-          view={undefined}
-          hasChat
-          tabs
-          held={undefined}
-          wholeLogHeld
-          onStateChange={nothingToChange}
-        />
-      </div>
+      {strip ? (
+        <div inert>
+          <AgentStrip
+            status={undefined}
+            view={undefined}
+            hasChat
+            tabs
+            held={undefined}
+            wholeLogHeld
+            onStateChange={nothingToChange}
+          />
+        </div>
+      ) : null}
       <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
         <ChatReading />
       </div>

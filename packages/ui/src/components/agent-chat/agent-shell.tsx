@@ -3,16 +3,19 @@
 // its `children`. With none, the shell is the Events tab alone, which is what an agent whose kind has
 // no view gets. `strip={false}` drops the strip, and with it the Events tab: the Chat tab alone, for
 // a page whose reader is no developer. `eventsTab={false}` keeps the strip's status and drops the
-// tabs and the Events tab. It fills its parent, a flex column with a bounded height.
+// tabs and the Events tab. `tabsInHeader`: the page draws Chat | Events in its own header
+// (`AgentTabs`), so the shell draws no strip, and the status is a line at the feed's foot
+// (`AgentFootStatus`). It fills its parent, a flex column with a bounded height.
 //
 // A kind's view (agent-kind-view/) builds on this, as iterate's `AgentChat` does:
 //
 //   html`<${ui.AgentShell} ...${props} status=${{ text: "Idle", tone: "muted" }}>
 //     <${MyChat} … />
 //   </${ui.AgentShell}>`
-import { useMemo, type ReactNode } from "react";
+import { use, useMemo, type ReactNode } from "react";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { agentEventInspectors } from "./agent-event-inspectors.tsx";
+import { AgentFootStatusContext, AgentTabsInHeader } from "./agent-shell-contexts.ts";
 import { AgentStrip, type AgentShellStatus } from "./agent-strip.tsx";
 import type { EventInspectors } from "#/components/context-view/types.tsx";
 import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
@@ -30,6 +33,7 @@ export function AgentShell({
   status,
   strip = true,
   eventsTab = true,
+  tabsInHeader,
   inspectors,
   sheet,
   closeSheet,
@@ -54,6 +58,10 @@ export function AgentShell({
   /** `false`: the strip keeps its status, with no tabs, and the Chat tab is all there is. Without
    *  `children` the Events tab stays. */
   eventsTab?: boolean;
+  /** `true`: the page draws Chat | Events in its own header, and its tab is `state.view`. No strip:
+   *  the status is a line at the feed's foot. Omitted: what `AgentTabsInHeader` says, which is
+   *  `false` unless a kind's frame was asked for it. */
+  tabsInHeader?: boolean;
   /** Inspector bodies for the kind's own event types, over the agent ones. */
   inspectors?: EventInspectors;
   /** One right-edge sheet of the kind's own (iterate's traces), drawn over both tabs. */
@@ -65,11 +73,15 @@ export function AgentShell({
   children?: ReactNode;
 }) {
   const error = hostError || context.error;
+  const frameSays = use(AgentTabsInHeader);
+  // `strip={false}` is the chat alone, with no tabs anywhere
+  const inHeader = strip && (tabsInHeader ?? frameSays);
   const view = !children ? "events" : strip && eventsTab ? state.view : undefined;
   const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
+  const foot = useMemo(() => (inHeader ? { status } : null), [inHeader, status]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {strip ? (
+      {strip && !inHeader ? (
         <AgentStrip
           status={status}
           view={view}
@@ -108,7 +120,7 @@ export function AgentShell({
           />
         </div>
       ) : (
-        children
+        <AgentFootStatusContext value={foot}>{children}</AgentFootStatusContext>
       )}
       {sheet}
     </div>

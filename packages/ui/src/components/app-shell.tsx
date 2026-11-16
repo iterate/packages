@@ -320,7 +320,7 @@ function ShellHeader({
         {header}
       </div>
       <div ref={pageHeaderRef} className="flex min-w-0 flex-1 items-center empty:hidden" />
-      <div ref={pageMenuRef} className="ml-auto flex items-center md:hidden" />
+      <div ref={pageMenuRef} className="ml-auto flex items-center empty:hidden md:hidden" />
     </header>
   );
 }

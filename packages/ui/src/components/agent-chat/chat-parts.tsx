@@ -2,10 +2,12 @@
 // `AgentShell` (agent-shell.tsx): a scrolling `Feed` with a footer, a `MessageBubble`, `Markdown`
 // and a `Composer`. iterate's own chat (agent-chat.tsx) is built from the same pieces, with its own
 // fold. A kind whose model doesn't fit their props copies this file: the package is public.
-import { useCallback, type ReactNode } from "react";
+import { use, useCallback, type ReactNode } from "react";
 import { cn } from "cn";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
 import { ChatReading } from "./agent-reading.tsx";
+import { AgentFootStatusContext } from "./agent-shell-contexts.ts";
+import { AgentFootStatus } from "./agent-strip.tsx";
 import { AgentComposer } from "./composer.tsx";
 import { useComposerDraft } from "./use-composer-attachments.ts";
 import { VirtualLog, type VirtualLogRowInfo } from "#/components/virtual-log/virtual-log.tsx";
@@ -23,7 +25,8 @@ const ROWS: VirtualLogRowInfo<FeedRow> = {
 /** Rows that scroll, newest at the bottom, the view staying at the end as rows arrive, with a
  *  footer (the composer) always in front. Older pages load as the reader scrolls up. With no rows
  *  it reads on down the log and says that it is reading; `empty` shows once `older` is exhausted.
- *  After a read that failed (`older.failed`) it shows neither: the shell shows the error. */
+ *  After a read that failed (`older.failed`) it shows neither: the shell shows the error. Under a
+ *  shell whose tabs are in the page's header, the agent's status is a line over the footer. */
 export function Feed<Row extends FeedRow>({
   rows,
   renderRow,
@@ -45,6 +48,7 @@ export function Feed<Row extends FeedRow>({
 }) {
   // the row type is the caller's; the log only reads its key and offset
   const render = useCallback((row: FeedRow) => renderRow(row as Row), [renderRow]);
+  const foot = use(AgentFootStatusContext);
   return (
     <VirtualLog
       rows={rows}
@@ -55,9 +59,12 @@ export function Feed<Row extends FeedRow>({
       tail={tail}
       label="Chat"
       footer={
-        footer ? (
+        footer || foot ? (
           <div className="pointer-events-none bg-linear-to-t from-background from-80% to-transparent px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
-            <div className="pointer-events-auto mx-auto w-full max-w-3xl">{footer}</div>
+            <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+              <AgentFootStatus />
+              {footer}
+            </div>
           </div>
         ) : undefined
       }

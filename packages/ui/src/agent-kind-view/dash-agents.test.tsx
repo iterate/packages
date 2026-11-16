@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The Dash's agent pages: the home says what waits for the member in a place of its own (nothing,
 // or the requests and the integrations that ask for them), New agent is a composer alone, and the
-// agent view draws any path, links to its raw view, and says the opener once into an empty chat.
+// agent view draws any path under one header row (the path, and Chat | Events), with the agent's
+// status at the feed's foot, and says the opener once into an empty chat.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -65,7 +66,7 @@ test("the home with something waiting: the requests, and each integration that a
   ]);
 });
 
-test("the agent view takes any path, links to its raw view, and says the opener once into an empty chat", async () => {
+test("the agent view takes any path, has no button to its raw view, and says the opener once into an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx, appended } = mind({});
   history.replaceState(null, "", "/?agent=/agents/onboarding");
@@ -74,11 +75,7 @@ test("the agent view takes any path, links to its raw view, and says the opener 
     openers: { "/agents/onboarding": "Begin with step 1." },
   });
   expect(page.host.textContent).toContain("/agents/onboarding");
-  expect(
-    [...page.host.querySelectorAll("a")]
-      .find((link) => link.textContent === "Raw view")
-      ?.getAttribute("href"),
-  ).toBe("?page=contexts&context=/agents/onboarding");
+  expect(page.host.textContent).not.toContain("Raw view");
   expect(appended).toEqual([
     {
       path: "/agents/onboarding",
@@ -96,6 +93,55 @@ test("the agent view takes any path, links to its raw view, and says the opener 
   await using other = await draw(DashAgents, itx, { waiting: 0, openers: {} });
   expect(other.host.textContent).toContain("/secrets/slack");
   expect(appended).toHaveLength(1);
+});
+
+test.for<{ name: string; path: string; kind: string }>([
+  { name: "an iterate agent", path: "/agents/onboarding", kind: "iterate" },
+  { name: "an agent of a kind with its own view", path: "/agents/session", kind: "claude" },
+])(
+  "$name: one header row holds the path and Chat | Events, no strip stands over the feed, and Events in the header is the Events tab",
+  async ({ path, kind }) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+    history.replaceState(null, "", `/?agent=${path}`);
+    await using page = await draw(DashAgents, itx, {
+      waiting: 0,
+      agents: agentRowsOf({ agents: { [path]: { createdAt: now, kind } } }),
+    });
+    const header = page.host.querySelector("[data-page-header]");
+    expect(header?.textContent).toContain(path);
+    // the page's only tabs are the header's: the view under it draws no strip
+    const tabs = [...page.host.querySelectorAll("[role=tablist]")];
+    expect(tabs.map((list) => header?.contains(list))).toEqual([true]);
+    expect(tabs[0]?.closest("[inert]")).toBe(null);
+    if (kind === "iterate")
+      // the agent's status is a line at the feed's foot, over the composer (this mind has no live
+      // state to read)
+      expect(page.host.querySelector("[data-slot=agent-foot-status]")?.textContent).toBe(
+        "Live state unavailable",
+      );
+    const events = [...tabs[0]!.querySelectorAll("[role=tab]")].find((tab) =>
+      tab.textContent?.startsWith("Events"),
+    );
+    await act(async () => (events as HTMLElement).click());
+    await page.settle();
+    expect(new URLSearchParams(location.search).get("view")).toBe('{"view":"events"}');
+    // an iterate agent's Events tab is drawn in this page; a kind's, in its frame, which the page
+    // tells (frame-view.test.tsx draws it)
+    if (kind === "iterate")
+      expect(page.host.textContent).toContain("Nothing has happened on this agent yet.");
+  },
+);
+
+test("the agent page while its view is not there: the header's tabs, which cannot be pressed, and one loading line", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { itx } = mind({});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+  const tabs = [...page.host.querySelectorAll("[role=tablist]")];
+  expect(tabs).toHaveLength(1);
+  expect(tabs[0]?.closest("[data-page-header] [inert]")).not.toBe(null);
+  expect(page.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
 });
 
 test("a chat draws a message's image for an agent whose context has no `files`: the mind signs its URL", async () => {
@@ -376,6 +422,7 @@ async function draw(
     said,
     /** Draw again with the catalog's answer. */
     draw: drawWith,
+    settle,
     [Symbol.asyncDispose]: async () => {
       watcher.disconnect();
       await act(() => root.unmount());

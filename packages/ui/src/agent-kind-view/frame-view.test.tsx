@@ -96,6 +96,29 @@ test.for<{
   if (shown === "nothing") expect(log).toMatchObject({ textContent: "" });
 });
 
+test("a page that draws the tabs in its header: the frame's shell draws no strip, the status stands at the feed's foot, and the page's tab is the frame's", async () => {
+  {
+    using _view = await mount({ caughtUp: true, older: null, tabsInHeader: true });
+    expect(document.querySelector("[role=tablist]")).toBeNull();
+    expect(document.querySelector("[data-slot=agent-foot-status]")?.textContent).toBe("Idle");
+    expect(document.body.textContent).toContain("Nothing said yet.");
+  }
+  {
+    using _view = await mount({
+      caughtUp: true,
+      older: null,
+      tabsInHeader: true,
+      state: { view: "events" },
+    });
+    expect(document.querySelector("[role=tablist]")).toBeNull();
+    expect(document.body.textContent).toContain("Nothing has happened on this agent yet.");
+  }
+  // the default: the strip with its tabs, and no line at the foot
+  using _view = await mount({ caughtUp: true, older: null });
+  expect(document.querySelectorAll("[role=tablist]")).toHaveLength(1);
+  expect(document.querySelector("[data-slot=agent-foot-status]")).toBeNull();
+});
+
 test("a kind file that failed to load is no failed read: the Events tab in its place pages down the log and says it holds a part", async () => {
   using _layout = laidOut();
   using frame = await mount(
