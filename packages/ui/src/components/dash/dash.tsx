@@ -168,7 +168,7 @@ export function Dash({
                   onOpenContext={
                     contextsPage ? (path) => go(rawViewHref(contextsPage.id, path)) : null
                   }
-                  current={agent || (page === contextsPage ? context || "/" : undefined)}
+                  current={agent || (page === contextsPage && context) || undefined}
                 />
               )
             : undefined

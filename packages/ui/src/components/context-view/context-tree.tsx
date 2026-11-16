@@ -39,8 +39,8 @@ export function ContextTree({
   paths: readonly string[];
   /** The paths that have work now (the catalog's awake rows): each gets a dot. */
   awake?: ReadonlySet<string>;
-  /** The path shown. */
-  current: string;
+  /** The path shown; none while no context is shown. */
+  current?: string;
   links: ContextPathLinks;
   /** A typed path, resolved against the one shown (`resolveContextPath(current, typed)`). */
   resolvePath: (typed: string) => string;
@@ -134,7 +134,7 @@ function TreeList({
   rows: readonly TreeRow[];
   /** Filtered: the matches read flat, as whole paths. */
   flat: boolean;
-  current: string;
+  current: string | undefined;
   links: ContextPathLinks;
   awake: ReadonlySet<string> | undefined;
 }) {
@@ -178,7 +178,7 @@ function TreeRowLink({
 }: {
   item: TreeRow;
   flat: boolean;
-  current: string;
+  current: string | undefined;
   links: ContextPathLinks;
   awake: boolean;
 }) {
@@ -215,7 +215,10 @@ function TreeRowLink({
 
 /** A phone's tree: the path shown, as a button, opening the tree in a left Sheet that closes as a
  *  path is picked. */
-export function ContextTreeSheet({ className, ...tree }: Parameters<typeof ContextTree>[0]) {
+export function ContextTreeSheet({
+  className,
+  ...tree
+}: Parameters<typeof ContextTree>[0] & { current: string }) {
   const [open, setOpen] = useState(false);
   const links = useMemo(
     (): ContextPathLinks => ({

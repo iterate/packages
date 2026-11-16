@@ -78,6 +78,37 @@ test("with a Contexts page, ⌘K lists the contexts active in the last five minu
   expect(location).toMatchObject({ search: "?page=contexts&context=/agents/a" });
 });
 
+test("the Contexts page with no context: the list and a note, and no context opened, the root included", async () => {
+  await using dash = await draw("/?page=contexts", [], {
+    pages: withContexts,
+    contexts: catalogRows,
+  });
+  const { host } = dash;
+  await until(() => host.querySelector('nav[aria-label="Contexts"]'));
+  expect(host.textContent).toContain("Pick a context from the list, or type a path.");
+  expect(host.querySelector('input[aria-label="Filter or go to a path"]')).not.toBeNull();
+  // the tree is the catalog's: the root and its two paths
+  expect(host.textContent).toContain("3 contexts");
+  expect(dash).toMatchObject({ opened: [] });
+  // a path typed opens that context, the root too, and names it in the URL
+  await act(() => go("?page=contexts&context=/agents/a"));
+  await until(() => dash.opened.length);
+  expect(dash).toMatchObject({ opened: ["/"] });
+});
+
+test("?context=/ opens the root, as a choice", async () => {
+  // this test's itx cannot open the root: the page says so
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await using dash = await draw("/?page=contexts&context=/", [], {
+    pages: withContexts,
+    contexts: catalogRows,
+  });
+  await until(() => dash.opened.length);
+  expect(dash).toMatchObject({ opened: ["/"] });
+  expect(dash.host.textContent).not.toContain("Pick a context from the list");
+  expect(dash.host.querySelector('[role="alert"]')?.textContent).toBe("no context /");
+});
+
 test("an agent that throws says so on its own view alone: View all and another agent draw again, and nothing else mounts the page anew", async () => {
   // React reports what an error boundary caught
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -289,6 +320,19 @@ const withAgentPages: DashPage[] = [
   { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
 ];
 
+const withContexts: DashPage[] = [
+  ...pages,
+  { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
+];
+
+const catalogRows = ["/agents/a", "/secrets/b"].map((path) => ({
+  path,
+  eventCount: 1,
+  eventTypes: {},
+  recentTypes: [],
+  processors: [],
+}));
+
 const links = [
   {
     title: "Access",
@@ -336,6 +380,7 @@ async function draw(
   );
   Element.prototype.scrollIntoView ||= () => {};
   const asked: string[] = [];
+  const opened: string[] = [];
   const itx = {
     // a platform with no catalog rejects; `contexts` is a mind's catalog
     contexts: {
@@ -346,6 +391,7 @@ async function draw(
     },
     // the catalog of the mind's agents on /agents: its live state's seed, and no change after
     cd: async (path: string) => {
+      opened.push(path);
       if (path !== "/agents" || !agents) throw new Error(`no context ${path}`);
       return {
         invoke: async () => ({ rev: 1, state: { agents } }),
@@ -378,11 +424,21 @@ async function draw(
   return {
     host,
     asked,
+    // every context opened but the catalog of agents
+    get opened() {
+      return opened.filter((path) => path !== "/agents");
+    },
     [Symbol.asyncDispose]: async () => {
       await act(() => root.unmount());
       host.remove();
     },
   };
+}
+
+/** Up to four seconds for `check`: the Contexts page's part loads by `import()`. */
+async function until(check: () => unknown) {
+  for (let tick = 0; tick < 80 && !check(); tick += 1)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 }
 
 function linksNamed(host: Element, name: string) {

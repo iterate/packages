@@ -7,7 +7,8 @@ export function agentViewHref(path: string) {
   return pageHref(undefined, { agent: path });
 }
 
-/** The raw view of `path` on the page `page` (the Dash's Contexts page). */
+/** The raw view of `path` on the page `page` (the Dash's Contexts page): `/` too is named, as a
+ *  page with no `?context` opens no context. */
 export function rawViewHref(page: string, path: string) {
-  return pageHref(page, { context: path === "/" ? undefined : path });
+  return pageHref(page, { context: path });
 }

@@ -144,15 +144,17 @@ export function DashPartIsOff({ title, children }: { title: string; children: Re
   );
 }
 
-/** Any context of the mind, live: `?context=<path>`, and the explorer's own state in `?view`. With
+/** Any context of the mind, live: `?context=<path>` (`?context=/` is the root), and the explorer's
+ *  own state in `?view`. With no `?context` the page opens no context: the list, and a note. With
  *  an Agents page, beside the path is the way to the same context in the agent view. */
 export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
   const { ContextExplorer, contextPathOf, contextViewStateOf } = use(contextsPart());
-  const path = usePageParam("context") || "";
+  const tail = usePageParam("context");
+  const path = tail ? contextPathOf(tail) : undefined;
   const { view, patchView } = useView();
   const links = useMemo(
     () => ({
-      hrefOf: (to: string) => pageHref(page.id, { context: to === "/" ? undefined : to }),
+      hrefOf: (to: string) => pageHref(page.id, { context: to }),
       onNavigate: (href: string, event: { preventDefault(): void }) => {
         event.preventDefault();
         go(href);
@@ -165,15 +167,16 @@ export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
     <ContextExplorer
       openRoot={openRoot}
       deps={[itx]}
-      path={contextPathOf(path)}
+      path={path}
       links={links}
       state={contextViewStateOf(view)}
       onStateChange={patchView}
       catalog={catalog}
+      empty="Pick a context from the list, or type a path."
       actions={
-        pages.some((row) => row.id === "agents") ? (
+        path && pages.some((row) => row.id === "agents") ? (
           <a
-            {...linkTo(agentViewHref(contextPathOf(path)))}
+            {...linkTo(agentViewHref(path))}
             className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           >
             Agent view

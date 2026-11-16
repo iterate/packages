@@ -32,6 +32,7 @@ export function StreamLink(target: StreamTarget) {
 /** Where "Stream ↗" goes: null when there is no Dash to go to. */
 function streamHref({ dashOrigin, path }: StreamTarget) {
   if (!dashOrigin) return null;
-  const query = new URLSearchParams({ page: "contexts", ...(path !== "/" && { context: path }) });
+  // the root too is named: the Contexts page with no `context` opens no context
+  const query = new URLSearchParams({ page: "contexts", context: path });
   return `${dashOrigin}/?${query}`;
 }
