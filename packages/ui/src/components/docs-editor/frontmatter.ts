@@ -46,7 +46,7 @@ function propertiesBlock(state: EditorState): DecorationSet {
 const propertiesTheme = EditorView.baseTheme({
   ".docs-properties": {
     display: "grid",
-    gridTemplateColumns: "max-content 1fr",
+    gridTemplateColumns: "fit-content(40%) minmax(0, 1fr)",
     gap: "0.125rem 1.25rem",
     margin: "0.5rem 0 1rem",
     fontSize: "0.8125rem",

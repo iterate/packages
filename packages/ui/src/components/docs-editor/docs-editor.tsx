@@ -124,9 +124,12 @@ export function DocEditor({
               <FormattingMenu session={session} />
             </>
           ) : null}
-          <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
             {state.others.length > 0 && (
-              <p aria-label="Also here" className="text-xs text-muted-foreground">
+              <p
+                aria-label="Also here"
+                className="min-w-0 text-xs wrap-anywhere text-muted-foreground"
+              >
                 Also here: {state.others.join(", ")}
               </p>
             )}
