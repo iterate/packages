@@ -210,7 +210,8 @@
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
         "iterate/packages/context-catalog",
-        "iterate/packages/context-path-text"
+        "iterate/packages/context-path-text",
+        "iterate/packages/list-row-text"
       ],
       "cssVars": {
         "theme": {
@@ -625,6 +626,7 @@
         "input",
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
+        "iterate/packages/list-row-text",
         "popover",
         "textarea"
       ],
@@ -1084,6 +1086,29 @@
       "files": [
         {
           "path": "src/components/context-path-text.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "list-row-text",
+      "type": "registry:component",
+      "description": "The text of one row of a list of contexts: a title when it has one, its path always, and one more line; the Agents list and the Contexts list draw a row with it.",
+      "dependencies": [
+        "cn"
+      ],
+      "registryDependencies": [
+        "iterate/packages/context-path-text"
+      ],
+      "cssVars": {
+        "theme": {
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/list-row-text.tsx",
           "type": "registry:component"
         }
       ]

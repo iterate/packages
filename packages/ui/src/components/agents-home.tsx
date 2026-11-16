@@ -17,6 +17,7 @@ import { AgentLink, StatusDot, type AgentHref, type OpenAgent } from "#/componen
 import { kindIcon } from "#/components/agent-look.ts";
 import { timeAgo } from "#/components/context-catalog/context-catalog-rows.ts";
 import { ContextPathText } from "#/components/context-path-text.tsx";
+import { ListRowText, pxPerRem } from "#/components/list-row-text.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
   agentDoing,
@@ -168,23 +169,12 @@ export function RecentAgents({
   );
 }
 
-/** A row's height in `AllAgents`: two lines, in rem (`h-13`, 52 px at the usual 16 px), as its text
- *  is. A browser set to a larger default font makes the text taller, and the row with it. */
-const ROW_REM = 3.25;
-
-/** The row's height in px, which the virtual list positions by: the root's font size times the
- *  rem. Read once, when the list mounts. A server render has no page to ask, and takes 16 px. */
-const rowHeightOfPage = () =>
-  ROW_REM *
-  (import.meta.env.SSR
-    ? 16
-    : Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
-
 /** EVERY AGENT, as a virtual list: the agents at the top, the most recently active first, each
- *  followed by its subagents that are at work now (`agentAtWork`), indented. Under a title is
- *  the agent's activity while it is at work, and otherwise its description: what it is for. A subagent that is
- *  not at work is in its agent's "and 5 subagents" only. Only the rows in view are in the DOM. It fills
- *  its parent, a flex column with a bounded height, and scrolls itself. */
+ *  followed by its subagents that are at work now (`agentAtWork`), indented. A row is the agent's
+ *  title when it has one, its path, and its summary while it is at work, else its description
+ *  (`ListRowText`). A subagent that is not at work is in its agent's "and 5 subagents" only. Only
+ *  the rows in view are in the DOM. It fills its parent, a flex column with a bounded height, and
+ *  scrolls itself. */
 export function AllAgents({
   agents,
   nowMs,
@@ -211,11 +201,12 @@ export function AllAgents({
     [agents, nowMs],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [rowHeight] = useState(rowHeightOfPage);
+  // the rem in px, read once, when the list mounts
+  const [rem] = useState(pxPerRem);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: (index) => rowRem(rows[index]!.row) * rem,
     getItemKey: (index) => rows[index]!.row.path,
     overscan: 12,
   });
@@ -237,8 +228,11 @@ export function AllAgents({
           return (
             <li
               key={item.key}
-              className="absolute top-0 left-0 h-13 w-full px-4 md:px-8"
-              style={{ transform: `translateY(${String(item.start)}px)` }}
+              className="absolute top-0 left-0 w-full px-4 md:px-8"
+              style={{
+                height: `${String(rowRem(row))}rem`,
+                transform: `translateY(${String(item.start)}px)`,
+              }}
             >
               <AgentLink
                 path={row.path}
@@ -254,17 +248,20 @@ export function AllAgents({
                   <KindIcon aria-hidden />
                   {row.status ? <StatusDot status={row.status} /> : null}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className={cn("truncate", depth ? "text-xs" : "text-sm")}>
-                    {agentTitle(row)}
-                  </span>
-                  <span className="truncate text-2xs text-muted-foreground">
-                    {line || <ContextPathText path={row.path} truncate />}
-                  </span>
-                </span>
-                <time dateTime={at} className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {timeAgo(at, nowMs)}
-                </time>
+                <ListRowText
+                  title={row.title}
+                  path={row.path}
+                  line={line}
+                  className={depth ? "text-xs" : "text-sm"}
+                  time={
+                    <time
+                      dateTime={at}
+                      className="shrink-0 text-xs text-muted-foreground tabular-nums"
+                    >
+                      {timeAgo(at, nowMs)}
+                    </time>
+                  }
+                />
               </AgentLink>
             </li>
           );
@@ -272,4 +269,12 @@ export function AllAgents({
       </ul>
     </div>
   );
+}
+
+/** A row's height in `AllAgents`, in rem, as its text is: a title (`text-sm`, 1.25rem), the path
+ *  and the last line (`text-2xs`, 1rem each) and 1rem of space. A row without a title has the path
+ *  on its first line, so it is one line shorter. A browser set to a larger default font makes the
+ *  text taller, and the row with it. */
+function rowRem(row: AgentRow): number {
+  return row.title ? 4.25 : 3.25;
 }

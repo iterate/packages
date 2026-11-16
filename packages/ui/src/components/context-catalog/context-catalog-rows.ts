@@ -94,11 +94,6 @@ export function contextTitle(row: ContextListing): string | undefined {
   return title.trim().slice(0, TITLE_LIMIT).trim() || undefined;
 }
 
-/** A context's name where a title is wanted: its title, else the last part of its path. */
-export function contextName(row: ContextListing): string {
-  return contextTitle(row) || row.path.split("/").filter(Boolean).at(-1) || "/";
-}
-
 /** The catalog keeps a context's metadata only while it prints this short
  *  (core/itx/src/context/context-summary.ts): a longer record is dropped whole, its title too. */
 const METADATA_MAX_CHARS = 4_000;
@@ -128,15 +123,9 @@ export function describedPayload(
   };
 }
 
-/** How a row of the list is laid out. "path-first": the path, then `title · description`.
- *  "title-first": the title (or the path's last part), then the path. */
-export type ContextRowLayout = "path-first" | "title-first";
-
-/** What a row says under its path: `title · description`, either alone, or else its last few
- *  event types. */
+/** A row's last line: its description, or else its last few event types, the newest first. */
 export function contextRowDetail(row: ContextListing): string {
-  const words = [contextTitle(row), row.description].filter(Boolean).join(" · ");
-  return words || row.recentTypes.map(shortEventType).toReversed().join(" · ");
+  return row.description || row.recentTypes.map(shortEventType).toReversed().join(" · ");
 }
 
 /** The newest event types first, each run of one type as one entry with its count: the last

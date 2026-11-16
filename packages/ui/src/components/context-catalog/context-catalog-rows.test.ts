@@ -3,7 +3,6 @@
 import { expect, test } from "vitest";
 import {
   contextListingsOf,
-  contextName,
   contextRowDetail,
   contextTitle,
   describedPayload,
@@ -63,7 +62,7 @@ test.for([
   expect(formatBytes(bytes)).toBe(expected);
 });
 
-test("a row says its title · its description, either alone, or else its last event types, the newest first", () => {
+test("a row's last line is its description, or else its last event types, the newest first; never its title", () => {
   const types = ["events.iterate.com/agent/turn-started", "demo/ping"];
   const title = { title: "Desk" };
   expect(contextRowDetail(listing({ path: "/a", recentTypes: types }))).toBe(
@@ -73,37 +72,30 @@ test("a row says its title · its description, either alone, or else its last ev
     "Mail",
   );
   expect(contextRowDetail(listing({ path: "/a", recentTypes: types, metadata: title }))).toBe(
-    "Desk",
+    "demo/ping · agent/turn-started",
   );
   expect(contextRowDetail(listing({ path: "/a", description: "Mail", metadata: title }))).toBe(
-    "Desk · Mail",
+    "Mail",
   );
 });
 
 test.for([
-  { name: "a title is trimmed", metadata: { title: "  Desk " }, title: "Desk", named: "Desk" },
-  { name: "no metadata has none", metadata: undefined, title: undefined, named: "mail" },
-  { name: "a blank title is none", metadata: { title: "  " }, title: undefined, named: "mail" },
+  { name: "a title is trimmed", metadata: { title: "  Desk " }, title: "Desk" },
+  { name: "no metadata has none", metadata: undefined, title: undefined },
+  { name: "a blank title is none", metadata: { title: "  " }, title: undefined },
   {
     name: "a title that is no string is none",
     metadata: { title: 7 },
     title: undefined,
-    named: "mail",
   },
   {
     name: "a long title is cut to 80",
     metadata: { title: "x".repeat(90) },
     title: "x".repeat(80),
-    named: "x".repeat(80),
   },
-])("the title: $name", ({ metadata, title, named }) => {
+])("the title: $name", ({ metadata, title }) => {
   const row = listing({ path: "/agents/mail", metadata });
   expect(contextTitle(row)).toBe(title);
-  expect(contextName(row)).toBe(named);
-});
-
-test("the root's name is / when it has no title", () => {
-  expect(contextName(listing({ path: "/" }))).toBe("/");
 });
 
 test.for([

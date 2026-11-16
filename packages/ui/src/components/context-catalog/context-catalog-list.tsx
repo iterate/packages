@@ -1,36 +1,30 @@
-// The mind's contexts as a list, the most recently active first: each row its path, a dot while it
-// is awake, how long ago it was active, and its `title · description` or its last event types
-// (`layout` "path-first"; "title-first" puts the title above the path). One input
-// over it narrows the rows by any word of a path, a description, an event type, a processor or the
-// metadata. Pure: the rows (`useContextCatalog`), the current path and where a path links are
-// props, so a sidebar, a page and a dialog draw the same list. `useContextCatalog` reads the rows.
+// The mind's contexts as a list, the most recently active first: each row a dot while it is awake,
+// its title when it has one, its path, how long ago it was active, and its description or its last
+// event types (`ListRowText`, as the Agents list draws a row). One input over it narrows the rows
+// by any word of a path, a description, an event type, a processor or the metadata. Pure: the rows
+// (`useContextCatalog`), the current path and where a path links are props, so a sidebar, a page
+// and a dialog draw the same list. `useContextCatalog` reads the rows.
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "cn";
 import {
   activeAtOf,
   contextListingsOf,
-  contextName,
   contextRowDetail,
+  contextTitle,
   filterContextListings,
   timeAgo,
   type ContextListing,
-  type ContextRowLayout,
 } from "./context-catalog-rows.ts";
-import { ContextPathText } from "#/components/context-path-text.tsx";
 import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
 import { PathLink, type ContextPathLinks } from "#/components/context-view/context-path.tsx";
+import { ListRowText, pxPerRem } from "#/components/list-row-text.tsx";
 import { Input } from "#/components/ui/input.tsx";
-
-/** A row's height, as a guess: `min-h-11` below. A row with a long path wraps it and is taller;
- *  the list measures each row it draws. */
-const ROW_HEIGHT = 44;
 
 export function ContextCatalog({
   rows,
   current,
   links,
-  layout,
   className,
 }: {
   /** The catalog's rows, the most recently active first; undefined while the first read is on
@@ -39,8 +33,6 @@ export function ContextCatalog({
   /** The path shown. */
   current?: string;
   links: ContextPathLinks;
-  /** How a row is laid out; "path-first" when omitted. */
-  layout?: ContextRowLayout;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -58,13 +50,7 @@ export function ContextCatalog({
           if (event.key === "Escape") setQuery("");
         }}
       />
-      <ContextCatalogList
-        rows={shown}
-        current={current}
-        links={links}
-        nowMs={nowMs}
-        layout={layout}
-      />
+      <ContextCatalogList rows={shown} current={current} links={links} nowMs={nowMs} />
       <p className="px-2 text-2xs text-muted-foreground">
         {!rows
           ? "Loading contexts…"
@@ -76,25 +62,26 @@ export function ContextCatalog({
   );
 }
 
-/** The rows alone, as a virtual list: only the rows in view are in the DOM. */
+/** The rows alone, as a virtual list: only the rows in view are in the DOM. Each row is as tall as
+ *  its lines (`rowRem`), so the list positions the rows without measuring them. */
 export function ContextCatalogList({
   rows,
   current,
   links,
   nowMs,
-  layout = "path-first",
 }: {
   rows: readonly ContextListing[];
   current?: string;
   links: ContextPathLinks;
   nowMs: number;
-  layout?: ContextRowLayout;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // the rem in px, read once, when the list mounts
+  const [rem] = useState(pxPerRem);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: (index) => rowRem(rows[index]!) * rem,
     getItemKey: (index) => rows[index]!.path,
     overscan: 12,
   });
@@ -104,17 +91,17 @@ export function ContextCatalogList({
         {virtualizer.getVirtualItems().map((virtualItem) => (
           <li
             key={virtualItem.key}
-            ref={virtualizer.measureElement}
-            data-index={virtualItem.index}
             className="absolute top-0 left-0 w-full"
-            style={{ transform: `translateY(${String(virtualItem.start)}px)` }}
+            style={{
+              height: `${String(rowRem(rows[virtualItem.index]!))}rem`,
+              transform: `translateY(${String(virtualItem.start)}px)`,
+            }}
           >
             <ContextCatalogRow
               row={rows[virtualItem.index]!}
               current={current}
               links={links}
               nowMs={nowMs}
-              layout={layout}
             />
           </li>
         ))}
@@ -123,54 +110,55 @@ export function ContextCatalogList({
   );
 }
 
-/** One row of the list, laid out by `layout`. */
+/** One row of the list: its dot while it is awake, then its title when it has one, its path and
+ *  its description, else its last event types, else how many events it has (`ListRowText`). */
 export function ContextCatalogRow({
   row,
   current,
   links,
   nowMs,
-  layout,
 }: {
   row: ContextListing;
   current: string | undefined;
   links: ContextPathLinks;
   nowMs: number;
-  layout: ContextRowLayout;
 }) {
   const activeAt = activeAtOf(row);
-  const detail = contextRowDetail(row);
-  const titleFirst = layout === "title-first";
   return (
     <PathLink
       path={row.path}
       links={links}
       aria-current={row.path === current ? "page" : undefined}
-      className="flex min-h-11 min-w-0 flex-col justify-center rounded-md px-2 py-1 hover:bg-muted/60 aria-[current=page]:bg-muted"
+      className="flex h-full min-w-0 flex-col justify-center rounded-md px-2 hover:bg-muted/60 aria-[current=page]:bg-muted"
     >
       <span className="flex min-w-0 items-start gap-1.5">
         <AwakeDot awake={Boolean(row.awake)} className="mt-1.5" />
-        {titleFirst ? (
-          <span className="min-w-0 flex-1 truncate text-foreground/90">{contextName(row)}</span>
-        ) : (
-          <ContextPathText path={row.path} className="min-w-0 flex-1 text-foreground/90" />
-        )}
-        <time
-          dateTime={activeAt}
-          title={activeAt}
-          className="shrink-0 text-2xs text-muted-foreground tabular-nums"
-        >
-          {row.awake ? "awake" : timeAgo(activeAt, nowMs)}
-        </time>
+        <ListRowText
+          title={contextTitle(row)}
+          path={row.path}
+          line={contextRowDetail(row) || `${String(row.eventCount)} events`}
+          className="text-foreground/90"
+          time={
+            <time
+              dateTime={activeAt}
+              title={activeAt}
+              className="shrink-0 text-2xs text-muted-foreground tabular-nums"
+            >
+              {row.awake ? "awake" : timeAgo(activeAt, nowMs)}
+            </time>
+          }
+        />
       </span>
-      {titleFirst ? (
-        <ContextPathText path={row.path} truncate className="pl-3 text-2xs text-muted-foreground" />
-      ) : (
-        <span className="truncate pl-3 text-2xs text-muted-foreground" title={detail}>
-          {detail || `${String(row.eventCount)} events`}
-        </span>
-      )}
     </PathLink>
   );
+}
+
+/** A row's height, in rem, as its text is: a title (`text-xs`, 1rem), the path and the last line
+ *  (`text-2xs`, 1rem each) and 0.75rem of space. A row without a title has the path on its first
+ *  line, so it is one line shorter. A browser set to a larger default font makes the text taller,
+ *  and the row with it. */
+function rowRem(row: ContextListing): number {
+  return contextTitle(row) ? 3.75 : 2.75;
 }
 
 /** The time, read again every `everyMs`: what "3 min ago" is counted from. */
