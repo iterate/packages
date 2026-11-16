@@ -1,7 +1,7 @@
 // The pill composer: a `+` menu (Message / Raw event, and Attach files), the CodeMirror message
 // editor that grows with the draft, a raw-event editor that appends YAML or JSON to the agent's
-// log, attachment chips with drag-and-drop, and one round button that sends — or, while a turn
-// runs, STOPS it (an interruption is a property of the person's next input). A composer for an
+// log, attachment chips with drag-and-drop and paste, and one round button that sends — or, while a
+// turn runs, STOPS it (an interruption is a property of the person's next input). A composer for an
 // agent that does not exist yet has no log to append to, so it has no raw mode. On a narrow screen
 // (below `sm`) it is compact: the buttons and padding shrink, so the words get the width and the
 // chat keeps the height (a phone's keyboard takes half the screen).
@@ -42,8 +42,8 @@ type AgentComposerMessageConfig = {
   canSubmit: boolean;
   /** Open the file picker (the hidden input lives in the parent). */
   onAttach: () => void;
-  /** Accept dropped or picked files (the same path as the picker). */
-  onAddFiles: (files: FileList | null) => void;
+  /** Accept dropped, pasted or picked files (the same path as the picker). */
+  onAddFiles: (files: FileList | readonly File[] | null) => void;
   placeholder: string;
 };
 
@@ -126,7 +126,15 @@ function AgentPillComposer({
             className="min-w-0 flex-1 px-2 py-1.5"
           />
         ) : (
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            className="flex min-w-0 flex-1 flex-col"
+            onPaste={(event) => {
+              // A pasted screenshot is an attachment, as from the `+`. Text in the same paste still
+              // pastes: the editor takes it, so this handler never calls preventDefault.
+              const files = clipboardFiles(event.clipboardData);
+              if (files.length > 0 && !isSubmitting) message.onAddFiles(files);
+            }}
+          >
             {message.attachments ? <div className="px-1 pb-1">{message.attachments}</div> : null}
             <ComposerTextarea
               value={message.value}
@@ -208,6 +216,15 @@ function useFileDrop({
     },
   };
   return { isDragging, dropHandlers };
+}
+
+/** The files a paste holds. A browser fills `files`, or only the items of kind "file". */
+function clipboardFiles(data: Pick<DataTransfer, "files" | "items">): File[] {
+  if (data.files.length > 0) return Array.from(data.files);
+  return Array.from(data.items).flatMap((item) => {
+    const file = item.kind === "file" ? item.getAsFile() : null;
+    return file ? [file] : [];
+  });
 }
 
 /** The `+`: Message or Raw event when there is a raw mode, and Attach files. */

@@ -34,7 +34,7 @@ export function useComposerAttachments() {
   const [entries, setEntries] = useState<AttachmentEntry[]>([]);
   const [fileError, setFileError] = useState<string>();
 
-  function addFiles(fileList: FileList | null) {
+  function addFiles(fileList: FileList | readonly File[] | null) {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
     const { accepted, rejected } = partitionFilesBySize(files);
