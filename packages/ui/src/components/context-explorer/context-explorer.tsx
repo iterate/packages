@@ -35,7 +35,7 @@ import { ContextView } from "#/components/context-view/context-view.tsx";
 import { ContextAbout } from "#/components/context-catalog/context-about.tsx";
 import { ContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
 import {
-  describedPayload,
+  describeContext,
   type ContextListing,
 } from "#/components/context-catalog/context-catalog-rows.ts";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
@@ -125,10 +125,7 @@ export function ContextExplorer({
           onDescribe={
             stub
               ? (description, title) =>
-                  stub.append({
-                    type: "events.iterate.com/itx/described",
-                    payload: describedPayload(shownRow, description, title),
-                  })
+                  describeContext((event) => stub.append(event), shownRow, description, title)
               : undefined
           }
         />

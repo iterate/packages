@@ -5,7 +5,10 @@ import {
   contextListingsOf,
   contextRowDetail,
   contextTitle,
+  aboutSummaryPayload,
+  describeContext,
   describedPayload,
+  isAgentContext,
   eventRunsOf,
   filterContextListings,
   formatBytes,
@@ -155,6 +158,112 @@ test.for([
 ])("the last events: $name", ({ types, expected }) => {
   // exact: no entry more and none less
   expect(eventRunsOf(types)).toEqual(expected);
+});
+
+test.for([
+  {
+    name: "an iterate agent",
+    path: "/agents/support",
+    types: ["events.iterate.com/agent/created"],
+    agent: true,
+  },
+  {
+    name: "a Claude Code session",
+    path: "/agents/claude/3f2a",
+    types: ["events.iterate.com/claude-code/hook-received"],
+    agent: true,
+  },
+  {
+    name: "a Herdr pane",
+    path: "/agents/people/sam/herdr/beelink/w1-p1",
+    types: ["herdr/agent-seen"],
+    agent: true,
+  },
+  {
+    name: "a holder under /agents",
+    path: "/agents/web",
+    types: ["events.iterate.com/itx/child-created"],
+    agent: false,
+  },
+  {
+    name: "a context outside /agents",
+    path: "/repos/config",
+    types: ["events.iterate.com/agent/created"],
+    agent: false,
+  },
+])("an agent's context: $name", ({ path, types, agent }) => {
+  const row = listing({ path, eventTypes: Object.fromEntries(types.map((type) => [type, 1])) });
+  expect(isAgentContext(row)).toBe(agent);
+});
+
+test.for([
+  {
+    name: "a changed title and description",
+    description: " Knows every coding agent ",
+    title: " Coding chief of staff " as string | undefined,
+    expected: { title: "Coding chief of staff", description: "Knows every coding agent" },
+  },
+  {
+    name: "a new title: the title, and the description as it stands, so the title does not replace it",
+    description: "Fix the build",
+    title: "Builder",
+    expected: { title: "Builder", description: "Fix the build" },
+  },
+  {
+    name: "an emptied title and an unchanged description: nothing, as the event clears nothing",
+    description: "Fix the build",
+    title: "",
+    expected: undefined,
+  },
+  {
+    name: "a description over 500 characters: nothing, as the list would keep it cut",
+    description: "x".repeat(501),
+    title: "Builder",
+    expected: undefined,
+  },
+])("About's summary for the agent list: $name", ({ description, title, expected }) => {
+  const row = listing({ path: "/agents/a", description: "Fix the build" });
+  expect(aboutSummaryPayload(row, description, title)).toEqual(expected);
+});
+
+test("About writes the agent's summary beside its context's line, and a failure of either hides neither", async () => {
+  const agent = listing({
+    path: "/agents/coding-chief-of-staff",
+    eventTypes: { "events.iterate.com/claude-code/hook-received": 3 },
+    metadata: {},
+  });
+  const appended: string[] = [];
+  const append = async ({ type }: { type: string }) => void appended.push(type);
+  await describeContext(append, agent, "Knows every coding agent", "Coding chief of staff");
+  expect(appended).toEqual([
+    "events.iterate.com/itx/described",
+    "events.iterate.com/agent/summary-updated",
+  ]);
+
+  // a holder gets its line alone
+  appended.length = 0;
+  await describeContext(append, listing({ path: "/agents/web", metadata: {} }), "Web", "Web");
+  expect(appended).toEqual(["events.iterate.com/itx/described"]);
+
+  // metadata too long for a title: the line is refused, the summary still goes
+  appended.length = 0;
+  const long = { ...agent, metadata: { notes: "x".repeat(3_990) } };
+  await expect(describeContext(append, long, "Mail", "Desk")).rejects.toThrow("too long");
+  expect(appended).toEqual(["events.iterate.com/agent/summary-updated"]);
+
+  // both refused: both errors are thrown
+  await expect(
+    describeContext(
+      async ({ type }) => {
+        throw new Error(`refused ${type}`);
+      },
+      agent,
+      "Mail",
+      "Desk",
+    ),
+  ).rejects.toThrow(
+    /refused events.iterate.com\/itx\/described.*refused events.iterate.com\/agent\/summary-updated/,
+  );
 });
 
 function listing(row: Partial<ContextListing> & { path: string }): ContextListing {

@@ -123,6 +123,83 @@ export function describedPayload(
   };
 }
 
+/** The event families of the kinds of agent: an iterate agent's own (`agent/*`, its birth and the
+ *  messages it is sent, which a codex session also gets), and the events the bridges write on a
+ *  coding session's context. */
+const AGENT_EVENT_PREFIXES = [
+  "events.iterate.com/agent/",
+  "events.iterate.com/claude-code/",
+  "events.iterate.com/acp/",
+  "herdr/",
+];
+
+/** Whether `row` is an agent's context: under `/agents`, with an event of an agent kind in its log.
+ *  A holder under `/agents` (`/agents/web`, a member's folder, the folder of Meet's rooms) has
+ *  only the announcements of the contexts below it. */
+export function isAgentContext(row: ContextListing | undefined): row is ContextListing {
+  if (!row?.path.startsWith("/agents/")) return false;
+  return Object.keys(row.eventTypes).some((type) =>
+    AGENT_EVENT_PREFIXES.some((prefix) => type.startsWith(prefix)),
+  );
+}
+
+/** The `agent/summary-updated` that tells the agent list what a person wrote in About, when they
+ *  changed the title or the description: the title when it is not empty, and always the
+ *  description as it now stands. The catalog writes the agent's line (its description, or else its
+ *  title) back to the context, so a title sent alone would replace a description the list never
+ *  had. Undefined when nothing changed, and for a description longer than the list keeps whole
+ *  (`LIST_DESCRIPTION_MAX_CHARS`): the list keeps what it has, and the context the full text. The
+ *  event cannot clear a field: an emptied one leaves the agent's own summary as it stands. */
+/** The longest description an agent's copy row carries whole: an iterate agent's row, made at
+ *  its `create` (core/lib/src/agents/collection.ts `CATALOG_ROWS`), cuts at 500 characters, and the
+ *  catalog would write the cut text back over the context's own. */
+const LIST_DESCRIPTION_MAX_CHARS = 500;
+
+export function aboutSummaryPayload(
+  row: ContextListing,
+  description: string,
+  title?: string,
+): { title?: string; description?: string } | undefined {
+  const text = description.trim();
+  const named = title?.trim();
+  if (!named && text === (row.description || "")) return undefined;
+  if (!named && !text) return undefined;
+  if (text.length > LIST_DESCRIPTION_MAX_CHARS) return undefined;
+  return {
+    ...(named && { title: named.slice(0, 200) }),
+    // the event's schema takes no empty description: an emptied one is left out
+    description: text || undefined,
+  };
+}
+
+/** What About writes for `row`: the `itx/described` of its context and, for an agent's context,
+ *  the `agent/summary-updated` that carries the title and description to the agent list (the
+ *  catalog on `/agents` copies only an agent's own events, and never an `itx/*` one). Each is
+ *  appended even when the other fails, and every failure is thrown. */
+export async function describeContext(
+  append: (event: { type: string; payload: Record<string, unknown> }) => Promise<unknown>,
+  row: ContextListing | undefined,
+  description: string,
+  title?: string,
+): Promise<void> {
+  const writes = [
+    (async () =>
+      append({
+        type: "events.iterate.com/itx/described",
+        payload: describedPayload(row, description, title),
+      }))(),
+  ];
+  const summary = isAgentContext(row) ? aboutSummaryPayload(row, description, title) : undefined;
+  if (summary)
+    writes.push(append({ type: "events.iterate.com/agent/summary-updated", payload: summary }));
+  const errors = (await Promise.allSettled(writes)).flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, errors.map((error) => String(error)).join(" "));
+}
+
 /** A row's last line: its description, or else its last few event types, the newest first. */
 export function contextRowDetail(row: ContextListing): string {
   return row.description || row.recentTypes.map(shortEventType).toReversed().join(" · ");
