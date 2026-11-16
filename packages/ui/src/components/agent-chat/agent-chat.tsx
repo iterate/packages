@@ -40,6 +40,7 @@ import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.
 import { AgentTurnStatus } from "./agent-feed.tsx";
 import {
   initialAgentUiState,
+  deriveAgentUiLiveStatus,
   isAgentUiLiveRowWorking,
   type AgentUiItem,
   type AgentUiLlmStep,
@@ -70,6 +71,46 @@ type Feed = ReturnType<typeof agentFeedOf>;
 
 /** The feed before the read reaches the head, when what is held says nothing of now. */
 const NOTHING_YET: Feed = { state: initialAgentUiState(), items: [] };
+
+/** A status row for a shared conversation whose messages live in another context. Only the
+ * agent's phase and current activity summary are rendered; no response, reasoning or script. */
+export function AgentProgress({ context, error }: { context: AgentChatContext; error?: string }) {
+  const { turn, feed } = useAgentFeed(context);
+  const status = chatStatus(turn, feed.state);
+  // A shared room has no agent facet until the first message asks the agent to work.
+  const noAgent =
+    !context.liveState.agent && context.processors.loaded && !context.processors.error;
+  if (noAgent && !error && !context.error) return null;
+  if (error || context.error || turn.liveUnavailable)
+    return (
+      <AgentTurnStatus
+        text={error || context.error || "Agent status unavailable"}
+        working={false}
+      />
+    );
+  if (!context.caughtUp || status.tone === "muted") return null;
+  const activity = deriveAgentUiLiveStatus(feed.state)?.statusText;
+  return (
+    <div className="flex flex-col" data-testid="agent-progress">
+      <AgentTurnStatus text={status.text} working={status.tone === "live"} />
+      {activity && status.tone === "live" && !status.text.includes(activity) ? (
+        <p className="text-sm text-muted-foreground">{activity}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function useAgentFeed(context: AgentChatContext) {
+  const [foldLog] = useState(() => remembered(foldAgentLog));
+  const fold = useMemo(() => foldLog(context.events), [foldLog, context.events]);
+  const turn = agentTurnOf(context);
+  const { idle, requestMayBeOpen } = turn;
+  const feed = useMemo(
+    () => (context.caughtUp ? agentFeedOf(fold, idle, requestMayBeOpen) : NOTHING_YET),
+    [context.caughtUp, fold, idle, requestMayBeOpen],
+  );
+  return { fold, turn, feed };
+}
 
 export function AgentChat({
   path,
@@ -122,16 +163,9 @@ export function AgentChat({
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
-  const [foldLog] = useState(() => remembered(foldAgentLog));
-  const fold = useMemo(() => foldLog(context.events), [foldLog, context.events]);
+  const { fold, turn, feed } = useAgentFeed(context);
   // a read that failed stands in the error, and is not to be asked for again and again
   const older = (!context.error && context.older) || OLDER_EXHAUSTED;
-  const turn = agentTurnOf(context);
-  const { idle, requestMayBeOpen } = turn;
-  const feed = useMemo(
-    () => (context.caughtUp ? agentFeedOf(fold, idle, requestMayBeOpen) : NOTHING_YET),
-    [context.caughtUp, fold, idle, requestMayBeOpen],
-  );
   const [toggled, onToggle] = useToggledIds();
   const draft = useComposerDraft();
   const { inspected, inspect, onInspect } = useTraces(state, onStateChange);
@@ -256,7 +290,8 @@ function chatStatus(
       detail,
     };
   if (facet.paused) return { text: `Paused — ${facet.paused.reason}`, tone: "amber" as const };
-  const { live, summaryActivity } = feedState;
+  const { live } = feedState;
+  const summaryActivity = deriveAgentUiLiveStatus(feedState)?.statusText;
   if (live?.steps.some((step) => step.kind === "code" && step.status === "running"))
     return {
       text: `Running a script${summaryActivity ? ` · ${summaryActivity}` : ""}`,

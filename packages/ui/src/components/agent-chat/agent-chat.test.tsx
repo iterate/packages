@@ -5,8 +5,109 @@
 // status is the feed's last row.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test, vi } from "vitest";
-import { AgentChat } from "./agent-chat.tsx";
+import { AgentChat, AgentProgress } from "./agent-chat.tsx";
+
+test("shared-conversation progress shows work and its public summary without response or script content", () => {
+  const context: Context = {
+    events: [
+      {
+        offset: 1,
+        createdAt: "2026-11-16T12:00:00Z",
+        type: "events.iterate.com/agent/llm-request-requested",
+        payload: { model: "gpt-test" },
+      },
+      {
+        offset: 2,
+        createdAt: "2026-11-16T12:00:01Z",
+        type: "events.iterate.com/agent/llm-response-frame",
+        payload: {
+          llmRequestOffset: 1,
+          sequence: 0,
+          thinkingDelta: "PRIVATE_REASONING",
+          responseDelta: "PRIVATE_RESPONSE",
+        },
+      },
+      {
+        offset: 3,
+        createdAt: "2026-11-16T12:00:02Z",
+        type: "events.iterate.com/agent/summary-updated",
+        payload: { title: "Look up a file", activity: "Finding the shared file" },
+      },
+    ],
+    caughtUp: true,
+    processors: { loaded: true, rows: [] },
+    presence: { actors: [], rpcStubs: [] },
+    liveState: {
+      agent: {
+        status: "live",
+        value: { paused: null, openRequest: { model: "gpt-test" }, pendingLlmRequestTrigger: null },
+      },
+    },
+  };
+  const thinking = renderToStaticMarkup(<AgentProgress context={context} />);
+  expect(thinking).toContain("Thinking · gpt-test");
+  expect(thinking).toContain("Finding the shared file");
+  expect(thinking).toContain('aria-label="Loading"');
+  expect(thinking).not.toMatch(/PRIVATE_REASONING|PRIVATE_RESPONSE/);
+  context.events = [
+    ...context.events,
+    {
+      offset: 4,
+      createdAt: "2026-11-16T12:00:03Z",
+      type: "events.iterate.com/itx/run-requested",
+      payload: { code: "PRIVATE_SCRIPT" },
+    },
+  ];
+  const running = renderToStaticMarkup(<AgentProgress context={context} />);
+  expect(running).toContain("Running a script");
+  expect(running.match(/Finding the shared file/g)).toHaveLength(1);
+  expect(running).not.toMatch(/PRIVATE_REASONING|PRIVATE_RESPONSE|PRIVATE_SCRIPT/);
+});
+
+test.for([
+  {
+    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: {} },
+    expected: "About to think",
+    working: true,
+  },
+  {
+    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null, awaitingRun: {} },
+    expected: "About to run a script",
+    working: true,
+  },
+  {
+    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null, unnotedRun: 12 },
+    expected: "Reading the script&#x27;s result",
+    working: true,
+  },
+  {
+    value: { paused: { reason: "Needs input" }, openRequest: null, pendingLlmRequestTrigger: null },
+    expected: "Paused — Needs input",
+    working: false,
+  },
+  {
+    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
+    expected: "",
+    working: false,
+  },
+])(
+  "shared-conversation progress follows the agent obligation: $expected",
+  ({ value, expected, working }) => {
+    const context: Context = {
+      events: [],
+      caughtUp: true,
+      processors: { rows: [], loaded: true },
+      presence: { actors: [], rpcStubs: [] },
+      liveState: { agent: { status: "live", value } },
+    };
+    const markup = renderToStaticMarkup(<AgentProgress context={context} />);
+    if (expected) expect(markup).toContain(expected);
+    else expect(markup).toBe("");
+    expect(markup.includes('aria-label="Loading"')).toBe(working);
+  },
+);
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,

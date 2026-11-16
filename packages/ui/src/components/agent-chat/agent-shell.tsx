@@ -165,10 +165,12 @@ function ShellStrip({
             </TabsTrigger>
           ) : null}
           <TabsTrigger value="events" className="text-xs">
-            Events
-            <span className="font-mono text-2xs text-muted-foreground/70">
-              {held}
-              {wholeLogHeld ? "" : "+"}
+            <span className="inline-flex items-baseline gap-1.5">
+              Events
+              <span className="font-mono text-2xs text-muted-foreground/70">
+                {held}
+                {wholeLogHeld ? "" : "+"}
+              </span>
             </span>
           </TabsTrigger>
         </TabsList>
