@@ -417,10 +417,16 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
  *  draws it is its kind's: iterate's chat, or a kind's own view in a frame. One loading state
  *  stands from the first paint to the view's own, under a header of the same shape whose tabs
  *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. */
-function AgentView({ itx, page, agents, path }: DashPageProps & { path: string }) {
+function AgentView({ itx, page, agents, path, principal }: DashPageProps & { path: string }) {
   return (
     <Suspense fallback={<AgentPageReading path={path} agents={agents} />}>
-      <AgentViewOfKind itx={itx} path={path} agents={agents} opener={page.openers?.[path]} />
+      <AgentViewOfKind
+        itx={itx}
+        path={path}
+        agents={agents}
+        opener={page.openers?.[path]}
+        me={principal?.actor}
+      />
     </Suspense>
   );
 }
@@ -497,7 +503,12 @@ function AgentViewOfKind({
   path,
   agents,
   opener,
-}: Pick<DashPageProps, "itx" | "agents"> & { path: string; opener: string | undefined }) {
+  me,
+}: Pick<DashPageProps, "itx" | "agents"> & {
+  path: string;
+  opener: string | undefined;
+  me: string | undefined;
+}) {
   const kinds = use(kindFilesOf(itx));
   if (!agents) return <AgentPageReading path={path} agents={agents} />;
   const row = agents.find((agent) => agent.path === path);
@@ -506,7 +517,7 @@ function AgentViewOfKind({
   return file ? (
     <KindChat itx={itx} path={path} file={file} agents={agents} />
   ) : (
-    <IterateChat itx={itx} path={path} row={row} agents={agents} opener={opener} />
+    <IterateChat itx={itx} path={path} row={row} agents={agents} opener={opener} me={me} />
   );
 }
 
@@ -534,6 +545,7 @@ function IterateChat({
   row,
   agents,
   opener,
+  me,
 }: {
   itx: Itx;
   path: string;
@@ -541,6 +553,8 @@ function IterateChat({
   agents: readonly AgentRow[];
   /** What the mind says first, if the chat is empty: a developer's note, which starts a turn. */
   opener: string | undefined;
+  /** The signed-in member's actor id: their own messages have no line under them. */
+  me: string | undefined;
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
@@ -595,6 +609,7 @@ function IterateChat({
         }}
         onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
         signedUrl={(file) => fileUrl(itx, file)}
+        me={me}
       />
     </>
   );

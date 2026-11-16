@@ -39,6 +39,7 @@ export function AgentFeedList({
   traceOffsets,
   signedUrl,
   itemFooter,
+  me,
 }: {
   feed: { state: AgentUiState; items: readonly AgentUiItem[] };
   older: OlderPages;
@@ -59,6 +60,7 @@ export function AgentFeedList({
   traceOffsets: ReadonlyMap<string, number>;
   signedUrl: ComponentProps<typeof AgentFeedItemRow>["signedUrl"];
   itemFooter?: (item: AgentUiItem) => ReactNode;
+  me: string | undefined;
 }) {
   const { items, state } = feed;
   const renderRow = useCallback(
@@ -71,11 +73,12 @@ export function AgentFeedList({
           inspect={inspect}
           traceOffset={row.kind === "assistant" ? traceOffsets.get(row.id) : undefined}
           signedUrl={signedUrl}
+          me={me}
         />
         {itemFooter?.(row)}
       </>
     ),
-    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter],
+    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me],
   );
   return (
     <VirtualLog

@@ -149,6 +149,7 @@ export function AgentChat({
   attach = true,
   onChoice,
   choiceState,
+  me,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -197,6 +198,9 @@ export function AgentChat({
   onChoice?: AgentChoiceHandlers["onChoice"];
   /** A choice's state, drawn on its button: "chosen", or "busy" while its press is sent. */
   choiceState?: AgentChoiceHandlers["choiceState"];
+  /** The viewer's address or actor id: their own messages have no line under them that says who
+   *  sent them. Absent: every person's message has one. */
+  me?: string;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -250,6 +254,7 @@ export function AgentChat({
           inspect={inspect}
           signedUrl={signedUrl}
           itemFooter={itemFooter}
+          me={me}
           statusRow={strip ? null : chatStatusRow(status, feed.state)}
           aboveComposer={aboveComposer}
           empty={empty}
@@ -370,6 +375,7 @@ function ChatTab({
   inspect,
   signedUrl,
   itemFooter,
+  me,
   statusRow,
   aboveComposer,
   empty,
@@ -391,6 +397,7 @@ function ChatTab({
   inspect: Inspect;
   signedUrl: SignedUrl;
   itemFooter: ((item: AgentUiItem) => ReactNode) | undefined;
+  me: string | undefined;
   statusRow: ReactNode;
   aboveComposer: ReactNode;
   empty: ReactNode;
@@ -478,6 +485,7 @@ function ChatTab({
       traceOffsets={traceOffsets}
       signedUrl={signedUrl}
       itemFooter={itemFooter}
+      me={me}
     />
   );
 }

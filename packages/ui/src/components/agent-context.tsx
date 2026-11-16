@@ -105,7 +105,8 @@ export function AgentContext({
   /** A line said in the call, for an event that is one: such an event needs no renderer, and every
    *  run of them is one quiet row that opens. */
   spokenLine?: (event: StreamEvent) => SpokenLine | null;
-  /** The viewer's address, for "(you)" in an opened run of spoken lines. */
+  /** The viewer's address, for "(you)" in an opened run of spoken lines, and for their own messages,
+   *  which have no line under them that says who sent them. */
   me?: string;
   progress?: AgentProgressData;
   /** The agent's own log: its work in flight is the progress line, its settled work rows of the
@@ -280,6 +281,7 @@ function ContextRow({
           inspect={inspect}
           traceOffset={undefined}
           signedUrl={NO_FILES}
+          me={me}
         />
       );
     case "rollup": {

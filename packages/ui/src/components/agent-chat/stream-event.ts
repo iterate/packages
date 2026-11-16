@@ -25,15 +25,35 @@ export type StreamEventSource = {
   };
 };
 
-/** Who said a message, as the platform stamped its event, for a small label: the person, " (a
- *  script)" when their script wrote it, and the page they came through. None when the event names
- *  nobody: the mind's own code, mail, another agent. */
-export function saidByOf(source: StreamEventSource | undefined): string | undefined {
-  const who = source?.principal ? { ...source, principal: source.principal } : source?.onBehalfOf;
-  if (!who) return undefined;
-  const script = "run" in who && who.run ? " (a script)" : "";
-  const page = who.via ? ` via ${who.via.appPage}` : "";
-  return `${who.principal.email || who.principal.actor}${script}${page}`;
+/** Who sent a message, as the platform stamped its event: the person, and whether their script
+ *  wrote it. */
+export type MessageSender = { actor: string; email?: string; script: boolean };
+
+/** The sender a message's event names. None when it names nobody: the mind's own code, mail,
+ *  another agent. */
+export function senderOf(source: StreamEventSource | undefined): MessageSender | undefined {
+  const principal = source?.principal || source?.onBehalfOf?.principal;
+  if (!principal) return undefined;
+  const { actor, email } = principal;
+  return {
+    actor,
+    email,
+    script: !source?.principal && Boolean(source?.onBehalfOf?.run),
+  };
+}
+
+/** A small label for a sender: the part of their address before the `@`, or their actor id when
+ *  there is no address, and " (a script)" when their script wrote it. The page they came through
+ *  is no part of it. */
+export function saidByOf(sender: MessageSender): string {
+  return `${sender.email?.split("@", 1)[0] || sender.actor}${sender.script ? " (a script)" : ""}`;
+}
+
+/** Whether the viewer `me` (their address or actor id) typed it: a message their script wrote is
+ *  not one they typed. */
+export function sentByMe(sender: MessageSender, me: string | undefined): boolean {
+  if (!me || sender.script) return false;
+  return sender.actor === me || sender.email?.toLowerCase() === me.toLowerCase();
 }
 
 export type StreamEvent<Type extends string = string, Payload = unknown> = {

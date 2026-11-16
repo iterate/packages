@@ -511,6 +511,62 @@ test.for([
   },
 );
 
+test.for<{ name: string; me: string | undefined; lines: (readonly [string, string] | null)[] }>([
+  {
+    name: "the viewer by their actor",
+    me: "/members/ada",
+    lines: [null, ["bo", "bo@example.com"], ["ada (a script)", "ada@example.com"]],
+  },
+  {
+    name: "the viewer by their address, in another case",
+    me: "Ada@Example.com",
+    lines: [null, ["bo", "bo@example.com"], ["ada (a script)", "ada@example.com"]],
+  },
+  {
+    name: "no viewer",
+    me: undefined,
+    lines: [
+      ["ada", "ada@example.com"],
+      ["bo", "bo@example.com"],
+      ["ada (a script)", "ada@example.com"],
+    ],
+  },
+])(
+  "with $name, a line under each bubble that the viewer did not type: a short name, the full address on hover",
+  async ({ me, lines }) => {
+    using _layout = laidOut();
+    const ada = { actor: "/members/ada", email: "ada@example.com" };
+    using _chat = await mount(
+      {
+        processors: { rows: [], loaded: true },
+        liveState: {},
+        events: [
+          { ...said(1, "mine"), source: { principal: ada } },
+          {
+            ...said(2, "theirs"),
+            source: { principal: { actor: "/members/bo", email: "bo@example.com" } },
+          },
+          // the cast: the context's event type does not name `onBehalfOf`, which the platform
+          // stamps on what a person's script appends
+          {
+            ...said(3, "my script's"),
+            source: { onBehalfOf: { principal: ada, run: "/@7" } },
+          } as unknown as Context["events"][number],
+        ],
+      },
+      { me },
+    );
+    const bubbles = [...document.querySelectorAll("[data-kind=user]")];
+    expect(bubbles).toHaveLength(3);
+    expect(
+      bubbles.map((bubble) => {
+        const line = bubble.querySelector("[data-said-by]");
+        return line ? [line.textContent, line.getAttribute("title")] : null;
+      }),
+    ).toEqual(lines);
+  },
+);
+
 type Context = ComponentProps<typeof AgentChat>["context"];
 
 /** A state of the read, and what a feed shows in it. */

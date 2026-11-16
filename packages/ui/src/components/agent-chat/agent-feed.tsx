@@ -44,6 +44,7 @@ import {
   looksLikeCode,
 } from "./agent-events.ts";
 import { useTickingNowMs } from "./use-ticking-now-ms.ts";
+import { sentByMe } from "./stream-event.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
@@ -68,6 +69,7 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   inspect,
   traceOffset,
   signedUrl,
+  me,
 }: {
   item: AgentUiItem;
   expanded: boolean;
@@ -76,6 +78,9 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   /** The llm request behind an assistant message, so its bubble opens the trace on hover. */
   traceOffset: number | undefined;
   signedUrl: SignedUrl;
+  /** The viewer's address or actor id. Their own bubbles have no line under them; with none, every
+   *  person's has one. */
+  me?: string;
 }) {
   switch (item.kind) {
     case "user":
@@ -84,8 +89,12 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
           <MessageContent className="group-[.is-user]:rounded-2xl">
             <UserMessageBody item={item} signedUrl={signedUrl} />
           </MessageContent>
-          {item.saidBy ? (
-            <span data-said-by className="font-readme ml-auto text-2xs text-muted-foreground">
+          {item.sender && item.saidBy && !sentByMe(item.sender, me) ? (
+            <span
+              data-said-by
+              title={item.sender.email || item.sender.actor}
+              className="font-readme ml-auto text-2xs text-muted-foreground"
+            >
               {item.saidBy}
             </span>
           ) : null}

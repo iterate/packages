@@ -1,7 +1,13 @@
 import { RUN_DEADLINE_MS, RunRequested, RunSettled } from "iterate/stream/run";
 import { AgentContract, AgentLlmRequestCancelReason } from "iterate/agents/contract";
 import { appendText, sliceText, type StreamText } from "./chunked-text.ts";
-import { relayedMessageOffset, saidByOf, type StreamEvent } from "./stream-event.ts";
+import {
+  relayedMessageOffset,
+  saidByOf,
+  senderOf,
+  type MessageSender,
+  type StreamEvent,
+} from "./stream-event.ts";
 
 // The agent UI is a clean chat: user message → activity ("Ran code 2× · 3
 // requests · 7.4 s") → assistant message, with pause and resume dividers, and
@@ -309,7 +315,10 @@ export type AgentUiMessageItem = {
   text: string;
   timestampMs: number;
   files?: AgentUiFileAttachment[];
-  /** Who said it, when the platform stamped a person on its event (stream-event.ts `saidByOf`). */
+  /** Who sent it, when the platform stamped a person on its event (stream-event.ts `senderOf`). */
+  sender?: MessageSender;
+  /** The sender's short label (stream-event.ts `saidByOf`), drawn under the bubble of anyone but
+   *  the viewer. */
   saidBy?: string;
 };
 
@@ -370,7 +379,7 @@ export type AgentUiState = {
   latestTriggerOffset: number;
   /** Who said each `agent/message-received`, by its offset: iterate's loop relays the words as a
    *  `context-added` of its own, which names no person. */
-  saidByMessage: Record<number, string>;
+  senderByMessage: Record<number, MessageSender>;
 };
 
 export function initialAgentUiState(): AgentUiState {
@@ -383,7 +392,7 @@ export function initialAgentUiState(): AgentUiState {
     summaryActivityUpdatedAtMs: null,
     paused: false,
     latestTriggerOffset: 0,
-    saidByMessage: {},
+    senderByMessage: {},
   };
 }
 
@@ -434,9 +443,9 @@ function reduceAgentUiEvent(
     // Words sent to any kind of agent (`message()`). The platform stamped who asked on this event;
     // the bubble comes from the `context-added` the loop makes of it.
     case "events.iterate.com/agent/message-received": {
-      const saidBy = saidByOf(event.source);
-      if (!saidBy) return state;
-      return { ...state, saidByMessage: { ...state.saidByMessage, [event.offset]: saidBy } };
+      const sender = senderOf(event.source);
+      if (!sender) return state;
+      return { ...state, senderByMessage: { ...state.senderByMessage, [event.offset]: sender } };
     }
 
     // The canonical model-visible context event. User context renders as a
@@ -468,12 +477,15 @@ function reduceAgentUiEvent(
 
       const files = readFileAttachments(event);
       if (role === "user") {
+        const sender =
+          senderOf(event.source) ?? state.senderByMessage[relayedMessageOffset(event) ?? -1];
         const message = {
           offset: event.offset,
           text,
           ...(files.length === 0 ? {} : { files }),
           timestampMs,
-          saidBy: saidByOf(event.source) ?? state.saidByMessage[relayedMessageOffset(event) ?? -1],
+          sender,
+          saidBy: sender && saidByOf(sender),
         };
         if (readRecord(event, "llmRequestPolicy")?.behaviour === "dont-trigger-request")
           return emitBackgroundItem(state, items, {

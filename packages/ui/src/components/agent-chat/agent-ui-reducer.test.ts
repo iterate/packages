@@ -16,7 +16,7 @@ import {
   type AgentUiItem,
 } from "./agent-ui-reducer.ts";
 
-test("a person's message says who said it, and through what: their own append, their call into the agent's facet from an app's page, their script", () => {
+test("a person's message says who said it in a short name, and never the page it came through: their own append, their call into the agent's facet from an app's page, their script", () => {
   const principal = { actor: "user:1", email: "ada@example.com" };
   const said = (source: StreamEvent["source"]) => ({
     type: "events.iterate.com/agent/context-added",
@@ -30,9 +30,27 @@ test("a person's message says who said it, and through what: their own append, t
     said(undefined),
   ]);
   expect(state.items.map((item) => item.kind === "user" && item.saidBy)).toEqual([
-    "ada@example.com",
-    "ada@example.com via agents.example.com",
+    "ada",
+    "ada",
     "user:2 (a script)",
+    undefined,
+  ]);
+});
+
+test("a person's message says who sent it as data: their actor, their address, and whether a script wrote it; an event that names nobody says no one", () => {
+  const said = (source: StreamEvent["source"]) => ({
+    type: "events.iterate.com/agent/context-added",
+    payload: { role: "user", actor: { type: "user" }, content: "hello" },
+    source,
+  });
+  const state = reduceAll([
+    said({ principal: { actor: "user:1", email: "ada@example.com" } }),
+    said({ onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } }),
+    said(undefined),
+  ]);
+  expect(state.items.map((item) => item.kind === "user" && item.sender)).toEqual([
+    { actor: "user:1", email: "ada@example.com", script: false },
+    { actor: "user:2", script: true },
     undefined,
   ]);
 });
@@ -60,7 +78,7 @@ test("a message sent with message() keeps who said it on the bubble the loop mak
     },
   ]);
   expect(state.items).toMatchObject([
-    { kind: "user", text: "hello", saidBy: "ada@example.com via agents.example.com" },
+    { kind: "user", text: "hello", saidBy: "ada", sender: { ...principal, script: false } },
   ]);
 });
 

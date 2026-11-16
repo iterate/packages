@@ -171,6 +171,33 @@ test("a chat draws a message's image for an agent whose context has no `files`: 
   );
 });
 
+test("a message the signed-in member sent has no line under it that says who sent it; another member's has their short name", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/talk";
+  const said = (offset: number, content: string, principal: { actor: string; email: string }) => ({
+    offset,
+    type: "events.iterate.com/agent/context-added",
+    payload: { role: "user", actor: { type: "user" }, content },
+    source: { principal },
+  });
+  const { itx } = mind({
+    logs: {
+      [path]: [
+        said(1, "mine", { actor: "/members/a", email: "jo@example.com" }),
+        said(2, "theirs", { actor: "/members/b", email: "bo@example.com" }),
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  await using page = await draw(DashAgents, itx, { waiting: 0 });
+  const lines = () =>
+    [...page.host.querySelectorAll("[data-kind=user]")].map(
+      (bubble) => bubble.querySelector("[data-said-by]")?.textContent ?? null,
+    );
+  await act(() => vi.waitFor(() => expect(lines()).toEqual([null, "bo"])));
+});
+
 test("an agent of another kind, before the catalog says its kind: no chat of iterate's, and never its words for an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
@@ -264,7 +291,7 @@ function mind({
   kinds?: Record<string, string>;
   /** the config repo refuses each read of a file, on a connection that is up */
   unreadable?: boolean;
-  logs?: Record<string, { offset: number; type: string; payload: object }[]>;
+  logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
   let reads = 0;
