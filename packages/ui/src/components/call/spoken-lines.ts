@@ -4,8 +4,9 @@
 // components (caption-strip.tsx, transcript-history.tsx, transcript-rollup.tsx) draw these.
 
 /** One line said and transcribed. `who` is the speaker's address, or the agent's name; `at` is
- *  when they began to say it, in milliseconds since the epoch. */
-export type SpokenLine = { key: string; who: string; at: number; text: string };
+ *  when they began to say it, in milliseconds since the epoch; `offset` is the line's place in
+ *  its log, when the page knows it (the transcript then counts the lines below a reader). */
+export type SpokenLine = { key: string; who: string; at: number; text: string; offset?: number };
 
 /** Words still being spoken, before they are a line. `from` is the speaker's connection: one
  *  caption per connection. */
@@ -15,7 +16,7 @@ export type LiveCaption = { from: string; who: string; text: string };
 type FeedRow = { key: string; offset?: number; kind: string };
 
 /** A row of `kind: "said"`: a spoken line in a page's feed. */
-type SaidRow = SpokenLine & { offset?: number; kind: "said" };
+type SaidRow = SpokenLine & { kind: "said" };
 
 /** One run of consecutive spoken lines, as `rollUpSpokenLines` makes it. */
 export type SpokenRollupRow = { key: string; offset?: number; kind: "rollup"; lines: SpokenLine[] };
@@ -48,12 +49,16 @@ export function colourOf(who: string) {
 export function rollUpSpokenLines<Row extends FeedRow>(
   rows: readonly (Row | SaidRow)[],
 ): readonly (Exclude<Row, { kind: "said" }> | SpokenRollupRow)[] {
+  // The cast: no row is said, so every row is of another kind. TypeScript does not narrow an
+  // array's element type from `some`, and the same array must be the answer (no copy).
   if (!rows.some(isSaid)) return rows as readonly Exclude<Row, { kind: "said" }>[];
   const out: (Exclude<Row, { kind: "said" }> | SpokenRollupRow)[] = [];
   let run: SpokenRollupRow | undefined;
   for (const row of rows) {
     if (!isSaid(row)) {
       run = undefined;
+      // The cast: `isSaid` said no, but its guard narrows a generic `Row` to `Row`, not to
+      // `Exclude<Row, …>`, which only resolves once `Row` is known.
       out.push(row as Exclude<Row, { kind: "said" }>);
     } else if (run) run.lines.push(row);
     else {

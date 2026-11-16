@@ -149,7 +149,9 @@ values when not: dark on a page whose `color-scheme` is dark, light on any other
 
 What is said in a call, from `@iterate-com/ui/components/call/<part>`. A line said is
 `{ key, who, at, text }`: `who` is the speaker's address, or the agent's name. `CaptionStrip` is one
-quiet line of the newest words under the call, with a button that opens `TranscriptHistory`.
+quiet line of the newest words under the call, with a button that opens `TranscriptHistory`: every
+line said, on the virtual log, which reads older pages through its `older` as the reader scrolls
+up.
 `TranscriptRollup` is one row of a feed for a run of lines said, and `rollUpSpokenLines` makes the
 runs from the page's rows:
 
