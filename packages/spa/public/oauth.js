@@ -49,7 +49,7 @@ async function tokenRequest(endpoint, params) {
 
 /** The client: `registration` is what the issuer's consent page shows of it (`client_name`,
  *  `client_uri`, `logo_uri`). */
-export function oauthClient({ sessions, redirectUri, launch, registration }) {
+export function oauthClient({ sessions, redirectUri, launch, registration, beforeRefresh }) {
   /** A public client (no secret), registered for this sign-in. */
   async function register(metadata) {
     const response = await fetch(metadata.registration_endpoint, {
@@ -144,6 +144,8 @@ export function oauthClient({ sessions, redirectUri, launch, registration }) {
       if (Date.now() < session.expiresAt - 30_000) return session.accessToken;
       if (!session.refreshToken)
         throw new Error("The access token expired and the grant cannot refresh. Sign in again.");
+      // The host can persist refresh intent before the rotating request can consume its token.
+      await beforeRefresh?.();
       const metadata = await discover(session.issuer);
       const tokens = await tokenRequest(metadata.token_endpoint, {
         grant_type: "refresh_token",

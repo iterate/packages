@@ -29,7 +29,7 @@ test("the packaged extension renders valid calls, sends trusted input and obeys 
     const controller = await context.newPage();
     await controller.goto(`chrome-extension://${new URL(worker.url()).host}/index.html`);
     const instructions = await controller.evaluate<string>(
-      `import('./panel.js').then(({agentInstructions}) => agentInstructions('fixture.test','itx.chrome.fixture.browser',[]))`,
+      `import('./instructions.js').then(({agentInstructions}) => agentInstructions('fixture.test','itx.chrome.fixture.browser',[]))`,
     );
     expect(instructions).toContain(
       '`await itx.cd("/").chrome.fixture.browser.page(tabId).getByRole("button", { name: "Save", exact: true }).click()`',

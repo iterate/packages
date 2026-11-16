@@ -1,17 +1,20 @@
 {
   "name": "@iterate-com/browser-extension",
+  "version": "0.8.2",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build.ts && vitest run src && node --test --test-isolation=none test/*.test.ts"
+    "test": "node scripts/build.ts && vitest run src && node --experimental-vm-modules --test --test-isolation=none test/*.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "catalog:",
+    "@types/ws": "catalog:",
     "capnweb": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "ws": "catalog:"
   },
   "dependencies": {
     "ivya": "1.8.2"

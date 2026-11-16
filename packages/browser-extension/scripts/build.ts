@@ -15,7 +15,7 @@ cpSync(new URL("../../spa/public/oauth.js", import.meta.url), new URL("oauth.js"
 // extension's id, and so its sign-in redirect (`https://<id>.chromiumapp.org/`), on every install:
 // the zip the SPA serves has iterate's, from envs.ts (packages/spa/scripts/deploy.ts sets
 // CHROME_EXTENSION_KEY). Without one the key is removed and Chrome derives the id from the unpacked
-// folder's path; sign-in still works, as panel.js registers its redirect with the issuer.
+// folder's path; sign-in still works, as the worker registers its redirect with the issuer.
 const manifestPath = new URL("manifest.json", dist);
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 manifest.key = process.env.CHROME_EXTENSION_KEY || undefined;
