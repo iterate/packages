@@ -83,12 +83,54 @@ const RichMessageResponse: ComponentType<StreamdownProps> = import.meta.env.SSR
       return { default: Streamdown as ComponentType<StreamdownProps> };
     });
 
+/** A link in the words: a link to this page (`#…`) or to the page's own origin opens in place;
+ *  any other opens in a new tab. streamdown's own link always opens a new tab. */
+function MessageMarkdownLink({
+  href,
+  children,
+  className,
+  node: _node,
+  // streamdown's rehype step puts target="_blank" on every link; this component decides it
+  target: _target,
+  rel: _rel,
+  ...props
+}: ComponentProps<"a"> & ExtraProps) {
+  // streamdown names a link whose markdown has not finished streaming yet with this href
+  const incomplete = href === "streamdown:incomplete-link";
+  const here = Boolean(href) && !incomplete && typeof window !== "undefined" && isSameOrigin(href!);
+  return (
+    <a
+      {...props}
+      className={cn("wrap-anywhere font-medium text-primary underline", className)}
+      data-incomplete={incomplete}
+      data-streamdown="link"
+      href={incomplete ? undefined : href}
+      {...(here ? {} : { target: "_blank", rel: "noreferrer" })}
+    >
+      {children}
+    </a>
+  );
+}
+
+function isSameOrigin(href: string): boolean {
+  if (href.startsWith("#")) return true;
+  try {
+    return new URL(href, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export const MessageResponse = memo(
   ({ className, components, ...props }: StreamdownProps) => (
     <Suspense fallback={<PlainMessageResponse className={className} {...props} />}>
       <RichMessageResponse
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+        // A link opens when clicked, with no "Open external link?" question first. A page that
+        // wants the question passes `linkSafety` itself.
+        linkSafety={{ enabled: false }}
         components={{
+          a: MessageMarkdownLink,
           code: MessageMarkdownCode,
           // MessageMarkdownCode draws a block's own <pre>.
           pre: ({ children }: ComponentProps<"pre"> & ExtraProps) => children,
