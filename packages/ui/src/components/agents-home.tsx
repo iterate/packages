@@ -9,7 +9,7 @@
 // it). Sending then starts that kind's agent on a new path, in the folder of the person signed in
 // (lib/agent-summary.ts `newAgentPath`), and sends the message after. Nothing here knows any kind
 // but iterate.
-import { useMemo, useRef, type ComponentProps } from "react";
+import { useMemo, useRef, useState, type ComponentProps } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BotIcon } from "lucide-react";
 import { cn } from "cn";
@@ -234,8 +234,17 @@ export function RecentAgents({
   );
 }
 
-/** A row's height in `AllAgents`: two lines. */
-const ROW_HEIGHT = 52;
+/** A row's height in `AllAgents`: two lines, in rem (`h-13`, 52 px at the usual 16 px), as its text
+ *  is. A browser set to a larger default font makes the text taller, and the row with it. */
+const ROW_REM = 3.25;
+
+/** The row's height in px, which the virtual list positions by: the root's font size times the
+ *  rem. Read once, when the list mounts. A server render has no page to ask, and takes 16 px. */
+const rowHeightOfPage = () =>
+  ROW_REM *
+  (import.meta.env.SSR
+    ? 16
+    : Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
 
 /** EVERY AGENT, as a virtual list: the agents at the top, the most recently active first, each
  *  followed by the agents below its path, indented. Only the rows in view are in the DOM. It fills
@@ -263,10 +272,11 @@ export function AllAgents({
     [agents],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [rowHeight] = useState(rowHeightOfPage);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     getItemKey: (index) => rows[index]!.row.path,
     overscan: 12,
   });
@@ -287,8 +297,8 @@ export function AllAgents({
           return (
             <li
               key={item.key}
-              className="absolute top-0 left-0 w-full px-4 md:px-8"
-              style={{ height: ROW_HEIGHT, transform: `translateY(${String(item.start)}px)` }}
+              className="absolute top-0 left-0 h-13 w-full px-4 md:px-8"
+              style={{ transform: `translateY(${String(item.start)}px)` }}
             >
               <AgentLink
                 path={row.path}
