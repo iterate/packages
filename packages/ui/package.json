@@ -37,7 +37,8 @@
     "./agent-kind-view/bridge": "./src/agent-kind-view/bridge.ts",
     "./agent-kind-view/frame": "./src/agent-kind-view/frame.ts",
     "./agent-kind-view/host": "./src/agent-kind-view/host.ts",
-    "./agent-kind-view/load": "./src/agent-kind-view/load.ts"
+    "./agent-kind-view/load": "./src/agent-kind-view/load.ts",
+    "./lib/agent-progress": "./src/components/agent-chat/agent-progress.ts"
   },
   "files": [
     "dist"
@@ -60,7 +61,9 @@
       "./change-my-mind": "./dist/change-my-mind.mjs",
       "./components/agent-chat/chat-parts": "./dist/components/agent-chat/chat-parts.mjs",
       "./components/agent-chat/agent-shell": "./dist/components/agent-chat/agent-shell.mjs",
+      "./lib/agent-progress": "./dist/lib/agent-progress.mjs",
       "./components/agent-chat/agent-chat": "./dist/components/agent-chat/agent-chat.mjs",
+      "./components/agent-context": "./dist/components/agent-context.mjs",
       "./components/agents-home": "./dist/components/agents-home.mjs",
       "./components/agents-nav": "./dist/components/agents-nav.mjs",
       "./components/analytics-page": "./dist/components/analytics-page.mjs",

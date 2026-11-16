@@ -54,6 +54,7 @@ export function browserEntries(): Record<string, string> {
     // parts as `ui` (src/agent-kind-view/kit.ts); a page imports them by these names.
     "components/agent-chat/chat-parts": "src/components/agent-chat/chat-parts.tsx",
     "components/agent-chat/agent-shell": "src/components/agent-chat/agent-shell.tsx",
+    "lib/agent-progress": "src/components/agent-chat/agent-progress.ts",
     ...Object.fromEntries(
       [...items, ...shadcn]
         .sort()

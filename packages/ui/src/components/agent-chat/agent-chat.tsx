@@ -37,6 +37,7 @@ import { z } from "zod";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
+import type { AgentProgressData } from "./agent-progress.ts";
 import { AgentTurnStatus } from "./agent-feed.tsx";
 import {
   initialAgentUiState,
@@ -74,7 +75,23 @@ const NOTHING_YET: Feed = { state: initialAgentUiState(), items: [] };
 
 /** A status row for a shared conversation whose messages live in another context. Only the
  * agent's phase and current activity summary are rendered; no response, reasoning or script. */
-export function AgentProgress({ context, error }: { context: AgentChatContext; error?: string }) {
+export function AgentProgress(
+  props: { progress: AgentProgressData } | { context: AgentChatContext; error?: string },
+) {
+  if ("progress" in props) {
+    const { text, working, activity } = props.progress;
+    if (!working && text === "Idle") return null;
+    return (
+      <div className="flex flex-col" data-testid="agent-progress">
+        <AgentTurnStatus text={text} working={working} />
+        {working && activity ? <p className="text-sm text-muted-foreground">{activity}</p> : null}
+      </div>
+    );
+  }
+  return <AgentContextProgress {...props} />;
+}
+
+function AgentContextProgress({ context, error }: { context: AgentChatContext; error?: string }) {
   const { turn, feed } = useAgentFeed(context);
   const status = chatStatus(turn, feed.state);
   // A shared room has no agent facet until the first message asks the agent to work.

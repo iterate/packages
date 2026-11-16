@@ -22,6 +22,7 @@
         "button",
         "dropdown-menu",
         "empty",
+        "iterate/packages/agent-summary",
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
         "iterate/packages/context-path-text",
@@ -132,6 +133,10 @@
         },
         {
           "path": "src/components/agent-chat/use-ticking-now-ms.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-progress.ts",
           "type": "registry:component"
         }
       ]
@@ -1696,6 +1701,24 @@
         {
           "path": "src/lib/held-acts.ts",
           "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "agent-context",
+      "type": "registry:component",
+      "description": "A shared conversation feed with host event rows, safe agent progress, messages and activity, and call, captions and canvas parts.",
+      "dependencies": [
+        "cn"
+      ],
+      "registryDependencies": [
+        "iterate/packages/agent-chat",
+        "iterate/packages/context-view"
+      ],
+      "files": [
+        {
+          "path": "src/components/agent-context.tsx",
+          "type": "registry:component"
         }
       ]
     }
