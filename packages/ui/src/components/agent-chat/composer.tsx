@@ -105,7 +105,7 @@ function AgentPillComposer({
         {...dropHandlers}
         data-drop-active={isDragging ? "true" : undefined}
         className={cn(
-          "flex items-end gap-1 rounded-3xl border bg-background p-1 shadow-sm transition-shadow sm:gap-2 sm:py-2 sm:pr-2 sm:pl-1.5",
+          "flex items-end gap-1 rounded-3xl border bg-background p-1 shadow-sm transition-shadow sm:py-2 sm:pr-2 sm:pl-1.5",
           isDragging && "ring-2 ring-primary/40 border-primary/40",
         )}
       >

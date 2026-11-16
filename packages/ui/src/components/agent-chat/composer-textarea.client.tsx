@@ -92,17 +92,13 @@ export function ComposerTextareaClient({
               },
               "&.cm-focused": { outline: "none" },
               ".cm-scroller": { fontFamily: "inherit", overflow: "auto" },
-              ".cm-content": { caretColor: "var(--foreground)", padding: "8px" },
-              ".cm-line": { lineHeight: "1.375" },
+              // the words start near the `+`: CodeMirror's own line padding is 6px on the left
+              ".cm-content": { caretColor: "var(--foreground)", padding: "8px 2px" },
+              ".cm-line": { lineHeight: "1.375", paddingLeft: "2px" },
               ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
                 backgroundColor: "color-mix(in oklab, var(--primary) 20%, transparent) !important",
               },
               ".cm-cursor": { borderLeftColor: "var(--foreground)" },
-              // below `sm`, where the pill is compact (composer.tsx): the words start nearer the `+`
-              "@media (max-width: 639px)": {
-                ".cm-content": { padding: "8px 2px" },
-                ".cm-line": { paddingLeft: "2px" },
-              },
             }),
           ],
         }),
