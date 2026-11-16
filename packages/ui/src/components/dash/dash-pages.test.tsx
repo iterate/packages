@@ -58,6 +58,8 @@ async function draw(Page: (props: DashPageProps) => ReactNode, itx: DashPageProp
           page={row}
           pages={[row]}
           links={[]}
+          agents={undefined}
+          waiting={0}
           catalog={undefined}
         />
       </Suspense>,

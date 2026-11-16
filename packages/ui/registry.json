@@ -182,14 +182,20 @@
         {
           "path": "src/components/agents-nav.tsx",
           "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-look.ts",
+          "type": "registry:component"
         }
       ]
     },
     {
       "name": "agents-home",
       "type": "registry:component",
-      "description": "The Agents app's home page: a composer whose first message starts an agent, and the agents active most recently.",
+      "description": "The Agents app's home page: a composer whose first message starts an agent, and the agents active most recently; each half on its own, and every agent as a virtual list.",
       "dependencies": [
+        "@tanstack/react-virtual",
+        "cn",
         "lucide-react"
       ],
       "registryDependencies": [
@@ -197,9 +203,11 @@
         "iterate/packages/agent-chat",
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
+        "iterate/packages/context-catalog",
         "iterate/packages/context-path-text",
         "iterate/packages/new-agent",
-        "iterate/packages/new-agent-picker"
+        "iterate/packages/new-agent-picker",
+        "native-select"
       ],
       "cssVars": {
         "theme": {
@@ -817,18 +825,26 @@
     {
       "name": "dash",
       "type": "registry:component",
-      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and groups of links, the page the URL names, what waits for a member's yes, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
+      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and groups of links, the page the URL names, what waits for a member's yes, the most recently active agents, one ⌘K over agents, contexts and context paths, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
       "dependencies": [
-        "iterate"
+        "cmdk",
+        "cn",
+        "iterate",
+        "lucide-react"
       ],
       "registryDependencies": [
         "badge",
         "card",
+        "command",
+        "dialog",
+        "iterate/packages/agent-summary",
+        "iterate/packages/agents-nav",
         "iterate/packages/analytics-page",
         "iterate/packages/app-shell",
         "iterate/packages/approvals-alert",
         "iterate/packages/context-catalog",
         "iterate/packages/context-explorer",
+        "iterate/packages/context-path-text",
         "iterate/packages/integrations-page",
         "iterate/packages/mcp-connect",
         "iterate/packages/page-url",
@@ -836,8 +852,15 @@
         "iterate/packages/secrets-page",
         "iterate/packages/waiting-approvals",
         "sidebar",
-        "sonner"
+        "sonner",
+        "tabs"
       ],
+      "cssVars": {
+        "theme": {
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        }
+      },
       "files": [
         {
           "path": "src/components/dash/dash.tsx",
@@ -849,6 +872,22 @@
         },
         {
           "path": "src/components/dash/serves.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/dash-agents-nav.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/dash-href.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/dash-palette.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/dash/path-completion.ts",
           "type": "registry:component"
         }
       ]

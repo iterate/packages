@@ -134,23 +134,6 @@ function PaletteBody({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const clock = useClock(CLOCK_MS);
-  const now = nowMs ?? clock;
-  const found = useMindSearch(query, search);
-  // with no catalog, only a typed path is listed
-  const view = useMemo(
-    () => contextPaletteView({ rows: rows || [], found: found.answer, query, nowMs: now }),
-    [rows, found.answer, query, now],
-  );
-  const sections = useMemo(() => (rows ? view.sections : []), [rows, view]);
-  const shown = useMemo(() => sections.flatMap((part) => part.rows), [sections]);
-  const words = useMemo(() => freeWordsOf(query), [query]);
-  // the highlighted row; the first while cmdk has not said
-  const highlighted = shown.find((row) => row.path === selected) || shown[0];
-  const chooseFolder = (folder: string | undefined) => {
-    setQuery((before) => queryWithFolder(before, folder));
-    inputRef.current?.focus();
-  };
   return (
     <Command
       shouldFilter={false}
@@ -164,19 +147,95 @@ function PaletteBody({
         <CommandPrimitive.Input
           ref={inputRef}
           data-slot="command-input"
-          className="flex h-8 w-full min-w-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
+          className={PALETTE_INPUT}
           placeholder="Search contexts: name, path, event, processor"
           aria-label="Search contexts"
           value={query}
           onValueChange={setQuery}
         />
       </div>
-      {view.folders.length ? <FolderChips chips={view.folders} onChoose={chooseFolder} /> : null}
+      <ContextPaletteResults
+        rows={rows}
+        error={error}
+        query={query}
+        onQueryChange={(next) => {
+          setQuery(next);
+          inputRef.current?.focus();
+        }}
+        selected={selected}
+        current={current}
+        nowMs={nowMs}
+        search={search}
+        onOpenPath={onOpenPath}
+      />
+    </Command>
+  );
+}
+
+/** The look of the palette's input. */
+export const PALETTE_INPUT =
+  "flex h-8 w-full min-w-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground";
+
+/** WHAT THE PALETTE LISTS UNDER ITS INPUT for `query`: the folder chips, the sections, the preview
+ *  of the highlighted row and the footer. Inside a cmdk `Command` whose input is the page's own, so
+ *  a palette with more than contexts (the Dash's tabs) shares this list. `selected` is the
+ *  Command's value; `onQueryChange` is a chip's change to the query. `fill`: the list fills a box
+ *  of fixed height, which the page gives it. */
+export function ContextPaletteResults({
+  rows,
+  error,
+  query,
+  onQueryChange,
+  selected,
+  current,
+  nowMs,
+  search,
+  onOpenPath,
+  fill,
+}: {
+  rows: readonly ContextListing[] | undefined;
+  error: string | undefined;
+  query: string;
+  onQueryChange: (query: string) => void;
+  selected: string;
+  current: string | undefined;
+  nowMs: number | undefined;
+  search: ((query: string) => PromiseLike<unknown>) | undefined;
+  onOpenPath: (path: string) => void;
+  fill?: boolean;
+}) {
+  const clock = useClock(CLOCK_MS);
+  const now = nowMs ?? clock;
+  const found = useMindSearch(query, search);
+  // with no catalog, only a typed path is listed
+  const view = useMemo(
+    () => contextPaletteView({ rows: rows || [], found: found.answer, query, nowMs: now }),
+    [rows, found.answer, query, now],
+  );
+  const sections = useMemo(() => (rows ? view.sections : []), [rows, view]);
+  const shown = useMemo(() => sections.flatMap((part) => part.rows), [sections]);
+  const words = useMemo(() => freeWordsOf(query), [query]);
+  // the highlighted row; the first while cmdk has not said
+  const highlighted = shown.find((row) => row.path === selected) || shown[0];
+  return (
+    <>
+      {view.folders.length ? (
+        <FolderChips
+          chips={view.folders}
+          onChoose={(folder) => onQueryChange(queryWithFolder(query, folder))}
+        />
+      ) : null}
       {/* with a preview the height holds still, so the pane does not jump as the list changes */}
-      <div className={cn("flex min-h-0 border-t", highlighted && "lg:h-[min(36rem,70svh)]")}>
+      <div
+        className={cn(
+          "flex min-h-0 border-t",
+          fill ? "flex-1" : highlighted && "lg:h-[min(36rem,70svh)]",
+        )}
+      >
         <CommandList
           className={cn(
-            "max-h-[min(34rem,70svh)] min-w-0 flex-1 scroll-py-2 p-1.5",
+            "min-w-0 flex-1 scroll-py-2 p-1.5",
+            fill ? "max-h-none" : "max-h-[min(34rem,70svh)]",
             highlighted && "lg:max-h-none",
           )}
         >
@@ -194,13 +253,13 @@ function PaletteBody({
           ))}
           {view.openPath ? <OpenPathRow path={view.openPath} onOpenPath={onOpenPath} /> : null}
           {rows && query.trim() && !sections.length && !view.openPath ? (
-            <Note>No context matches “{query.trim()}”.</Note>
+            <PaletteNote>No context matches “{query.trim()}”.</PaletteNote>
           ) : null}
         </CommandList>
         {highlighted ? <Preview row={highlighted} /> : null}
       </div>
       <Footer count={rows?.length} searching={found.searching} chips={view.folders.length > 0} />
-    </Command>
+    </>
   );
 }
 
@@ -294,12 +353,9 @@ function Section({
 }
 
 /** The look of a row the keyboard or the pointer highlights: a fill and a bar at its start. */
-const ROW = cn(
-  "items-start gap-2.5 rounded-md px-2 py-1.5",
-  "data-selected:bg-muted data-selected:shadow-[inset_2px_0_0_var(--foreground)]",
-  // upstream's check mark: a context row is never "checked"
-  "[&>svg:last-child]:hidden",
-);
+// The last class hides upstream's check mark: a context row is never "checked".
+export const PALETTE_ROW =
+  "items-start gap-2.5 rounded-md px-2 py-1.5 data-selected:bg-muted data-selected:shadow-[inset_2px_0_0_var(--foreground)] [&>svg:last-child]:hidden";
 
 /** A context: what it is and its path, what it last did, and whether it works now. Without a
  *  description, the path is line one and is not said again. */
@@ -323,7 +379,7 @@ function PaletteRow({
     </ContextPathText>
   );
   return (
-    <CommandItem value={row.path} className={ROW} onSelect={() => onOpenPath(row.path)}>
+    <CommandItem value={row.path} className={PALETTE_ROW} onSelect={() => onOpenPath(row.path)}>
       <span
         aria-hidden
         className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", row.awake && "bg-success")}
@@ -387,7 +443,11 @@ function Marked({ text, words }: { text: string; words: string[] }) {
 function OpenPathRow({ path, onOpenPath }: { path: string; onOpenPath: (path: string) => void }) {
   return (
     <CommandGroup heading="Path" className="p-0 pt-2">
-      <CommandItem value={OPEN_PATH_VALUE} className={ROW} onSelect={() => onOpenPath(path)}>
+      <CommandItem
+        value={OPEN_PATH_VALUE}
+        className={PALETTE_ROW}
+        onSelect={() => onOpenPath(path)}
+      >
         <CornerDownLeftIcon className="mt-0.5 size-3.5 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1">
           Open <ContextPathText path={path} className="text-xs" />
@@ -434,18 +494,18 @@ function Footer({
   return (
     <div className="flex items-center justify-between gap-3 border-t px-3 py-2 text-2xs text-muted-foreground">
       <span className="flex items-center gap-1.5 max-sm:hidden" aria-hidden>
-        <Key>↑</Key>
-        <Key>↓</Key>
+        <PaletteKey>↑</PaletteKey>
+        <PaletteKey>↓</PaletteKey>
         <span className="mr-2">move</span>
-        <Key>↵</Key>
+        <PaletteKey>↵</PaletteKey>
         <span className="mr-2">open</span>
         {chips ? (
           <>
-            <Key>tab</Key>
+            <PaletteKey>tab</PaletteKey>
             <span className="mr-2">folders</span>
           </>
         ) : null}
-        <Key>esc</Key>
+        <PaletteKey>esc</PaletteKey>
         <span>close</span>
       </span>
       <span className="ml-auto tabular-nums">
@@ -459,7 +519,7 @@ function Footer({
   );
 }
 
-function Key({ children }: { children: ReactNode }) {
+export function PaletteKey({ children }: { children: ReactNode }) {
   return (
     <kbd className="rounded border bg-background px-1 font-sans text-2xs leading-4">{children}</kbd>
   );
@@ -478,9 +538,9 @@ function CatalogNote({
 }) {
   if (!listed)
     return (
-      <Note>
+      <PaletteNote>
         {error ? "This mind has no catalog of its contexts yet." : "Reading the catalog…"}
-      </Note>
+      </PaletteNote>
     );
   if (!quiet) return null;
   return (
@@ -488,14 +548,14 @@ function CatalogNote({
   );
 }
 
-function Note({ children }: { children: ReactNode }) {
+export function PaletteNote({ children }: { children: ReactNode }) {
   return (
     <p className="px-2 py-6 text-center font-readme text-sm text-muted-foreground">{children}</p>
   );
 }
 
 /** The time, read again every `everyMs`. */
-function useClock(everyMs: number) {
+export function useClock(everyMs: number) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), everyMs);
@@ -507,7 +567,7 @@ function useClock(everyMs: number) {
 /** The mind's own answer to `query`, asked once typing rests. `answer` is the newest answer, for
  *  the query it was asked with; `searching` is true while the newest query has none yet. A failed
  *  search counts as an answer with no rows: the page's own matches still show. */
-function useMindSearch(
+export function useMindSearch(
   query: string,
   search: ((query: string) => PromiseLike<unknown>) | undefined,
 ) {

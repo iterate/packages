@@ -21,8 +21,10 @@ import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub } from "iterate/react";
 import { servesOf } from "./serves.ts";
+import { agentViewHref } from "./dash-href.ts";
 import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
-import { go, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
+import type { AgentRow } from "#/lib/agent-summary.ts";
+import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -40,6 +42,10 @@ export type DashPage = {
    *  the row is muted with "Off" beside it, and its card says `offAbout` */
   serves?: string;
   offAbout?: string;
+  /** The Agents page's: what the mind says first in an agent's empty chat, by the agent's path.
+   *  The first time anyone opens it, the agent view appends the words as a developer's note,
+   *  which starts the agent's first turn (`/agents/onboarding`'s greeting). */
+  openers?: Record<string, string>;
   component: ComponentType<DashPageProps>;
 };
 
@@ -69,6 +75,11 @@ export type DashPageProps = {
   /** the catalog of the mind's contexts, which the Dash reads once for every page (⌘K lists it);
    *  undefined while it loads, and for a mind whose platform has no catalog */
   catalog: readonly ContextListing[] | undefined;
+  /** the catalog of the mind's agents, live, which the Dash reads once for every page when it has
+   *  an Agents page; undefined while it loads, and for a Dash with no Agents page */
+  agents: readonly AgentRow[] | undefined;
+  /** how many requests wait for a member's yes */
+  waiting: number;
 };
 
 /** A module, imported the first time a page asks for it and kept: the same promise after. */
@@ -137,8 +148,9 @@ export function DashPartIsOff({ title, children }: { title: string; children: Re
   );
 }
 
-/** Any context of the mind, live: `?context=<path>`, and the explorer's own state in `?view`. */
-export function DashContexts({ itx, page, catalog }: DashPageProps) {
+/** Any context of the mind, live: `?context=<path>`, and the explorer's own state in `?view`. With
+ *  an Agents page, beside the path is the way to the same context in the agent view. */
+export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
   const { ContextExplorer, contextPathOf, contextViewStateOf } = use(contextsPart());
   const path = usePageParam("context") || "";
   const { view, patchView } = useView();
@@ -162,6 +174,16 @@ export function DashContexts({ itx, page, catalog }: DashPageProps) {
       state={contextViewStateOf(view)}
       onStateChange={patchView}
       catalog={catalog}
+      actions={
+        pages.some((row) => row.id === "agents") ? (
+          <a
+            {...linkTo(agentViewHref(contextPathOf(path)))}
+            className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Agent view
+          </a>
+        ) : null
+      }
     />
   );
 }

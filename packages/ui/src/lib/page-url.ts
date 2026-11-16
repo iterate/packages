@@ -32,13 +32,14 @@ export function usePageParam(name: string): string | null {
 }
 
 /** This URL with `change` applied: a key set to undefined (or "") is dropped. "./" when nothing is
- *  left. */
+ *  left. A slash stays a slash, which a query may hold as it is: `?context=/agents/onboarding`
+ *  reads as the path it names. */
 export function hrefOf(change: Record<string, string | undefined>, search = location.search) {
   const next = new URLSearchParams(search);
   for (const [key, value] of Object.entries(change))
     if (value) next.set(key, value);
     else next.delete(key);
-  const query = next.toString();
+  const query = next.toString().replaceAll("%2F", "/");
   return query ? `?${query}` : "./";
 }
 

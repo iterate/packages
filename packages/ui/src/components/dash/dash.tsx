@@ -2,11 +2,19 @@
 // id, name, icon and component) and its groups of links (other apps, the stack's pages), and draws
 // the shell, the sidebar, the page the URL names and, on every page, what waits for a member's yes.
 // ONE list of pages drives the sidebar and the overview's cards (`DashOverview`). A page is any
-// component: the kit's (`DashContexts`, `DashRepo`, … in ./dash-pages.tsx) or one of the mind's
-// own, which takes the same props (`DashPageProps`).
+// component: the kit's (`DashContexts`, `DashRepo`, … in ./dash-pages.tsx; `DashHome` and
+// `DashAgents` in agent-kind-view/dash-agents.tsx) or one of the mind's own, which takes the same
+// props (`DashPageProps`).
+//
+// TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
+//   agents    the Agents page. The sidebar lists the most recently active agents above the pages,
+//             `?agent=<path>` shows that page (its agent view), and ⌘K has an Agents tab. The
+//             catalog on `/agents` is read once, live, for all of them and handed to every page.
+//   contexts  the raw view of any context: ⌘K's Raw contexts tab and its path mode open it.
+// ⌘K is the shell's, one palette for every page (./dash-palette.tsx).
 //
 // The URL is the page's (#/lib/page-url.ts): `?page=<id>` (none: the first page) and the page's
-// own keys. The overview of a no-build page loads none of the kit's larger parts: each page loads
+// own keys. The first page of a no-build page loads none of the kit's larger parts: each page loads
 // its own when it first draws, and suspends meanwhile.
 import {
   Component,
@@ -14,6 +22,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useMemo,
   useSyncExternalStore,
   type ComponentProps,
   type MouseEvent,
@@ -21,20 +30,21 @@ import {
 } from "react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
+import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
+import { DashAgentsNav } from "./dash-agents-nav.tsx";
+import { agentViewHref, rawViewHref } from "./dash-href.ts";
 import {
-  DashContexts,
   DashNote,
   DashScroll,
   type DashLinks,
   type DashPage,
   type DashPageProps,
 } from "./dash-pages.tsx";
+import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
-import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
-import { ContextPalette } from "#/components/context-catalog/context-palette.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
@@ -47,6 +57,7 @@ import {
   SidebarMenuItem,
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
+import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { go, linkTo, pageHref, usePageParam, useSearch } from "#/lib/page-url.ts";
 import { titleWithCount, useWaitingApprovals } from "#/lib/waiting-approvals.ts";
 
@@ -99,7 +110,12 @@ export function Dash({
   );
   const search = useSearch();
   const asked = usePageParam("page");
-  const page = pages.find((row) => row.id === asked) || pages[0];
+  const agentsPage = pages.find((row) => row.id === "agents");
+  const contextsPage = pages.find((row) => row.id === "contexts");
+  // an agent view is the Agents page's, whatever `?page` says
+  const agentParam = usePageParam("agent");
+  const agent = (agentsPage && agentParam) || undefined;
+  const page = (agent && agentsPage) || pages.find((row) => row.id === asked) || pages[0];
   if (!page) throw new Error("A Dash has at least one page");
   const Page = page.component;
   // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: ⌘K lists it, and the Contexts
@@ -107,7 +123,17 @@ export function Dash({
   // undefined, and ⌘K says so.
   const listContexts = useCallback(() => itx.contexts.list({ limit: 500 }), [itx]);
   const catalog = useContextCatalog(listContexts, { of: mind });
-  const contextsPage = pages.find((row) => row.component === DashContexts);
+  // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar, ⌘K and every page
+  const agents = useAgentRows(itx, Boolean(agentsPage));
+  const context = usePageParam("context");
+  const searchContexts = useCallback(
+    (query: string) => itx.contexts.list({ search: query, limit: 200 }),
+    [itx],
+  );
+  const listUnder = useCallback(
+    (path: string) => itx.contexts.list({ under: path, limit: 200 }),
+    [itx],
+  );
   return (
     <>
       <AppShell
@@ -122,20 +148,35 @@ export function Dash({
             links={links}
             page={page}
             waiting={waiting}
+            agents={
+              agentsPage ? (
+                <DashAgentsNav
+                  agents={agents}
+                  current={agent}
+                  overview={hrefOfPage(pages, agentsPage)}
+                  overviewShown={page === agentsPage && !agent}
+                />
+              ) : null
+            }
           />
         }
         account={principal}
         palette={
-          contextsPage
+          agentsPage || contextsPage
             ? ({ open, onClose }) => (
                 <DashPalette
-                  itx={itx}
-                  rows={catalog.rows}
-                  error={catalog.error}
                   open={open}
                   onClose={onClose}
-                  contextsPage={contextsPage}
-                  shown={page === contextsPage}
+                  agents={agents}
+                  rows={catalog.rows}
+                  error={catalog.error}
+                  search={searchContexts}
+                  listUnder={listUnder}
+                  onOpenAgent={agentsPage ? (path) => go(agentViewHref(path)) : null}
+                  onOpenContext={
+                    contextsPage ? (path) => go(rawViewHref(contextsPage.id, path)) : null
+                  }
+                  current={agent || (page === contextsPage ? context || "/" : undefined)}
                 />
               )
             : undefined
@@ -152,6 +193,8 @@ export function Dash({
               pages={pages}
               links={links}
               catalog={catalog.rows}
+              agents={agents}
+              waiting={waiting}
             />
           </Suspense>
         </PageBoundary>
@@ -161,47 +204,16 @@ export function Dash({
   );
 }
 
-/** ⌘K: the mind's contexts (`ContextPalette`). Enter shows one on the Dash's Contexts page; the
- *  mind's own search finds a context that the page's 500 rows do not hold. */
-function DashPalette({
-  itx,
-  rows,
-  error,
-  open,
-  onClose,
-  contextsPage,
-  shown,
-}: {
-  itx: Itx;
-  rows: readonly ContextListing[] | undefined;
-  error: string | undefined;
-  open: boolean;
-  onClose: () => void;
-  contextsPage: DashPage;
-  /** whether the Contexts page is the page shown: then its context is the current row */
-  shown: boolean;
-}) {
-  const context = usePageParam("context");
-  const search = useCallback(
-    (query: string) => itx.contexts.list({ search: query, limit: 200 }),
-    [itx],
-  );
-  const openPath = useCallback(
-    (path: string) => go(pageHref(contextsPage.id, { context: path === "/" ? undefined : path })),
-    [contextsPage.id],
-  );
-  return (
-    <ContextPalette
-      rows={rows}
-      error={error}
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-      onOpenPath={openPath}
-      current={shown ? context || "/" : undefined}
-      search={search}
-    />
+/** The catalog on `/agents`, live: one subscription to its live state, which reads no agent, so
+ *  the Dash wakes none. Undefined while it is read; none for a mind without agents. `on` false
+ *  holds nothing. */
+function useAgentRows(itx: Itx, on: boolean): AgentRow[] | undefined {
+  const held = useContextStub(on ? () => itx.cd("/agents") : null, [itx, on]);
+  const live = useFacetLiveState(held.stub, "agents");
+  const failed = Boolean(held.error) || live.status === "error";
+  return useMemo(
+    () => (live.value !== undefined ? agentRowsOf(live.value) : failed ? [] : undefined),
+    [live.value, failed],
   );
 }
 
@@ -296,6 +308,7 @@ function DashNav({
   links,
   page,
   waiting,
+  agents,
 }: {
   itx: Itx;
   mind: string;
@@ -303,36 +316,48 @@ function DashNav({
   links: DashLinks[];
   page: DashPage;
   waiting: number;
+  /** The Agents section, above the pages, for a Dash with an Agents page. */
+  agents: ReactNode;
 }) {
   return (
     <>
+      {waiting ? (
+        <SidebarGroup className="pb-0">
+          <SidebarGroupContent>
+            <ApprovalsAlert
+              waiting={waiting}
+              render={<RowLink href={`https://iterate.${mind}/secrets/approvals`} />}
+            />
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ) : null}
+      {agents}
       <SidebarGroup>
         <SidebarGroupContent>
-          <ApprovalsAlert
-            waiting={waiting}
-            render={<RowLink href={`https://iterate.${mind}/secrets/approvals`} />}
-          />
           <SidebarMenu>
-            {pages.map((row) => (
-              <Off key={row.id} itx={itx} serves={row.serves}>
-                {(off) => (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={row === page}
-                      tooltip={row.name}
-                      className={off ? "text-muted-foreground" : undefined}
-                      render={<RowLink href={hrefOfPage(pages, row)} inPage />}
-                    >
-                      <row.icon />
-                      <span>{row.name}</span>
-                    </SidebarMenuButton>
-                    {off ? (
-                      <SidebarMenuBadge className="text-muted-foreground">Off</SidebarMenuBadge>
-                    ) : null}
-                  </SidebarMenuItem>
-                )}
-              </Off>
-            ))}
+            {/* with an Agents section, its "View all" is the Agents page's row */}
+            {pages
+              .filter((row) => !(agents && row.id === "agents"))
+              .map((row) => (
+                <Off key={row.id} itx={itx} serves={row.serves}>
+                  {(off) => (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        isActive={row === page}
+                        tooltip={row.name}
+                        className={off ? "text-muted-foreground" : undefined}
+                        render={<RowLink href={hrefOfPage(pages, row)} inPage />}
+                      >
+                        <row.icon />
+                        <span>{row.name}</span>
+                      </SidebarMenuButton>
+                      {off ? (
+                        <SidebarMenuBadge className="text-muted-foreground">Off</SidebarMenuBadge>
+                      ) : null}
+                    </SidebarMenuItem>
+                  )}
+                </Off>
+              ))}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
@@ -369,10 +394,7 @@ export function DashOverview({
   links,
   pagesTitle,
   children,
-}: DashPageProps & {
-  pagesTitle: string;
-  children?: ReactNode;
-}) {
+}: DashPageProps & { pagesTitle: string; children?: ReactNode }) {
   return (
     <DashScroll>
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-8">

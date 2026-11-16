@@ -45,6 +45,8 @@ export function browserEntries(): Record<string, string> {
     // the page's side of a kind's own chat view (src/agent-kind-view/host.ts); the frame's side is
     // one classic script beside these modules (`AGENT_KIND_VIEW_FRAME`)
     "agent-kind-view/host": "src/agent-kind-view/host.ts",
+    // a mind's Dash's Home and Agents pages, which host kinds' frames (src/agent-kind-view/dash-agents.tsx)
+    "agent-kind-view/dash-agents": "src/agent-kind-view/dash-agents.tsx",
     // `<change-my-mind>`, the button for a page with no React: one script tag defines it
     "change-my-mind": "src/browser/change-my-mind.ts",
     // the chat's parts for a page of its own (a call's log, a room's chat): `Feed`, `MessageBubble`,
@@ -77,7 +79,6 @@ export const docsEditorIcons = [
   "heading-3",
   "italic",
   "link",
-  "list",
   "list-checks",
   "list-ordered",
   "message-square-plus",

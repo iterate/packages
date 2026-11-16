@@ -5,9 +5,10 @@
 // per mind in this browser. It imports no router: a row is a link to `agentHref(path)`, and a
 // plain left click on it is `onOpen`'s when the page has one.
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
-import { BotIcon, BoxIcon, PinIcon, SquarePenIcon, SquareTerminalIcon } from "lucide-react";
+import { PinIcon, SquarePenIcon } from "lucide-react";
 import { cn } from "cn";
 import { z } from "zod";
+import { kindIcon, STATUS_DOT } from "./agent-look.ts";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -220,22 +221,8 @@ function AgentsNavRow({
   );
 }
 
-/** What runs the agent: iterate's own, a coding session, or something else. */
-function kindIcon(kind: string | null) {
-  if (!kind || kind === "iterate") return BotIcon;
-  if (kind === "claude" || kind === "codex" || kind === "opencode") return SquareTerminalIcon;
-  return BoxIcon;
-}
-
-const STATUS_DOT: Record<AgentStatus, string> = {
-  working: "bg-success animate-pulse",
-  waiting: "bg-warning",
-  idle: "bg-muted-foreground/60",
-  ended: "border border-muted-foreground/60 bg-sidebar",
-};
-
 /** What the agent is doing, as a dot on the corner of its icon. */
-function StatusDot({ status }: { status: AgentStatus }) {
+export function StatusDot({ status }: { status: AgentStatus }) {
   return (
     <span
       data-agent-status={status}

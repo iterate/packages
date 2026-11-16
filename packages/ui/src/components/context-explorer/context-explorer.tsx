@@ -14,7 +14,7 @@
 //     state={state}
 //     onStateChange={(patch) => setState((before) => ({ ...before, ...patch }))}
 //   />
-import { useMemo, useState, type DependencyList } from "react";
+import { useMemo, useState, type DependencyList, type ReactNode } from "react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { resolveContextPath } from "iterate/lib";
@@ -39,6 +39,7 @@ export function ContextExplorer({
   state,
   onStateChange,
   catalog,
+  actions,
 }: {
   /** The mind's catalog of its contexts (`useContextCatalog` of components/context-catalog), when the app reads it: the tree
    *  marks the awake ones, a "Recent" list joins the tree, and the context shown says what it is. */
@@ -53,6 +54,8 @@ export function ContextExplorer({
   /** The view's every choice: mode, filter, the inspected event, the open sheet. */
   state: ContextViewState;
   onStateChange(patch: Partial<ContextViewState>): void;
+  /** What the page puts after the path: a link to the same context in another view. */
+  actions?: ReactNode;
 }) {
   const root = useContextStub(openRoot, deps);
   const rootStub = root.stub;
@@ -102,6 +105,7 @@ export function ContextExplorer({
           }
         />
       ) : null}
+      {actions}
     </>
   );
   return (

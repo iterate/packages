@@ -1,11 +1,14 @@
 import { expect, test } from "vitest";
 import {
+  agentGroups,
   agentRowsOf,
+  findAgents,
   mineFirst,
   newAgentPath,
   orderAgents,
   personAt,
   personOf,
+  subagentsLine,
   topLevelAgents,
   type AgentRow,
 } from "./agent-summary.ts";
@@ -209,6 +212,53 @@ test("a person's own agents come first, each part in the order it had; with no p
     pinned: [{ path: "/agents/onboarding" }],
     recent: [{ path: "/agents/people/jonas/web/a" }, { path: "/agents/people/misha/web/b" }],
   });
+});
+
+test("an agent and the agents below its path are one group, as recent as its newest member", () => {
+  const agent = (path: string, lastActivityAt: string, parent: string | null = null) => ({
+    ...row(path, "2026-01-01", lastActivityAt),
+    kind: "iterate",
+    parent,
+  });
+  const grouped = agentGroups([
+    agent("/agents/a", "2026-01-01"),
+    agent("/agents/a/one", "2026-01-09", "/agents/a"),
+    agent("/agents/a/one/deeper", "2026-01-02", "/agents/a/one"),
+    agent("/agents/b", "2026-01-05"),
+    // a row that never said what it is holds an agent: the agent is still in /agents/c's group
+    agent("/agents/c", "2026-01-04"),
+    { ...row("/agents/c/box", "2026-01-01", null), parent: "/agents/c" },
+    agent("/agents/c/box/x", "2026-01-01", "/agents/c/box"),
+    // a person's folder is no agent, and its agents are at the top
+    row("/agents/people/jo/web", "2026-01-01", null),
+    { ...row("/agents/people/jo/web/x", "2026-01-01", "2026-01-03"), title: "Pays a bill" },
+  ]);
+  // /agents/a's subagent was active last, so its group comes first
+  expect(
+    grouped.map(({ row: top, subagents }) => [top.path, subagents.map((sub) => sub.path)]),
+  ).toEqual([
+    ["/agents/a", ["/agents/a/one", "/agents/a/one/deeper"]],
+    ["/agents/b", []],
+    ["/agents/c", ["/agents/c/box/x"]],
+    ["/agents/people/jo/web/x", []],
+  ]);
+  expect([0, 1, 5].map(subagentsLine)).toEqual([null, "and 1 subagent", "and 5 subagents"]);
+});
+
+test("finding agents: every word in a title, path or activity, newest first, and no folders", () => {
+  const found = findAgents(
+    [
+      row("/agents/people/jo", "2026-01-01", null),
+      { ...row("/agents/people/jo/web/x", "2026-01-01", "2026-01-02"), title: "Pays a bill" },
+      { ...row("/agents/slack/c/t", "2026-01-01", "2026-01-04"), activity: "Paying the bill" },
+      row("/agents/email/t1", "2026-01-01", "2026-01-05"),
+    ],
+    "BILL pay",
+  );
+  expect(found.map((agent) => agent.path)).toEqual([
+    "/agents/slack/c/t",
+    "/agents/people/jo/web/x",
+  ]);
 });
 
 function row(path: string, createdAt: string, lastActivityAt: string | null): AgentRow {

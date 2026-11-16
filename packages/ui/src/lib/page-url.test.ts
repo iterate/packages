@@ -7,7 +7,11 @@ import { hrefOf, linkTo, pageHref, useView } from "./page-url.ts";
 
 test("a link to a page starts from none of the last page's keys; the first page is the root", () => {
   history.replaceState(null, "", "/?page=repo&repo=docs&view=%7B%7D");
-  expect(pageHref("contexts", { context: "/agents" })).toBe("?page=contexts&context=%2Fagents");
+  // a path in the query reads as a path
+  expect(pageHref("contexts", { context: "/agents/a b" })).toBe(
+    "?page=contexts&context=/agents/a+b",
+  );
+  expect(new URLSearchParams("?context=/agents/a+b").get("context")).toBe("/agents/a b");
   expect(pageHref(undefined)).toBe("./");
   // a change keeps the other keys, and a key set to undefined goes
   expect(hrefOf({ view: undefined })).toBe("?page=repo&repo=docs");

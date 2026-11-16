@@ -77,14 +77,67 @@ export function agentRowsOf(value: unknown): AgentRow[] {
  *  named `web`. */
 export function topLevelAgents(rows: readonly AgentRow[]): AgentRow[] {
   const byPath = new Map(rows.map((row) => [row.path, row]));
-  const holders = new Set(rows.map((row) => row.parent));
-  const isFolder = (row: AgentRow) =>
-    !row.kind && !row.title && (holders.has(row.path) || isPeopleFolder(row.path));
+  const isFolder = folderTest(rows);
   return rows.filter((row) => {
     if (isFolder(row)) return false;
     const parent = row.parent && byPath.get(row.parent);
     return !parent || isFolder(parent);
   });
+}
+
+/** Whether a row is a folder (`topLevelAgents` says which), for these rows. */
+function folderTest(rows: readonly AgentRow[]): (row: AgentRow) => boolean {
+  const holders = new Set(rows.map((row) => row.parent));
+  return (row) => !row.kind && !row.title && (holders.has(row.path) || isPeopleFolder(row.path));
+}
+
+/** An agent at the top and every agent below its path. */
+export type AgentGroup = { row: AgentRow; subagents: AgentRow[] };
+
+/** THE AGENTS AT THE TOP, EACH WITH THE AGENTS BELOW ITS PATH, most recently active first. A group
+ *  is as recent as its newest member, so an agent whose subagent works now comes first. A list
+ *  shows a group as one row: the agent, and "and 5 subagents". */
+export function agentGroups(rows: readonly AgentRow[]): AgentGroup[] {
+  const isFolder = folderTest(rows);
+  const agents = rows.filter((row) => !isFolder(row));
+  const top = topLevelAgents(rows);
+  const groups = top
+    // an agent below another's path is in that one's group, whatever folder holds it between
+    .filter((row) => !top.some((other) => row.path.startsWith(`${other.path}/`)))
+    .map((row) => ({
+      row,
+      subagents: byRecentActivity(agents.filter((other) => other.path.startsWith(`${row.path}/`))),
+    }));
+  const at = new Map(
+    groups.map((group) => [
+      group,
+      [group.row, ...group.subagents].map(agentActivityAt).reduce((a, b) => (a > b ? a : b)),
+    ]),
+  );
+  return groups.toSorted(
+    (left, right) =>
+      at.get(right)!.localeCompare(at.get(left)!) || left.row.path.localeCompare(right.row.path),
+  );
+}
+
+/** "and 5 subagents", or nothing for none. */
+export function subagentsLine(count: number): string | null {
+  if (count === 0) return null;
+  return count === 1 ? "and 1 subagent" : `and ${String(count)} subagents`;
+}
+
+/** The agents whose title, path, activity or description holds every word of `query`, most
+ *  recently active first. Folders are no agents. */
+export function findAgents(rows: readonly AgentRow[], query: string): AgentRow[] {
+  const isFolder = folderTest(rows);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return byRecentActivity(
+    rows.filter((row) => {
+      if (isFolder(row)) return false;
+      const text = [row.title, row.path, row.activity, row.description].join(" ").toLowerCase();
+      return words.every((word) => text.includes(word));
+    }),
+  );
 }
 
 /** What a list calls an agent: its title, or else the last segment of its path. */

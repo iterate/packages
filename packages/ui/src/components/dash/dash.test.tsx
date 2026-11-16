@@ -8,6 +8,7 @@ import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
 import { Dash, DashContexts, DashOverview, type DashPage } from "./dash.tsx";
 import type { DashPageProps } from "./dash-pages.tsx";
+import { usePageParam } from "#/lib/page-url.ts";
 
 test("one list makes the sidebar and the cards; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
   await using dash = await draw("/", []);
@@ -82,13 +83,137 @@ test("with a Contexts page, ⌘K lists the contexts active in the last five minu
       .querySelector("[cmdk-input]")!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
   );
-  expect(location).toMatchObject({ search: "?page=contexts&context=%2Fagents%2Fa" });
+  expect(location).toMatchObject({ search: "?page=contexts&context=/agents/a" });
 });
 
 test("a page the URL does not name is the first page", async () => {
   await using dash = await draw("/?page=nothing-here", []);
   expect(dash.host.querySelector("h1")?.textContent).toBe("example.com");
 });
+
+test("the sidebar's agents: one row per agent and the agents below its path, newest first, six at most", async () => {
+  const at = (day: number) => `2026-01-${String(day).padStart(2, "0")}T00:00:00.000Z`;
+  const agents: Record<string, object> = {
+    // seven agents at the top; /agents/a's subagents are newer than any of them
+    ...Object.fromEntries(
+      [1, 2, 3, 4, 5, 6, 7].map((day) => [
+        `/agents/t${String(day)}`,
+        {
+          createdAt: at(1),
+          kind: "iterate",
+          title: `Agent ${String(day)}`,
+          lastActivityAt: at(day),
+        },
+      ]),
+    ),
+    "/agents/a": { createdAt: at(1), kind: "iterate", title: "Parent", lastActivityAt: at(1) },
+    ...Object.fromEntries(
+      [1, 2, 3, 4, 5].map((n) => [
+        `/agents/a/sub${String(n)}`,
+        { createdAt: at(1), kind: "iterate", parent: "/agents/a", lastActivityAt: at(20) },
+      ]),
+    ),
+  };
+  await using dash = await draw("/", [], { pages: withAgentPages, agents });
+  const rows = [...dash.host.querySelectorAll("[data-agent-path]")];
+  expect(rows.map((row) => row.getAttribute("data-agent-path"))).toEqual([
+    "/agents/a",
+    "/agents/t7",
+    "/agents/t6",
+    "/agents/t5",
+    "/agents/t4",
+    "/agents/t3",
+  ]);
+  expect(rows[0]?.querySelector("[data-agent-line]")?.textContent).toBe("and 5 subagents");
+  // each row is the agent view, and View all is the Agents page, which has no row of its own
+  expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("?agent=/agents/a");
+  expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("?page=agents");
+  expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
+  // a click opens the agent view: the Agents page, with the path; its row is the current one
+  await act(() => rows[1]!.querySelector("a")!.click());
+  expect(location).toMatchObject({ search: "?agent=/agents/t7" });
+  expect(dash.host.textContent).toContain("agent view of /agents/t7");
+  expect(
+    [...dash.host.querySelectorAll("[data-agent-path] a")].map((row) =>
+      row.hasAttribute("data-active"),
+    ),
+  ).toEqual([false, true, false, false, false, false]);
+});
+
+test("⌘K is one palette on every page: Agents first, then Raw contexts, and / completes paths", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const now = new Date().toISOString();
+  const contexts = [
+    { path: "/agents/onboarding", lastActivityAt: now },
+    { path: "/agents/people/jo/web/x", lastActivityAt: now },
+    { path: "/secrets/slack", description: "Slack's token", lastActivityAt: now },
+  ].map((row) => ({ eventCount: 1, eventTypes: {}, recentTypes: [], processors: [], ...row }));
+  const agents = {
+    "/agents/onboarding": {
+      createdAt: now,
+      kind: "iterate",
+      title: "Onboarding",
+      lastActivityAt: now,
+    },
+    "/agents/people/jo/web/x": { createdAt: now, kind: "iterate", title: "Pays a bill" },
+  };
+  // on a page that is neither the Agents page nor the Contexts page
+  await using _dash = await draw("/?page=analytics", ["itx.telemetry"], {
+    pages: withAgentPages,
+    agents,
+    contexts,
+  });
+  const options = () =>
+    [...document.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("data-value"));
+  const input = () => document.querySelector<HTMLInputElement>("[cmdk-input]")!;
+  const press = (key: string) =>
+    act(() => input().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
+  await openPalette();
+  // the Agents tab: every agent, the newest first; Enter opens the agent view
+  expect(options()).toEqual(["/agents/onboarding", "/agents/people/jo/web/x"]);
+  await typeInto(input(), "bill");
+  expect(options()).toEqual(["/agents/people/jo/web/x"]);
+  await press("Enter");
+  expect(location).toMatchObject({ search: "?agent=/agents/people/jo/web/x" });
+  // the Raw contexts tab: any context; Enter opens the raw view
+  await openPalette();
+  await act(() =>
+    [...document.querySelectorAll('[role="tab"]')]
+      .at(1)!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
+  await typeInto(input(), "slack");
+  expect(options()).toEqual(["/secrets/slack"]);
+  await press("Enter");
+  expect(location).toMatchObject({ search: "?page=contexts&context=/secrets/slack" });
+  // "/" first: the paths one level down; Tab completes one level, Enter opens the raw view
+  await openPalette();
+  await typeInto(input(), "/ag");
+  expect(options()).toEqual(["/agents"]);
+  await press("Tab");
+  expect(input()).toMatchObject({ value: "/agents/" });
+  expect(options()).toEqual(["/agents/onboarding", "/agents/people"]);
+  await typeInto(input(), "/agents/pe");
+  await press("Tab");
+  expect(input()).toMatchObject({ value: "/agents/people/" });
+  await press("Enter");
+  expect(location).toMatchObject({ search: "?page=contexts&context=/agents/people/jo" });
+});
+
+async function openPalette() {
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),
+  );
+}
+
+/** Types `value` into a React input, as a person would. */
+async function typeInto(input: HTMLInputElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(() => {
+    setValue.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 
 const pages: DashPage[] = [
   {
@@ -121,6 +246,22 @@ const pages: DashPage[] = [
   },
 ];
 
+/** The pages, with an Agents page and a Contexts page by their ids: the Agents page says which
+ *  path it shows. */
+const withAgentPages: DashPage[] = [
+  ...pages,
+  {
+    id: "agents",
+    name: "Agents page",
+    icon: BotIcon,
+    component: function AgentsPage() {
+      const path = usePageParam("agent");
+      return <p>{path ? `agent view of ${path}` : "every agent"}</p>;
+    },
+  },
+  { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
+];
+
 const links = [
   {
     title: "Access",
@@ -142,7 +283,11 @@ const links = [
 async function draw(
   url: string,
   serves: string[],
-  { pages: drawn = pages, contexts }: { pages?: DashPage[]; contexts?: unknown[] } = {},
+  {
+    pages: drawn = pages,
+    contexts,
+    agents,
+  }: { pages?: DashPage[]; contexts?: unknown[]; agents?: Record<string, object> } = {},
 ) {
   history.replaceState(null, "", url);
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -168,10 +313,19 @@ async function draw(
   const itx = {
     // a platform with no catalog rejects; `contexts` is a mind's catalog
     contexts: {
-      list: async () => {
+      list: async ({ under }: { under?: string } = {}) => {
         if (!contexts) throw new Error("No such method: contexts.list");
-        return contexts;
+        return under ? [] : contexts;
       },
+    },
+    // the catalog of the mind's agents on /agents: its live state's seed, and no change after
+    cd: async (path: string) => {
+      if (path !== "/agents" || !agents) throw new Error(`no context ${path}`);
+      return {
+        invoke: async () => ({ rev: 1, state: { agents } }),
+        subscribe: async () => ({ [Symbol.dispose]() {} }),
+        [Symbol.dispose]() {},
+      };
     },
     rewriteRules: {
       get: async (root: string) => {
