@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // A mind's Dash drawn from lists: one list of pages makes the sidebar, the URL names the page shown, a part the mind does not have says "Off", and a page that fails says
 // so in its own place.
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
 import { Dash, DashContexts, type DashPage } from "./dash.tsx";
 import type { DashPageProps } from "./dash-pages.tsx";
-import { usePageParam } from "#/lib/page-url.ts";
+import { go, usePageParam } from "#/lib/page-url.ts";
 
 test("one list makes the sidebar; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
   await using dash = await draw("/", []);
@@ -78,6 +78,40 @@ test("with a Contexts page, ⌘K lists the contexts active in the last five minu
   expect(location).toMatchObject({ search: "?page=contexts&context=/agents/a" });
 });
 
+test("an agent that throws says so on its own view alone: View all and another agent draw again, and nothing else mounts the page anew", async () => {
+  // React reports what an error boundary caught
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  let mounts = 0;
+  function Agents() {
+    const agent = usePageParam("agent");
+    useEffect(() => {
+      mounts += 1;
+    }, []);
+    if (agent === "/agents/broken") throw new Error("the agent view threw");
+    return <p data-shown>{agent || "every agent"}</p>;
+  }
+  await using dash = await draw("/?agent=/agents/broken", [], {
+    pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: Agents }],
+  });
+  const { host } = dash;
+  const alert = () => host.querySelector('[role="alert"]');
+  const shown = () => host.querySelector("[data-shown]")?.textContent;
+  expect(alert()?.textContent).toContain("the agent view threw");
+  // View all: the same page, with no agent
+  await act(() => go("?page=agents"));
+  expect([alert(), shown()]).toEqual([null, "every agent"]);
+  // another agent after one that threw
+  await act(() => go("?agent=/agents/broken"));
+  expect(alert()).not.toBeNull();
+  await act(() => go("?agent=/agents/other"));
+  expect([alert(), shown()]).toEqual([null, "/agents/other"]);
+  // with no error, neither another agent nor the page's own view state mounts it anew
+  const before = mounts;
+  await act(() => go("?agent=/agents/third"));
+  await act(() => go(`?agent=/agents/third&view=${encodeURIComponent('{"q":"x"}')}`));
+  expect([shown(), mounts]).toEqual(["/agents/third", before]);
+});
+
 test("a page the URL does not name is the first page", async () => {
   await using dash = await draw("/?page=nothing-here", []);
   expect(dash.host.querySelector("h1")?.textContent).toBe("example.com");
@@ -121,6 +155,14 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("?agent=/agents/a");
   expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("?page=agents");
   expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
+  // the section is the sidebar's last: every other link is above the first agent's row
+  const sidebarLinks = [...dash.host.querySelectorAll("a")];
+  const firstAgent = sidebarLinks.findIndex((link) => link.closest("[data-agent-path]"));
+  expect(
+    sidebarLinks
+      .slice(firstAgent)
+      .every((link) => link.closest("[data-agent-path]") || link.textContent?.includes("View all")),
+  ).toBe(true);
   // a click opens the agent view: the Agents page, with the path; its row is the current one
   await act(() => rows[1]!.querySelector("a")!.click());
   expect(location).toMatchObject({ search: "?agent=/agents/t7" });

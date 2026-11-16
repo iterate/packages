@@ -6,7 +6,7 @@
 // or one of the mind's own, which takes the same props (`DashPageProps`).
 //
 // TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
-//   agents    the Agents page. The sidebar lists the most recently active agents above the pages,
+//   agents    the Agents page. The sidebar lists the most recently active agents below the pages and links,
 //             `?agent=<path>` shows that page (its agent view), and ⌘K has an Agents tab. The
 //             catalog on `/agents` is read once, live, for all of them and handed to every page.
 //   contexts  the raw view of any context: ⌘K's Raw contexts tab and its path mode open it.
@@ -173,7 +173,7 @@ export function Dash({
         }
         locationKey={search}
       >
-        <PageBoundary key={page.id}>
+        <PageBoundary key={page.id} shows={agent || ""}>
           <Suspense fallback={<DashNote waiting>Loading the page…</DashNote>}>
             <Page
               itx={itx}
@@ -239,10 +239,18 @@ function hrefOfPage(pages: DashPage[], page: DashPage) {
 }
 
 /** A page that throws, or whose part did not load, says so in its own place; the sidebar stays. A
- *  browser keeps a module's failed load for the life of the page, so the way out is a reload. */
-class PageBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
-  override state: { error: string | null } = { error: null };
-  static getDerivedStateFromError(error: unknown) {
+ *  browser keeps a module's failed load for the life of the page, so the way out is a reload.
+ *  Another page is another boundary (its `key`). On the Agents page `shows` is the open agent's
+ *  path: the error is the view's it came from, so another agent, or none, draws again. Nothing is
+ *  mounted anew while there is no error, and the page's own `?view=` state is not in `shows`. */
+type Shown = { error: string | null; shows: string };
+class PageBoundary extends Component<{ shows: string; children: ReactNode }, Shown> {
+  override state: Shown = { error: null, shows: this.props.shows };
+  static getDerivedStateFromProps(props: { shows: string }, state: Shown): Partial<Shown> | null {
+    if (props.shows === state.shows) return null;
+    return { error: null, shows: props.shows };
+  }
+  static getDerivedStateFromError(error: unknown): Partial<Shown> {
     return { error: error instanceof Error ? error.message : String(error) };
   }
   override render() {
@@ -306,7 +314,7 @@ function DashNav({
   links: DashLinks[];
   page: DashPage;
   waiting: number;
-  /** The Agents section, above the pages, for a Dash with an Agents page. */
+  /** The Agents section, below the pages and the links, for a Dash with an Agents page. */
   agents: ReactNode;
 }) {
   return (
@@ -321,7 +329,6 @@ function DashNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      {agents}
       <SidebarGroup>
         <SidebarGroupContent>
           <SidebarMenu>
@@ -371,6 +378,8 @@ function DashNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ))}
+      {/* last: the list moves as agents work, and nothing above it should move with it */}
+      {agents}
     </>
   );
 }
