@@ -14,9 +14,14 @@ import { oauthClient } from "./oauth.js";
 // chrome.storage.local until sign-out.
 
 /** chrome.storage.local as oauth.js's store. */
+let allowSessionWrites = true;
 const chromeStore = {
   get: async (key) => (await chrome.storage.local.get(key))[key],
-  set: (key, value) => chrome.storage.local.set({ [key]: value }),
+  set: (key, value) => {
+    if (!allowSessionWrites)
+      throw new Error("The panel signed out before the token request ended.");
+    return chrome.storage.local.set({ [key]: value });
+  },
   remove: (key) => chrome.storage.local.remove(key),
 };
 
@@ -36,6 +41,14 @@ const oauth = oauthClient({
     client_uri: "https://iterate.com",
   },
 });
+
+let tokenRequest = null;
+function freshAccessToken() {
+  tokenRequest ??= oauth.freshAccessToken().finally(() => {
+    tokenRequest = null;
+  });
+  return tokenRequest;
+}
 
 // ── What this Chrome lends: an RpcTarget (capnweb passes it by reference, so a call on the mind's
 // root context runs HERE). The mind drives the tabs in its tab group, over raw CDP, commands only:
@@ -119,28 +132,57 @@ async function addToGroup(tabId, windowId) {
  *  its execution context id). */
 const debuggees = new Map();
 
-/** Let the debugger go from a tab. An attach still in flight settles first, so it cannot leave the
- *  debugger on a tab the mind may no longer drive. The indicator goes first: after the detach no
- *  CDP reaches the page. */
+/** Track the native detach separately from its caller's deadline. Only the state that owns the
+ *  tab may detach it; a retired initializer must never detach its replacement. */
+function detachDebugger(tabId, state) {
+  if (debuggees.get(tabId) !== state || state.detached) return Promise.resolve();
+  state.detaching ??= chrome.debugger
+    .detach({ tabId })
+    .catch((error) => {
+      if (!/Debugger is not attached|No tab with given id/.test(error?.message)) throw error;
+    })
+    .then(() => {
+      state.detached = true;
+      state.attached = false;
+      if (debuggees.get(tabId) === state) forgetActivity(tabId);
+    })
+    .finally(() => {
+      state.detaching = null;
+    });
+  return state.detaching;
+}
+
+/** Cancel attachment initialization before teardown. A page dialog can hold a CDP initializer
+ *  open: wait at most one second, then detach anyway. A late initializer checks its cancellation
+ *  before it can issue another command. Indicator removal and detach have separate deadlines. */
 async function release(tabId) {
   const state = debuggees.get(tabId);
   if (!state) return;
-  await state.attaching?.catch(() => undefined);
-  if (!state.attached) return;
+  if (state.releasing) return state.releasing;
+  if (state.detached || (!state.attached && !state.attaching && !state.detaching)) return;
+  state.attachCancelled = true;
   state.releasing ??= (async () => {
-    await inIndicator(tabId, REMOVE_INDICATOR).catch(console.warn);
-    await chrome.debugger.detach({ tabId }).catch(console.error);
-    state.attached = false;
-    forgetActivity(tabId);
+    await within(1_000, state.attaching).catch((error) => {
+      if (/No answer in/.test(error?.message))
+        console.warn({
+          event: "browser-extension.platform-failure-release",
+          tabId,
+          message: error.message,
+        });
+    });
+    if (state.detached || (!state.attached && !state.attaching && !state.detaching)) return;
+    if (state.attached)
+      await within(1_000, inIndicator(tabId, REMOVE_INDICATOR)).catch(console.warn);
+    await within(1_000, detachDebugger(tabId, state)).catch(console.error);
   })().finally(() => {
     state.releasing = null;
   });
   await state.releasing;
 }
-/** Let the debugger go from every tab: on sign-out, and when the panel moves to another mind. The
- *  tabs stay in their group: the group is the person's. */
+/** Release tabs independently: a blocked tab cannot delay teardown of another. Their groups stay
+ *  in Chrome; the groups belong to the person. */
 async function releaseTabs() {
-  for (const tabId of [...debuggees.keys()]) await release(tabId);
+  await Promise.all([...debuggees.keys()].map((tabId) => release(tabId)));
 }
 
 /** This Chrome's lend, set by `connect`: its name, the group's title, where its events go, and the
@@ -159,6 +201,7 @@ let tellTabCard = () => {};
 async function reconcile() {
   const current = lend;
   const members = new Set(await memberIds());
+  if (lend !== current) return;
   const announced = current?.announced ?? new Set();
   const attached = [...debuggees].filter(([, state]) => state.attached || state.attaching);
   const left = new Set(
@@ -172,6 +215,7 @@ async function reconcile() {
   const joined = [...members].filter((tabId) => !announced.has(tabId));
   if (joined.length && current && lend === current) {
     const targets = await chrome.debugger.getTargets();
+    if (lend !== current) return;
     for (const tabId of joined) {
       announced.add(tabId);
       const url = targets.find((target) => target.tabId === tabId)?.url;
@@ -248,46 +292,74 @@ async function requireMember(tabId) {
 
 /** Attach the debugger to a tab in the mind's group (once; Chrome shows its bar on the tab). The
  *  membership check runs on every call, so every `cdp` command makes it. */
-async function attach(tabId) {
-  // A release in flight ends first: until it does, the tab still looks attached, and the
-  // membership check after it sees what the release was for (Stop, Remove, sign-out).
-  await debuggees.get(tabId)?.releasing?.catch(() => undefined);
+async function attach(tabId, requireConnection) {
+  let state = debuggees.get(tabId);
+  await state?.releasing?.catch(() => undefined);
+  requireConnection();
+  await state?.detaching?.catch(() => undefined);
+  requireConnection();
+  if (state?.attachCancelled) {
+    // A native attach can still arrive after teardown. Let that request answer before releasing
+    // it again; a stalled CDP initializer, in contrast, can be retired once detach has answered.
+    await state.attachRequest?.catch(() => undefined);
+    requireConnection();
+    await release(tabId);
+    requireConnection();
+    await state.detaching?.catch(() => undefined);
+    requireConnection();
+    if (!state.detached) throw new Error(`Tab ${tabId}'s debugger teardown has not completed.`);
+    if (debuggees.get(tabId) === state) debuggees.delete(tabId);
+  }
   await requireMember(tabId);
-  const state =
+  requireConnection();
+  state =
     debuggees.get(tabId) ?? debuggees.set(tabId, { attached: false, attaching: null }).get(tabId);
   if (state.attached) return;
   state.attaching ??= (async () => {
-    await chrome.debugger.attach({ tabId }, "1.3").catch(async (error) => {
-      if (/No tab with given id/.test(error?.message)) throw tabGone(tabId);
-      // A closed panel leaves its sessions attached: a session is the extension's, not the page's.
-      // A command that goes through means the session is ours, from an earlier panel: take it on.
-      if (!/Another debugger is already attached/.test(error?.message)) throw error;
-      await chrome.debugger
-        .sendCommand({ tabId }, "Runtime.evaluate", { expression: "0" })
-        .catch(() => {
-          throw error;
-        });
-    });
-    let url;
+    state.attachCancelled = false;
+    state.detached = false;
+    const requireAttachment = () => {
+      requireConnection();
+      if (state.attachCancelled || debuggees.get(tabId) !== state)
+        throw new Error(`Tab ${tabId}'s debugger was released during attachment.`);
+    };
     try {
-      // Page: main-frame navigations (below), and the indicator on every page the tab loads.
-      // Runtime: page reports and the indicator's Stop (`Runtime.bindingCalled`).
+      state.attachRequest = chrome.debugger.attach({ tabId }, "1.3").then(() => {
+        state.detached = false;
+      });
+      await state.attachRequest.catch(async (error) => {
+        if (/No tab with given id/.test(error?.message)) throw tabGone(tabId);
+        // A closed panel can leave this extension's session attached. Chrome accepts its CDP
+        // commands, but refuses commands through a debugger owned by DevTools or another extension.
+        if (!/Another debugger is already attached/.test(error?.message)) throw error;
+        state.detached = false;
+        requireAttachment();
+        await chrome.debugger
+          .sendCommand({ tabId }, "Runtime.evaluate", { expression: "0" })
+          .catch(() => {
+            throw error;
+          });
+      });
+      requireAttachment();
+      // Page and Runtime carry navigation, the indicator and page reports.
       await chrome.debugger.sendCommand({ tabId }, "Page.enable");
+      requireAttachment();
       await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
+      requireAttachment();
       const { result } = await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
         expression: "location.href",
         returnByValue: true,
       });
-      url = result.value;
+      requireAttachment();
+      state.attached = true;
+      fact("events.iterate.com/chrome/attached", { tabId, url: result.value });
+      await showIndicator(tabId);
+      requireAttachment();
+      showTabs();
     } catch (error) {
-      // never a debugging bar on a tab whose attach failed halfway
-      await chrome.debugger.detach({ tabId }).catch(() => {});
+      await within(1_000, detachDebugger(tabId, state)).catch(console.warn);
       throw error;
     }
-    state.attached = true;
-    fact("events.iterate.com/chrome/attached", { tabId, url });
-    await showIndicator(tabId);
-    showTabs();
   })().finally(() => {
     state.attaching = null;
   });
@@ -370,19 +442,25 @@ let heartbeats = null;
  *  the Page domain is on in this session, and forgets it at detach), and on the page that shows. A
  *  failure leaves the tab without an indicator, never the mind without the tab. */
 async function showIndicator(tabId) {
+  const state = debuggees.get(tabId);
+  const current = () => debuggees.get(tabId) === state && state?.attached && !state.attachCancelled;
+  if (!current()) return;
   try {
     await chrome.debugger.sendCommand({ tabId }, "Runtime.addBinding", {
       name: STOP_BINDING,
       executionContextName: INDICATOR_WORLD,
     });
+    const source = await indicatorExpression();
+    if (!current()) return;
     await chrome.debugger.sendCommand({ tabId }, "Page.addScriptToEvaluateOnNewDocument", {
-      source: await indicatorExpression(),
+      source,
       worldName: INDICATOR_WORLD,
     });
   } catch (error) {
     console.warn(error);
     return;
   }
+  if (!current()) return;
   showBadge(tabId);
   heartbeat(tabId);
   heartbeats ??= setInterval(() => {
@@ -399,7 +477,7 @@ async function showIndicator(tabId) {
  *  heartbeat in time, or the page removed it) comes back at the next one, in a new world. */
 function heartbeat(tabId) {
   const state = debuggees.get(tabId);
-  if (!state?.attached || state.heartbeating) return;
+  if (!state?.attached || state.heartbeating || state.attachCancelled) return;
   state.heartbeating = true;
   const expression = `(() => {
     const host = ${HOST};
@@ -416,17 +494,26 @@ function heartbeat(tabId) {
     });
 }
 
+function requireIndicatorState(tabId, state) {
+  if (debuggees.get(tabId) !== state || !state.attached)
+    throw new Error(`Tab ${tabId}'s indicator session ended.`);
+}
+
 /** The indicator's world on the page that shows: an isolated world of the top frame, with the
  *  indicator in it (indicator.js adds none where the page has one). */
-async function indicatorWorldOf(tabId) {
+async function indicatorWorldOf(tabId, state) {
+  requireIndicatorState(tabId, state);
   const { frameTree } = await chrome.debugger.sendCommand({ tabId }, "Page.getFrameTree");
+  requireIndicatorState(tabId, state);
   const { executionContextId } = await chrome.debugger.sendCommand(
     { tabId },
     "Page.createIsolatedWorld",
     { frameId: frameTree.frame.id, worldName: INDICATOR_WORLD },
   );
+  const expression = await indicatorExpression();
+  requireIndicatorState(tabId, state);
   await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
-    expression: await indicatorExpression(),
+    expression,
     contextId: executionContextId,
   });
   return executionContextId;
@@ -439,11 +526,12 @@ async function inIndicator(tabId, expression, options = {}) {
   const state = debuggees.get(tabId);
   if (!state?.attached) return undefined;
   for (let retried = false; ; retried = true) {
-    const world = (state.indicatorWorld ??= indicatorWorldOf(tabId));
+    const world = (state.indicatorWorld ??= indicatorWorldOf(tabId, state));
     try {
       return await within(
         INDICATOR_TIMEOUT_MS,
         world.then(async (contextId) => {
+          requireIndicatorState(tabId, state);
           const { result, exceptionDetails } = await chrome.debugger.sendCommand(
             { tabId },
             "Runtime.evaluate",
@@ -557,14 +645,24 @@ chrome.debugger.onEvent.addListener(({ tabId }, method, params) => {
   }
   // The type is always the panel's own: the panel appends as the signed-in person, and some mind
   // code trusts only a person's own append, so a type the page chose would let it act as them.
+  const current = lend;
   bindingReports = bindingReports.then(async () => {
-    if (await isMember(tabId).catch(() => false))
+    if (
+      current &&
+      lend === current &&
+      (await isMember(tabId).catch(() => false)) &&
+      lend === current
+    )
       record("events.iterate.com/chrome/binding-called", { tabId, name, payload });
   });
 });
 chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
   const state = debuggees.get(tabId);
-  if (state) state.attached = false;
+  if (state) {
+    state.attached = false;
+    state.detached = true;
+    state.attachCancelled = true;
+  }
   // The page keeps an indicator the panel did not remove (no CDP after a detach) until it loads
   // the next page, which gets none: no session, no new-document script.
   forgetActivity(tabId);
@@ -602,6 +700,20 @@ async function memberTabs() {
 }
 
 class ChromeBrowser extends RpcTarget {
+  #current;
+
+  constructor(current) {
+    super();
+    this.#current = current;
+  }
+
+  #requireConnection() {
+    if (!this.#current())
+      throw new Error(
+        "This browser connection ended. Find the current lend before sending another action.",
+      );
+  }
+
   #pages = new Map();
 
   static evictPage(browser, tabId) {
@@ -610,8 +722,10 @@ class ChromeBrowser extends RpcTarget {
 
   /** A retained handle still checks live group membership on every CDP command. */
   async page(tabId) {
+    this.#requireConnection();
     if (!Number.isInteger(tabId) || tabId < 0) throw new Error("page() requires a tab id");
     await requireMember(tabId);
+    this.#requireConnection();
     if (!this.#pages.has(tabId))
       this.#pages.set(
         tabId,
@@ -622,13 +736,17 @@ class ChromeBrowser extends RpcTarget {
 
   /** The tabs in the mind's group: how an agent finds a tab the person added. */
   async tabs() {
-    return memberTabs();
+    this.#requireConnection();
+    const members = await memberTabs();
+    this.#requireConnection();
+    return members;
   }
 
   /** Open an http(s) page in a new active tab in the mind's group; answers once the page has
    *  loaded (or after ten seconds) with the tab's id and URL. A tab Chrome replaces while it loads
    *  answers with its new id; a tab closed while it loads is an error. */
   async openPage(input) {
+    this.#requireConnection();
     if (!input || typeof input.url !== "string") throw new Error("openPage() takes { url }.");
     const target = new URL(input.url);
     if (target.protocol !== "http:" && target.protocol !== "https:")
@@ -637,8 +755,10 @@ class ChromeBrowser extends RpcTarget {
     const [panelWindow, groups] = await Promise.all([chrome.windows.getCurrent(), mindGroups()]);
     const group = groups.find((candidate) => candidate.windowId === panelWindow.id) ?? groups[0];
     const windowId = group?.windowId ?? panelWindow.id;
+    this.#requireConnection();
     const tab = await chrome.tabs.create({ active: true, url: target.href, windowId });
     try {
+      this.#requireConnection();
       await addToGroup(tab.id, windowId);
     } catch (error) {
       await chrome.tabs.remove(tab.id).catch(() => {});
@@ -681,13 +801,19 @@ class ChromeBrowser extends RpcTarget {
    *  domains on, for the indicator, the navigation facts and page reports. A screenshot leaves the
    *  indicator out. */
   async cdp(tabId, method, params) {
-    await attach(tabId);
+    this.#requireConnection();
+    await attach(tabId, () => this.#requireConnection());
+    this.#requireConnection();
     if (method === "Page.disable" || method === "Runtime.disable") return {};
     noteActivity(tabId, method);
-    const send = () =>
-      chrome.debugger.sendCommand({ tabId }, method, params).catch((error) => {
+    const send = async () => {
+      this.#requireConnection();
+      await requireMember(tabId);
+      this.#requireConnection();
+      return chrome.debugger.sendCommand({ tabId }, method, params).catch((error) => {
         throw /No tab with given id/.test(error?.message) ? tabGone(tabId) : error;
       });
+    };
     if (method !== "Page.captureScreenshot") return send();
     // Shown again when the last of overlapping screenshots is taken. One it cannot hide is taken
     // anyway.
@@ -704,6 +830,7 @@ class ChromeBrowser extends RpcTarget {
 
   /** Let go of a tab: the debugger bar goes; the tab stays in the group and stays drivable. */
   async detach(tabId) {
+    this.#requireConnection();
     await release(tabId);
   }
 }
@@ -835,7 +962,112 @@ function fail(into, error) {
 // generation to this counter before touching the page or the socket.
 let generation = 0;
 let live = null;
-let connectedIssuer = "";
+let retryTimer;
+let beatTimer;
+let stableTimer;
+let drawTimer;
+let retries = 0;
+let cancelPending = () => {};
+
+function disconnect() {
+  generation += 1;
+  clearTimeout(retryTimer);
+  clearTimeout(beatTimer);
+  clearTimeout(stableTimer);
+  clearTimeout(drawTimer);
+  drawTimer = null;
+  cancelPending();
+  cancelPending = () => {};
+  lend = null;
+  showTabs = () => {};
+  tellTabCard = () => {};
+  const previous = live;
+  live = null;
+  previous?.[Symbol.dispose]();
+  return generation;
+}
+
+async function connectionAnswer(mine, ms, promise) {
+  const cancelled = new Promise((_resolve, reject) => {
+    cancelPending = () => reject(new Error("This connection ended."));
+  });
+  try {
+    return await within(ms, Promise.race([promise, cancelled]));
+  } finally {
+    if (mine === generation) cancelPending = () => {};
+  }
+}
+
+function reconnectKind(error) {
+  if (error?.code === "UNAVAILABLE") {
+    if (["overloaded", "disconnected", "deploy-reset"].includes(error.data?.kind))
+      return error.data.kind;
+    return null;
+  }
+  if (error?.code) return null;
+  if (
+    error?.overloaded ||
+    /is overloaded|queued for too long|No answer in \d+ ms/i.test(error?.message)
+  )
+    return "overloaded";
+  if (
+    error?.retryable ||
+    /WebSocket|disconnected|connection.*closed|network|Failed to fetch|reset because its code was updated/i.test(
+      error?.message,
+    )
+  )
+    return "disconnected";
+  return null;
+}
+
+function connectionFailed(session, mine, error, canReconnect) {
+  if (mine !== generation) return;
+  const stopped = disconnect();
+  void releaseTabs();
+  const kind = canReconnect && reconnectKind(error);
+  const suggested = error?.data?.retryAfterMs;
+  const floor = Math.max(
+    kind === "overloaded" ? 10_000 : 1_000,
+    Number.isFinite(suggested) && suggested > 0 ? suggested : 0,
+  );
+  const view = element("connection", HTMLElement);
+  if (kind && retries < 5 && floor <= 60_000) {
+    const ceiling = Math.max(
+      floor,
+      Math.min(60_000, (kind === "overloaded" ? 20_000 : 2_000) * 2 ** retries),
+    );
+    const minimum = Math.max(floor, ceiling / 2);
+    const delay = Math.round(minimum + Math.random() * (ceiling - minimum));
+    retries += 1;
+    console.warn({
+      event: "browser-extension.platform-failure-retry",
+      kind,
+      attempt: retries,
+      retryInMs: delay,
+      message: error.message,
+    });
+    view.innerHTML = statusCard("wait", "Reconnecting…", {
+      body: `<p class="muted">${escape(error.message)}<br />Retry ${retries} of 5 in ${Math.ceil(delay / 1_000)} seconds. This Chrome is not lent while disconnected.</p>`,
+    });
+    retryTimer = setTimeout(() => {
+      if (stopped === generation) void connect(session, true);
+    }, delay);
+    return;
+  }
+  if (kind)
+    console.warn({
+      event: "browser-extension.platform-failure-gave-up",
+      kind,
+      attempts: retries + 1,
+      message: error.message,
+    });
+  view.innerHTML = statusCard("bad", "Not connected", {
+    corner: `<button id="retry" class="btn btn-outline btn-sm">Retry</button>`,
+    body: `<p class="muted">${kind ? "Automatic retries stopped. " : ""}This Chrome is not lent. Retry when the mind is available, or sign out to sign in again.</p>`,
+  });
+  fail(view.firstElementChild, error);
+  element("retry", HTMLButtonElement).onclick = () => connect(session);
+}
 
 const version = () => escape(chrome.runtime.getManifest().version);
 const header = (right) => `
@@ -847,9 +1079,8 @@ const header = (right) => `
 const addressOf = (issuer) => new URL(issuer).hostname.replace(/^iterate\./, "");
 
 async function signedOut(mind) {
-  generation += 1;
-  live?.[Symbol.dispose]();
-  live = null;
+  allowSessionWrites = false;
+  disconnect();
   app.innerHTML = `
     ${header(`<span class="badge">v${version()}</span>`)}
     <section class="card">
@@ -870,6 +1101,11 @@ async function signedOut(mind) {
   element("login", HTMLButtonElement).onclick = async () => {
     errors.replaceChildren();
     try {
+      if (tokenRequest)
+        throw new Error(
+          "A token request is still finishing. Wait for it, or close and reopen this panel before signing in.",
+        );
+      allowSessionWrites = true;
       const candidates = issuerCandidatesOf(input.value);
       // First, while the click still counts as the person's gesture: Chrome asks them for the
       // mind's hosts. The bearer rule needs the `wss:` origin: an `https:` one does not cover the
@@ -895,17 +1131,14 @@ async function signedIn(session) {
       <button id="logout" class="btn btn-ghost btn-sm">Sign out</button></div>`)}
     <div id="connection" class="stack"></div>`;
   element("logout", HTMLButtonElement).onclick = async () => {
-    generation += 1;
-    live?.[Symbol.dispose]();
-    live = null;
-    showTabs = () => {};
-    tellTabCard = () => {};
-    lend = null;
-    await releaseTabs();
+    allowSessionWrites = false;
+    disconnect();
+    const released = releaseTabs();
     await writeBearerRule(() =>
       chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BEARER_RULE] }),
     ).catch(console.error);
     await oauth.signOut();
+    await within(20_000, released).catch(console.error);
     await signedOut((await settings()).mind);
   };
   await connect(session);
@@ -959,40 +1192,52 @@ async function copyText(text) {
 /** One socket, one lend. When the mind closes the socket (the hour-old access token expired, the
  *  grant ended) the panel connects again — a fresh token is a fresh socket, and the lend goes with
  *  the socket, so it is made again too. */
-async function connect(session) {
-  const mine = ++generation;
-  live?.[Symbol.dispose]();
-  live = null;
-  // Another mind must not inherit this one's tabs (a reconnect to the same mind keeps them).
-  if (session.issuer !== connectedIssuer) {
-    lend = null;
-    await releaseTabs();
-  }
-  connectedIssuer = session.issuer;
+async function connect(session, automatic = false) {
+  if (!automatic) retries = 0;
+  const mine = disconnect();
   const address = addressOf(session.issuer);
   const view = element("connection", HTMLElement);
   view.innerHTML = statusCard("wait", "Connecting…", {
     body: `<p class="muted">to ${escape(address)}</p>`,
   });
 
-  let socket;
   let itx;
+  let canReconnect = false;
   try {
-    socket = await openApiSocket(session.issuer, await oauth.freshAccessToken(), mine);
-    if (!socket) return;
-    // The session's root is the mind's root context, `/`, as the person signed in. The lend is a
-    // rewrite rule of THAT context, so a caller in another context of the mind (an agent's script
-    // runs in its own) spells it `itx.cd('/').chrome.<person>.<browser>`.
-    itx = newWebSocketRpcSession(socket);
-    live = itx;
-    const browser = new ChromeBrowser();
-    const [whoami, browserName] = await Promise.all([itx.whoami(), browserSegment()]);
-    const personSegment = personSegmentOf(whoami.principal);
-    const name = `itx.chrome.${personSegment}.${browserName}`;
-    const provided = await itx.provide(name, browser, {
-      description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), page(tabId) (prototype: Playwright-shaped getByRole/getByText/getByLabel/locator, click/fill/press), cdp(tabId, method, params), detach(tabId).`,
-    });
-    if (mine !== generation) return;
+    const setup = await connectionAnswer(
+      mine,
+      20_000,
+      (async () => {
+        await releaseTabs();
+        if (mine !== generation) return null;
+        // A failed rotating token refresh is not replayed by the connection's retry loop.
+        const token = await freshAccessToken();
+        if (mine !== generation) return null;
+        canReconnect = true;
+        const socket = await openApiSocket(session.issuer, token, mine);
+        if (!socket) return null;
+        socket.addEventListener("close", () =>
+          connectionFailed(session, mine, new Error("The connection closed."), true),
+        );
+        socket.addEventListener("error", () =>
+          connectionFailed(session, mine, new Error("The WebSocket connection failed."), true),
+        );
+        itx = newWebSocketRpcSession(socket);
+        live = itx;
+        const browser = new ChromeBrowser(() => mine === generation);
+        const [whoami, browserName] = await Promise.all([itx.whoami(), browserSegment()]);
+        if (mine !== generation) return null;
+        const personSegment = personSegmentOf(whoami.principal);
+        const name = `itx.chrome.${personSegment}.${browserName}`;
+        const provided = await itx.provide(name, browser, {
+          description: `${personSegment}'s Chrome (${browserName}), while its Iterate side panel is open: tabs(), openPage({ url }), page(tabId) (prototype: Playwright-shaped getByRole/getByText/getByLabel/locator, click/fill/press), cdp(tabId, method, params), detach(tabId).`,
+        });
+        return { browser, whoami, browserName, name, provided };
+      })(),
+    );
+    if (!setup || mine !== generation) return;
+    const { browser, whoami, browserName, name, provided } = setup;
+
     lend = {
       browser,
       name,
@@ -1007,11 +1252,7 @@ async function connect(session) {
     void Promise.resolve(provided.lendEnded()).then(
       (reason) => {
         if (mine !== generation) return;
-        generation += 1;
-        live?.[Symbol.dispose]();
-        live = null;
-        // no lend, no drivable tab: the debugging bars go too
-        lend = null;
+        disconnect();
         void releaseTabs();
         view.innerHTML = statusCard("bad", "No longer lent", {
           corner: `<button id="lend-again" class="btn btn-outline btn-sm">Lend again</button>`,
@@ -1021,7 +1262,7 @@ async function connect(session) {
         });
         element("lend-again", HTMLButtonElement).onclick = () => connect(session);
       },
-      () => {},
+      (error) => connectionFailed(session, mine, error, true),
     );
     const mindName = whoami.mindSlug || address;
     const person = whoami.principal?.email || whoami.principal?.actor || "a member";
@@ -1071,11 +1312,10 @@ async function connect(session) {
     const instructions = element("instructions", HTMLPreElement);
     const result = element("proof-result", HTMLElement);
     let members = [];
-    let drawing = null;
     // Chrome's tab events come in bursts: one redraw for each burst.
     showTabs = () => {
-      drawing ??= setTimeout(async () => {
-        drawing = null;
+      drawTimer ??= setTimeout(async () => {
+        drawTimer = null;
         if (mine !== generation) return;
         members = await memberTabs();
         if (mine !== generation) return;
@@ -1132,6 +1372,7 @@ async function connect(session) {
         return fail(errors, new Error("Letters and digits only, starting with a letter."));
       if (chosen === browserName) return;
       await chrome.storage.local.set({ browserName: chosen });
+      if (mine !== generation) return;
       await connect(session);
     };
 
@@ -1173,41 +1414,24 @@ async function connect(session) {
       }
     };
   } catch (error) {
-    if (mine !== generation) return;
-    view.innerHTML = statusCard("bad", "Not connected", {
-      corner: `<button id="retry" class="btn btn-outline btn-sm">Retry</button>`,
-    });
-    fail(view.firstElementChild, error);
-    element("retry", HTMLButtonElement).onclick = () => connect(session);
+    connectionFailed(session, mine, error, canReconnect);
     return;
   }
-  socket.addEventListener("close", () => {
-    if (mine !== generation) return;
-    view.innerHTML = statusCard("wait", "Reconnecting…", {
-      body: `<p class="muted">The connection closed.</p>`,
-    });
-    setTimeout(() => {
-      if (mine === generation) void connect(session);
-    }, 2_000);
-  });
+  stableTimer = setTimeout(() => {
+    if (mine === generation) retries = 0;
+  }, 60_000);
   // THE HEARTBEAT, iterate's own (core/lib/src/client/heartbeat.ts says why): `whoami()` every
   // 30 s, and a socket that leaves one unanswered for 15 s is replaced.
-  const beat = setInterval(async () => {
-    if (mine !== generation) return clearInterval(beat);
-    const answered = await Promise.race([
-      itx.whoami().then(
-        () => true,
-        () => true,
-      ),
-      new Promise((resolve) => setTimeout(() => resolve(false), 15_000)),
-    ]);
-    if (answered || mine !== generation) return;
-    clearInterval(beat);
-    view.innerHTML = statusCard("wait", "Reconnecting…", {
-      body: `<p class="muted">The connection stopped answering.</p>`,
-    });
-    void connect(session);
-  }, 30_000);
+  const beat = async () => {
+    if (mine !== generation) return;
+    try {
+      await connectionAnswer(mine, 15_000, itx.whoami());
+      if (mine === generation) beatTimer = setTimeout(beat, 30_000);
+    } catch (error) {
+      connectionFailed(session, mine, error, true);
+    }
+  };
+  beatTimer = setTimeout(beat, 30_000);
 }
 
 /** A mind signs in at `https://iterate.<address>`. A session from before 0.4.0 is the old

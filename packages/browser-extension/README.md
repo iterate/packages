@@ -104,6 +104,22 @@ that one URL. The next connect replaces the rule and sign-out removes it; Chrome
 rules when it quits. When the socket closes (the hourly token ends, the grant ends) the panel
 connects again with a fresh token.
 
+Transient connection failures use at most five automatic retries with exponential backoff and
+jitter. An overload waits at least 10 seconds; a wait never exceeds 60 seconds. The panel shows
+the cause, retry number and delay. A connection must stay up for 60 seconds before it resets the
+retry count. When retries stop, **Retry** starts a new attempt. Authentication refusals and failed
+token refreshes need a manual retry or sign-in. A handshake has 20 seconds to answer; the live
+connection checks `whoami()` every 30 seconds with a 15-second deadline.
+
+During a disconnect, the panel clears the local lend and releases its debuggers. The tab groups
+stay in Chrome. Recovery makes a fresh lend and reads membership again. It never repeats browser
+actions or queued page reports from an old connection. Old browser/page handles are refused;
+get the current lend and make fresh handles after recovery. Teardown has separate bounded waits;
+a native attach or detach that has not answered must settle before that tab can attach again.
+Sign-out cancels retries. A lend displaced
+by another panel still waits for **Lend again**. Retry and give-up records go to the panel console
+as `browser-extension.platform-failure-retry` and `browser-extension.platform-failure-gave-up`.
+
 **The name.** Every lent Chrome has its own name, `itx.chrome.<person>.<browser>`, so two people
 in one mind, or one person's two Chrome profiles, never take each other's. `chrome` comes first
 because a lent name never starts with a name of the platform's (core's `lendRefusal`), and a
@@ -177,7 +193,8 @@ input can also race the facade's queue.
 
 `pnpm --filter @iterate-com/browser-extension test` builds the extension and runs real Chromium
 fixture tests, including the packaged facade through `chrome.debugger` in a fresh headless
-extension profile. Install the test browser with
+extension profile. It also runs the panel connection tests in a VM with controlled Chrome, RPC
+and clock fixtures. Install the test browser with
 `pnpm --filter @iterate-com/browser-extension exec playwright install chromium` first.
 Tests use local HTTP fixtures only. The signed-in lifecycle test uses fixture-only session
 values and a mock mind API with the unmodified panel. It covers group removal and restoration,

@@ -4,7 +4,7 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build.ts && vitest run"
+    "test": "node scripts/build.ts && vitest run src && node --test --test-isolation=none test/*.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "catalog:",

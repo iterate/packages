@@ -8,7 +8,7 @@ import { RpcSession, RpcTarget, type RpcStub } from "capnweb";
 import { expect, test } from "vitest";
 import type { ChromePage } from "./page.ts";
 
-test("signed-in lends enforce group changes, detach, sign-out and mind switching", async () => {
+test("signed-in lends recover a dropped connection and enforce group changes, sign-out and mind switching", async () => {
   const directory = await mkdtemp(join(tmpdir(), "iterate-lending-fixture-"));
   const extension = new URL("../dist/", import.meta.url).pathname;
   const server = createServer((_, response) => {
@@ -27,9 +27,11 @@ test("signed-in lends enforce group changes, detach, sign-out and mind switching
   });
   const lends: { host: string; browser: RpcStub<LentChrome> }[] = [];
   const stubs: { [Symbol.dispose](): void }[] = [];
+  const sockets: { close(): void }[] = [];
   try {
     await context.routeWebSocket(/^wss:\/\/iterate\.(first|second)\.test\/api$/, (socket) => {
       const host = new URL(socket.url()).host;
+      sockets.push(socket);
       const queue: string[] = [];
       let waiting: { resolve(value: string): void; reject(reason: Error): void } | undefined;
       let closed = false;
@@ -87,10 +89,10 @@ test("signed-in lends enforce group changes, detach, sign-out and mind switching
       if (!lend) throw new Error("Fixture was not lent");
       return lend.browser;
     };
-    const first = await signIn("first");
+    let first = await signIn("first");
     const { tabId } = await first.openPage({ url: `http://127.0.0.1:${address.port}/form` });
     await first.openPage({ url: `http://127.0.0.1:${address.port}/anchor` });
-    const page = first.page(tabId);
+    let page = first.page(tabId);
     await page.getByLabel("Message").fill("signed-in panel");
     await page.getByRole("button", { name: "Top action", exact: true }).click();
     await page.getByRole("button", { name: "Send" }).click();
@@ -156,6 +158,26 @@ test("signed-in lends enforce group changes, detach, sign-out and mind switching
     await expect(page.getByLabel("Message").fill("refused")).rejects.toThrow(/not in.*tab group/);
     await controller.evaluate(`chrome.tabGroups.update(${groupId},{title:"first.test"})`);
     await page.getByLabel("Message").fill("title restored");
+    const stalePage = page;
+    sockets[0].close();
+    await expect
+      .poll(() => lends.filter((lend) => lend.host === "iterate.first.test").length, {
+        timeout: 5_000,
+      })
+      .toBe(2);
+    await expect.poll(() => controller.locator("#copy").count()).toBe(1);
+    await expect(stalePage.getByLabel("Message").fill("stale connection")).rejects.toThrow();
+    first = lends[1].browser;
+    page = first.page(tabId);
+    await page.getByLabel("Message").fill("recovered connection");
+    await page.getByRole("button", { name: "Send" }).click();
+    expect(
+      await first.cdp(tabId, "Runtime.evaluate", {
+        expression:
+          "({value:document.querySelector('input').value,trusted:document.body.dataset.trusted})",
+        returnByValue: true,
+      }),
+    ).toMatchObject({ result: { value: { value: "recovered connection", trusted: "true" } } });
     await controller.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect.poll(() => controller.locator("#logout").count()).toBe(0);
     await expect(page.getByLabel("Message").fill("signed out")).rejects.toThrow();
