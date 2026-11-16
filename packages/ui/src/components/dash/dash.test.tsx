@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 // A mind's Dash drawn from lists: one list of pages makes the sidebar, the URL names the page shown, a part the mind does not have says "Off", and a page that fails says
 // so in its own place.
-import { act, useEffect } from "react";
+import { act, use, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
+import type { Principal } from "iterate/principal";
 import { Dash, DashContexts, type DashPage } from "./dash.tsx";
 import type { DashPageProps } from "./dash-pages.tsx";
+import { ITX_SESSION, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, usePageParam } from "#/lib/page-url.ts";
 
 test("one list makes the sidebar; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
@@ -171,6 +173,92 @@ test("an agent that throws says so on its own view alone: View all and another a
   await act(() => go("?agent=/agents/third"));
   await act(() => go(`?agent=/agents/third&view=${encodeURIComponent('{"q":"x"}')}`));
   expect([shown(), mounts]).toEqual(["/agents/third", before]);
+});
+
+test("the Dash draws before the mind has said who is signed in: the page at once, with the account not known, and the account when the mind answers", async () => {
+  let answer: (who: object) => void = () => {};
+  const whoami = vi.fn(() => new Promise<object>((resolve) => (answer = resolve)));
+  await using dash = await draw("/?page=who", [], { pages: withWho, principal: "ask", whoami });
+  const { host } = dash;
+  // the frame and the page are there, and nothing says who
+  expect(linksNamed(host, "Home")).toHaveLength(1);
+  expect(host.querySelector("output")?.textContent).toBe("not known yet");
+  expect(host.querySelector('[aria-label="Account"]')).toBeNull();
+  await act(async () => answer({ principal: { actor: "/members/a", email: "jo@example.com" } }));
+  expect(host.querySelector("output")?.textContent).toBe("jo@example.com");
+  expect(host.querySelector('[aria-label="Account"]')?.textContent).toContain("jo@example.com");
+  expect(whoami).toHaveBeenCalledTimes(1);
+});
+
+test("a page that already knows who is signed in is not asked, and a member with no address is known too", async () => {
+  const whoami = vi.fn(async () => ({}));
+  await using dash = await draw("/?page=who", [], { pages: withWho, principal: null, whoami });
+  expect(dash.host.querySelector("output")?.textContent).toBe("nobody the page can name");
+  expect(whoami).not.toHaveBeenCalled();
+});
+
+test("a whoami that the mind refused on an open session is asked again by itself, and the account then arrives", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const whoami = vi
+    .fn<() => Promise<object>>()
+    .mockRejectedValueOnce(new Error("Durable Object is overloaded"))
+    .mockResolvedValue({ principal: { actor: "/members/a", email: "jo@example.com" } });
+  await using dash = await draw("/?page=who", [], { pages: withWho, principal: "ask", whoami });
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(whoami).toHaveBeenCalledTimes(1);
+  expect(dash.host.textContent).not.toContain("jo@example.com");
+  // no new session and no reload: the ask goes again after its wait
+  await act(() => vi.advanceTimersByTimeAsync(1_100));
+  expect(whoami).toHaveBeenCalledTimes(2);
+  await until(() => dash.host.textContent?.includes("jo@example.com"));
+  vi.useRealTimers();
+});
+
+test("a whoami that was refused because no session opened is asked again when one opens", async () => {
+  const session = fakeSession();
+  const whoami = vi
+    .fn<() => Promise<object>>()
+    .mockRejectedValueOnce(new Error("Peer closed WebSocket: 1006"))
+    .mockResolvedValue({ principal: { actor: "/members/a", email: "jo@example.com" } });
+  await using dash = await draw("/?page=who", [], {
+    pages: withWho,
+    principal: "ask",
+    whoami,
+    session,
+  });
+  expect(dash.host.querySelector("output")?.textContent).toBe("not known yet");
+  expect(whoami).toHaveBeenCalledTimes(1);
+  await act(async () => session.set({ epoch: 1, state: "open" }));
+  expect(dash.host.querySelector("output")?.textContent).toBe("jo@example.com");
+  expect(whoami).toHaveBeenCalledTimes(2);
+});
+
+test("the sidebar of a person who made no choice is as the page says (the rail of icons for false); the choice they made wins", async () => {
+  {
+    await using dash = await draw("/", [], { sidebarDefaultOpen: false });
+    expect(dash.host.querySelector("[data-slot=sidebar]")?.getAttribute("data-state")).toBe(
+      "collapsed",
+    );
+  }
+  document.cookie = "sidebar_state=true; path=/";
+  try {
+    await using dash = await draw("/", [], { sidebarDefaultOpen: false });
+    expect(dash.host.querySelector("[data-slot=sidebar]")?.getAttribute("data-state")).toBe(
+      "expanded",
+    );
+  } finally {
+    document.cookie = "sidebar_state=; path=/; max-age=0";
+  }
+});
+
+test("while a page's part loads, its place holds quiet shapes and no words", async () => {
+  await using dash = await draw("/?page=slow", [], { pages: withWho });
+  const place = dash.host.querySelector("[data-slot=dash-placeholder]");
+  expect(Boolean(place)).toBe(true);
+  expect(place?.textContent).toBe("");
+  expect(dash.host.textContent).not.toContain("Loading the page…");
+  // the sidebar is there meanwhile
+  expect(linksNamed(dash.host, "Home")).toHaveLength(1);
 });
 
 test("a page the URL does not name is the first page", async () => {
@@ -387,6 +475,51 @@ const withAgentPages: DashPage[] = [
   { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
 ];
 
+/** A part that never loads. */
+const never = new Promise<never>(() => {});
+
+/** The pages, with one that says who the Dash says is signed in, and one whose part never loads. */
+const withWho: DashPage[] = [
+  ...pages,
+  {
+    id: "who",
+    name: "Who",
+    icon: BotIcon,
+    component: ({ principal }: DashPageProps) => (
+      <output>
+        {/* oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is a member the page cannot name */}
+        {principal === undefined ? "not known yet" : principal?.email || "nobody the page can name"}
+      </output>
+    ),
+  },
+  {
+    id: "slow",
+    name: "Slow",
+    icon: BotIcon,
+    component: function Slow() {
+      return use(never);
+    },
+  },
+];
+
+/** A session of a page's itx whose connection the test sets. */
+function fakeSession() {
+  let connection: ItxConnection = { epoch: 0, state: "opening" };
+  const readers = new Set<() => void>();
+  return {
+    get: () => connection,
+    subscribe(changed: () => void) {
+      readers.add(changed);
+      return () => readers.delete(changed);
+    },
+    watch: () => () => {},
+    set(next: ItxConnection) {
+      connection = next;
+      for (const changed of readers) changed();
+    },
+  };
+}
+
 const withContexts: DashPage[] = [
   ...pages,
   { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
@@ -424,7 +557,20 @@ async function draw(
     pages: drawn = pages,
     contexts,
     agents,
-  }: { pages?: DashPage[]; contexts?: unknown[]; agents?: Record<string, object> } = {},
+    principal = { actor: "/members/a", email: "a@example.com" },
+    whoami,
+    session,
+    sidebarDefaultOpen,
+  }: {
+    pages?: DashPage[];
+    contexts?: unknown[];
+    agents?: Record<string, object>;
+    /** Who the page says is signed in; "ask": it does not say, and the Dash asks the mind. */
+    principal?: Principal | null | "ask";
+    whoami?: () => Promise<object>;
+    session?: ReturnType<typeof fakeSession>;
+    sidebarDefaultOpen?: boolean;
+  } = {},
 ) {
   history.replaceState(null, "", url);
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -449,6 +595,8 @@ async function draw(
   const asked: string[] = [];
   const opened: string[] = [];
   const itx = {
+    ...(session && { [ITX_SESSION]: session }),
+    whoami,
     // a platform with no catalog rejects; `contexts` is a mind's catalog
     contexts: {
       list: async ({ under }: { under?: string } = {}) => {
@@ -481,9 +629,10 @@ async function draw(
         app="Dash"
         itx={itx}
         mind="example.com"
-        principal={{ actor: "/members/a", email: "a@example.com" }}
+        principal={principal === "ask" ? undefined : principal}
         pages={drawn}
         links={links}
+        sidebarDefaultOpen={sidebarDefaultOpen}
       />,
     ),
   );

@@ -31,7 +31,7 @@ import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { useHeldContext } from "#/hooks/use-itx-session.ts";
-import { useHasSavedTail, useSavedContext } from "#/lib/saved-context.ts";
+import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";
@@ -47,7 +47,7 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
-import { savedLogTails, type SavedLogTails } from "#/lib/saved-log-tail.ts";
+import { savedLogTails } from "#/lib/saved-log-tail.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -127,11 +127,10 @@ const ImportMap = z.object({ imports: z.record(z.string(), z.string()) });
 export function DashHome({ itx, mind, principal, pages, agents, waiting }: DashPageProps) {
   const { RecentAgents } = use(homePart());
   const links = useAgentLinks(pages);
-  const person = personOf(principal?.email);
   return (
     <DashScroll>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-8 pb-12 md:px-8 md:pt-16">
-        <NewAgent itx={itx} person={person} links={links} />
+        <NewAgent itx={itx} principal={principal} links={links} />
         <NeedsYou itx={itx} mind={mind} pages={pages} waiting={waiting} />
         {agents ? (
           // the most recently active, whoever's: no person's agents first
@@ -174,7 +173,7 @@ function AgentsOverview({ itx, principal, pages, agents }: DashPageProps) {
               : `${count.toLocaleString("en")} ${count === 1 ? "agent" : "agents"}`}
           </span>
         </header>
-        <NewAgent itx={itx} person={personOf(principal?.email)} links={links} />
+        <NewAgent itx={itx} principal={principal} links={links} />
         <h2 className="text-sm font-medium text-muted-foreground">Most recently active</h2>
       </div>
       {!agents || !groups ? (
@@ -202,20 +201,28 @@ function useAgentLinks(pages: DashPage[]) {
 
 // ── a new agent ──
 
-/** THE COMPOSER whose first message starts a new iterate agent. */
+/** THE COMPOSER whose first message starts a new iterate agent, in the folder of the person
+ *  signed in. While the Dash does not know yet who that is (`principal` undefined), a first
+ *  message asks the mind before the agent is born: no agent lands outside its person's folder
+ *  because the page drew before the account was there. */
 function NewAgent({
   itx,
-  person,
+  principal,
   links,
 }: {
   itx: Itx;
-  person: string | undefined;
+  principal: DashPageProps["principal"];
   links: ReturnType<typeof useAgentLinks>;
 }) {
   const { NewAgentComposer } = use(homePart());
   return (
     <NewAgentComposer
-      person={person}
+      person={
+        // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone with no address
+        principal === undefined
+          ? async () => personOf((await itx.whoami()).principal?.email)
+          : personOf(principal?.email)
+      }
       onCreate={(path) => withAgents(itx).agents.create(path)}
       onMessage={(path, { message, files }) => messageAgent(itx, path, { message, files })}
       {...links}
@@ -422,7 +429,14 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
 function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps & { path: string }) {
   // the member's saved rows, once the mind has said who the member is: none are read or saved
   // before, so one member never sees another's
-  const tails = principal?.actor ? savedLogTails({ mind, actor: principal.actor }) : undefined;
+  // not known yet who that is: the store is pending, and the view's read waits for it
+  const tails: TailsOfMember =
+    // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet; null is a member the page cannot name
+    principal === undefined
+      ? "pending"
+      : principal?.actor
+        ? savedLogTails({ mind, actor: principal.actor })
+        : undefined;
   // Saved rows of this log wait for the view: the page then says nothing of a read, because
   // none holds the reader up. It says so only once the store has answered that it has none.
   const quiet = useHasSavedTail(tails, path) !== false;
@@ -523,7 +537,7 @@ function AgentViewOfKind({
   path: string;
   opener: string | undefined;
   me: string | undefined;
-  tails: SavedLogTails | undefined;
+  tails: TailsOfMember;
   quiet: boolean;
 }) {
   const kinds = use(kindFilesOf(itx));
@@ -581,7 +595,7 @@ function IterateChat({
   opener: string | undefined;
   /** The signed-in member's actor id: their own messages have no line under them. */
   me: string | undefined;
-  tails: SavedLogTails | undefined;
+  tails: TailsOfMember;
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
@@ -677,7 +691,7 @@ function KindChat({
   path: string;
   file: KindFile;
   agents: readonly AgentRow[];
-  tails: SavedLogTails | undefined;
+  tails: TailsOfMember;
 }) {
   const { view, patchView } = useView();
   const session = itxSessionOf(itx);

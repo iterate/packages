@@ -42,7 +42,8 @@ export function AgentsHome({
       <NewAgentComposer {...composer} />
       <RecentAgents
         agents={agents}
-        person={composer.person}
+        // the person's own first, once the page knows who is signed in
+        person={typeof composer.person === "string" ? composer.person : undefined}
         agentHref={composer.agentHref}
         onOpen={composer.onOpen}
       />
@@ -59,8 +60,10 @@ export function NewAgentComposer({
   onOpen,
 }: {
   /** The folder of the person signed in (lib/agent-summary.ts `personOf`): a new agent is born in
-   *  it, and their agents come first. None: a new agent has no person's folder. */
-  person?: string;
+   *  it, and their agents come first. None: a new agent has no person's folder. A function, for a
+   *  page that does not know yet who is signed in: it is asked when a first message is sent, and
+   *  the agent is born once it has answered. */
+  person?: string | (() => Promise<string | undefined>);
   /** Births an agent at `path`. */
   onCreate: (path: string) => Promise<unknown>;
   /** Says the first message to the agent at `path`. */
@@ -86,7 +89,11 @@ export function NewAgentComposer({
         // An agent is its path; a new one is born at this moment's path.
         let path = born.current;
         if (!path) {
-          path = newAgentPath("web", new Date(), person);
+          path = newAgentPath(
+            "web",
+            new Date(),
+            typeof person === "function" ? await person() : person,
+          );
           await onCreate(path);
           born.current = path;
         }

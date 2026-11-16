@@ -41,8 +41,7 @@ import {
 } from "#/components/context-catalog/context-catalog-rows.ts";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import { itxSessionOf, kept, type ItxSession } from "#/lib/itx-session.ts";
-import { useHasSavedTail, useSavedContext } from "#/lib/saved-context.ts";
-import type { SavedLogTails } from "#/lib/saved-log-tail.ts";
+import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/saved-context.ts";
 
 /** The session of a page whose connection is not `memberItx`'s: one that is always open. */
 const oneSession = itxSessionOf({});
@@ -88,7 +87,7 @@ export function ContextExplorer({
   /** The member's saved tails (`savedLogTails` of lib/saved-log-tail): a log shown again, also
    *  after a reload, draws the rows it showed last at once, and the mind is asked only for what is
    *  newer. Absent: each log is read anew. */
-  tails?: SavedLogTails;
+  tails?: TailsOfMember;
 }) {
   const { stub, contexts, context, error } = useHeldContexts({
     session,
@@ -199,7 +198,7 @@ function useHeldContexts({
   openRoot: (() => PromiseLike<ContextStub>) | null;
   deps: DependencyList;
   path: string | undefined;
-  tails: SavedLogTails | undefined;
+  tails: TailsOfMember;
 }) {
   const { epoch, state: connection } = useSyncExternalStore(
     session.subscribe,

@@ -31,14 +31,41 @@ export function ReadProgress({ label, value }: { label: string; value: number })
 /** THE WAIT A PERSON IS IN, which every `LogReading` of the document shares: when its first
  *  loading state went up, how many stand now, and when the last one came down. A page's loading
  *  state and then a view's own are one wait to the eye, whichever element draws it. */
-const wait = { beganAt: 0, standing: 0, endedAt: -Infinity };
+const wait = { beganAt: 0, standing: 0, endedAt: -Infinity, first: true };
 
 /** When the wait began that a loading state going up at `now` belongs to: the one that stands, or
  *  that came down in the last frames (one element takes another's place in one commit, and the
- *  old one's effect has not said so yet), or a new one. */
+ *  old one's effect has not said so yet), or a new one. The document's first wait began with the
+ *  page itself (time 0) when its HTML drew a loading frame before the app had loaded, which it
+ *  says with `data-frame` on `<html>`: the person has been waiting since that frame. That holds
+ *  for the loading state the app draws first, in the page's first 10 s; a wait that begins later
+ *  (a view opened from a page that loaded with no wait) begins when its state goes up. */
 function waitBeganAt(now: number) {
-  if (wait.standing === 0 && now - wait.endedAt > 100) wait.beganAt = now;
+  if (wait.standing === 0 && now - wait.endedAt > 100) {
+    const framed =
+      wait.first &&
+      now < 10_000 &&
+      !import.meta.env.SSR &&
+      document.documentElement.hasAttribute("data-frame");
+    wait.beganAt = framed ? 0 : now;
+  }
+  wait.first = false;
   return wait.beganAt;
+}
+
+/** A LOADING STATE THAT IS NOT A LINE, for the same wait: a page's placeholder shapes draw this
+ *  beside them, so the wait they stand in is the one a view's line then goes on with, and the
+ *  page's first wait is theirs when they come first. It draws nothing. */
+export function LoadingWait() {
+  useState(() => waitBeganAt(performance.now()));
+  useEffect(() => {
+    wait.standing += 1;
+    return () => {
+      wait.standing -= 1;
+      wait.endedAt = performance.now();
+    };
+  }, []);
+  return null;
 }
 
 /** What a view shows in place of its rows while its log is still being read, and never its words

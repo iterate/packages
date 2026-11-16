@@ -38,6 +38,14 @@
 //     has not drawn yet, whose first call was refused, or one that holds its stubs with the SDK's
 //     hooks alone. That page is reloaded when the next session opens, and says so in `root`
 //     meanwhile. The mark only watches: it does not make a page one that lives on.
+//   - THE FIRST SOCKET CAN BE DIALLED BEFORE THIS MODULE HAS LOADED. A page's HTML dials it in one
+//     inline line of its head, under the name `EARLY_ITX_SOCKET`, and `memberItx` takes it for
+//     its first session while it is connecting or open:
+//       <script>
+//         try { window.__itxSocket = new WebSocket(new URL("/itx", location.href.replace(/^http/, "ws"))); } catch {}
+//       </script>
+//     A page with no such line, or whose early socket has closed, is dialled as above. The socket
+//     is taken once: nothing else may read or write it.
 import { newWebSocketRpcSession } from "capnweb";
 import type { AuthenticatedApp } from "iterate/app";
 import { ITX_SESSION, type ItxConnection, type ItxSession } from "#/lib/itx-session.ts";
@@ -61,11 +69,19 @@ const QUIET_MS = 2_000;
 /** The platform's close when the sign-in ended (core/itx/src/session.ts). */
 const SIGN_IN_ENDED = 1008;
 
+/** The property of `window` under which a page's HTML keeps the socket it dialled early, for
+ *  `memberItx` to take. */
+export const EARLY_ITX_SOCKET = "__itxSocket";
+
 /** The member's itx. `root` is where the page says what a reload would mend: that the mind
  *  cannot be reached, for a page that does not read its session, and that the sign-in ended,
  *  when the reloads did not reach the sign-in. */
 export function memberItx(root = document.getElementById("root")): Itx {
-  return connectMemberItx({ root });
+  // The page's own property, which no type declares: its HTML put a WebSocket there, or nothing.
+  const page = window as { [EARLY_ITX_SOCKET]?: WebSocket };
+  const early = page[EARLY_ITX_SOCKET];
+  delete page[EARLY_ITX_SOCKET];
+  return connectMemberItx({ root, early: early instanceof WebSocket ? early : undefined });
 }
 
 /** `memberItx` with its parts named, for a test: the socket's constructor and the reload. */
@@ -73,12 +89,15 @@ export function connectMemberItx({
   root,
   url = new URL("/itx", location.href.replace(/^http/, "ws")),
   WebSocket: Socket = WebSocket,
+  early,
   fetch: ask = (input, init) => fetch(input, init),
   reload = () => location.reload(),
 }: {
   root: Pick<HTMLElement, "textContent"> | null;
   url?: URL;
   WebSocket?: typeof WebSocket;
+  /** A socket to `url` that the page dialled before this ran: the first session's first dial. */
+  early?: WebSocket;
   fetch?: typeof fetch;
   reload?: () => void;
 }): Itx {
@@ -143,8 +162,8 @@ export function connectMemberItx({
     quiet = setTimeout(() => publish({ epoch: connection.epoch, state: "reconnecting" }), QUIET_MS);
   };
   /** A new session, the current one from now: its calls wait until one of its dials opens. */
-  const start = (waitsMs: readonly number[]) => {
-    const dial = dialSocket(url, waitsMs, Socket);
+  const start = (waitsMs: readonly number[], dialled?: WebSocket) => {
+    const dial = dialSocket(url, waitsMs, Socket, dialled);
     const stub: Itx = newWebSocketRpcSession(dial.socket);
     const mine: Session = { stub, dial };
     current = mine;
@@ -195,7 +214,7 @@ export function connectMemberItx({
   };
   // the epoch as it is by then: a first socket that opened and is not good yet has moved it already
   quiet = setTimeout(() => publish({ epoch: connection.epoch, state: "reconnecting" }), QUIET_MS);
-  start(QUICK_WAITS_MS);
+  start(QUICK_WAITS_MS, early);
   // a network that came back, or a tab back in front: an open session is asked at once whether it
   // lives, and a dial that waits goes now
   const check = () => {
@@ -217,7 +236,9 @@ export function connectMemberItx({
 /** One session's socket, as capnweb's transport reads one: CONNECTING while it dials, after each
  *  wait of `waitsMs` in turn, then the socket of the dial that opened. It closes once: with the
  *  open socket's close, with 1006 when no dial opened, or when it is closed from here (a dead
- *  heartbeat), whatever the socket under it does after. */
+ *  heartbeat), whatever the socket under it does after. `dialled` is a socket that was dialled
+ *  before: while it is connecting or open it is the first dial, and one that opened already says
+ *  so here once the session has its listeners on. */
 type Dial = {
   socket: WebSocket;
   /** A dial that waits for its time goes now. */
@@ -225,7 +246,12 @@ type Dial = {
   /** How many dials it has made. */
   dials(): number;
 };
-function dialSocket(url: URL, waitsMs: readonly number[], Socket: typeof WebSocket): Dial {
+function dialSocket(
+  url: URL,
+  waitsMs: readonly number[],
+  Socket: typeof WebSocket,
+  dialled?: WebSocket,
+): Dial {
   const events = new EventTarget();
   let readyState: number = Socket.CONNECTING;
   let under: WebSocket | undefined;
@@ -243,18 +269,19 @@ function dialSocket(url: URL, waitsMs: readonly number[], Socket: typeof WebSock
     left?.close();
     events.dispatchEvent(new CloseEvent("close", { code, reason }));
   };
-  const dial = () => {
+  const dial = (socket = new Socket(url)) => {
     wait = undefined;
-    const socket = new Socket(url);
     socket.binaryType = "arraybuffer";
     under = socket;
     handshake = setTimeout(() => socket.close(), HANDSHAKE_TIMEOUT_MS);
-    socket.addEventListener("open", () => {
-      if (under !== socket) return;
+    const opened = () => {
+      if (under !== socket || readyState !== Socket.CONNECTING) return;
       clearTimeout(handshake);
       readyState = Socket.OPEN;
       events.dispatchEvent(new Event("open"));
-    });
+    };
+    socket.addEventListener("open", opened);
+    if (socket.readyState === Socket.OPEN) queueMicrotask(opened);
     socket.addEventListener("message", (event) => {
       if (under === socket) events.dispatchEvent(new MessageEvent("message", { data: event.data }));
     });
@@ -274,7 +301,10 @@ function dialSocket(url: URL, waitsMs: readonly number[], Socket: typeof WebSock
     if (waitMs) wait = setTimeout(dial, waitMs);
     else dial();
   };
-  next();
+  if (dialled && (dialled.readyState === Socket.CONNECTING || dialled.readyState === Socket.OPEN)) {
+    dials = 1;
+    dial(dialled);
+  } else next();
   // the state is read live: `Object.assign` would copy a getter's value once
   Object.defineProperty(events, "readyState", { get: () => readyState });
   const socket = Object.assign(events, {

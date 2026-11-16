@@ -12,6 +12,12 @@ import { AppShell } from "#/components/app-shell.tsx";
 import type { DashPage, DashPageProps } from "#/components/dash/dash.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
 
+// jsdom lays nothing out; the composer's CodeMirror measures text ranges after each change
+Object.assign(Range.prototype, {
+  getClientRects: () => [],
+  getBoundingClientRect: () => new DOMRect(),
+});
+
 const now = new Date().toISOString();
 const agents = agentRowsOf({
   agents: {
@@ -65,6 +71,37 @@ test("the home with something waiting: the requests, and each integration that a
     ["GitHub: acmeThe app was removed", "?page=integrations"],
   ]);
 });
+
+test.for([
+  { name: "the Dash knows who is signed in", known: true },
+  {
+    name: "the Dash does not know yet who is signed in, and the mind is asked first",
+    known: false,
+  },
+])(
+  "a first message on the home, when $name, starts the agent in that person's folder",
+  async ({ known }) => {
+    const { itx, born, asked } = mind({});
+    history.replaceState(null, "", "/");
+    await using page = await draw(DashHome, itx, { waiting: 0, account: known });
+    const composer = await composerOf(page.host);
+    // the words, as a paste puts them in the editor (jsdom has no DataTransfer)
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: {
+        files: [],
+        items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+        getData: (format: string) => (format === "text/plain" ? "hello" : ""),
+      },
+    });
+    await act(async () => composer!.dispatchEvent(paste));
+    const send = page.host.querySelector<HTMLButtonElement>('button[title="Send message"]');
+    await act(async () => send!.click());
+    await act(() => vi.waitFor(() => expect(born).toHaveLength(1)));
+    expect(born[0]).toMatch(/^\/agents\/people\/jo\/web\//);
+    expect(asked()).toBe(known ? 0 : 1);
+  },
+);
 
 test("the agent view takes any path, has no button to its raw view, and says the opener once into an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -393,9 +430,12 @@ function mind({
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
+  /** the path of each agent the page started */
+  const born: string[] = [];
   let reads = 0;
   let gate = Promise.resolve();
   let release = () => {};
+  let asked = 0;
   const contextOf = (path: string) => ({
     readEvents: async (after = 0) => {
       await gate;
@@ -429,6 +469,14 @@ function mind({
       }),
     },
     rewriteRules: { get: async (root: string) => (serves.includes(root) ? { target: "x" } : null) },
+    whoami: async () => {
+      asked += 1;
+      return { principal: { actor: "/members/a", email: "jo@example.com" } };
+    },
+    agents: {
+      create: async (path: string) => void born.push(path),
+      get: () => ({ message: async () => {}, [Symbol.dispose]() {} }),
+    },
     cd: async (path: string) => contextOf(path),
     files: {
       get: (path: string) => ({
@@ -440,7 +488,9 @@ function mind({
   return {
     itx,
     appended,
+    born,
     reads: () => reads,
+    asked: () => asked,
     hold: () => {
       gate = new Promise((resolve) => (release = resolve));
     },
@@ -486,9 +536,12 @@ async function draw(
     waiting,
     openers,
     agents: first = agents,
+    account = true,
   }: {
     /** How many requests wait; undefined: the count is not known yet. */
     waiting: number | undefined;
+    /** false: the Dash has not heard yet who is signed in */
+    account?: boolean;
     openers?: Record<string, string>;
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";
@@ -539,7 +592,7 @@ async function draw(
             <Page
               itx={itx}
               mind="example.com"
-              principal={{ actor: "/members/a", email: "jo@example.com" }}
+              principal={account ? { actor: "/members/a", email: "jo@example.com" } : undefined}
               page={pages[1]!}
               pages={pages}
               links={[]}

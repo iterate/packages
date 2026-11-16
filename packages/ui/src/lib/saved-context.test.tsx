@@ -65,6 +65,51 @@ test("a reload draws the saved rows while the mind reads, asks only for what is 
   expect(shown).not.toHaveProperty("savedCopy", true);
 });
 
+test("a view that mounts before the page knows the member waits for the store, then draws its saved rows and asks only for what is newer", async () => {
+  await database();
+  const mind = context([1, 2, 3]);
+  await saved(mind);
+  mind.events.push(stampedEvent(4));
+  mind.reads.splice(0);
+  const second = await page();
+  const drawn: Shown[] = [];
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  function View({ known }: { known: boolean }) {
+    drawn.push(
+      second.useSavedContext({
+        held: { stub: mind.handle },
+        options,
+        path,
+        session: itxSessionOf(mind.handle),
+        // the Dash draws before the mind has said who is signed in
+        tails: known ? second.tails(owner) : "pending",
+      }),
+    );
+    return null;
+  }
+  await act(() => root.render(<View known={false} />));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  // no read of the log has begun, and nothing is shown
+  expect(mind).toMatchObject({ reads: [] });
+  expect(drawn.at(-1)).toMatchObject({ events: [] });
+  mind.hold();
+  await act(() => root.render(<View known />));
+  await until(() => drawn.at(-1)!.events.length > 0);
+  expect(drawn.at(-1)).toMatchObject({ savedCopy: true, head: 3 });
+  mind.release();
+  await until(() => drawn.at(-1)!.events.length === 4);
+  // the read began at the saved rows' newest event, not at the log's start
+  expect(mind).toMatchObject({
+    reads: [
+      [Number.MAX_SAFE_INTEGER, 1],
+      [2, 1_000],
+    ],
+  });
+  await act(() => root.unmount());
+  host.remove();
+});
+
 test("a view mounted again in the same page has its rows in its first render", async () => {
   await database();
   const mind = context([1, 2, 3]);

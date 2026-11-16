@@ -243,7 +243,11 @@ export function AppShell({
           ) : (
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarRowSkeleton className="h-12" />
+                {/* the account's own height (two lines with a mind, one without; its avatar alone
+                    in the rail), so nothing in the footer moves when the account arrives */}
+                <SidebarRowSkeleton
+                  className={cn(mind ? "h-13.5" : "h-12", "group-data-[collapsible=icon]:h-8")}
+                />
               </SidebarMenuItem>
             </SidebarMenu>
           )}

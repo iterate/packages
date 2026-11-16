@@ -5,7 +5,13 @@
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { DashContexts, DashIntegrations, DashSecrets, type DashPageProps } from "./dash-pages.tsx";
+import {
+  DashContexts,
+  DashIntegrations,
+  DashRepo,
+  DashSecrets,
+  type DashPageProps,
+} from "./dash-pages.tsx";
 import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 test("a mind with no vault: the secrets page says so and lists nothing", async () => {
@@ -73,6 +79,16 @@ test("the Contexts page hands the member's saved tails to the explorer: the log 
   expect(tails.peek("/agents/a")?.tail?.events.map((event) => event.offset)).toEqual([1, 2]);
 });
 
+test("the repo page draws no editor before the Dash knows who is signed in: a commit is in that person's name", async () => {
+  const { itx } = mind([], async () => []);
+  // the mind's root opens, and the account is not there yet
+  const root = { subscribe: async () => ({ [Symbol.dispose]() {} }), [Symbol.dispose]() {} };
+  const held = Object.assign(itx, { cd: async () => root });
+  await using page = await draw(DashRepo, held, "unknown");
+  const words = page.host.textContent;
+  expect(words).toBe("Opening the mind…");
+});
+
 /** A mind that serves the roots `serves` names, with a vault that lists by `secrets`. */
 function mind(serves: string[], secrets: () => Promise<{ path: string }[]>) {
   let lists = 0;
@@ -94,7 +110,8 @@ function mind(serves: string[], secrets: () => Promise<{ path: string }[]>) {
 async function draw(
   Page: (props: DashPageProps) => ReactNode,
   itx: DashPageProps["itx"],
-  principal: DashPageProps["principal"] = null,
+  /** "unknown": the Dash has not heard yet who is signed in */
+  principal: DashPageProps["principal"] | "unknown" = null,
 ) {
   const row = { id: "secrets", name: "Secrets", icon: () => null, component: () => null };
   const host = document.body.appendChild(document.createElement("div"));
@@ -105,7 +122,7 @@ async function draw(
         <Page
           itx={itx}
           mind="example.com"
-          principal={principal}
+          principal={principal === "unknown" ? undefined : principal}
           page={row}
           pages={[row]}
           links={[]}
@@ -118,6 +135,9 @@ async function draw(
   );
   // up to four seconds, inside the test's five: under a full test run a page's part takes two to load
   for (let tick = 0; tick < 80 && host.textContent?.match(/Loading|Reading/); tick += 1)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  // the root of an account not known yet opens meanwhile
+  for (let tick = 0; tick < 4 && principal === "unknown"; tick += 1)
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
   return {
     host,

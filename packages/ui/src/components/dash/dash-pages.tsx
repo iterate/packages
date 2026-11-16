@@ -4,9 +4,9 @@
 //
 // EACH PAGE'S LARGER PART LOADS WHEN THE PAGE FIRST DRAWS, once (`once` below): the overview
 // loads none of them, and the repo IDE, the charts and the YAML reader are most of what the kit
-// weighs. While a part loads the page suspends, and the Dash's shell shows "Loading the page…". A
-// part that did not load stays so for the life of the page (a browser keeps a module's failed
-// load), and the shell says so on that page alone.
+// weighs. While a part loads the page suspends, and the Dash's shell shows quiet shapes in its
+// place (`DashPlaceholder`). A part that did not load stays so for the life of the page (a browser
+// keeps a module's failed load), and the shell says so on that page alone.
 import {
   Suspense,
   use,
@@ -24,9 +24,12 @@ import { useContextStub } from "iterate/react";
 import { servesOf } from "./serves.ts";
 import { agentViewHref } from "./dash-href.ts";
 import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
+import { Skeleton } from "#/components/ui/skeleton.tsx";
+import { LoadingWait } from "#/components/virtual-log/read-progress.tsx";
 import type { AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, kept } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
+import type { TailsOfMember } from "#/lib/saved-context.ts";
 import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -70,7 +73,9 @@ export type DashPageProps = {
   itx: Itx;
   /** the mind's address: `example.com` */
   mind: string;
-  /** who is signed in, as the session says */
+  /** who is signed in, as the session says; undefined while the Dash does not know yet (it
+   *  draws before the mind has answered), which is not the same as nobody: a page that writes
+   *  in the person's name waits for it */
   principal: Principal | null | undefined;
   /** the page's own row of the list: its id makes its links */
   page: DashPage;
@@ -141,6 +146,34 @@ export function DashNote({
   );
 }
 
+/** A PAGE'S PLACE WHILE ITS PART LOADS: quiet shapes and no words, in the column that a page's
+ *  content takes and in the places of the home's parts (its composer, and the heading and first
+ *  line of its two sections). A page's HTML can draw the same shapes before the app has loaded, so
+ *  that the wait is one state from the first paint: the default config's Dash does (the frame in
+ *  its index.html and app.css, which names these numbers). The shapes drawn by HTML alone do not
+ *  pulse, and these begin their pulse from the same full shade. */
+export function DashPlaceholder() {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading"
+      data-slot="dash-placeholder"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-8 md:px-8 md:pt-16"
+    >
+      <LoadingWait />
+      <Skeleton className="h-12.5 shrink-0 md:h-14.5" />
+      <div className="flex h-22 shrink-0 flex-col gap-5 pt-1">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+      <div className="flex shrink-0 flex-col gap-4 pt-1">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-17" />
+      </div>
+    </div>
+  );
+}
+
 /** A page for a part that the mind's stack does not have: its title and one plain line. */
 export function DashPartIsOff({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -180,7 +213,14 @@ export function DashContexts({ itx, mind, principal, page, pages, catalog }: Das
   const openRoot = useCallback(() => itx.cd("/"), [itx]);
   // the member's saved rows, once the mind has said who the member is: none are read or saved
   // before, so one member never sees another's
-  const tails = principal?.actor ? savedLogTails({ mind, actor: principal.actor }) : undefined;
+  // not known yet who that is: the store is pending, and the shown context's read waits for it
+  const tails: TailsOfMember =
+    // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet; null is a member the page cannot name
+    principal === undefined
+      ? "pending"
+      : principal?.actor
+        ? savedLogTails({ mind, actor: principal.actor })
+        : undefined;
   return (
     <ContextExplorer
       openRoot={openRoot}
@@ -226,7 +266,9 @@ export function DashRepo({ itx, mind, principal }: DashPageProps) {
     "root",
   );
   if (root.error) return <DashNote alert>{root.error}</DashNote>;
-  if (!root.stub) return <DashNote waiting>Opening the mind…</DashNote>;
+  // a commit is in the person's name: no IDE before the Dash knows who is signed in
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone with no address
+  if (!root.stub || principal === undefined) return <DashNote waiting>Opening the mind…</DashNote>;
   const email = principal?.email;
   return (
     <div className="flex min-h-0 flex-1">

@@ -34,7 +34,7 @@ import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
 import { DashAgentsNav } from "./dash-agents-nav.tsx";
 import { agentViewHref, rawViewHref } from "./dash-href.ts";
-import { DashNote, type DashLinks, type DashPage } from "./dash-pages.tsx";
+import { DashNote, DashPlaceholder, type DashLinks, type DashPage } from "./dash-pages.tsx";
 import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
@@ -62,6 +62,7 @@ export {
   DashMcp,
   DashNote,
   DashPartIsOff,
+  DashPlaceholder,
   DashRepo,
   DashScroll,
   DashSecrets,
@@ -80,14 +81,21 @@ export function Dash({
   principal,
   pages,
   links,
+  sidebarDefaultOpen,
 }: {
   /** the app's name, on top of the sidebar: "Dash" */
   app: string;
   itx: Itx;
   mind: string;
-  principal: Principal | null | undefined;
+  /** Who is signed in, when the page knows already. Absent: the Dash draws at once and asks the
+   *  mind itself (`itx.whoami()`). Until the answer, the account's place in the sidebar holds a
+   *  placeholder and each page gets `principal` undefined, which means not known yet. */
+  principal?: Principal | null;
   pages: DashPage[];
   links: DashLinks[];
+  /** The desktop sidebar for a person who has not toggled it yet: open, or false for the rail of
+   *  icons. A page whose HTML draws the frame before the app loads passes what it drew. */
+  sidebarDefaultOpen?: boolean;
 }) {
   // WHAT WAITS FOR A MEMBER'S YES is said on every page: the alert at the top of the sidebar, the
   // number beside the link that counts it, and the count before the tab's title. An agent stands
@@ -122,6 +130,7 @@ export function Dash({
   // page that does not say that it does the same (`staysOverReconnect`).
   const session = itxSessionOf(itx);
   const connection = useSyncExternalStore(session.subscribe, session.get, session.get);
+  const account = useAccount(itx, principal, connection.epoch);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar, ⌘K and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
   const context = usePageParam("context");
@@ -160,7 +169,8 @@ export function Dash({
             }
           />
         }
-        account={principal}
+        account={account}
+        sidebarDefaultOpen={sidebarDefaultOpen}
         palette={
           agentsPage || contextsPage
             ? ({ open, onClose }) => (
@@ -184,14 +194,14 @@ export function Dash({
         locationKey={search}
       >
         <PageBoundary key={page.id} shows={agent || ""}>
-          <Suspense fallback={<DashNote waiting>Loading the page…</DashNote>}>
+          <Suspense fallback={<DashPlaceholder />}>
             <Page
               // A page on the SDK's hooks alone holds stubs of the session that ended: mounted
               // anew, it opens them on the new one. No page can show a dead session's data.
               key={Page.staysOverReconnect ? "stays" : connection.epoch}
               itx={itx}
               mind={mind}
-              principal={principal}
+              principal={account}
               page={page}
               pages={pages}
               links={links}
@@ -206,6 +216,81 @@ export function Dash({
       <Toaster theme={scheme} />
     </>
   );
+}
+
+/** The mind's answer to `whoami()` for one itx, asked once for the page's life, whoever asks:
+ *  undefined until it comes. */
+type Account = {
+  principal: Principal | null | undefined;
+  asking: boolean;
+  /** How many asks in a row the mind refused: the wait before the next ask grows with it. */
+  refused: number;
+  listeners: Set<() => void>;
+  subscribe(changed: () => void): () => void;
+  get(): Principal | null | undefined;
+};
+const accounts = new WeakMap<object, Account>();
+function accountOf(itx: Itx): Account {
+  let account = accounts.get(itx);
+  if (!account) {
+    const listeners = new Set<() => void>();
+    const made: Account = {
+      principal: undefined,
+      asking: false,
+      refused: 0,
+      listeners,
+      subscribe(changed) {
+        listeners.add(changed);
+        return () => listeners.delete(changed);
+      },
+      get: () => made.principal,
+    };
+    account = made;
+    accounts.set(itx, account);
+  }
+  return account;
+}
+
+/** Asks the mind who is signed in, unless it has answered or is being asked. A call that fails
+ *  leaves the account not known, and is asked again by itself: after 1 s, then 2, 4 and 8 s, then
+ *  every 15 s, while a page still listens. So a refusal on an open session (an overloaded mind)
+ *  does not leave a page waiting for the account for ever; a new session asks at once. */
+function askAccount(itx: Itx, account: Account) {
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone the app cannot name
+  if (account.asking || account.principal !== undefined) return;
+  account.asking = true;
+  Promise.resolve(itx.whoami())
+    .then(
+      (who) => {
+        account.refused = 0;
+        account.principal = who.principal || null;
+        for (const changed of account.listeners) changed();
+      },
+      () => {
+        const waitMs = Math.min(1_000 * 2 ** account.refused, 15_000);
+        account.refused += 1;
+        setTimeout(() => {
+          if (account.listeners.size > 0) askAccount(itx, account);
+        }, waitMs);
+      },
+    )
+    .finally(() => {
+      account.asking = false;
+    });
+}
+
+/** WHO IS SIGNED IN: `given` when the page knows, else the mind's own answer to `whoami()`.
+ *  Undefined until that answer: not known yet. A call that failed is asked again when a session
+ *  opens (`epoch`). */
+function useAccount(itx: Itx, given: Principal | null | undefined, epoch: number) {
+  const account = accountOf(itx);
+  const asked = useSyncExternalStore(account.subscribe, account.get, account.get);
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- as above: null is an answer
+  const told = given !== undefined;
+  useEffect(() => {
+    if (!told) askAccount(itx, account);
+  }, [itx, account, told, epoch]);
+  return told ? given : asked;
 }
 
 /** The catalog on `/agents`, live: one subscription to its live state, which reads no agent, so

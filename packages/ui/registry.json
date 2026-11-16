@@ -854,7 +854,6 @@
         "iterate/packages/context-view",
         "iterate/packages/itx-session",
         "iterate/packages/saved-context",
-        "iterate/packages/saved-log-tail",
         "tabs"
       ],
       "files": [
@@ -891,10 +890,13 @@
         "iterate/packages/page-url",
         "iterate/packages/reconnecting-mark",
         "iterate/packages/repo-ide",
+        "iterate/packages/saved-context",
         "iterate/packages/saved-log-tail",
         "iterate/packages/secrets-page",
+        "iterate/packages/virtual-log",
         "iterate/packages/waiting-approvals",
         "sidebar",
+        "skeleton",
         "sonner",
         "tabs"
       ],

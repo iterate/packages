@@ -16,48 +16,60 @@ import type { SavedLogTails, SavedTail } from "#/lib/saved-log-tail.ts";
 
 type Live = ReturnType<typeof useIterateContext>;
 
+/** The member's store; `"pending"` while the page does not know yet who the member is (the mind has
+ *  not answered `whoami()`): no row is read or saved, and no read of the log starts, until it
+ *  does; undefined when the page knows that there is no member to keep rows for. */
+export type TailsOfMember = SavedLogTails | "pending" | undefined;
+
 /** Whether `tails` holds saved rows of `path`: undefined until the store has answered (at once from
  *  the page's memory, else within 300 ms). False with no store. A page reads it before it has a
  *  view: with saved rows the wait is for the view, and the page says nothing of a read. The store
  *  keeps what it read, so the view that mounts later has its rows in its first render. */
-export function useHasSavedTail(tails: SavedLogTails | undefined, path: string) {
-  const known = (): { path: string; has: boolean | undefined } => {
+export function useHasSavedTail(tails: TailsOfMember, path: string) {
+  const known = (): { path: string; tails: TailsOfMember; has: boolean | undefined } => {
+    // not known yet who the member is: not known either whether rows are saved
+    if (tails === "pending") return { path, tails, has: undefined };
     const held = tails?.peek(path);
-    return { path, has: tails ? held && Boolean(held.tail) : false };
+    return { path, tails, has: tails ? held && Boolean(held.tail) : false };
   };
   const [saved, setSaved] = useState(known);
-  if (saved.path !== path) setSaved(known());
+  // another path, or the member's store arrived: the answer is asked anew
+  if (saved.path !== path || saved.tails !== tails) setSaved(known());
   const unknown = saved.has === undefined;
   useEffect(() => {
-    if (!unknown || !tails) return;
+    if (!unknown || !tails || tails === "pending") return;
     let current = true;
     void tails.read(path).then((tail) => {
-      if (current) setSaved({ path, has: Boolean(tail) });
+      if (current) setSaved({ path, tails, has: Boolean(tail) });
     });
     return () => {
       current = false;
     };
   }, [unknown, tails, path]);
-  return saved.path === path ? saved.has : undefined;
+  return saved.path === path && saved.tails === tails ? saved.has : undefined;
 }
 
 /** The context `path` of `held` (what `useHeldContext` answers), read live with `options`, with
  *  the rows the view held over reconnects and the rows `tails` saved over reloads. The read starts
  *  once the store has answered (at once from the page's memory, else within 300 ms), and a context
- *  that the mind refuses while the session is open is dropped from the store. */
+ *  that the mind refuses while the session is open is dropped from the store. While `tails` is
+ *  `"pending"` the read waits: the member's store is asked first when it arrives, so a page that
+ *  draws before the account is known still starts from its saved rows. */
 export function useSavedContext({
   held,
   options,
   path,
   session,
-  tails,
+  tails: tailsOfMember,
 }: {
   held: { stub?: IterateContextHandle; error?: string };
   options: Omit<NonNullable<Parameters<typeof useIterateContext>[1]>, "since">;
   path: string;
   session: ItxSession;
-  tails: SavedLogTails | undefined;
+  tails: TailsOfMember;
 }) {
+  const pending = tailsOfMember === "pending";
+  const tails = pending ? undefined : tailsOfMember;
   const { state, epoch } = useSyncExternalStore(session.watch, session.get, session.get);
   // The session in which the stub in hand arrived, and the path it arrived for. After a socket
   // died the old stub stays in hand until its successor arrives, also once the new session is
@@ -72,17 +84,28 @@ export function useSavedContext({
   const [keep] = useState(() => keptContext<Live>());
   // the tail this view starts from, and whether the store has answered for `path`: the memory of
   // this page answers at once
-  const seedOf = (): { path: string; tail: SavedTail | undefined; answered: boolean } => {
+  const seedOf = (): {
+    path: string;
+    of: TailsOfMember;
+    tail: SavedTail | undefined;
+    answered: boolean;
+  } => {
     const known = tails?.peek(path);
-    return { path, tail: known?.tail, answered: !tails || Boolean(known) };
+    return {
+      path,
+      of: tailsOfMember,
+      tail: known?.tail,
+      answered: !pending && (!tails || Boolean(known)),
+    };
   };
   const [seed, setSeed] = useState(seedOf);
-  if (seed.path !== path) setSeed(seedOf());
+  // another path, or the member's store arrived: the seed is asked anew
+  if (seed.path !== path || seed.of !== tailsOfMember) setSeed(seedOf());
   useEffect(() => {
     if (seed.answered || !tails) return;
     let current = true;
     void tails.read(seed.path).then((tail) => {
-      if (current) setSeed({ path: seed.path, tail, answered: true });
+      if (current) setSeed({ path: seed.path, of: seed.of, tail, answered: true });
     });
     return () => {
       current = false;

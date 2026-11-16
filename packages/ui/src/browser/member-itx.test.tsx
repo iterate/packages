@@ -37,6 +37,60 @@ test("a socket that closes with 1006 is dialled again: no reload, the same itx c
   expect(reload).not.toHaveBeenCalled();
 });
 
+test.for([
+  { name: "is still connecting", open: false },
+  { name: "has opened already", open: true },
+])(
+  "a socket that the page dialled before the app loaded, and that $name, is the first session's: no other is dialled, and it is replaced like any other when it closes",
+  async ({ open }) => {
+    using _clock = clock();
+    const net = network();
+    const early = new net.WebSocket("ws://dash.example.com/itx");
+    // a dial opens a moment after it was made
+    if (open) await vi.advanceTimersByTimeAsync(0);
+    // 0 is connecting and 1 is open (a plain number: a socket in a failed `expect` is printed whole)
+    const state = early.readyState;
+    expect(state).toBe(open ? 1 : 0);
+    const { itx, session, reload } = member(net, null, early);
+    expect(await itx.whoami()).toMatchObject({ principal: { actor: "/members/a" } });
+    expect(session.get()).toEqual({ epoch: 1, state: "open" });
+    expect(net.sockets).toHaveLength(1);
+    net.drop(1006);
+    expect(await itx.whoami()).toMatchObject({ principal: { actor: "/members/a" } });
+    expect(session.get()).toEqual({ epoch: 2, state: "open" });
+    expect(net.sockets).toHaveLength(2);
+    expect(reload).not.toHaveBeenCalled();
+  },
+);
+
+test("an early socket that closed before the app loaded is not taken, and one that fails after is dialled again as any first dial", async () => {
+  using _clock = clock();
+  // closed already: the app dials at once
+  const gone = network();
+  gone.up = false;
+  const closed = new gone.WebSocket("ws://dash.example.com/itx");
+  await vi.advanceTimersByTimeAsync(0);
+  const state = closed.readyState;
+  expect(state).toBe(3);
+  gone.up = true;
+  const first = member(gone, null, closed);
+  expect(await first.itx.whoami()).toMatchObject({ principal: { actor: "/members/a" } });
+  expect(gone.sockets).toHaveLength(2);
+  expect(first.session.get()).toEqual({ epoch: 1, state: "open" });
+  // still connecting when the app takes it, and then refused: the next dial comes after 250 ms
+  const failing = network();
+  failing.up = false;
+  const second = member(failing, null, new failing.WebSocket("ws://dash.example.com/itx"));
+  await vi.advanceTimersByTimeAsync(0);
+  failing.up = true;
+  expect(failing.sockets).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(250);
+  expect(await second.itx.whoami()).toMatchObject({ principal: { actor: "/members/a" } });
+  expect(failing.sockets).toHaveLength(2);
+  expect(second.session.get()).toEqual({ epoch: 1, state: "open" });
+  expect(second.reload).not.toHaveBeenCalled();
+});
+
 test("the sign-in ended (1008): the saved rows are wiped, then the page reloads and dials nothing; the fourth time in a minute it says so", async () => {
   using _clock = clock();
   const root = { textContent: "the app" };
@@ -770,12 +824,18 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
 }
 
 /** A member's itx over `net`, read by one listener as a drawn page reads it. */
-function member(net: ReturnType<typeof network>, root: { textContent: string } | null = null) {
+function member(
+  net: ReturnType<typeof network>,
+  root: { textContent: string } | null = null,
+  /** a socket the page dialled before the app loaded */
+  early?: WebSocket,
+) {
   const reload = vi.fn();
   const itx = connectMemberItx({
     root,
     url: new URL("ws://dash.example.com/itx"),
     WebSocket: net.WebSocket,
+    early,
     fetch: net.fetch,
     reload,
   });

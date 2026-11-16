@@ -83,7 +83,14 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   (the session's epoch for a hook's deps, `kept`, `keptContext`), and the hooks over them
   (`useHeldContext`, `useKeptContext`) are `src/hooks/use-itx-session.ts`, outside the registry
   and exported by `live`. Only `ReconnectingMark`, once in the shell, says that the connection
-  is gone. Two page ids mean
+  is gone. THE FIRST PAINT IS THE PAGE'S HTML: the default config's Dash draws the shell's frame
+  from its `index.html` and `app.css` alone (the sidebar open or as a rail, an agent page's
+  header row, `DashPlaceholder`'s shapes), dials `/itx` in its head (`EARLY_ITX_SOCKET`, which
+  `memberItx` takes) and renders with no await: `Dash` asks `whoami()` itself, and a page gets
+  `principal` undefined until the answer. The frame's numbers are the shell's own (sidebar 16rem
+  or 3rem, header rows of 45, 53 and 42 px, the column of 48rem): when one changes here, change
+  `core/configs/default/apps/dash/public/app.css` with it. `data-frame` on `<html>` tells
+  `LogReading` that the wait began with the page. Two page ids mean
   more: `agents` puts the agents in the sidebar and ⌘K and takes `?agent=<path>`, and `contexts` is
   the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
   `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
