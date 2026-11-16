@@ -5,11 +5,17 @@
 // THE `itx` IS A PROXY TO THE CURRENT SESSION, and a closed socket costs a new session, not the
 // page. A deploy cuts the socket for a few seconds, several times a day.
 //
-//   - A socket that closes is dialled again at once, then after each of `QUICK_WAITS_MS` (about
-//     16 s in all). A call made meanwhile waits in the new session and is sent when its socket
-//     opens. When every quick dial has failed, the calls that waited are refused, and one dial
-//     every `SLOW_WAIT_MS` goes on for as long as the page is up. A network that comes back, or a
-//     tab that comes to the front, dials at once.
+//   - A session is GOOD once its first call, a `whoami()` it is born with, resolves, or once it has
+//     stayed open for `GOOD_AFTER_MS`. A refusal or an abort is no proof: an overloaded mind
+//     answers with one and closes. The socket
+//     of a good session that closes is dialled again at once, then after each of
+//     `QUICK_WAITS_MS` (about 16 s in all). A socket that opens and closes before it is good is a
+//     failed dial: the next dial waits for the next step of the same waits. So a host that accepts
+//     and then closes costs the quick dials and then one dial every `SLOW_WAIT_MS`, never a dial
+//     at once. A call made meanwhile waits in the new session and is sent when its socket opens.
+//     When every quick dial has failed, the calls that waited are refused, and one dial every
+//     `SLOW_WAIT_MS` goes on for as long as the page is up. A network that comes back, or a tab
+//     that comes to the front, dials at once.
 //   - An open session is asked `whoami()` every 30 s. One that leaves it unanswered for 15 s is
 //     dead, and is replaced as a closed one is. The call is also the traffic that keeps Cloudflare
 //     from shedding the socket as idle (a WebSocket ping does not count, and a browser cannot send
@@ -20,7 +26,10 @@
 //     dials have all failed, one plain request to `/itx` asks, and a 401 is the end of the
 //     sign-in. Three reloads in a minute stop them (`mayReload`).
 //   - The proxy answers its session under `ITX_SESSION` (#/lib/itx-session.ts): the epoch, which
-//     grows by one when a session's socket opens, and the state a page shows. A stub or a
+//     grows by one when a session's socket opens, and the state a page shows, which is `open` only
+//     for a good session. The epoch grows at open, so what a page holds opens again at once after
+//     a cut; a socket that is not good does not start the waits again, so the epoch grows at most
+//     at the rate of the dials. A stub or a
 //     subscription is of one session, so what holds one opens it again when the epoch changes
 //     (`useHeldContext` of src/hooks/use-itx-session.ts), and a page draws `ReconnectingMark`
 //     once.
@@ -37,6 +46,8 @@ type Itx = AuthenticatedApp["itx"];
 /** The waits before each quick dial: the numbers of iterate's own client (`iterate/app`), whose
  *  first dial is at once too. */
 const QUICK_WAITS_MS: readonly number[] = [0, 250, 500, 1_000, 2_000, 4_000, 8_000];
+/** How long an open socket that the host sent nothing on stays before its session is good. */
+const GOOD_AFTER_MS = 5_000;
 /** The wait before each dial once the quick ones have all failed. */
 const SLOW_WAIT_MS = 15_000;
 /** How long one dial may take to open. A handshake that neither opens nor closes is a failed dial. */
@@ -132,27 +143,42 @@ export function connectMemberItx({
     const stub: Itx = newWebSocketRpcSession(dial.socket);
     const mine: Session = { stub, dial };
     current = mine;
-    let opened = false;
-    dial.socket.addEventListener("open", () => {
-      opened = true;
+    let good = false;
+    let proving: ReturnType<typeof setTimeout> | undefined;
+    /** Its first `whoami()` resolved, or the socket stayed open: the page has a session again. */
+    const proven = () => {
+      if (good || dial.socket.readyState !== Socket.OPEN) return;
+      good = true;
+      clearTimeout(proving);
       clearTimeout(quiet);
       if (ended && unread()) return reloadOrSay("Disconnected. Reload the page to connect.");
+      publish({ epoch: connection.epoch, state: "open" });
+    };
+    // the proof is the session's first call, so it is answered before any call of the page
+    void Promise.resolve(stub.whoami()).then(proven, () => {});
+    dial.socket.addEventListener("open", () => {
+      proving = setTimeout(proven, GOOD_AFTER_MS);
       mine.heartbeat = startHeartbeat(
         () => stub.whoami(),
         () => dial.socket.close(),
       );
-      publish({ epoch: connection.epoch + 1, state: "open" });
+      // the state stays as it was until the session is good, so a socket that flaps moves no mark
+      publish({ epoch: connection.epoch + 1, state: connection.state });
     });
     dial.socket.addEventListener("close", (event) => {
       mine.heartbeat?.stop();
+      clearTimeout(proving);
       ended = true;
       if (signedOut) return;
       if (event.code === SIGN_IN_ENDED) return signInEnded();
-      if (opened) {
+      if (good) {
         gone();
         return start(QUICK_WAITS_MS);
       }
-      // no dial of the session opened: its calls are refused, and the slow dials go on, unless
+      // a socket that closed before it was good is a failed dial: the waits go on where they were
+      const left = waitsMs.slice(dial.dials());
+      if (left.length) return start(left);
+      // every dial of the session failed: its calls are refused, and the slow dials go on, unless
       // the host says over HTTP that the sign-in ended
       void askWhetherSignedIn();
       clearTimeout(quiet);
@@ -162,7 +188,8 @@ export function connectMemberItx({
       start([SLOW_WAIT_MS]);
     });
   };
-  quiet = setTimeout(() => publish({ epoch: 0, state: "reconnecting" }), QUIET_MS);
+  // the epoch as it is by then: a first socket that opened and is not good yet has moved it already
+  quiet = setTimeout(() => publish({ epoch: connection.epoch, state: "reconnecting" }), QUIET_MS);
   start(QUICK_WAITS_MS);
   // a network that came back, or a tab back in front: an open session is asked at once whether it
   // lives, and a dial that waits goes now
@@ -190,6 +217,8 @@ type Dial = {
   socket: WebSocket;
   /** A dial that waits for its time goes now. */
   hurry(): void;
+  /** How many dials it has made. */
+  dials(): number;
 };
 function dialSocket(url: URL, waitsMs: readonly number[], Socket: typeof WebSocket): Dial {
   const events = new EventTarget();
@@ -257,6 +286,7 @@ function dialSocket(url: URL, waitsMs: readonly number[], Socket: typeof WebSock
       clearTimeout(wait);
       dial();
     },
+    dials: () => dials,
   };
 }
 

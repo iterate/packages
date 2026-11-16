@@ -201,6 +201,117 @@ test("a sign-in that ended while no session was open: an outage alone reloads no
   expect(net.sockets).toHaveLength(dialled);
 });
 
+test("a host that accepts each socket and closes it 50 ms later: the dials keep to the quick waits and then one every 15 s, the epoch grows no faster, the mark does not flicker, and the probe runs", async () => {
+  using _clock = clock();
+  const net = network();
+  const { itx, session, reload } = member(net);
+  await itx.whoami();
+  const states: string[] = [];
+  session.watch(() => {
+    const { state } = session.get();
+    if (states.at(-1) !== state) states.push(state);
+  });
+  const dialledAt: number[] = [];
+  net.dialled = () => dialledAt.push(Date.now());
+  net.acceptThenCloseMs = 50;
+  const from = Date.now();
+  net.drop(1006);
+  await vi.advanceTimersByTimeAsync(60_000);
+  // at once, then after 250, 500, 1,000, 2,000, 4,000 and 8,000 ms, then one every 15 s
+  expect(dialledAt.map((at) => at - from)).toEqual([
+    0, 300, 850, 1_900, 3_950, 8_000, 16_050, 31_100, 46_150,
+  ]);
+  expect(dialledAt.slice(1).every((at, index) => at - dialledAt[index]! >= 200)).toBe(true);
+  // a hook opens again once for each epoch: one for each dial, and no more
+  expect(session.get()).toMatchObject({ epoch: 1 + dialledAt.length });
+  expect(states).toEqual(["opening", "reconnecting", "unreachable"]);
+  // the probe ran when the quick dials were over, and after each slow one
+  expect(net.asked()).toBe(3);
+  expect(reload).not.toHaveBeenCalled();
+});
+
+test("a host that accepts and closes because the sign-in ended: the probe after the quick dials answers 401, and the page reloads and dials no more", async () => {
+  using _clock = clock();
+  const net = network();
+  const { itx, reload } = member(net);
+  await itx.whoami();
+  net.acceptThenCloseMs = 50;
+  net.answers401 = true;
+  net.drop(1006);
+  await vi.advanceTimersByTimeAsync(16_100);
+  expect(net.sockets).toHaveLength(8);
+  expect(reload).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(net.sockets).toHaveLength(8);
+});
+
+test.each(["refuses", "aborts"] as const)(
+  "a host that accepts each socket, %s the first call as an overloaded mind does and closes 50 ms later: the dials keep to the quick waits and then one every 15 s, the session is never open, a call fails to its caller, and the probe runs",
+  async (overloaded) => {
+    using _clock = clock();
+    const net = network();
+    const { itx, session, reload } = member(net);
+    await itx.whoami();
+    const states: string[] = [];
+    session.watch(() => {
+      const { state } = session.get();
+      if (states.at(-1) !== state) states.push(state);
+    });
+    const dialledAt: number[] = [];
+    net.dialled = () => dialledAt.push(Date.now());
+    net.acceptThenCloseMs = 50;
+    net.overloaded = overloaded;
+    const from = Date.now();
+    net.drop(1006);
+    const asked = itx.whoami().then(
+      () => "answered",
+      (error: Error) => error.message,
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await asked).toContain("Durable Object is overloaded");
+    // an abort ends the session at once, and the page closes the socket; a refusal leaves it to
+    // the host's close 50 ms later
+    expect(dialledAt.map((at) => at - from)).toEqual(
+      overloaded === "aborts"
+        ? [0, 250, 750, 1_750, 3_750, 7_750, 15_750, 30_750, 45_750]
+        : [0, 300, 850, 1_900, 3_950, 8_000, 16_050, 31_100, 46_150],
+    );
+    expect(states).toEqual(["opening", "reconnecting", "unreachable"]);
+    expect(net.asked()).toBe(3);
+    expect(reload).not.toHaveBeenCalled();
+  },
+);
+
+test("a session that stayed open for 5 s is good, though the host said nothing: when it closes, the next dial is at once", async () => {
+  using _clock = clock();
+  const net = network();
+  const { itx, session } = member(net);
+  await itx.whoami();
+  net.acceptThenCloseMs = 6_000;
+  net.drop(1006);
+  await vi.advanceTimersByTimeAsync(4_999);
+  expect(session.get()).toEqual({ epoch: 2, state: "reconnecting" });
+  await vi.advanceTimersByTimeAsync(1);
+  expect(session.get()).toEqual({ epoch: 2, state: "open" });
+  // the host answers again from its next socket on
+  net.acceptThenCloseMs = undefined;
+  await vi.advanceTimersByTimeAsync(1_000);
+  // closed at 6 s, and dialled again at once
+  expect(net.sockets).toHaveLength(3);
+  expect(session.get()).toEqual({ epoch: 3, state: "open" });
+});
+
+test("a first socket that opened and is not good yet keeps its epoch when the page says it is reconnecting", async () => {
+  using _clock = clock();
+  const net = network();
+  // the host accepts the first socket and says nothing
+  net.acceptThenCloseMs = 6_000;
+  const { session } = member(net);
+  await vi.advanceTimersByTimeAsync(2_500);
+  // the epoch the open gave, never back to zero: what a page holds is not opened a second time
+  expect(session.get()).toEqual({ epoch: 1, state: "reconnecting" });
+});
+
 test(
   "a Dash page on the SDK's hooks alone is mounted anew at a new session and reads through it; no page is reloaded",
   { timeout: 30_000 },
@@ -447,12 +558,21 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
     silent: false,
     /** the sign-in ended: the host refuses each upgrade, and answers 401 over HTTP */
     signedOut: false,
+    /** the host accepts each upgrade, answers nothing on it, and closes it this long after */
+    acceptThenCloseMs: undefined as number | undefined,
+    /** with `acceptThenCloseMs`: the host answers each call with a refusal, or its first message
+     *  with an abort of the session, as an overloaded mind does */
+    overloaded: undefined as "refuses" | "aborts" | undefined,
+    /** the host answers 401 over HTTP, whatever it does with an upgrade */
+    answers401: false,
+    /** called at each dial */
+    dialled: () => {},
     /** how often the page asked the host over HTTP whether it is signed in */
     asked: () => asked,
     async fetch() {
       asked += 1;
       if (!net.up) throw new TypeError("Failed to fetch");
-      return new Response(null, { status: net.signedOut ? 401 : 426 });
+      return new Response(null, { status: net.signedOut || net.answers401 ? 401 : 426 });
     },
     sockets: [] as FakeSocket[],
     /** each context a page opened, in order */
@@ -545,6 +665,16 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
       return new Kv();
     }
   }
+  class Overloaded extends RpcTarget {
+    whoami(): never {
+      throw new Error("Durable Object is overloaded");
+    }
+  }
+  // capnweb's abort frame, as the mind's end sends it
+  const overloadedAbort = JSON.stringify([
+    "abort",
+    ["error", "Error", "Durable Object is overloaded"],
+  ]);
   class Mind extends RpcTarget {
     #socket: FakeSocket;
     constructor(socket: FakeSocket) {
@@ -590,10 +720,21 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
     constructor() {
       super();
       net.sockets.push(this);
+      net.dialled();
       queueMicrotask(() => {
         if (this.readyState !== FakeSocket.CONNECTING) return;
         if (!net.up || net.signedOut) return this.end(1006);
         this.readyState = FakeSocket.OPEN;
+        if (net.acceptThenCloseMs !== undefined) {
+          setTimeout(() => this.end(1006), net.acceptThenCloseMs);
+          if (net.overloaded === "refuses")
+            newWebSocketRpcSession(this.mind as unknown as WebSocket, new Overloaded());
+          if (net.overloaded === "aborts")
+            this.mind.addEventListener("message", () => this.mind.send(overloadedAbort), {
+              once: true,
+            });
+          return this.dispatchEvent(new Event("open"));
+        }
         // The mind's end has the members that capnweb's transport uses, and no more.
         newWebSocketRpcSession(this.mind as unknown as WebSocket, new Mind(this));
         this.dispatchEvent(new Event("open"));
