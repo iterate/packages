@@ -74,7 +74,15 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   the pages and the groups of links, and each kit page (`DashRepo`, `DashSecrets`, …) takes the
   member's `itx` and does its own reads. A page imports its larger part with `import()` of that
   item's own entry file, never of a file that is no entry: on esm.sh only an entry stays one
-  module. Its URL is `lib/page-url`; the member's socket is `live`'s `memberItx`. Two page ids mean
+  module. Its URL is `lib/page-url`; the member's socket is `live`'s `memberItx`, whose `itx` is a
+  proxy that dials a new session when the socket closes. A stub or a subscription ends with its
+  session. The Dash keeps a page mounted over a new session only when its component says
+  `staysOverReconnect`; any other page is mounted anew, so a page on the SDK's hooks alone is
+  never stale. A page that stays opens again what it holds: the plain parts are `lib/itx-session`
+  (the session's epoch for a hook's deps, `kept`, `keptContext`), and the hooks over them
+  (`useHeldContext`, `useKeptContext`) are `src/hooks/use-itx-session.ts`, outside the registry
+  and exported by `live`. Only `ReconnectingMark`, once in the shell, says that the connection
+  is gone. Two page ids mean
   more: `agents` puts the agents in the sidebar and ⌘K and takes `?agent=<path>`, and `contexts` is
   the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
   `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.

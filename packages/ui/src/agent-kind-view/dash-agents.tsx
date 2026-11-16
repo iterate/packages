@@ -26,10 +26,11 @@ import {
 import { ShieldAlertIcon, TriangleAlertIcon } from "lucide-react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
-import { facetSnapshotOf, useContextStub, useIterateContext } from "iterate/react";
+import { facetSnapshotOf, useIterateContext } from "iterate/react";
 import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
+import { useHeldContext, useKeptContext } from "#/hooks/use-itx-session.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
@@ -43,6 +44,7 @@ import {
 import { agentViewHref, rawViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
+import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -64,14 +66,19 @@ type KindFile = { kind: string; name: string; source: string | null };
 
 const KindPaths = z.record(z.string(), z.string());
 
-/** Every kind's file, read once for the page's life, whoever asks. No key, or a key that is not
- *  JSON, is no kind. */
-const kindFiles = new WeakMap<object, Promise<KindFile[]>>();
+/** Every kind's file, read once for the page's life, whoever asks: one promise at every render.
+ *  No key, or a key that is not JSON, is no kind, and a file that cannot be read has no source.
+ *  Those answers stand. They are read again only when the session they failed with was gone and a
+ *  new one has opened (`keptRead`). */
+const kindFiles = new WeakMap<object, KeptRead<KindFile[]>>();
 function kindFilesOf(itx: Itx): Promise<KindFile[]> {
-  let files = kindFiles.get(itx);
-  if (!files) {
-    files = (async () => {
-      const text = await Promise.resolve(itx.kv.get("agent-kinds")).catch(() => null);
+  const files = keptRead(itx, kindFiles.get(itx), (failed) =>
+    (async () => {
+      const forget = () => {
+        failed();
+        return null;
+      };
+      const text = await Promise.resolve(itx.kv.get("agent-kinds")).catch(forget);
       let paths: Record<string, string> = {};
       try {
         paths = KindPaths.safeParse(JSON.parse(text || "{}")).data || {};
@@ -85,14 +92,14 @@ function kindFilesOf(itx: Itx): Promise<KindFile[]> {
           name,
           source: await Promise.resolve(config.readFile(name)).then(
             (source) => source || null,
-            () => null,
+            forget,
           ),
         })),
       );
-    })();
-    kindFiles.set(itx, files);
-  }
-  return files;
+    })(),
+  );
+  kindFiles.set(itx, files);
+  return files.answer;
 }
 
 /** THE KIND FRAME'S SCRIPT: one classic file of the build of this package that the page's import
@@ -133,6 +140,8 @@ export function DashHome({ itx, mind, principal, pages, agents, waiting }: DashP
     </DashScroll>
   );
 }
+// holds nothing of a session: the composer's draft stays over a new one
+DashHome.staysOverReconnect = true;
 
 /** THE AGENTS PAGE: every agent, or one context as an agent (`?agent=<path>`). */
 export function DashAgents(props: DashPageProps) {
@@ -140,6 +149,8 @@ export function DashAgents(props: DashPageProps) {
   if (path) return <AgentView key={path} {...props} path={path} />;
   return <AgentsOverview {...props} />;
 }
+// an agent view holds its context with `useHeldContext` and keeps its rows (`useKeptContext`)
+DashAgents.staysOverReconnect = true;
 
 function AgentsOverview({ itx, principal, pages, agents }: DashPageProps) {
   const { AllAgents } = use(homePart());
@@ -479,8 +490,9 @@ function IterateChat({
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
-  const agent = useContextStub(() => itx.cd(path), [itx, path]);
-  const context = useIterateContext(agent.stub, AgentChat.contextOptions);
+  // held and read again at each new session: the rows of the last one stay until then
+  const agent = useHeldContext(itxSessionOf(itx), () => itx.cd(path), [itx, path]);
+  const context = useKeptContext(useIterateContext(agent.stub, AgentChat.contextOptions), path);
   const state = AgentChatState.safeParse(view).data || {};
   const shown =
     state.view || !row?.kind || row.kind === "iterate"
@@ -534,7 +546,7 @@ function watchDocumentClass(changed: () => void) {
  *  read has answered, so the wait is one state, whatever the kind's view draws meanwhile. */
 function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile }) {
   const { view, patchView } = useView();
-  const agent = useContextStub(() => itx.cd(path), [itx, path]);
+  const agent = useHeldContext(itxSessionOf(itx), () => itx.cd(path), [itx, path]);
   const { link, loaded } = useAgentKindViewLink(file.name, file.source);
   // every durable event (the frame's Events tab is the whole log) and, by name, the ephemeral
   // ones the view reads, which a wildcard never matches; nothing until the frame has said which
@@ -544,7 +556,8 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
     }),
     [loaded],
   );
-  const log = useIterateContext(loaded ? agent.stub : undefined, options);
+  // read again at each new session: the frame keeps the rows of the last one until then
+  const log = useKeptContext(useIterateContext(loaded ? agent.stub : undefined, options), path);
   const documentClass = useSyncExternalStore(
     watchDocumentClass,
     () => document.documentElement.className,

@@ -11,12 +11,19 @@
 //   <ContextExplorer
 //     openRoot={() => itx.cd("/")}
 //     deps={[itx]}
+//     session={itxSessionOf(itx)}
 //     path="/agents/onboarding"
 //     links={{ hrefOf: (path) => `?context=${path}`, onNavigate }}
 //     state={state}
 //     onStateChange={(patch) => setState((before) => ({ ...before, ...patch }))}
 //   />
-import { useMemo, useState, type DependencyList, type ReactNode } from "react";
+import {
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type DependencyList,
+  type ReactNode,
+} from "react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { resolveContextPath } from "iterate/lib";
@@ -32,6 +39,10 @@ import {
   type ContextListing,
 } from "#/components/context-catalog/context-catalog-rows.ts";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
+import { itxSessionOf, kept, keptContext, type ItxSession } from "#/lib/itx-session.ts";
+
+/** The session of a page whose connection is not `memberItx`'s: one that is always open. */
+const oneSession = itxSessionOf({});
 
 /** A held context, as a mind's root hands it (`itx.cd(path)`). */
 type ContextStub = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
@@ -39,6 +50,7 @@ type ContextStub = Awaited<ReturnType<AuthenticatedApp["itx"]["cd"]>>;
 export function ContextExplorer({
   openRoot,
   deps,
+  session = oneSession,
   path,
   links,
   state,
@@ -54,6 +66,10 @@ export function ContextExplorer({
    *  then releases: never the page's own `itx`. Null while the root cannot be named yet. */
   openRoot: (() => PromiseLike<ContextStub>) | null;
   deps: DependencyList;
+  /** The session of a page's `memberItx` (`itxSessionOf(itx)`), whose socket is dialled again
+   *  when it closes: the explorer opens its contexts again at each new session, and shows what it
+   *  had until the new read has caught up. Absent: the root is opened once. */
+  session?: ItxSession;
   /** The context shown, canonical (`contextPathOf`): `/` is the root. Undefined: none is
    *  chosen, so the explorer opens no context and reads no log, and shows `empty` beside the list. */
   path: string | undefined;
@@ -66,27 +82,21 @@ export function ContextExplorer({
   /** What the main area says while no context is chosen. */
   empty?: ReactNode;
 }) {
-  const root = useContextStub(path ? openRoot : null, [...deps, Boolean(path)]);
-  const rootStub = root.stub;
-  // the context shown is released and opened again as the path changes
-  const shown = useContextStub(rootStub && path ? () => rootStub.cd(path) : null, [rootStub, path]);
-  // every path the mind's registry holds: the `mind` facet's `contexts` on the root, live
-  const registry = useFacetLiveState(rootStub, "mind");
+  const { stub, contexts, context, error } = useHeldContexts({ session, openRoot, deps, path });
   // with the root not held, the catalog's paths make the tree
   const paths = useMemo(
     () => [
       ...new Set([
-        ...Object.keys(Registry.safeParse(registry.value).data?.contexts || {}),
+        ...Object.keys(Registry.safeParse(contexts).data?.contexts || {}),
         ...(catalog || []).map((row) => row.path),
       ]),
     ],
-    [registry.value, catalog],
+    [contexts, catalog],
   );
   const awake = useMemo(
     () => new Set((catalog || []).flatMap((row) => (row.awake ? [row.path] : []))),
     [catalog],
   );
-  const { stub } = shown;
   const tree = {
     paths,
     awake,
@@ -95,10 +105,6 @@ export function ContextExplorer({
     // a typed path resolves against the one shown
     resolvePath: (typed: string) => resolveContextPath(path || "/", typed),
   };
-  // `liveState` omitted: the hook opens the core reduce's live state and every hosted facet's as
-  // the processors table it holds loads, which is exactly what the panel shows
-  const context = useIterateContext(shown.stub);
-  const error = root.error || shown.error;
   const shownRow = catalog?.find((row) => row.path === path);
   if (!path)
     return (
@@ -160,6 +166,51 @@ export function ContextExplorer({
       </div>
     </div>
   );
+}
+
+/** WHAT THE EXPLORER HOLDS OF THE MIND, over the sessions of `session`: the root, the context
+ *  shown, every path of the mind's registry, and the shown context's log, live. Each is opened
+ *  again at a new session, and what the explorer showed stays meanwhile. */
+function useHeldContexts({
+  session,
+  openRoot,
+  deps,
+  path,
+}: {
+  session: ItxSession;
+  openRoot: (() => PromiseLike<ContextStub>) | null;
+  deps: DependencyList;
+  path: string | undefined;
+}) {
+  const { epoch, state: connection } = useSyncExternalStore(
+    session.subscribe,
+    session.get,
+    session.get,
+  );
+  // THE ROOT, opened again at each new session: none is in hand while the new one opens.
+  const root = useContextStub(path ? openRoot : null, [...deps, Boolean(path), epoch]);
+  const rootStub = root.stub;
+  // THE CONTEXT SHOWN, opened from the root in hand alone, so never from a root whose session
+  // ended: it is released while a new root opens, and opened again from that one, and as the path
+  // changes. What the view showed stays meanwhile (`keepContext` below).
+  const shown = useContextStub(rootStub && path ? () => rootStub.cd(path) : null, [rootStub, path]);
+  // every path the mind's registry holds: the `mind` facet's `contexts` on the root, live; a new
+  // root subscribes again, and the tree keeps its paths until that answers
+  const registry = useFacetLiveState(rootStub, "mind");
+  const [keepContexts] = useState(() => kept<unknown>());
+  const contexts = keepContexts(registry.value, registry.value !== undefined, "mind");
+  // `liveState` omitted: the hook opens the core reduce's live state and every hosted facet's as
+  // the processors table it holds loads, which is exactly what the panel shows. A new session
+  // reads the context again: the rows the view holds stay, and the new ones come after them.
+  const [keepContext] = useState(() => keptContext<ReturnType<typeof useIterateContext>>());
+  const context = keepContext(useIterateContext(shown.stub), path || "");
+  return {
+    stub: shown.stub,
+    contexts,
+    context,
+    // what did not open while no session is open says nothing: the next session opens it
+    error: connection === "open" ? root.error || shown.error : undefined,
+  };
 }
 
 /** The side list: the tree of contexts and, with a catalog, its Recent list, one at a time. */

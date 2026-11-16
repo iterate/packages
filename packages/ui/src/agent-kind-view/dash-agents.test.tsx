@@ -146,6 +146,20 @@ test("an agent of another kind, before the catalog says its kind: no chat of ite
   expect(page.said.filter((text) => text.includes("Nothing said"))).toEqual([]);
 });
 
+test("a kind's file that cannot be read is read once: its agent's view draws, and no later render reads again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { itx, reads } = mind({ kinds: { claude: "agent-kinds/claude.ts" }, unreadable: true });
+  history.replaceState(null, "", "/?agent=/agents/session");
+  const rows = () =>
+    agentRowsOf({ agents: { "/agents/session": { createdAt: now, kind: "claude" } } });
+  await using page = await draw(DashAgents, itx, { waiting: 0, agents: rows() });
+  // drawn again, as each change of a live catalog draws it
+  for (let again = 0; again < 3; again += 1) await page.draw(rows());
+  expect(reads()).toBe(1);
+  expect(page.host.textContent).toContain("/agents/session");
+  expect(page.host.textContent).not.toContain("Loading the page…");
+});
+
 test("an iterate agent, before the catalog says its kind, waits under the same loading state, then is iterate's chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({});
@@ -196,14 +210,18 @@ function mind({
   serves = [],
   integrations,
   kinds,
+  unreadable = false,
   logs = {},
 }: {
   serves?: string[];
   integrations?: object;
   kinds?: Record<string, string>;
+  /** the config repo refuses each read of a file, on a connection that is up */
+  unreadable?: boolean;
   logs?: Record<string, { offset: number; type: string; payload: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
+  let reads = 0;
   const contextOf = (path: string) => ({
     readEvents: async (after = 0) => {
       const held = (logs[path] || []).map((event) => ({ ...event, path, createdAt: now }));
@@ -226,7 +244,15 @@ function mind({
     kv: {
       get: async (key: string) => (key === "agent-kinds" && kinds ? JSON.stringify(kinds) : null),
     },
-    repos: { get: () => ({ readFile: async () => (kinds ? "export default {};" : null) }) },
+    repos: {
+      get: () => ({
+        readFile: async () => {
+          reads += 1;
+          if (unreadable) throw new Error("no such file");
+          return kinds ? "export default {};" : null;
+        },
+      }),
+    },
     rewriteRules: { get: async (root: string) => (serves.includes(root) ? { target: "x" } : null) },
     cd: async (path: string) => contextOf(path),
     files: {
@@ -236,7 +262,7 @@ function mind({
       }),
     },
   } as unknown as DashPageProps["itx"];
-  return { itx, appended };
+  return { itx, appended, reads: () => reads };
 }
 
 /** A page with height, which jsdom lacks, so the chat's virtual log draws its rows; disposing takes

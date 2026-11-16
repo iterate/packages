@@ -22,6 +22,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
@@ -38,6 +39,7 @@ import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
+import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -49,6 +51,7 @@ import {
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
+import { itxSessionOf, kept, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useSearch } from "#/lib/page-url.ts";
 import { titleWithCount, useWaitingApprovals } from "#/lib/waiting-approvals.ts";
 
@@ -114,8 +117,13 @@ export function Dash({
   // undefined, and ⌘K says so.
   const listContexts = useCallback(() => itx.contexts.list({ limit: 500 }), [itx]);
   const catalog = useContextCatalog(listContexts, { of: mind });
+  // THE PAGE'S SESSION. The Dash subscribes to it, so the page lives on when a socket closes and
+  // a new session opens: the Dash then opens again what it holds itself, and mounts anew each
+  // page that does not say that it does the same (`staysOverReconnect`).
+  const session = itxSessionOf(itx);
+  const connection = useSyncExternalStore(session.subscribe, session.get, session.get);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar, ⌘K and every page
-  const agents = useAgentRows(itx, Boolean(agentsPage));
+  const agents = useAgentRows(itx, Boolean(agentsPage), connection);
   const context = usePageParam("context");
   const searchContexts = useCallback(
     (query: string) => itx.contexts.list({ search: query, limit: 200 }),
@@ -178,6 +186,9 @@ export function Dash({
         <PageBoundary key={page.id} shows={agent || ""}>
           <Suspense fallback={<DashNote waiting>Loading the page…</DashNote>}>
             <Page
+              // A page on the SDK's hooks alone holds stubs of the session that ended: mounted
+              // anew, it opens them on the new one. No page can show a dead session's data.
+              key={Page.staysOverReconnect ? "stays" : connection.epoch}
               itx={itx}
               mind={mind}
               principal={principal}
@@ -191,6 +202,7 @@ export function Dash({
           </Suspense>
         </PageBoundary>
       </AppShell>
+      <ReconnectingMark itx={itx} />
       <Toaster theme={scheme} />
     </>
   );
@@ -198,15 +210,20 @@ export function Dash({
 
 /** The catalog on `/agents`, live: one subscription to its live state, which reads no agent, so
  *  the Dash wakes none. Undefined while it is read; none for a mind without agents. `on` false
- *  holds nothing. */
-function useAgentRows(itx: Itx, on: boolean): AgentRow[] | undefined {
-  const held = useContextStub(on ? () => itx.cd("/agents") : null, [itx, on]);
+ *  holds nothing. A new session (`connection.epoch`) subscribes again, and the last rows that
+ *  were read stay until that answers, and when it fails. A failure with no rows ever read is
+ *  none, and one while no session is open is the lost connection's, not the catalog's. */
+function useAgentRows(itx: Itx, on: boolean, connection: ItxConnection): AgentRow[] | undefined {
+  const { epoch } = connection;
+  const held = useContextStub(on ? () => itx.cd("/agents") : null, [itx, on, epoch]);
   const live = useFacetLiveState(held.stub, "agents");
-  const failed = Boolean(held.error) || live.status === "error";
-  return useMemo(
-    () => (live.value !== undefined ? agentRowsOf(live.value) : failed ? [] : undefined),
-    [live.value, failed],
-  );
+  const failed = connection.state === "open" && (Boolean(held.error) || live.status === "error");
+  const read = live.value !== undefined;
+  const rows = useMemo(() => (read ? agentRowsOf(live.value) : undefined), [read, live.value]);
+  // only a list that the catalog answered is kept: a failure's empty one is not the last rows
+  const [keep] = useState(() => kept<AgentRow[] | undefined>());
+  const last = keep(rows, read, "agents");
+  return useMemo(() => last || (failed ? [] : undefined), [last, failed]);
 }
 
 /** The page's colour scheme, as apps/theme.css set it when the page loaded: shadcn's class

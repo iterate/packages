@@ -847,6 +847,7 @@
       "registryDependencies": [
         "iterate/packages/context-catalog",
         "iterate/packages/context-view",
+        "iterate/packages/itx-session",
         "tabs"
       ],
       "files": [
@@ -878,8 +879,10 @@
         "iterate/packages/context-explorer",
         "iterate/packages/context-path-text",
         "iterate/packages/integrations-page",
+        "iterate/packages/itx-session",
         "iterate/packages/mcp-connect",
         "iterate/packages/page-url",
+        "iterate/packages/reconnecting-mark",
         "iterate/packages/repo-ide",
         "iterate/packages/secrets-page",
         "iterate/packages/waiting-approvals",
@@ -1779,6 +1782,32 @@
         },
         {
           "path": "src/components/agent-context-rows.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "itx-session",
+      "type": "registry:lib",
+      "description": "A page's connection to its mind over reconnects, as plain functions: the session's epoch and state as a store, a keeper of a value's last settled answer, and a keeper of a context's log that holds its rows while a new session reads and puts the new rows after them.",
+      "files": [
+        {
+          "path": "src/lib/itx-session.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "reconnecting-mark",
+      "type": "registry:component",
+      "description": "The one small line a page shows when its connection to the mind has been gone for two seconds: Reconnecting, or that the mind cannot be reached and the page keeps trying.",
+      "registryDependencies": [
+        "iterate/packages/itx-session",
+        "spinner"
+      ],
+      "files": [
+        {
+          "path": "src/components/reconnecting-mark.tsx",
           "type": "registry:component"
         }
       ]

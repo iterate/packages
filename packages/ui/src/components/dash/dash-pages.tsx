@@ -13,6 +13,7 @@ import {
   useCallback,
   useMemo,
   useState,
+  useSyncExternalStore,
   startTransition,
   type ComponentType,
   type ReactNode,
@@ -24,6 +25,7 @@ import { servesOf } from "./serves.ts";
 import { agentViewHref } from "./dash-href.ts";
 import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
 import type { AgentRow } from "#/lib/agent-summary.ts";
+import { itxSessionOf, kept } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -43,7 +45,13 @@ export type DashPage = {
    *  The first time anyone opens it, the agent view appends the words as a developer's note,
    *  which starts the agent's first turn (`/agents/onboarding`'s greeting). */
   openers?: Record<string, string>;
-  component: ComponentType<DashPageProps>;
+  /** `staysOverReconnect`, a property of the component itself (`Notes.staysOverReconnect =
+   *  true`): the page opens again what it holds when the session's epoch grows
+   *  (`itxSessionOf(itx)`: the epoch in its hooks' deps, or `useHeldContext`), so the Dash keeps
+   *  it mounted over a new session, with what it shows. Without it the Dash mounts the page anew
+   *  at each new session: a page on the SDK's hooks alone is then never left with a closed
+   *  session's stubs. */
+  component: ComponentType<DashPageProps> & { staysOverReconnect?: boolean };
 };
 
 /** A row that leaves the Dash: another app of the mind, or a page of the stack. `count:
@@ -144,6 +152,12 @@ export function DashPartIsOff({ title, children }: { title: string; children: Re
   );
 }
 
+/** The page's connection, live: its epoch goes in the deps of what holds a stub. */
+function useConnection(itx: Itx) {
+  const session = itxSessionOf(itx);
+  return useSyncExternalStore(session.subscribe, session.get, session.get);
+}
+
 /** Any context of the mind, live: `?context=<path>` (`?context=/` is the root), and the explorer's
  *  own state in `?view`. With no `?context` the page opens no context: the list, and a note. With
  *  an Agents page, beside the path is the way to the same context in the agent view. */
@@ -167,6 +181,7 @@ export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
     <ContextExplorer
       openRoot={openRoot}
       deps={[itx]}
+      session={itxSessionOf(itx)}
       path={path}
       links={links}
       state={contextViewStateOf(view)}
@@ -186,14 +201,25 @@ export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
     />
   );
 }
+// the explorer opens its contexts again at each new session, and keeps what it shows
+DashContexts.staysOverReconnect = true;
 
 /** One repo of the mind as a small IDE: `?repo=<name>` (none: config). It follows the repo's
- *  commits live, so the mind's root is held while the page is up. */
+ *  commits live, so the mind's root is held while the page is up, and opened again at each new
+ *  session. The root of the session before stays in hand until then, so the IDE stays, with what
+ *  is typed in it; a failure while no session is open is the lost connection's. */
 export function DashRepo({ itx, mind, principal }: DashPageProps) {
   const { RepoIde, repoIdeSearchOf } = use(repoPart());
   const name = usePageParam("repo") || "config";
   const { view, patchView } = useView();
-  const root = useContextStub(() => itx.cd("/"), [itx]);
+  const { epoch, state } = useConnection(itx);
+  const opened = useContextStub(() => itx.cd("/"), [itx, epoch]);
+  const [keep] = useState(() => kept<typeof opened>());
+  const root = keep(
+    opened,
+    Boolean(opened.stub) || (Boolean(opened.error) && state === "open"),
+    "root",
+  );
   if (root.error) return <DashNote alert>{root.error}</DashNote>;
   if (!root.stub) return <DashNote waiting>Opening the mind…</DashNote>;
   const email = principal?.email;
@@ -211,6 +237,7 @@ export function DashRepo({ itx, mind, principal }: DashPageProps) {
     </div>
   );
 }
+DashRepo.staysOverReconnect = true;
 
 type SecretsList =
   | { secrets: Awaited<ReturnType<Itx["secrets"]["list"]>> }
@@ -246,6 +273,8 @@ export function DashSecrets({ itx }: DashPageProps) {
     </Suspense>
   );
 }
+// holds nothing of a session: each read and each change is a call through the page's itx
+DashSecrets.staysOverReconnect = true;
 
 function Secrets({
   itx,
@@ -281,6 +310,8 @@ export function DashIntegrations({ itx, mind }: DashPageProps) {
   const { IntegrationsPage } = use(integrationsPart());
   // one function for the page's life: the kit's page reads again when it is handed another
   const openRegistry = useCallback(() => itx.cd("/integrations"), [itx]);
+  // and at each new session, whose epoch is one of its deps
+  const { epoch } = useConnection(itx);
   return (
     <Suspense fallback={<DashNote waiting>Reading the mind…</DashNote>}>
       <IfServed
@@ -289,12 +320,13 @@ export function DashIntegrations({ itx, mind }: DashPageProps) {
         off={<DashPartIsOff title="Integrations">This mind has no integrations yet.</DashPartIsOff>}
       >
         <DashScroll>
-          <IntegrationsPage openRegistry={openRegistry} deps={[itx]} mind={mind} />
+          <IntegrationsPage openRegistry={openRegistry} deps={[itx, epoch]} mind={mind} />
         </DashScroll>
       </IfServed>
     </Suspense>
   );
 }
+DashIntegrations.staysOverReconnect = true;
 
 /** The mind's telemetry. A mind without telemetry is asked nothing: the kit's page says that it
  *  is off, what turns it on and who can. */
@@ -322,6 +354,8 @@ export function DashAnalytics({ itx, mind }: DashPageProps) {
     </Suspense>
   );
 }
+// holds nothing of a session: each query is a call through the page's itx
+DashAnalytics.staysOverReconnect = true;
 
 /** How to connect Claude Code or the Codex CLI to the mind: the stack's MCP server. */
 export function DashMcp({ mind }: DashPageProps) {
@@ -332,3 +366,6 @@ export function DashMcp({ mind }: DashPageProps) {
     </DashScroll>
   );
 }
+
+// holds nothing of a session
+DashMcp.staysOverReconnect = true;
