@@ -21,8 +21,16 @@ Rules that the code cannot show you:
   `mode="static"`.
 - A settled row keeps its identity and is memoised, so what streams re-renders only the live row.
   A pass over a growing log continues from what it made last (`remembered`).
+- A view never shows its words for an empty log while the log is being read. With no rows it
+  renders `LogReading` (`read-progress.tsx`) until `older.exhausted`, and nothing when the read
+  failed: the error says it. `Feed` (`agent-chat/chat-parts.tsx`) does this for a kind's view.
+- A wait is one loading state to the eye. `LogReading` stays unseen for the first 200 ms of the
+  wait, so a fast read paints none, and one that takes another's place goes on with its wait. A
+  page that waits before a view exists shows `AgentReading` (`agent-chat/agent-shell.tsx`): the
+  same line in the same place. Do not add a second word for the same wait.
 - `older` stops on an error: a view passes `OLDER_EXHAUSTED` once its context has one. If not, the
-  list asks for the failed page again each time the read ends.
+  list asks for the failed page again each time the read ends. A kind's frame passes `OLDER_FAILED`:
+  the same stop, and `Feed` then shows neither a loading state nor its words for an empty log.
 - Only the reader, or a jump, leaves the end. Position alone cannot tell: while the virtualizer
   catches up, a following view reads as behind, and the browser animates a key's scroll. Test code
   that scrolls dispatches a `wheel` event first.

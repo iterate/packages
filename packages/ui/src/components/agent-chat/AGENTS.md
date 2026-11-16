@@ -21,7 +21,8 @@ mounts it. In the Agents app it is the view of the iterate agent kind
 - `strip={false}` is the chat alone, for a page whose reader is no developer (a mind's own
   sign-up page): no strip and no Events tab, and the agent's status is the feed's last row.
   `aboveComposer` takes a row of the page's own over the composer. `empty` is the page's own
-  greeting, centred in the feed while nothing has been said, and `placeholder` the composer's text.
+  greeting, centred in the feed once the log is read and nothing has been said, and `placeholder`
+  the composer's text.
   `eventsTab={false}` keeps the strip's status and drops the Events tab. `attach={false}` makes the
   composer take words only: no `+`, so no files and no raw mode.
 - A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`

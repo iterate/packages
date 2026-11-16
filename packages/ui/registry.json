@@ -108,6 +108,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/choice-syntax.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/composer-textarea.tsx",
           "type": "registry:component"
         },
@@ -1603,6 +1607,9 @@
         "@tanstack/react-virtual",
         "cn",
         "lucide-react"
+      ],
+      "registryDependencies": [
+        "spinner"
       ],
       "files": [
         {

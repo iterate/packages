@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 // The chat's status strip when the agent's live state is not there to read: it says what the
 // catalog heard from the agent, or else that it cannot tell, and the log alone then decides when a
-// turn is over, instead of waiting on "Connecting…" for good. And the chat with no strip, where the
-// status is the feed's last row.
+// turn is over, instead of waiting for it for good. And the chat with no strip, where the status is
+// the feed's last row. And what the feed shows while its log is read, and after.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test, vi } from "vitest";
 import { AgentChat, AgentProgress } from "./agent-chat.tsx";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 test("shared-conversation progress shows work and its public summary without response or script content", () => {
   const context: Context = {
@@ -119,12 +120,13 @@ Object.assign(globalThis, {
   },
 });
 
-test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: string }>([
+test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: string | undefined }>([
   {
+    // nothing, while it is not known: the feed's loading state is the one thing that speaks
     name: "the processors table has not loaded yet",
     processors: { rows: [], loaded: false },
     liveState: {},
-    status: "Connecting…",
+    status: undefined,
   },
   {
     name: "the processors table could not be read",
@@ -280,21 +282,166 @@ test.for<{ name: string; value: Record<string, unknown>; row: string | null; spi
   expect(Boolean(shown?.querySelector("[data-slot=spinner]"))).toBe(spinner);
 });
 
-test.for<{ name: string; caughtUp: boolean; shown: string; greeting: boolean }>([
+test.for<
+  LogCase & {
+    /** What the Chat tab's feed says, with the page's own greeting and without one. */
+    chat: { greeted: string; plain: string };
+    /** What the Events tab's feed says. */
+    events: string;
+  }
+>([
   {
-    name: "the first read is under way",
-    caughtUp: false,
-    shown: "Reading the log…",
-    greeting: false,
+    name: "the first read is out",
+    context: { caughtUp: false, older: { loadOlder: () => {}, loading: true, exhausted: false } },
+    shown: "reading",
+    chat: { greeted: "Reading the log…", plain: "Reading the log…" },
+    events: "Loading the log…",
   },
-  { name: "nothing has been said", caughtUp: true, shown: "Good afternoon", greeting: true },
-])("a page's own empty feed: while $name, the feed shows $shown", async (row) => {
+  {
+    name: "the read answered and the log holds nothing",
+    context: { caughtUp: true },
+    shown: "empty",
+    chat: { greeted: "Good afternoon", plain: "Nothing said yet" },
+    events: "Nothing has happened on this agent yet.",
+  },
+  {
+    name: "the read answered with a message",
+    context: { caughtUp: true, events: [said(4, "hello")] },
+    shown: "rows",
+    chat: { greeted: "hello", plain: "hello" },
+    events: "agent/context-added",
+  },
+  {
+    name: "the first read failed",
+    context: {
+      caughtUp: false,
+      error: "the read failed",
+      older: { loadOlder: () => {}, loading: false, exhausted: false },
+    },
+    shown: "error",
+    chat: { greeted: "", plain: "" },
+    events: "",
+  },
+  {
+    name: "the context could not be opened",
+    context: { caughtUp: false },
+    hostError: "no such context",
+    shown: "error",
+    chat: { greeted: "", plain: "" },
+    events: "",
+  },
+])("the feed when $name: $shown", async ({ context, hostError, shown, chat, events }) => {
+  using _layout = laidOut();
+  const error = hostError || context.error;
+  const views = [
+    { props: { strip: false, empty: <h2>Good afternoon</h2> }, says: chat.greeted },
+    { props: {}, says: chat.plain },
+    { props: { state: { view: "events" as const } }, says: events },
+  ];
+  for (const { props, says } of views) {
+    using _chat = await mount(
+      { processors: { rows: [], loaded: true }, liveState: {}, ...context },
+      { error: hostError, ...props },
+    );
+    const log = document.querySelector("[role=log]")!;
+    // a loading state and a failed read say nothing else; rows and empty words have more around them
+    if (shown === "rows" || shown === "empty") expect(log.textContent).toContain(says);
+    else expect(log.textContent?.trim()).toBe(says);
+    expect(log.textContent?.includes("Nothing said yet")).toBe(says === "Nothing said yet");
+    // the loading state, which fades in after a wait, and only while the read is out
+    const reading = log.querySelector("[data-slot=log-reading]");
+    expect(Boolean(reading?.querySelector("[data-slot=spinner]"))).toBe(shown === "reading");
+    if (reading)
+      expect([...reading.classList]).toEqual(
+        // unseen until its wait is 200 ms old (the element's own delay), then it fades in
+        expect.arrayContaining(["animate-in", "fade-in-0", "fill-mode-both"]),
+      );
+    expect(Boolean(log.querySelector("[data-slot=agent-chat-empty] h2"))).toBe(
+      shown === "empty" && "empty" in props,
+    );
+    expect(document.querySelector("[data-type=error]")?.textContent).toBe(error);
+  }
+});
+
+test.for<{ name: string; context: LogCase["context"]; says: string; error?: string }>([
+  {
+    name: "older pages remain",
+    context: { older: { loadOlder: () => {}, loading: false, exhausted: false } },
+    says: "Reading the log… 10%",
+  },
+  {
+    name: "an older page is out",
+    context: { older: { loadOlder: () => {}, loading: true, exhausted: false } },
+    says: "Reading the log… 10%",
+  },
+  {
+    name: "an older page failed",
+    context: {
+      error: "the read failed",
+      older: { loadOlder: () => {}, loading: false, exhausted: false },
+    },
+    says: "",
+    error: "the read failed",
+  },
+])(
+  "a newest page that holds no message, when $name, says '$says'",
+  async ({ context, says, error }) => {
+    using _chat = await mount({
+      processors: { rows: [], loaded: true },
+      liveState: {},
+      caughtUp: true,
+      events: [
+        {
+          offset: 9_000,
+          type: "events.iterate.com/itx/woken",
+          createdAt: "2026-11-06T00:00:00.000Z",
+          payload: {},
+        },
+      ],
+      head: 10_000,
+      ...context,
+    });
+    const log = document.querySelector("[role=log]")!;
+    expect(log.textContent?.trim()).toBe(says);
+    // how far the read has come stands where the first read's spinner stood: one element, so its
+    // wait is not counted again
+    expect(Boolean(log.querySelector("[data-slot=log-reading] [role=progressbar]"))).toBe(!error);
+    expect(document.querySelector("[data-type=error]")?.textContent).toBe(error);
+  },
+);
+
+test("a loading state stays unseen for 200 ms, and one that takes another's place goes on with its wait", async () => {
+  // the clock is the test's, and starts well after any loading state of the tests above
+  let now = performance.now() + 60_000;
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  const delay = () =>
+    document.querySelector<HTMLElement>("[data-slot=log-reading]")?.style.animationDelay;
+  try {
+    await act(async () => root.render(<LogReading key="page" label="Reading the log" />));
+    expect(delay()).toBe("200ms");
+    // the page's loading state has stood for half a second when the view's own takes its place:
+    // that one is seen at once, its fade long over
+    now += 500;
+    await act(async () => root.render(<LogReading key="view" label="Reading the log" />));
+    expect(delay()).toBe("-300ms");
+    // a wait that begins later starts unseen again
+    await act(async () => root.render(null));
+    now += 5_000;
+    await act(async () => root.render(<LogReading key="later" label="Reading the log" />));
+    expect(delay()).toBe("200ms");
+  } finally {
+    act(() => root.unmount());
+    document.body.replaceChildren();
+    clock.mockRestore();
+  }
+});
+
+test("the page's own text for an empty composer", async () => {
   using _chat = await mount(
-    { processors: { rows: [], loaded: true }, liveState: {}, caughtUp: row.caughtUp },
-    { strip: false, empty: <h2>Good afternoon</h2>, placeholder: "How can I help you today?" },
+    { processors: { rows: [], loaded: true }, liveState: {} },
+    { strip: false, placeholder: "How can I help you today?" },
   );
-  expect(document.querySelector("[role=log]")?.textContent?.trim()).toBe(row.shown);
-  expect(Boolean(document.querySelector("[data-slot=agent-chat-empty] h2"))).toBe(row.greeting);
   // the composer's editor is a lazy chunk
   await vi.waitFor(() =>
     expect(document.querySelector("[aria-placeholder]")?.getAttribute("aria-placeholder")).toBe(
@@ -329,6 +476,25 @@ test.for([
 
 type Context = ComponentProps<typeof AgentChat>["context"];
 
+/** A state of the read, and what a feed shows in it. */
+type LogCase = {
+  name: string;
+  context: Partial<Pick<Context, "events" | "head" | "older" | "caughtUp" | "error">>;
+  /** The host's own failure, the chat's `error` prop. */
+  hostError?: string;
+  shown: "reading" | "empty" | "rows" | "error";
+};
+
+/** A person's words in the log. */
+function said(offset: number, content: string) {
+  return {
+    offset,
+    type: "events.iterate.com/agent/context-added",
+    createdAt: "2026-11-06T00:00:00.000Z",
+    payload: { role: "user", content, actor: { type: "user" } },
+  };
+}
+
 /** A page with height, which jsdom lacks, so the virtual log draws its rows; disposing takes it
  *  back. */
 function laidOut() {
@@ -351,7 +517,7 @@ function laidOut() {
  *  unmounts it and clears the page. */
 async function mount(
   context: Pick<Context, "processors" | "liveState"> &
-    Partial<Pick<Context, "events" | "head" | "older" | "caughtUp">>,
+    Partial<Pick<Context, "events" | "head" | "older" | "caughtUp" | "error">>,
   props: Partial<ComponentProps<typeof AgentChat>> = {},
 ) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));

@@ -4,19 +4,15 @@
 // The Markdown draws it. Before the Markdown is parsed, each choice becomes an opaque token (a URL in
 // it is no autolink, a `*` no emphasis); a rehype step after streamdown's sanitizing step makes each
 // token in prose an element and gives a token in code its words back, so no message text ever
-// becomes HTML.
+// becomes HTML. The syntax itself, with no React, is choice-syntax.ts.
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { ExtraProps } from "streamdown";
 import { cn } from "cn";
+import { choiceKinds, type AgentChoice, type AgentChoiceKind } from "./choice-syntax.ts";
 
-const choiceKinds = ["domain", "account", "name", "say", "link"] as const;
-
-export type AgentChoiceKind = (typeof choiceKinds)[number];
-
-/** A choice as the agent wrote it. `label` is the words it shows: its own label, or the value. */
-export type AgentChoice = { kind: AgentChoiceKind; value: string; label: string };
+export type { AgentChoice };
 
 export type AgentChoiceHandlers = {
   /** What a press does. Absent: a choice is its plain words, not a button. */
@@ -33,105 +29,10 @@ export function AgentChoiceProvider({
   choiceState,
   children,
 }: AgentChoiceHandlers & { children: ReactNode }) {
-  return (
-    <AgentChoiceContext.Provider value={{ onChoice, choiceState }}>
-      {children}
-    </AgentChoiceContext.Provider>
-  );
-}
-
-/** The element the rehype step makes of a choice; `MessageResponse` maps it to `AgentChoiceButton`. */
-export const choiceTagName = "agent-choice";
-
-const choicePattern =
-  /\[\[(domain|account|name|say|link):([^\]|\n]{1,200})(?:\|([^\]\n]{1,120}))?\]\]/g;
-
-/** A draft's text without a choice that has not ended yet: `[[…` with no `]]` at the end, no line
- *  break and no more than a choice's length (a longer one is no choice, and stays shown). */
-export function withoutUnfinishedChoice(text: string): string {
-  return text.replace(/\[\[[^\]\n]{0,330}\]?$/, "");
-}
-
-/** Text with each choice as its plain words: what a message shows before its Markdown loads. */
-export function choicesInPlainWords(text: string): string {
-  return text.replace(choicePattern, (_whole, _kind, value: string, label?: string) =>
-    (label || value).trim(),
-  );
-}
-
-/** A choice as a token the Markdown parser passes through: its whole text in hex, between two
- *  private-use characters. */
-const tokenPattern = /\uE000([0-9a-f]+)\uE001/g;
-
-/** The text for the Markdown parser: each choice is a token. */
-export function choicesAsTokens(text: string): string {
-  return text.replace(
-    choicePattern,
-    (whole) =>
-      `\uE000${Array.from(new TextEncoder().encode(whole), (byte) => byte.toString(16).padStart(2, "0")).join("")}\uE001`,
-  );
-}
-
-function tokenText(hex: string): string {
-  return new TextDecoder().decode(
-    Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16)),
-  );
-}
-
-type HastNode = {
-  type: string;
-  tagName?: string;
-  value?: string;
-  properties?: Record<string, unknown>;
-  children?: HastNode[];
-};
-
-/** The rehype step: each token in prose becomes an `agent-choice` element; in `code` or `pre` it is
- *  its text again. */
-export function rehypeAgentChoices() {
-  return (tree: HastNode) => splitChoices(tree, false);
-}
-
-function splitChoices(parent: HastNode, inCode: boolean) {
-  const code =
-    inCode ||
-    (parent.type === "element" && (parent.tagName === "code" || parent.tagName === "pre"));
-  if (!parent.children) return;
-  parent.children = parent.children.flatMap((child) => {
-    if (child.type !== "text" || !child.value) {
-      splitChoices(child, code);
-      return [child];
-    }
-    if (code)
-      return [
-        {
-          ...child,
-          value: child.value.replace(tokenPattern, (_token, hex: string) => tokenText(hex)),
-        },
-      ];
-    return choiceNodes(child.value);
-  });
-}
-
-function choiceNodes(text: string): HastNode[] {
-  const nodes: HastNode[] = [];
-  let from = 0;
-  for (const token of text.matchAll(tokenPattern)) {
-    if (token.index > from) nodes.push({ type: "text", value: text.slice(from, token.index) });
-    const [, kind = "", value = "", label] =
-      new RegExp(choicePattern.source).exec(tokenText(token[1])) ?? [];
-    const words = (label || value).trim();
-    nodes.push({
-      type: "element",
-      tagName: choiceTagName,
-      properties: { dataKind: kind, dataValue: value.trim(), dataLabel: words },
-      children: [{ type: "text", value: words }],
-    });
-    from = token.index + token[0].length;
-  }
-  if (from === 0) return [{ type: "text", value: text }];
-  if (from < text.length) nodes.push({ type: "text", value: text.slice(from) });
-  return nodes;
+  // one value while the page's handlers stay the same: a message under it draws again only for
+  // a handler that changed
+  const handlers = useMemo(() => ({ onChoice, choiceState }), [onChoice, choiceState]);
+  return <AgentChoiceContext.Provider value={handlers}>{children}</AgentChoiceContext.Provider>;
 }
 
 const choiceTitle: Record<AgentChoiceKind, (words: string) => string> = {
@@ -175,6 +76,7 @@ export function AgentChoiceButton({ node }: ExtraProps) {
       </button>
     );
   return (
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role -- a <button> is one unbreakable inline block in every browser, whatever its display: these words must wrap with the sentence they are in
     <span
       role="button"
       tabIndex={busy ? -1 : 0}

@@ -74,8 +74,8 @@ export type DashPageProps = {
   /** the catalog of the mind's agents, live, which the Dash reads once for every page when it has
    *  an Agents page; undefined while it loads, and for a Dash with no Agents page */
   agents: readonly AgentRow[] | undefined;
-  /** how many requests wait for a member's yes */
-  waiting: number;
+  /** how many requests wait for a member's yes; undefined until the mind has answered */
+  waiting: number | undefined;
 };
 
 /** A module, imported the first time a page asks for it and kept: the same promise after. */

@@ -80,7 +80,8 @@ const FRESH_MS = 10_000;
 type Watch = {
   /** The newest `read` a shell gave: a page's client can hand it a new function at each navigation. */
   read: Read;
-  count: number;
+  /** Undefined until the first answer: nobody knows yet whether anything waits. */
+  count: number | undefined;
   /** When the last answer came. */
   answeredAt: number;
   listeners: Set<() => void>;
@@ -93,7 +94,7 @@ type Watch = {
    *  body is a different one at every render, so the shell would read every secret's log at
    *  every render. */
   subscribe(changed: () => void): () => void;
-  getCount(): number;
+  getCount(): number | undefined;
 };
 const watches = new Map<string, Watch>();
 
@@ -141,7 +142,7 @@ function watchOf(mind: string, read: Read): Watch {
   };
   const watch: Watch = {
     read,
-    count: 0,
+    count: undefined,
     answeredAt: 0,
     listeners,
     reading: false,
@@ -177,18 +178,20 @@ export function askWaitingApprovals(mind: string) {
   if (watch) void ask(watch, true);
 }
 
-/** How many requests wait for a yes in `mind`: 0 until the first answer. */
-export function useWaitingApprovals(mind: string, read: Read): number {
+/** How many requests wait for a yes in `mind`. Undefined until the first answer: a page shows
+ *  that as not known, never as nothing waiting. */
+export function useWaitingApprovals(mind: string, read: Read): number | undefined {
   const watch = watchOf(mind, read);
-  return useSyncExternalStore(watch.subscribe, watch.getCount, noneWaiting);
+  return useSyncExternalStore(watch.subscribe, watch.getCount, notKnown);
 }
 
 /** The server's HTML has no count. */
-const noneWaiting = () => 0;
+const notKnown = () => undefined;
 
-/** The tab's title with the count before it, "(2) Approvals · …", for as long as `count` is not 0.
- *  The router writes the title on each navigation, so the count is put back when it does. */
-export function titleWithCount(title: string, count: number): string {
+/** The tab's title with the count before it, "(2) Approvals · …", for as long as `count` is known
+ *  and not 0. The router writes the title on each navigation, so the count is put back when it
+ *  does. */
+export function titleWithCount(title: string, count: number | undefined): string {
   const bare = title.replace(/^\(\d+\) /, "");
-  return count > 0 ? `(${count}) ${bare}` : bare;
+  return count ? `(${count}) ${bare}` : bare;
 }

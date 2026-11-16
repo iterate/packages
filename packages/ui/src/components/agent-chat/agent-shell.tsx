@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import type { EventInspectors } from "#/components/context-view/types.tsx";
 import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 /** What the strip says the agent is doing, and how loudly. */
 export type AgentShellStatus = {
@@ -54,7 +55,7 @@ export function AgentShell({
   onStateChange: (patch: Partial<AgentChatState>) => void;
   /** Append to the agent's context: the Events tab's composer. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
-  /** The strip's line. Omitted: the strip shows the tabs alone. */
+  /** The strip's line. Omitted, or with no text: the strip shows the tabs alone. */
   status?: AgentShellStatus;
   /** `false`: no strip, and the Chat tab alone, whatever `state.view` says. Without `children` the
    *  Events tab stays, with no strip over it. */
@@ -123,7 +124,21 @@ export function AgentShell({
   );
 }
 
-/** The strip: one line of status, and Chat | Events. */
+/** THE LOADING STATE OF AN AGENT'S VIEW BEFORE THERE IS A SHELL: what a page shows while it does not
+ *  know yet which view the agent has, or while that view's own document loads. It is the chat's
+ *  own loading line in the chat's own place (under the strip's height, in the feed's column), so
+ *  the shell that follows moves nothing. */
+export function AgentReading() {
+  return (
+    <div className="pt-10 pointer-coarse:pt-12">
+      <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
+        <LogReading label="Reading the log" className="py-6" />
+      </div>
+    </div>
+  );
+}
+
+/** The strip: one line of status, and Chat | Events. Its height is `AgentReading`'s top. */
 function ShellStrip({
   status,
   view,
@@ -145,7 +160,7 @@ function ShellStrip({
 }) {
   return (
     <div className="flex shrink-0 items-center gap-3 px-4 py-1">
-      {status ? (
+      {status?.text ? (
         <span
           className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
           title={status.detail}

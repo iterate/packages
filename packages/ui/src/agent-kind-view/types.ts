@@ -46,7 +46,8 @@ export type AgentKindViewProps = {
     events: readonly AgentKindViewEvent[];
     caughtUp: boolean;
     error?: string;
-    older?: { loadOlder(): void; loading: boolean; exhausted: boolean };
+    /** Pass it on to `Feed` as it is. None: the whole log is held. `failed`: the read failed. */
+    older?: { loadOlder(): void; loading: boolean; exhausted: boolean; failed?: boolean };
     head?: number;
     processors: { rows: readonly any[]; loaded: boolean; error?: string };
     presence: { actors: readonly any[]; rpcStubs: readonly string[] };

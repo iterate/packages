@@ -4,14 +4,14 @@ import { cn } from "cn";
 import type { ComponentProps, ComponentType, HTMLAttributes } from "react";
 import { Suspense, lazy, memo } from "react";
 import type { ExtraProps, StreamdownProps } from "streamdown";
+import { AgentChoiceButton } from "./choice-in-words.tsx";
 import {
-  AgentChoiceButton,
   choiceTagName,
   choicesAsTokens,
   choicesInPlainWords,
   rehypeAgentChoices,
   withoutUnfinishedChoice,
-} from "./choice-in-words.tsx";
+} from "./choice-syntax.ts";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: "user" | "assistant" | "system" | "tool";

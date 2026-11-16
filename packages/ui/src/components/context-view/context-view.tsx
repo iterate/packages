@@ -52,13 +52,12 @@ import type {
   LiveStateView,
   EventInspectors,
 } from "./types.tsx";
-import { Spinner } from "#/components/ui/spinner.tsx";
 import {
   heldShare,
   OLDER_EXHAUSTED,
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
-import { ReadProgress } from "#/components/virtual-log/read-progress.tsx";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 import { remembered } from "#/components/virtual-log/remembered.ts";
 
 /** The strip's text buttons: a word, muted, the one that is on on a quiet fill — no border. */
@@ -340,8 +339,8 @@ function ContextStrip({
   );
 }
 
-/** What the feed shows with no rows: the first read, older pages being read for a first row, or
- *  `text`. */
+/** What the feed shows with no rows. While the log is being read, that it is: the first read, then
+ *  how far the older pages have come toward a first row. `text` only for a log read through. */
 function FeedEmpty({
   caughtUp,
   readProgress,
@@ -351,17 +350,13 @@ function FeedEmpty({
   readProgress: number | undefined;
   text: string;
 }) {
-  if (!caughtUp)
+  if (!caughtUp || readProgress !== undefined)
     return (
-      <div className="flex items-center gap-2 px-3 sm:px-4 py-6 text-sm text-muted-foreground">
-        <Spinner /> Loading the log…
-      </div>
-    );
-  if (readProgress !== undefined)
-    return (
-      <div className="px-3 sm:px-4 py-6">
-        <ReadProgress label="Reading the log" value={readProgress} />
-      </div>
+      <LogReading
+        label={caughtUp ? "Reading the log" : "Loading the log"}
+        progress={caughtUp ? readProgress : undefined}
+        className="px-3 sm:px-4 py-6"
+      />
     );
   return <p className="px-3 sm:px-4 py-6 text-sm text-muted-foreground">{text}</p>;
 }

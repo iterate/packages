@@ -9,6 +9,7 @@ import { AgentComposer } from "./composer.tsx";
 import { useComposerDraft } from "./use-composer-attachments.ts";
 import { VirtualLog, type VirtualLogRowInfo } from "#/components/virtual-log/virtual-log.tsx";
 import { OLDER_EXHAUSTED, type OlderPages } from "#/components/virtual-log/older-pages.ts";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 /** One row of a `Feed`: its identity, and where it sits in the log when it is an event's. */
 export type FeedRow = { key: string; offset?: number };
@@ -20,7 +21,9 @@ const ROWS: VirtualLogRowInfo<FeedRow> = {
 };
 
 /** Rows that scroll, newest at the bottom, the view staying at the end as rows arrive, with a
- *  footer (the composer) always in front. Older pages load as the reader scrolls up. */
+ *  footer (the composer) always in front. Older pages load as the reader scrolls up. With no rows
+ *  it reads on down the log and says that it is reading; `empty` shows once `older` is exhausted.
+ *  After a read that failed (`older.failed`) it shows neither: the shell shows the error. */
 export function Feed<Row extends FeedRow>({
   rows,
   renderRow,
@@ -32,10 +35,12 @@ export function Feed<Row extends FeedRow>({
   rows: readonly Row[];
   renderRow: (row: Row) => ReactNode;
   footer?: ReactNode;
-  /** What shows with no rows. */
+  /** What shows with no rows once the whole log is read: the view's words for an empty chat. */
   empty?: ReactNode;
   /** What is not in the log yet and ends the list: work in flight. */
   tail?: ReactNode;
+  /** The log below what is loaded: the context's `older`, passed on as it is, from the first read
+   *  on. None: the caller holds the whole log. */
   older?: OlderPages;
 }) {
   // the row type is the caller's; the log only reads its key and offset
@@ -46,7 +51,13 @@ export function Feed<Row extends FeedRow>({
       rowInfo={ROWS}
       renderRow={render}
       older={older}
-      empty={empty}
+      empty={
+        older.failed ? null : older.exhausted ? (
+          empty
+        ) : (
+          <LogReading label="Reading the log" className="py-6" />
+        )
+      }
       tail={tail}
       label="Chat"
       footer={
@@ -65,7 +76,7 @@ export function Feed<Row extends FeedRow>({
 
 // A page that draws a line as plain text, not Markdown, runs it through this: a choice in the
 // words (`[[kind:value|label]]`, choice-in-words.tsx) reads as its label.
-export { choicesInPlainWords } from "./choice-in-words.tsx";
+export { choicesInPlainWords } from "./choice-syntax.ts";
 
 /** Markdown, as a chat draws an agent's words: a choice in them is a button where a handler is
  *  provided (`AgentChoiceProvider`), and its plain words where none is. */

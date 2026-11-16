@@ -316,7 +316,8 @@ function DashNav({
   pages: DashPage[];
   links: DashLinks[];
   page: DashPage;
-  waiting: number;
+  /** Undefined until the mind has answered: the alert draws for a count that is known. */
+  waiting: number | undefined;
   /** Where a new agent starts: the Agents page, whose composer's first message starts one. The
    *  sidebar's first row goes there. None for a Dash with no Agents page. */
   newAgent?: string;

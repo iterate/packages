@@ -8,7 +8,7 @@
 // written.
 import { memo } from "react";
 import { cn } from "cn";
-import { choicesInPlainWords, withoutUnfinishedChoice } from "./choice-in-words.tsx";
+import { choicesInPlainWords, withoutUnfinishedChoice } from "./choice-syntax.ts";
 import { textGroupSize, type StreamText } from "./chunked-text.ts";
 import { FullTextSnapshot } from "./full-text-snapshot.tsx";
 

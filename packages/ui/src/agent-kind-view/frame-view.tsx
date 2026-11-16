@@ -2,8 +2,8 @@
 // from what the host sent, or the Events tab when there is no view, it failed to load, or it threw.
 import { Component, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import type { RpcStub } from "capnweb";
-import { AgentShell } from "../components/agent-chat/agent-shell.tsx";
-import { Spinner } from "../components/ui/spinner.tsx";
+import { AgentReading, AgentShell } from "../components/agent-chat/agent-shell.tsx";
+import { OLDER_FAILED } from "../components/virtual-log/older-pages.ts";
 import type { AgentKindViewHostApi, AgentKindViewInputs } from "./bridge.ts";
 import type { InputsStore, LoadedView } from "./frame.ts";
 import type { AgentKindViewProps } from "./types.ts";
@@ -20,13 +20,14 @@ export function FrameView({
   view: LoadedView;
 }) {
   const held = useSyncExternalStore(inputs.subscribe, inputs.get);
-  const props = useMemo(() => held && propsOf(held, host), [held, host]);
-  if (!props)
-    return (
-      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-        <Spinner className="size-4" /> Connecting…
-      </div>
-    );
+  // what the frame itself reported of its kind file, which the host says back as its own error
+  const kindFileError = "error" in view ? view.error : undefined;
+  const props = useMemo(
+    () => held && propsOf(held, host, kindFileError),
+    [held, host, kindFileError],
+  );
+  // before the host's first word: the loading state the view's own feed goes on with
+  if (!props) return <AgentReading />;
   // the shell takes the view's props: its state is the page's search, which the shell reads whole
   const shell = props as unknown as Parameters<typeof AgentShell>[0];
   if ("error" in view) return <AgentShell {...shell} error={view.error} />;
@@ -38,8 +39,17 @@ export function FrameView({
   );
 }
 
-/** AgentChat's props from what the host sent, its verbs calls back over the port. */
-function propsOf(held: AgentKindViewInputs, host: Host): AgentKindViewProps {
+/** AgentChat's props from what the host sent, its verbs calls back over the port. A read that
+ *  failed (its own error, or a context the host could not open) stands in its error: the view's
+ *  `older` says so, and its feed asks for no page and says nothing of the log. A kind file that
+ *  failed to load (`kindFileError`) is no failed read: the log pages on under the Events tab. */
+function propsOf(
+  held: AgentKindViewInputs,
+  host: Host,
+  kindFileError: string | undefined,
+): AgentKindViewProps {
+  const readFailed = Boolean(held.error || (held.hostError && held.hostError !== kindFileError));
+  const older = held.older && { ...held.older, loadOlder: () => void host.loadOlder() };
   return {
     path: held.path,
     context: {
@@ -47,7 +57,7 @@ function propsOf(held: AgentKindViewInputs, host: Host): AgentKindViewProps {
       caughtUp: held.caughtUp,
       error: held.error,
       head: held.head,
-      older: held.older ? { ...held.older, loadOlder: () => void host.loadOlder() } : undefined,
+      older: readFailed ? OLDER_FAILED : older || undefined,
       processors: held.processors,
       presence: held.presence,
       liveState: held.liveState,

@@ -31,6 +31,7 @@ import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
+import { AgentReading } from "#/components/agent-chat/agent-shell.tsx";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
 import {
@@ -227,7 +228,7 @@ function NeedsYou({
       <h2 id="needs-you" className="text-sm font-medium text-muted-foreground">
         Waiting for you
       </h2>
-      <Suspense fallback={<p className="font-readme text-sm text-muted-foreground">Looking…</p>}>
+      <Suspense fallback={<Looking />}>
         <NeedsYouRows
           integrations={integrations}
           approvals={waiting}
@@ -239,6 +240,11 @@ function NeedsYou({
   );
 }
 
+/** The line in the section's place while it is read. */
+function Looking() {
+  return <p className="font-readme text-sm text-muted-foreground">Looking…</p>;
+}
+
 function NeedsYouRows({
   integrations,
   approvals,
@@ -246,11 +252,13 @@ function NeedsYouRows({
   integrationsHref,
 }: {
   integrations: Promise<Attention[]>;
-  approvals: number;
+  /** Undefined until the mind has answered: nothing is said of what waits before that. */
+  approvals: number | undefined;
   approvalsHref: string;
   integrationsHref: string | undefined;
 }) {
   const asking = use(integrations);
+  if (approvals === undefined) return <Looking />;
   if (!approvals && !asking.length)
     return <p className="font-readme text-sm text-muted-foreground">Nothing waits for you.</p>;
   return (
@@ -393,12 +401,10 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
 // ── one context as an agent ──
 
 /** ANY CONTEXT AS AN AGENT. Its header names the path and links to the raw view of the same
- *  context. What draws it is its kind's: iterate's chat, or a kind's own view in a frame. */
+ *  context. What draws it is its kind's: iterate's chat, or a kind's own view in a frame. Under
+ *  the header one loading state stands from the first paint to the view's own: the kinds, the
+ *  catalog and the chat's part are all read behind it. */
 function AgentView({ itx, pages, page, agents, path }: DashPageProps & { path: string }) {
-  const kinds = use(kindFilesOf(itx));
-  const row = agents?.find((agent) => agent.path === path);
-  const kind = row?.kind;
-  const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
   const contexts = pages.find((one) => one.id === "contexts");
   return (
     <>
@@ -413,12 +419,31 @@ function AgentView({ itx, pages, page, agents, path }: DashPageProps & { path: s
           </a>
         ) : null}
       </AppShellPageHeader>
-      {file ? (
-        <KindChat itx={itx} path={path} file={file} />
-      ) : (
-        <IterateChat itx={itx} path={path} row={row} opener={page.openers?.[path]} />
-      )}
+      <Suspense fallback={<AgentReading />}>
+        <AgentViewOfKind itx={itx} path={path} agents={agents} opener={page.openers?.[path]} />
+      </Suspense>
     </>
+  );
+}
+
+/** The view of the agent's kind. None until the catalog has said the kind: iterate's chat over
+ *  the log of another kind holds no row, and would say that nothing was said. A path that the
+ *  catalog does not list draws as iterate's. */
+function AgentViewOfKind({
+  itx,
+  path,
+  agents,
+  opener,
+}: Pick<DashPageProps, "itx" | "agents"> & { path: string; opener: string | undefined }) {
+  const kinds = use(kindFilesOf(itx));
+  if (!agents) return <AgentReading />;
+  const row = agents.find((agent) => agent.path === path);
+  const kind = row?.kind;
+  const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
+  return file ? (
+    <KindChat itx={itx} path={path} file={file} />
+  ) : (
+    <IterateChat itx={itx} path={path} row={row} opener={opener} />
   );
 }
 
@@ -507,7 +532,9 @@ function watchDocumentClass(changed: () => void) {
 /** AN AGENT OF A KIND THAT BRINGS ITS OWN VIEW. The view is a file of the config repo, which any
  *  member or any member's agent can change, so it does not run in this page: it runs in a
  *  sandboxed frame. The page reads the agent's log live, hands it to the frame, and answers the
- *  frame's few verbs for this one agent. */
+ *  frame's few verbs for this one agent. The frame is another document, which loads its script and
+ *  the kind's file before it draws: the page's own loading state stands over it until the first
+ *  read has answered, so the wait is one state, whatever the kind's view draws meanwhile. */
 function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile }) {
   const { view, patchView } = useView();
   const agent = useContextStub(() => itx.cd(path), [itx, path]);
@@ -529,6 +556,8 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
   const { loading, exhausted } = log.older;
   const older = useMemo(() => (exhausted ? null : { loading, exhausted }), [loading, exhausted]);
   const { stub } = agent;
+  const hostError = agent.error || (loaded && "error" in loaded ? loaded.error : undefined);
+  const reading = !log.caughtUp && log.events.length === 0 && !log.error && !hostError;
   const inputs: AgentKindViewInputs = {
     path,
     events: log.events,
@@ -539,7 +568,7 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
     processors: log.processors,
     presence: log.presence,
     liveState: log.liveState,
-    hostError: agent.error || (loaded && "error" in loaded ? loaded.error : undefined),
+    hostError,
     // the chat's own keys checked, and a kind's own keys kept (AgentKindViewState): its controls
     // keep what was picked in them
     state: AgentChatState.loose().safeParse(view).data || {},
@@ -563,12 +592,19 @@ function KindChat({ itx, path, file }: { itx: Itx; path: string; file: KindFile 
     loadOlder: log.older.loadOlder,
   };
   return (
-    <AgentKindViewFrame
-      link={link}
-      frameScript={frameScriptOfPage()}
-      inputs={inputs}
-      verbs={verbs}
-    />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <AgentKindViewFrame
+        link={link}
+        frameScript={frameScriptOfPage()}
+        inputs={inputs}
+        verbs={verbs}
+      />
+      {reading ? (
+        <div className="absolute inset-0 bg-background">
+          <AgentReading />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

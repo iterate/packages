@@ -1,5 +1,9 @@
 // How far a read of the log has come: a read of a long context can take a while, and a person should
 // see it moving.
+import { useEffect, useState } from "react";
+import { cn } from "cn";
+import { Spinner } from "#/components/ui/spinner.tsx";
+
 export function ReadProgress({ label, value }: { label: string; value: number }) {
   const percent = Math.round(value * 100);
   return (
@@ -20,6 +24,66 @@ export function ReadProgress({ label, value }: { label: string; value: number })
           style={{ width: `${String(percent)}%` }}
         />
       </span>
+    </div>
+  );
+}
+
+/** THE WAIT A PERSON IS IN, which every `LogReading` of the document shares: when its first
+ *  loading state went up, how many stand now, and when the last one came down. A page's loading
+ *  state and then a view's own are one wait to the eye, whichever element draws it. */
+const wait = { beganAt: 0, standing: 0, endedAt: -Infinity };
+
+/** When the wait began that a loading state going up at `now` belongs to: the one that stands, or
+ *  that came down in the last frames (one element takes another's place in one commit, and the
+ *  old one's effect has not said so yet), or a new one. */
+function waitBeganAt(now: number) {
+  if (wait.standing === 0 && now - wait.endedAt > 100) wait.beganAt = now;
+  return wait.beganAt;
+}
+
+/** What a view shows in place of its rows while its log is still being read, and never its words
+ *  for an empty log: a spinner and a line, or how far the read has come (`progress`, from 0 to 1)
+ *  once the view can tell. It stays unseen for the first 200 ms of the wait and then fades in, so
+ *  a read that answers at once paints no loading state. One that takes the place of another goes
+ *  on with its wait: it does not start unseen again. The line keeps its height from the first read
+ *  to the older pages after it. */
+export function LogReading({
+  label,
+  progress,
+  className,
+}: {
+  label: string;
+  progress?: number;
+  /** The view's own padding around the line. */
+  className?: string;
+}) {
+  // what is left of the 200 ms; below zero the fade is under way or over, and CSS starts it there
+  const [unseenMs] = useState(() => {
+    const now = performance.now();
+    return Math.round(200 - (now - waitBeganAt(now)));
+  });
+  useEffect(() => {
+    wait.standing += 1;
+    return () => {
+      wait.standing -= 1;
+      wait.endedAt = performance.now();
+    };
+  }, []);
+  return (
+    <div
+      data-slot="log-reading"
+      style={{ animationDelay: `${String(unseenMs)}ms` }}
+      className={cn("animate-in fade-in-0 fill-mode-both text-sm", className)}
+    >
+      <div className="flex h-5 items-center gap-2 text-muted-foreground">
+        {progress === undefined ? (
+          <>
+            <Spinner /> {label}…
+          </>
+        ) : (
+          <ReadProgress label={label} value={progress} />
+        )}
+      </div>
     </div>
   );
 }

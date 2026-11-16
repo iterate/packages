@@ -4,7 +4,7 @@
 import { CorePrettyState, PrettyFields } from "./pretty-state.tsx";
 import type { LiveStateView } from "./types.tsx";
 import { SerializedObjectCodeBlock } from "#/components/code-block.tsx";
-import { Spinner } from "#/components/ui/spinner.tsx";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 export function LiveStateValue({
   state,
@@ -23,11 +23,7 @@ export function LiveStateValue({
       </p>
     );
   if (state.value === undefined)
-    return (
-      <p className="font-readme flex items-center gap-2 text-xs text-muted-foreground">
-        <Spinner /> Connecting…
-      </p>
-    );
+    return <LogReading label="Reading the live state" className="font-readme text-xs" />;
   if (view === "raw")
     return (
       <SerializedObjectCodeBlock data={state.value} showToggle={false} className="max-h-[28rem]" />

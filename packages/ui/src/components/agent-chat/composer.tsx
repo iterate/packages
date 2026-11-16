@@ -84,8 +84,10 @@ function AgentPillComposer({
   const openRaw = mode === "raw" ? raw : undefined;
   const canSubmit = !isSubmitting && (openRaw ? openRaw.value.trim() !== "" : message.canSubmit);
   const showInterrupt = mode === "message" && !!onInterrupt;
+  // files come in by the `+`, a drop or a paste, and by none of them while a message is sent
+  const takesFiles = attach && !isSubmitting;
   const { isDragging, dropHandlers } = useFileDrop({
-    accepts: attach && !isSubmitting,
+    accepts: takesFiles,
     onFiles: (files) => {
       if (mode !== "message") onModeChange("message");
       message.onAddFiles(files);
@@ -132,24 +134,12 @@ function AgentPillComposer({
             className="min-w-0 flex-1 px-2 py-1.5"
           />
         ) : (
-          <div
-            className="flex min-w-0 flex-1 flex-col"
-            onPaste={(event) => {
-              // A pasted screenshot is an attachment, as from the `+`. Text in the same paste still
-              // pastes: the editor takes it, so this handler never calls preventDefault.
-              const files = clipboardFiles(event.clipboardData);
-              if (attach && files.length > 0 && !isSubmitting) message.onAddFiles(files);
-            }}
-          >
-            {message.attachments ? <div className="px-1 pb-1">{message.attachments}</div> : null}
-            <ComposerTextarea
-              value={message.value}
-              onValueChange={message.onValueChange}
-              onSubmit={submit}
-              focusOnMount={autoFocusMessage}
-              placeholder={message.placeholder}
-            />
-          </div>
+          <ComposerMessageEditor
+            message={message}
+            onSubmit={submit}
+            focusOnMount={autoFocusMessage}
+            takesFiles={takesFiles}
+          />
         )}
         {showInterrupt ? (
           <ComposerStopButton
@@ -169,6 +159,41 @@ function AgentPillComposer({
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The message mode's editor: the attachments over the words. */
+function ComposerMessageEditor({
+  message,
+  onSubmit,
+  focusOnMount,
+  takesFiles,
+}: {
+  message: AgentComposerMessageConfig;
+  onSubmit: () => void;
+  focusOnMount: boolean;
+  /** A pasted file becomes an attachment. */
+  takesFiles: boolean;
+}) {
+  return (
+    <div
+      className="flex min-w-0 flex-1 flex-col"
+      onPaste={(event) => {
+        // A pasted screenshot is an attachment, as from the `+`. Text in the same paste still
+        // pastes: the editor takes it, so this handler never calls preventDefault.
+        const files = clipboardFiles(event.clipboardData);
+        if (takesFiles && files.length > 0) message.onAddFiles(files);
+      }}
+    >
+      {message.attachments ? <div className="px-1 pb-1">{message.attachments}</div> : null}
+      <ComposerTextarea
+        value={message.value}
+        onValueChange={message.onValueChange}
+        onSubmit={onSubmit}
+        focusOnMount={focusOnMount}
+        placeholder={message.placeholder}
+      />
     </div>
   );
 }

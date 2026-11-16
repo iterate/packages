@@ -29,6 +29,15 @@ test("the home with nothing waiting: the composer, the words that say so, and th
   ).toBe("?agent=/agents/onboarding");
 });
 
+test("the home before the count of what waits is known says nothing false, in the same room", async () => {
+  const { itx } = mind({});
+  await using page = await draw(DashHome, itx, { waiting: undefined });
+  const waiting = page.host.querySelector('section[aria-labelledby="needs-you"]');
+  expect(waiting?.textContent).toBe("Waiting for youLooking…");
+  // one row's room, kept while it is read: the list under it does not move for the answer
+  expect([...waiting!.classList]).toContain("min-h-22");
+});
+
 test("the home with something waiting: the requests, and each integration that asks", async () => {
   const { itx } = mind({
     serves: ["itx.integrations"],
@@ -87,6 +96,40 @@ test("the agent view takes any path, links to its raw view, and says the opener 
   await using other = await draw(DashAgents, itx, { waiting: 0, openers: {} });
   expect(other.host.textContent).toContain("/secrets/slack");
   expect(appended).toHaveLength(1);
+});
+
+test("an agent of another kind, before the catalog says its kind: no chat of iterate's, and never its words for an empty chat", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  history.replaceState(null, "", "/?agent=/agents/session");
+  await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+  // the header is there, and one loading state: no view is chosen yet
+  expect(page.host.textContent).toContain("/agents/session");
+  expect(page.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
+  expect(page.host.querySelector("[role=log]")).toBe(null);
+  expect(page.host.querySelector("iframe")).toBe(null);
+  // the catalog answers: the kind's own view, in its frame, under the same loading state until
+  // the frame has drawn a log that answered
+  await page.draw(
+    agentRowsOf({ agents: { "/agents/session": { createdAt: now, kind: "claude" } } }),
+  );
+  expect(page.host.querySelector("iframe")).not.toBe(null);
+  expect(page.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
+  expect(page.host.querySelector("[role=log]")).toBe(null);
+  expect(page.said.filter((text) => text.includes("Nothing said"))).toEqual([]);
+});
+
+test("an iterate agent, before the catalog says its kind, waits under the same loading state, then is iterate's chat", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { itx } = mind({});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+  expect(page.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
+  expect(page.host.querySelector("[role=log]")).toBe(null);
+  await page.draw(agents);
+  // the log of this mind is empty and has answered: now, and only now, the chat says so
+  expect(page.host.querySelector("[role=log]")?.textContent).toContain("Nothing said yet");
+  expect(page.host.querySelector("[data-slot=log-reading]")).toBe(null);
 });
 
 test("the Agents page of a mind with folders and no agent says so, and counts none", async () => {
@@ -172,8 +215,14 @@ async function draw(
   {
     waiting,
     openers,
-    agents: rows = agents,
-  }: { waiting: number; openers?: Record<string, string>; agents?: typeof agents },
+    agents: first = agents,
+  }: {
+    /** How many requests wait; undefined: the count is not known yet. */
+    waiting: number | undefined;
+    openers?: Record<string, string>;
+    /** The catalog of the mind's agents; "unread": it has not answered yet. */
+    agents?: typeof agents | "unread";
+  },
 ) {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -193,35 +242,55 @@ async function draw(
   const row = (id: string): DashPage => ({ id, name: id, icon: BotIcon, component: () => null });
   const pages = [row("home"), { ...row("agents"), openers }, row("contexts"), row("integrations")];
   const host = document.body.appendChild(document.createElement("div"));
+  // every text the page showed, at any moment
+  const said: string[] = [];
+  const watcher = new MutationObserver(() => said.push(host.textContent || ""));
+  watcher.observe(host, { childList: true, subtree: true, characterData: true });
   const root = createRoot(host);
-  await act(() =>
-    root.render(
-      <AppShell app="Dash" mind="example.com" mindHref={() => "./"} account={null} locationKey="/">
-        <Suspense fallback="Loading the page…">
-          <Page
-            itx={itx}
-            mind="example.com"
-            principal={{ actor: "/members/a", email: "jo@example.com" }}
-            page={pages[1]!}
-            pages={pages}
-            links={[]}
-            catalog={undefined}
-            agents={rows}
-            waiting={waiting}
-          />
-        </Suspense>
-      </AppShell>,
-    ),
-  );
-  // the page's parts load, its reads answer, and the chat reads the log
-  for (let round = 0; round < 200 && host.textContent?.includes("Loading the page…"); round++)
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
-  // the log is published at most once a frame
-  for (let round = 0; round < 10; round++)
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  const settle = async () => {
+    // the page's parts load, its reads answer, and the chat reads the log
+    for (let round = 0; round < 200 && host.textContent?.includes("Loading the page…"); round++)
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    // the log is published at most once a frame
+    for (let round = 0; round < 10; round++)
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  };
+  const drawWith = async (rows: typeof agents | undefined) => {
+    await act(() =>
+      root.render(
+        <AppShell
+          app="Dash"
+          mind="example.com"
+          mindHref={() => "./"}
+          account={null}
+          locationKey="/"
+        >
+          <Suspense fallback="Loading the page…">
+            <Page
+              itx={itx}
+              mind="example.com"
+              principal={{ actor: "/members/a", email: "jo@example.com" }}
+              page={pages[1]!}
+              pages={pages}
+              links={[]}
+              catalog={undefined}
+              agents={rows}
+              waiting={waiting}
+            />
+          </Suspense>
+        </AppShell>,
+      ),
+    );
+    await settle();
+  };
+  await drawWith(first === "unread" ? undefined : first);
   return {
     host,
+    said,
+    /** Draw again with the catalog's answer. */
+    draw: drawWith,
     [Symbol.asyncDispose]: async () => {
+      watcher.disconnect();
       await act(() => root.unmount());
       host.remove();
     },

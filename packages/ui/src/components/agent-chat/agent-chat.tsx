@@ -59,7 +59,6 @@ import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import type { StreamEvent } from "./stream-event.ts";
-import { Spinner } from "#/components/ui/spinner.tsx";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
 import type { LiveStateView } from "#/components/context-view/types.tsx";
 import { RIGHT_EDGE_CLOSED } from "#/components/context-view/context-view-search.ts";
@@ -69,7 +68,7 @@ import {
   OLDER_EXHAUSTED,
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
-import { ReadProgress } from "#/components/virtual-log/read-progress.tsx";
+import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 import { remembered } from "#/components/virtual-log/remembered.ts";
 
 type AgentChatContext = ContextViewSource & { processors: { loaded: boolean } };
@@ -102,14 +101,10 @@ function AgentContextProgress({ context, error }: { context: AgentChatContext; e
   // A shared room has no agent facet until the first message asks the agent to work.
   const noAgent =
     !context.liveState.agent && context.processors.loaded && !context.processors.error;
-  if (noAgent && !error && !context.error) return null;
-  if (error || context.error || turn.liveUnavailable)
-    return (
-      <AgentTurnStatus
-        text={error || context.error || "Agent status unavailable"}
-        working={false}
-      />
-    );
+  const failure = error || context.error;
+  if (noAgent && !failure) return null;
+  if (failure || turn.liveUnavailable)
+    return <AgentTurnStatus text={failure || "Agent status unavailable"} working={false} />;
   if (!context.caughtUp || status.tone === "muted") return null;
   const activity = deriveAgentUiLiveStatus(feed.state)?.statusText;
   return (
@@ -182,7 +177,8 @@ export function AgentChat({
    *  doing for them elsewhere on the page, say. */
   aboveComposer?: ReactNode;
   /** What the feed shows, centred, once the read is done and nothing has been said: a page's own
-   *  greeting, in place of "Nothing said yet". The first read still shows its progress. */
+   *  greeting, in place of "Nothing said yet". While the log is being read the feed says so, and a
+   *  read that failed shows its error alone. */
   empty?: ReactNode;
   /** The composer's text while it is empty. */
   placeholder?: string;
@@ -239,6 +235,7 @@ export function AgentChat({
           older={older}
           logShare={logShare}
           caughtUp={context.caughtUp}
+          failed={Boolean(hostError || context.error)}
           readingForFirstRow={readingForFirstRow}
           toggled={toggled}
           onToggle={onToggle}
@@ -313,14 +310,15 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
 }
 
 /** What the strip says the agent is doing. A script still running is the context's, read from the
- *  log: the feed's running code step. */
+ *  log: the feed's running code step. Before the agent's live state is known it says nothing: the
+ *  feed's loading state is the one thing that speaks of the wait. */
 function chatStatus(
   { facet, liveUnavailable, detail }: ReturnType<typeof agentTurnOf>,
   feedState: AgentUiState,
 ): AgentShellStatus {
   if (!facet)
     return {
-      text: liveUnavailable ? "Live state unavailable" : "Connecting…",
+      text: liveUnavailable ? "Live state unavailable" : "",
       tone: "muted" as const,
       detail,
     };
@@ -357,6 +355,7 @@ function ChatTab({
   older,
   logShare,
   caughtUp,
+  failed,
   readingForFirstRow,
   toggled,
   onToggle,
@@ -377,6 +376,7 @@ function ChatTab({
   older: OlderPages;
   logShare: number;
   caughtUp: boolean;
+  failed: boolean;
   readingForFirstRow: boolean;
   toggled: ReadonlySet<string>;
   onToggle: (id: string) => void;
@@ -427,6 +427,7 @@ function ChatTab({
       empty={
         <ChatEmpty
           caughtUp={caughtUp}
+          failed={failed}
           readProgress={readingForFirstRow ? logShare : undefined}
           empty={empty}
         />
@@ -472,29 +473,24 @@ function ChatTab({
   );
 }
 
-/** What the chat shows with no rows: the first read, older pages being read for a first row, or a
- *  log with nothing said on it (the page's own `empty`, in the middle of the feed, if it gave one). */
+/** What the chat shows with no rows. While the log is being read, that it is: the first read, then
+ *  how far the older pages have come toward a first row. Nothing for a read that `failed`: the
+ *  shell shows its error. Only a log read through with nothing said on it is empty (the page's own
+ *  `empty`, in the middle of the feed, if it gave one). */
 function ChatEmpty({
   caughtUp,
+  failed,
   readProgress,
   empty,
 }: {
   caughtUp: boolean;
+  failed: boolean;
   readProgress: number | undefined;
   empty: ReactNode;
 }) {
-  if (!caughtUp)
-    return (
-      <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-        <Spinner className="size-4" /> Reading the log…
-      </div>
-    );
-  if (readProgress !== undefined)
-    return (
-      <div className="py-6">
-        <ReadProgress label="Reading the log" value={readProgress} />
-      </div>
-    );
+  if (failed) return null;
+  if (!caughtUp || readProgress !== undefined)
+    return <LogReading label="Reading the log" progress={readProgress} className="py-6" />;
   if (empty)
     return (
       <div data-slot="agent-chat-empty" className="flex h-full items-center justify-center py-6">

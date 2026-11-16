@@ -20,6 +20,19 @@ test("a shell that renders ten times reads the mind once, with a new `read` at e
   await act(() => root.unmount());
 });
 
+test("the count is not known before the first answer, and is 0 only when the mind says so", async () => {
+  const mind = fakeMind();
+  const held = mind.hold();
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(() => root.render(<Shell mind="first.example.com" read={mind.reader()} tick={0} />));
+  expect(document.body.textContent).toContain("waiting: not known");
+  held.release();
+  await mind.settled();
+  await act(async () => {});
+  expect(document.body.textContent).toContain("waiting: 1");
+  await act(() => root.unmount());
+});
+
 test("two shells of one mind share one read, one timer and one count", async () => {
   vi.useFakeTimers();
   try {
@@ -66,7 +79,7 @@ test("a page that decided something asks once more, however often it says so whi
 
 function Shell({ mind, read, tick }: { mind: string; read: never; tick: number }) {
   const waiting = useWaitingApprovals(mind, read);
-  return <p data-tick={tick}>waiting: {waiting}</p>;
+  return <p data-tick={tick}>waiting: {waiting ?? "not known"}</p>;
 }
 
 /** A mind with one secret, whose one request waits. `reads` counts the reads of its approvals: each
