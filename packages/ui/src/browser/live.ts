@@ -6,7 +6,7 @@
 // dials a new session when its socket closes: such a page holds a context with `useHeldContext`,
 // wraps what `useIterateContext` returns in `useKeptContext`, and draws `ReconnectingMark`
 // (src/hooks/use-itx-session.ts, src/components/reconnecting-mark.tsx). Its views draw a reload at
-// once with `useSavedContext` over the member's `savedLogTails` (src/hooks/use-saved-context.ts),
+// once with `useSavedContext` over the member's `savedLogTails` (#/lib/saved-context.ts),
 // and `wipeSavedLogTails` forgets them all when the sign-in ends.
 // Then hold a context (`useContextStub`) and read it live for ContextView (`useIterateContext`), or
 // one facet's live state alone (`useFacetLiveState`, `facetSnapshotOf`), or, with no React,
@@ -16,7 +16,7 @@ export { newWebSocketRpcSession } from "capnweb";
 export { memberItx, mindOfHost } from "./member-itx.ts";
 export { itxSessionOf } from "#/lib/itx-session.ts";
 export { savedLogTails, wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
-export { useSavedContext } from "#/hooks/use-saved-context.ts";
+export { useSavedContext } from "#/lib/saved-context.ts";
 export {
   useHeldContext,
   useItxConnection,

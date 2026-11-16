@@ -27,6 +27,7 @@ import type { ContextListing } from "#/components/context-catalog/context-catalo
 import type { AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, kept } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
+import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -161,7 +162,7 @@ function useConnection(itx: Itx) {
 /** Any context of the mind, live: `?context=<path>` (`?context=/` is the root), and the explorer's
  *  own state in `?view`. With no `?context` the page opens no context: the list, and a note. With
  *  an Agents page, beside the path is the way to the same context in the agent view. */
-export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
+export function DashContexts({ itx, mind, principal, page, pages, catalog }: DashPageProps) {
   const { ContextExplorer, contextPathOf, contextViewStateOf } = use(contextsPart());
   const tail = usePageParam("context");
   const path = tail ? contextPathOf(tail) : undefined;
@@ -177,11 +178,15 @@ export function DashContexts({ itx, page, pages, catalog }: DashPageProps) {
     [page.id],
   );
   const openRoot = useCallback(() => itx.cd("/"), [itx]);
+  // the member's saved rows, once the mind has said who the member is: none are read or saved
+  // before, so one member never sees another's
+  const tails = principal?.actor ? savedLogTails({ mind, actor: principal.actor }) : undefined;
   return (
     <ContextExplorer
       openRoot={openRoot}
       deps={[itx]}
       session={itxSessionOf(itx)}
+      tails={tails}
       path={path}
       links={links}
       state={contextViewStateOf(view)}

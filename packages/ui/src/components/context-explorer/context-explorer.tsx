@@ -16,6 +16,7 @@
 //     links={{ hrefOf: (path) => `?context=${path}`, onNavigate }}
 //     state={state}
 //     onStateChange={(patch) => setState((before) => ({ ...before, ...patch }))}
+//     tails={savedLogTails({ mind, actor })}
 //   />
 import {
   useMemo,
@@ -27,7 +28,7 @@ import {
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { resolveContextPath } from "iterate/lib";
-import { useContextStub, useFacetLiveState, useIterateContext } from "iterate/react";
+import { useContextStub, useFacetLiveState } from "iterate/react";
 import { ContextPath, type ContextPathLinks } from "#/components/context-view/context-path.tsx";
 import { ContextTree, ContextTreeSheet } from "#/components/context-view/context-tree.tsx";
 import { ContextViewState } from "#/components/context-view/context-view-search.ts";
@@ -39,7 +40,9 @@ import {
   type ContextListing,
 } from "#/components/context-catalog/context-catalog-rows.ts";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import { itxSessionOf, kept, keptContext, type ItxSession } from "#/lib/itx-session.ts";
+import { itxSessionOf, kept, type ItxSession } from "#/lib/itx-session.ts";
+import { useHasSavedTail, useSavedContext } from "#/lib/saved-context.ts";
+import type { SavedLogTails } from "#/lib/saved-log-tail.ts";
 
 /** The session of a page whose connection is not `memberItx`'s: one that is always open. */
 const oneSession = itxSessionOf({});
@@ -58,6 +61,7 @@ export function ContextExplorer({
   catalog,
   actions,
   empty,
+  tails,
 }: {
   /** The mind's catalog of its contexts (`useContextCatalog` of components/context-catalog), when the app reads it: the tree
    *  marks the awake ones, a "Recent" list joins the tree, and the context shown says what it is. */
@@ -81,8 +85,22 @@ export function ContextExplorer({
   actions?: ReactNode;
   /** What the main area says while no context is chosen. */
   empty?: ReactNode;
+  /** The member's saved tails (`savedLogTails` of lib/saved-log-tail): a log shown again, also
+   *  after a reload, draws the rows it showed last at once, and the mind is asked only for what is
+   *  newer. Absent: each log is read anew. */
+  tails?: SavedLogTails;
 }) {
-  const { stub, contexts, context, error } = useHeldContexts({ session, openRoot, deps, path });
+  const { stub, contexts, context, error } = useHeldContexts({
+    session,
+    openRoot,
+    deps,
+    path,
+    tails,
+  });
+  // While the store looks for saved rows of this log (at once from the page's memory, else
+  // within 300 ms), the view waits and says nothing of a read: with saved rows none holds the
+  // reader up, and they are in the view's first render.
+  const looking = useHasSavedTail(path ? tails : undefined, path || "") === undefined;
   // with the root not held, the catalog's paths make the tree
   const paths = useMemo(
     () => [
@@ -149,6 +167,8 @@ export function ContextExplorer({
               {error}
             </p>
           </>
+        ) : looking ? (
+          <div className="flex items-center px-3 py-1.5 sm:px-4">{title}</div>
         ) : (
           <ContextView
             title={title}
@@ -173,11 +193,13 @@ function useHeldContexts({
   openRoot,
   deps,
   path,
+  tails,
 }: {
   session: ItxSession;
   openRoot: (() => PromiseLike<ContextStub>) | null;
   deps: DependencyList;
   path: string | undefined;
+  tails: SavedLogTails | undefined;
 }) {
   const { epoch, state: connection } = useSyncExternalStore(
     session.subscribe,
@@ -198,9 +220,16 @@ function useHeldContexts({
   const contexts = keepContexts(registry.value, registry.value !== undefined, "mind");
   // `liveState` omitted: the hook opens the core reduce's live state and every hosted facet's as
   // the processors table it holds loads, which is exactly what the panel shows. A new session
-  // reads the context again: the rows the view holds stay, and the new ones come after them.
-  const [keepContext] = useState(() => keptContext<ReturnType<typeof useIterateContext>>());
-  const context = keepContext(useIterateContext(shown.stub), path || "");
+  // reads the context again: the rows the view holds stay, and the new ones come after them. A
+  // reload draws the saved rows at once (`tails`). With no path, nothing is read or saved.
+  const refusal = useRefusal(shown, rootStub, epoch, path || "");
+  const context = useSavedContext({
+    held: { stub: shown.stub, error: refusal },
+    options: {},
+    path: path || "",
+    session,
+    tails: path ? tails : undefined,
+  });
   return {
     stub: shown.stub,
     contexts,
@@ -208,6 +237,31 @@ function useHeldContexts({
     // what did not open while no session is open says nothing: the next session opens it
     error: connection === "open" ? root.error || shown.error : undefined,
   };
+}
+
+/** The error of the context shown, when it is the mind's answer: a `cd` from the root in hand, and
+ *  that root opened in this session. A saved copy goes for good on it. The stub is released while
+ *  a new root opens, so an error of the old root's `cd` can stay in hand for a render beside the
+ *  new root, or land after the new session opened: that one is the lost connection's. And for a
+ *  render after the path changed, what is in hand is still the last path's: its error is not this
+ *  path's. */
+function useRefusal(
+  shown: { error?: string },
+  root: object | undefined,
+  epoch: number,
+  path: string,
+) {
+  const [rootArrived, setRootArrived] = useState({ root, epoch });
+  if (rootArrived.root !== root) setRootArrived({ root, epoch });
+  const [shownArrived, setShownArrived] = useState({ shown, root, path });
+  if (shownArrived.shown !== shown) setShownArrived({ shown, root, path });
+  const ofThisSessionAndPath =
+    rootArrived.root === root &&
+    rootArrived.epoch === epoch &&
+    shownArrived.shown === shown &&
+    shownArrived.root === root &&
+    shownArrived.path === path;
+  return ofThisSessionAndPath ? shown.error : undefined;
 }
 
 /** The side list: the tree of contexts and, with a catalog, its Recent list, one at a time. */

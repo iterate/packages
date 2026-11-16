@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 // The kit's pages of a Dash do their own reads: what a page says for a mind that has no vault or no
-// integrations, and what the secrets page says when the vault refuses.
+// integrations, what the secrets page says when the vault refuses, and that the Contexts page
+// saves the member's log tails.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, test } from "vitest";
-import { DashIntegrations, DashSecrets, type DashPageProps } from "./dash-pages.tsx";
+import { expect, test, vi } from "vitest";
+import { DashContexts, DashIntegrations, DashSecrets, type DashPageProps } from "./dash-pages.tsx";
+import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 test("a mind with no vault: the secrets page says so and lists nothing", async () => {
   const { itx, lists } = mind([], async () => []);
@@ -26,6 +28,51 @@ test("a mind with no integrations: the page says so under its title", async () =
   expect(page.host.textContent).toContain("This mind has no integrations yet.");
 });
 
+test("the Contexts page hands the member's saved tails to the explorer: the log it read is saved for a reload", async () => {
+  history.replaceState(null, "", "/?page=contexts&context=/agents/a");
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // jsdom lays nothing out: the virtual log's scroller asks for one
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  const events = [1, 2].map((offset) => ({
+    offset,
+    type: "events.iterate.com/agent/context-added",
+    createdAt: `2026-11-16T00:00:0${offset}.000Z`,
+    path: "/agents/a",
+    payload: { role: "user", content: `message ${offset}` },
+  }));
+  const context = {
+    readEvents: async (after: number) => {
+      const newer = events.filter((event) => event.offset > after);
+      return { events: newer, atHead: true, scannedThroughOffset: 2 };
+    },
+    subscribe: async () => ({ [Symbol.dispose]() {} }),
+    subscriptions: { list: async () => [] },
+    rpcStubs: { list: async () => [] },
+    invoke: async () => ({ rev: 1, state: {} }),
+    [Symbol.dispose]() {},
+  };
+  const root = {
+    cd: async () => context,
+    invoke: async () => ({ rev: 1, state: {} }),
+    subscribe: async () => ({ [Symbol.dispose]() {} }),
+    [Symbol.dispose]() {},
+  };
+  const itx = { cd: async () => root } as unknown as DashPageProps["itx"];
+  await using page = await draw(DashContexts, itx, { actor: "/members/a" });
+  const tails = savedLogTails({ mind: "example.com", actor: "/members/a" });
+  for (let tick = 0; tick < 80 && !tails.peek("/agents/a")?.tail; tick += 1)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  expect(page.host.textContent).toContain("2 events");
+  expect(tails.peek("/agents/a")?.tail?.events.map((event) => event.offset)).toEqual([1, 2]);
+});
+
 /** A mind that serves the roots `serves` names, with a vault that lists by `secrets`. */
 function mind(serves: string[], secrets: () => Promise<{ path: string }[]>) {
   let lists = 0;
@@ -44,7 +91,11 @@ function mind(serves: string[], secrets: () => Promise<{ path: string }[]>) {
 }
 
 /** The page as the Dash's shell draws it, once its part of the kit and its reads are in. */
-async function draw(Page: (props: DashPageProps) => ReactNode, itx: DashPageProps["itx"]) {
+async function draw(
+  Page: (props: DashPageProps) => ReactNode,
+  itx: DashPageProps["itx"],
+  principal: DashPageProps["principal"] = null,
+) {
   const row = { id: "secrets", name: "Secrets", icon: () => null, component: () => null };
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
@@ -54,7 +105,7 @@ async function draw(Page: (props: DashPageProps) => ReactNode, itx: DashPageProp
         <Page
           itx={itx}
           mind="example.com"
-          principal={null}
+          principal={principal}
           page={row}
           pages={[row]}
           links={[]}

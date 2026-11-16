@@ -10,7 +10,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { useIterateContext } from "iterate/react";
-import { useKeptContext } from "./use-itx-session.ts";
+import { useKeptContext } from "#/hooks/use-itx-session.ts";
 import { itxSessionOf, type ItxConnection, type ItxSession } from "#/lib/itx-session.ts";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -214,7 +214,7 @@ async function database() {
 /** The hook and the store as a new page loads them: no memory, the same database. */
 async function page() {
   vi.resetModules();
-  const { useSavedContext } = await import("./use-saved-context.ts");
+  const { useSavedContext } = await import("./saved-context.ts");
   const store = await import("#/lib/saved-log-tail.ts");
   stores.push(store);
   return { useSavedContext, tails: store.savedLogTails };

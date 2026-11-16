@@ -853,6 +853,8 @@
         "iterate/packages/context-catalog",
         "iterate/packages/context-view",
         "iterate/packages/itx-session",
+        "iterate/packages/saved-context",
+        "iterate/packages/saved-log-tail",
         "tabs"
       ],
       "files": [
@@ -889,6 +891,7 @@
         "iterate/packages/page-url",
         "iterate/packages/reconnecting-mark",
         "iterate/packages/repo-ide",
+        "iterate/packages/saved-log-tail",
         "iterate/packages/secrets-page",
         "iterate/packages/waiting-approvals",
         "sidebar",
@@ -1798,6 +1801,24 @@
       "files": [
         {
           "path": "src/lib/itx-session.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "saved-context",
+      "type": "registry:lib",
+      "description": "A context's log that a reload draws at once: what useIterateContext returns, kept over reconnects and seeded with the tail of the log that the last page load saved, read from there for what is newer.",
+      "dependencies": [
+        "iterate"
+      ],
+      "registryDependencies": [
+        "iterate/packages/itx-session",
+        "iterate/packages/saved-log-tail"
+      ],
+      "files": [
+        {
+          "path": "src/lib/saved-context.ts",
           "type": "registry:lib"
         }
       ]

@@ -1,4 +1,4 @@
-// use-saved-context.ts — A CONTEXT'S LOG THAT A RELOAD DRAWS AT ONCE: what `useIterateContext`
+// saved-context.ts — A CONTEXT'S LOG THAT A RELOAD DRAWS AT ONCE: what `useIterateContext`
 // returns, kept over reconnects as `useKeptContext` keeps it, and seeded with the tail that the
 // last page load saved (#/lib/saved-log-tail.ts). A page calls it in the place of
 // `useKeptContext(useIterateContext(stub, options), path)`:
@@ -59,12 +59,16 @@ export function useSavedContext({
   tails: SavedLogTails | undefined;
 }) {
   const { state, epoch } = useSyncExternalStore(session.watch, session.get, session.get);
-  // The session in which the stub in hand arrived. After a socket died the old stub stays in hand
-  // until its successor arrives, also once the new session is open: what its read says then is
-  // the lost connection's, not the mind's.
-  const [arrived, setArrived] = useState({ stub: held.stub, epoch });
-  if (arrived.stub !== held.stub) setArrived({ stub: held.stub, epoch });
-  const stubOfThisSession = arrived.stub === held.stub && arrived.epoch === epoch;
+  // The session in which the stub in hand arrived, and the path it arrived for. After a socket
+  // died the old stub stays in hand until its successor arrives, also once the new session is
+  // open: what its read says then is the lost connection's, not the mind's. And a page that stays
+  // mounted while its path changes still has the LAST context's stub in hand for a render
+  // (`useContextStub` gives it up in an effect): that stub is read under its own path alone, or
+  // the last context's log would be drawn, and saved, under the new path.
+  const [arrived, setArrived] = useState({ stub: held.stub, epoch, path });
+  if (arrived.stub !== held.stub) setArrived({ stub: held.stub, epoch, path });
+  const stubOfThisPath = arrived.stub === held.stub && arrived.path === path;
+  const stubOfThisSession = stubOfThisPath && arrived.epoch === epoch;
   const [keep] = useState(() => keptContext<Live>());
   // the tail this view starts from, and whether the store has answered for `path`: the memory of
   // this page answers at once
@@ -86,7 +90,10 @@ export function useSavedContext({
   }, [seed, tails]);
   // the newest durable event shown, or else saved: the read returns it again, and what is newer
   const since = keep.through(path) ?? seed.tail?.events.at(-1)?.offset;
-  const live = useIterateContext(seed.answered ? held.stub : undefined, { ...options, since });
+  const live = useIterateContext(seed.answered && stubOfThisPath ? held.stub : undefined, {
+    ...options,
+    since,
+  });
   // the mind's refusal, while the session is open: the copy goes for good. An error while no
   // session is open, or of a stub that an earlier session opened, is the lost connection's, and
   // the copy stays for the next page.

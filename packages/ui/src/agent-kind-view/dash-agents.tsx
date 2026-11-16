@@ -31,7 +31,7 @@ import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { useHeldContext } from "#/hooks/use-itx-session.ts";
-import { useHasSavedTail, useSavedContext } from "#/hooks/use-saved-context.ts";
+import { useHasSavedTail, useSavedContext } from "#/lib/saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";

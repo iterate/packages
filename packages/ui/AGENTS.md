@@ -35,7 +35,8 @@ Lint and Typecheck fails when they are stale. The script's header explains the r
   `#/` import of a file outside the registry (`src/apps/`, `src/hooks/`), or an `@iterate-com/*`
   import.
 - Hooks and providers are not items. They belong in `iterate/react`. `use-context-explorer` stays
-  here until it moves.
+  here until it moves. A hook that a registry item needs lives in its `src/lib/` file
+  (`lib/saved-context`, `lib/waiting-approvals`).
 - The shadcn CLI drops a file's leading comment when it installs it (shadcn-ui/ui#9206). The copy
   here keeps it.
 

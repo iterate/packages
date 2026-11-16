@@ -147,6 +147,7 @@
       "./lib/itx-session": "./dist/lib/itx-session.mjs",
       "./lib/page-url": "./dist/lib/page-url.mjs",
       "./lib/plain-left-click": "./dist/lib/plain-left-click.mjs",
+      "./lib/saved-context": "./dist/lib/saved-context.mjs",
       "./lib/saved-log-tail": "./dist/lib/saved-log-tail.mjs",
       "./lib/source-editor": "./dist/lib/source-editor.mjs",
       "./lib/waiting-approvals": "./dist/lib/waiting-approvals.mjs",

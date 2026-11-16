@@ -1,7 +1,7 @@
 // saved-log-tail.ts — THE SAVED TAIL OF A CONTEXT'S LOG, in the browser's IndexedDB. A view that is
 // drawn again after a reload shows at once the rows it showed last, and the mind is asked only for
 // what is newer: the tail is the seed of `keptContext` (#/lib/itx-session.ts), and the offset of
-// its newest event is the read's `since`. `useSavedContext` (src/hooks/use-saved-context.ts) holds
+// its newest event is the read's `since`. `useSavedContext` (#/lib/saved-context.ts) holds
 // both for a page.
 //
 //   const tails = savedLogTails({ mind, actor });   one store per owner, for the life of the page
