@@ -25,7 +25,10 @@ import { ContextViewState } from "#/components/context-view/context-view-search.
 import { ContextView } from "#/components/context-view/context-view.tsx";
 import { ContextAbout } from "#/components/context-catalog/context-about.tsx";
 import { ContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
-import type { ContextListing } from "#/components/context-catalog/context-catalog-rows.ts";
+import {
+  describedPayload,
+  type ContextListing,
+} from "#/components/context-catalog/context-catalog-rows.ts";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 
 /** A held context, as a mind's root hands it (`itx.cd(path)`). */
@@ -85,6 +88,7 @@ export function ContextExplorer({
   // the processors table it holds loads, which is exactly what the panel shows
   const context = useIterateContext(shown.stub);
   const error = root.error || shown.error;
+  const shownRow = catalog?.find((row) => row.path === path);
   const title = (
     <>
       <ContextTreeSheet {...tree} className="lg:hidden" />
@@ -93,13 +97,13 @@ export function ContextExplorer({
         <ContextAbout
           // a draft of a description is one context's: another path starts afresh
           key={path}
-          row={catalog.find((row) => row.path === path)}
+          row={shownRow}
           onDescribe={
             stub
-              ? (description) =>
+              ? (description, title) =>
                   stub.append({
                     type: "events.iterate.com/itx/described",
-                    payload: { description: description || null },
+                    payload: describedPayload(shownRow, description, title),
                   })
               : undefined
           }

@@ -1,5 +1,6 @@
 // The mind's contexts as a list, the most recently active first: each row its path, a dot while it
-// is awake, how long ago it was active, and its description or its last event types. One input
+// is awake, how long ago it was active, and its `title · description` or its last event types
+// (`layout` "path-first"; "title-first" puts the title above the path). One input
 // over it narrows the rows by any word of a path, a description, an event type, a processor or the
 // metadata. Pure: the rows (`useContextCatalog`), the current path and where a path links are
 // props, so a sidebar, a page and a dialog draw the same list. `useContextCatalog` reads the rows.
@@ -9,10 +10,12 @@ import { cn } from "cn";
 import {
   activeAtOf,
   contextListingsOf,
+  contextName,
   contextRowDetail,
   filterContextListings,
   timeAgo,
   type ContextListing,
+  type ContextRowLayout,
 } from "./context-catalog-rows.ts";
 import { ContextPathText } from "#/components/context-path-text.tsx";
 import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
@@ -27,6 +30,7 @@ export function ContextCatalog({
   rows,
   current,
   links,
+  layout,
   className,
 }: {
   /** The catalog's rows, the most recently active first; undefined while the first read is on
@@ -35,6 +39,8 @@ export function ContextCatalog({
   /** The path shown. */
   current?: string;
   links: ContextPathLinks;
+  /** How a row is laid out; "path-first" when omitted. */
+  layout?: ContextRowLayout;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -52,7 +58,13 @@ export function ContextCatalog({
           if (event.key === "Escape") setQuery("");
         }}
       />
-      <ContextCatalogList rows={shown} current={current} links={links} nowMs={nowMs} />
+      <ContextCatalogList
+        rows={shown}
+        current={current}
+        links={links}
+        nowMs={nowMs}
+        layout={layout}
+      />
       <p className="px-2 text-2xs text-muted-foreground">
         {!rows
           ? "Loading contexts…"
@@ -70,11 +82,13 @@ export function ContextCatalogList({
   current,
   links,
   nowMs,
+  layout = "path-first",
 }: {
   rows: readonly ContextListing[];
   current?: string;
   links: ContextPathLinks;
   nowMs: number;
+  layout?: ContextRowLayout;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -100,6 +114,7 @@ export function ContextCatalogList({
               current={current}
               links={links}
               nowMs={nowMs}
+              layout={layout}
             />
           </li>
         ))}
@@ -108,19 +123,23 @@ export function ContextCatalogList({
   );
 }
 
-function ContextCatalogRow({
+/** One row of the list, laid out by `layout`. */
+export function ContextCatalogRow({
   row,
   current,
   links,
   nowMs,
+  layout,
 }: {
   row: ContextListing;
   current: string | undefined;
   links: ContextPathLinks;
   nowMs: number;
+  layout: ContextRowLayout;
 }) {
   const activeAt = activeAtOf(row);
   const detail = contextRowDetail(row);
+  const titleFirst = layout === "title-first";
   return (
     <PathLink
       path={row.path}
@@ -130,7 +149,11 @@ function ContextCatalogRow({
     >
       <span className="flex min-w-0 items-start gap-1.5">
         <AwakeDot awake={Boolean(row.awake)} className="mt-1.5" />
-        <ContextPathText path={row.path} className="min-w-0 flex-1 text-foreground/90" />
+        {titleFirst ? (
+          <span className="min-w-0 flex-1 truncate text-foreground/90">{contextName(row)}</span>
+        ) : (
+          <ContextPathText path={row.path} className="min-w-0 flex-1 text-foreground/90" />
+        )}
         <time
           dateTime={activeAt}
           title={activeAt}
@@ -139,9 +162,13 @@ function ContextCatalogRow({
           {row.awake ? "awake" : timeAgo(activeAt, nowMs)}
         </time>
       </span>
-      <span className="truncate pl-3 text-2xs text-muted-foreground" title={detail}>
-        {detail || `${String(row.eventCount)} events`}
-      </span>
+      {titleFirst ? (
+        <ContextPathText path={row.path} truncate className="pl-3 text-2xs text-muted-foreground" />
+      ) : (
+        <span className="truncate pl-3 text-2xs text-muted-foreground" title={detail}>
+          {detail || `${String(row.eventCount)} events`}
+        </span>
+      )}
     </PathLink>
   );
 }

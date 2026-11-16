@@ -83,9 +83,60 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 }
 
-/** What a row says under its path: its description, or else its last few event types. */
+/** The longest title a row shows. */
+const TITLE_LIMIT = 80;
+
+/** A context's short stable title: `metadata.title` of its newest `itx/described`, trimmed and cut
+ *  to 80 characters; undefined when it has none. Its description says what it is for. */
+export function contextTitle(row: ContextListing): string | undefined {
+  const title = row.metadata?.title;
+  if (typeof title !== "string") return undefined;
+  return title.trim().slice(0, TITLE_LIMIT).trim() || undefined;
+}
+
+/** A context's name where a title is wanted: its title, else the last part of its path. */
+export function contextName(row: ContextListing): string {
+  return contextTitle(row) || row.path.split("/").filter(Boolean).at(-1) || "/";
+}
+
+/** The catalog keeps a context's metadata only while it prints this short
+ *  (core/itx/src/context/context-summary.ts): a longer record is dropped whole, its title too. */
+const METADATA_MAX_CHARS = 4_000;
+
+/** The payload of the `events.iterate.com/itx/described` that writes `description` and, when it
+ *  is given, `title`. Without a title it names no metadata, so the metadata stays. `metadata` is
+ *  one record and the newest stands, so a title goes in with the rest of the row's metadata, and
+ *  an empty title takes the `title` key out. It throws for a context with no row, whose metadata
+ *  is not known here, and for a record the catalog would drop. */
+export function describedPayload(
+  row: ContextListing | undefined,
+  description: string,
+  title?: string,
+): { description: string | null; metadata?: Record<string, unknown> | null } {
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty title removes it; absent keeps the metadata
+  if (title === undefined) return { description: description || null };
+  if (!row)
+    throw new Error("The catalog does not list this context yet, so its title cannot be set here.");
+  const { title: _title, ...rest } = row.metadata || {};
+  const metadata = title.trim() ? { ...rest, title: title.trim() } : rest;
+  if (JSON.stringify(metadata).length > METADATA_MAX_CHARS)
+    throw new Error("This context's metadata is too long for the catalog to keep with a title.");
+  // a record with nothing left is cleared (null), not kept as an empty one
+  return {
+    description: description || null,
+    metadata: Object.keys(metadata).length ? metadata : null,
+  };
+}
+
+/** How a row of the list is laid out. "path-first": the path, then `title · description`.
+ *  "title-first": the title (or the path's last part), then the path. */
+export type ContextRowLayout = "path-first" | "title-first";
+
+/** What a row says under its path: `title · description`, either alone, or else its last few
+ *  event types. */
 export function contextRowDetail(row: ContextListing): string {
-  return row.description || row.recentTypes.map(shortEventType).toReversed().join(" · ");
+  const words = [contextTitle(row), row.description].filter(Boolean).join(" · ");
+  return words || row.recentTypes.map(shortEventType).toReversed().join(" · ");
 }
 
 /** The newest event types first, each run of one type as one entry with its count: the last

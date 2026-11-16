@@ -1,5 +1,5 @@
-// What one context says about itself, behind a button beside its path: its description (which a
-// person can write here), whether it works now, when it was made and last active, how much it
+// What one context says about itself, behind a button beside its path: its title and description
+// (which a person can write here), whether it works now, when it was made and last active, how much it
 // holds, its last events, the processors on it, every event type its log has seen with a count,
 // and its metadata. ⌘K's preview (context-palette.tsx) shows the same facts.
 // Pure: the catalog's row for the context and what "Save" does are props.
@@ -7,6 +7,7 @@ import { useState } from "react";
 import { InfoIcon } from "lucide-react";
 import {
   activeAtOf,
+  contextTitle,
   eventRunsOf,
   formatBytes,
   shortEventType,
@@ -15,6 +16,7 @@ import {
 import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Input } from "#/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 
@@ -24,10 +26,12 @@ export function ContextAbout({
 }: {
   /** The catalog's row for the context shown; undefined when the catalog has none yet. */
   row: ContextListing | undefined;
-  /** Writes the context's description (it appends `events.iterate.com/itx/described` there).
-   *  Without it the description is read-only. */
-  onDescribe?: (description: string) => Promise<unknown>;
+  /** Writes the context's description and its title, both trimmed, an empty one cleared (it
+   *  appends `events.iterate.com/itx/described` there; `describedPayload` makes the payload).
+   *  Without it both are read-only. */
+  onDescribe?: (description: string, title?: string) => Promise<unknown>;
 }) {
+  const title = row ? contextTitle(row) || "" : "";
   return (
     <Popover>
       <PopoverTrigger
@@ -35,7 +39,7 @@ export function ContextAbout({
           <Button variant="ghost" size="sm" className="h-7 max-w-64 gap-1.5 px-2 text-xs">
             <AwakeDot awake={Boolean(row?.awake)} />
             <span className="truncate text-muted-foreground">
-              {row?.description || "About this context"}
+              {title || row?.description || "About this context"}
             </span>
             <InfoIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </Button>
@@ -43,9 +47,11 @@ export function ContextAbout({
       />
       <PopoverContent align="start" className="max-h-[70svh] w-96 gap-3 overflow-y-auto text-xs">
         <DescriptionField
-          // a fresh draft for each description the catalog shows
-          key={row?.description || ""}
+          // a fresh draft for each title and description the catalog shows
+          key={JSON.stringify([title, row?.description || ""])}
+          title={title}
           description={row?.description || ""}
+          listed={Boolean(row)}
           onDescribe={onDescribe}
         />
         {row ? (
@@ -59,21 +65,37 @@ export function ContextAbout({
 }
 
 function DescriptionField({
+  title,
   description,
+  listed,
   onDescribe,
 }: {
+  title: string;
   description: string;
-  onDescribe: ((description: string) => Promise<unknown>) | undefined;
+  /** Whether the catalog has the context's row. A title is written beside the metadata that row
+   *  shows, so a context with no row takes no title here. */
+  listed: boolean;
+  onDescribe: ((description: string, title?: string) => Promise<unknown>) | undefined;
 }) {
+  const [titleDraft, setTitleDraft] = useState(title);
   const [draft, setDraft] = useState(description);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  if (!onDescribe) return <p className="whitespace-pre-wrap">{description || "No description."}</p>;
+  if (!onDescribe) {
+    return (
+      <>
+        {title ? <p className="font-medium">{title}</p> : null}
+        <p className="whitespace-pre-wrap">{description || "No description."}</p>
+      </>
+    );
+  }
   const save = async () => {
     setSaving(true);
     setError(undefined);
     try {
-      await onDescribe(draft.trim());
+      // the title goes along only when it changed: a write of it replaces the context's metadata
+      if (titleDraft.trim() === title) await onDescribe(draft.trim());
+      else await onDescribe(draft.trim(), titleDraft.trim());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -81,6 +103,15 @@ function DescriptionField({
   };
   return (
     <div className="flex flex-col gap-1.5">
+      <Input
+        aria-label="Title"
+        placeholder="A short title"
+        maxLength={80}
+        disabled={!listed}
+        className="h-7 text-xs md:text-xs"
+        value={titleDraft}
+        onChange={(event) => setTitleDraft(event.target.value)}
+      />
       <Textarea
         aria-label="Description"
         placeholder="What is this context for?"
@@ -92,10 +123,10 @@ function DescriptionField({
         <Button
           type="button"
           size="sm"
-          disabled={saving || draft.trim() === description}
+          disabled={saving || (draft.trim() === description && titleDraft.trim() === title)}
           onClick={() => void save()}
         >
-          {saving ? "Saving…" : "Save description"}
+          {saving ? "Saving…" : "Save"}
         </Button>
         {error ? (
           <span role="alert" className="truncate text-destructive" title={error}>
