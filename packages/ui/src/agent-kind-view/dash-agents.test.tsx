@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The Dash's agent pages: the home says what waits for the member in a place of its own (nothing,
-// or the requests and the integrations that ask for them), and the agent view draws any path, links
-// to its raw view, and says the opener once into an empty chat.
+// or the requests and the integrations that ask for them), New agent is a composer alone, and the
+// agent view draws any path, links to its raw view, and says the opener once into an empty chat.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -21,9 +21,7 @@ const agents = agentRowsOf({
 test("the home with nothing waiting: the composer, the words that say so, and the recent agents", async () => {
   const { itx } = mind({});
   await using page = await draw(DashHome, itx, { waiting: 0 });
-  expect(
-    page.host.querySelector('[aria-label="Message a new agent"], [data-placeholder]'),
-  ).not.toBe(null);
+  await composerOf(page.host);
   const waiting = page.host.querySelector('section[aria-labelledby="needs-you"]');
   expect(waiting?.textContent).toBe("Waiting for youNothing waits for you.");
   expect(
@@ -106,8 +104,32 @@ test("the Agents page of a mind with folders and no agent says so, and counts no
   expect(page.host.querySelector('[aria-label="Every agent"]')).toBe(null);
 });
 
-/** A mind of empty logs: what the page appends is kept in `appended`. */
-function mind({ serves = [], integrations }: { serves?: string[]; integrations?: object }) {
+test("New agent is the composer alone, on the home and the Agents page, whatever kinds the mind has", async () => {
+  const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  for (const [Page, url] of [
+    [DashHome, "/"],
+    [DashAgents, "/?page=agents"],
+  ] as const) {
+    history.replaceState(null, "", url);
+    await using page = await draw(Page, itx, { waiting: 0 });
+    await composerOf(page.host);
+    // no choice of kind, and no kind's frame loaded for one
+    expect(page.host.querySelector("select")).toBe(null);
+    expect(page.host.querySelector("iframe")).toBe(null);
+  }
+});
+
+/** A mind of empty logs: what the page appends is kept in `appended`. `kinds`: each kind's file in
+ *  the config repo, by kind. */
+function mind({
+  serves = [],
+  integrations,
+  kinds,
+}: {
+  serves?: string[];
+  integrations?: object;
+  kinds?: Record<string, string>;
+}) {
   const appended: { path: string; events: unknown[] }[] = [];
   const contextOf = (path: string) => ({
     readEvents: async () => ({ events: [], atHead: true, scannedThroughOffset: 0 }),
@@ -122,12 +144,26 @@ function mind({ serves = [], integrations }: { serves?: string[]; integrations?:
     [Symbol.dispose]() {},
   });
   const itx = {
-    kv: { get: async () => null },
-    repos: { get: () => ({ readFile: async () => null }) },
+    kv: {
+      get: async (key: string) => (key === "agent-kinds" && kinds ? JSON.stringify(kinds) : null),
+    },
+    repos: { get: () => ({ readFile: async () => (kinds ? "export default {};" : null) }) },
     rewriteRules: { get: async (root: string) => (serves.includes(root) ? { target: "x" } : null) },
     cd: async (path: string) => contextOf(path),
   } as unknown as DashPageProps["itx"];
   return { itx, appended };
+}
+
+/** The new-agent composer of a drawn page. Its editor is a part that loads after the page drew,
+ *  so this waits for the element, not for a time. */
+function composerOf(host: HTMLElement) {
+  return act(() =>
+    vi.waitFor(() => {
+      const composer = host.querySelector('[aria-label="Message a new agent"], [data-placeholder]');
+      expect(composer).not.toBe(null);
+      return composer;
+    }),
+  );
 }
 
 async function draw(

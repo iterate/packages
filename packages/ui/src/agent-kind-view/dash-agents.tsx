@@ -28,15 +28,8 @@ import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { facetSnapshotOf, useContextStub, useIterateContext } from "iterate/react";
 import type { AgentKindViewInputs } from "./bridge.ts";
-import { appendEvents, messageAgent, startKindAgent, withAgents } from "./dash-agent-calls.ts";
-import {
-  AgentKindHiddenFrame,
-  AgentKindViewFrame,
-  useAgentKindViewLink,
-  useAgentKindViewLinks,
-  type AgentKindViewLink,
-  type AgentKindViewVerbs,
-} from "./host.ts";
+import { appendEvents, messageAgent, withAgents } from "./dash-agent-calls.ts";
+import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
@@ -49,7 +42,6 @@ import {
 import { agentViewHref, rawViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
-import { newAgentOffers, newAgentValues, type NewAgentOffer } from "#/lib/new-agent.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -122,16 +114,13 @@ const ImportMap = z.object({ imports: z.record(z.string(), z.string()) });
 /** THE HOME: a composer whose first message starts a new agent, what waits for the member, and
  *  the agents active most recently. */
 export function DashHome({ itx, mind, principal, pages, agents, waiting }: DashPageProps) {
-  // both load at once; the page shows when both are in
-  const reading = kindFilesOf(itx);
   const { RecentAgents } = use(homePart());
-  const kinds = use(reading);
   const links = useAgentLinks(pages);
   const person = personOf(principal?.email);
   return (
     <DashScroll>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-8 pb-12 md:px-8 md:pt-16">
-        <NewAgent itx={itx} mind={mind} person={person} kinds={kinds} links={links} />
+        <NewAgent itx={itx} person={person} links={links} />
         <NeedsYou itx={itx} mind={mind} pages={pages} waiting={waiting} />
         {agents ? (
           // the most recently active, whoever's: no person's agents first
@@ -151,10 +140,8 @@ export function DashAgents(props: DashPageProps) {
   return <AgentsOverview {...props} />;
 }
 
-function AgentsOverview({ itx, mind, principal, pages, agents }: DashPageProps) {
-  const reading = kindFilesOf(itx);
+function AgentsOverview({ itx, principal, pages, agents }: DashPageProps) {
   const { AllAgents } = use(homePart());
-  const kinds = use(reading);
   const links = useAgentLinks(pages);
   const now = useNow(5_000);
   // the agents, not their folders: the count the palette and the list show
@@ -172,13 +159,7 @@ function AgentsOverview({ itx, mind, principal, pages, agents }: DashPageProps) 
               : `${count.toLocaleString("en")} ${count === 1 ? "agent" : "agents"}`}
           </span>
         </header>
-        <NewAgent
-          itx={itx}
-          mind={mind}
-          person={personOf(principal?.email)}
-          kinds={kinds}
-          links={links}
-        />
+        <NewAgent itx={itx} person={personOf(principal?.email)} links={links} />
         <h2 className="text-sm font-medium text-muted-foreground">Most recently active</h2>
       </div>
       {!agents || !groups ? (
@@ -206,112 +187,25 @@ function useAgentLinks(pages: DashPage[]) {
 
 // ── a new agent ──
 
-/** THE COMPOSER, with the picker of other kinds. Each kind with a file is loaded in a frame no
- *  one sees (a kind's code runs only in a frame), which reports the kind's choices and fields and
- *  makes the events that start one. The choice and the typed fields are the page's `?view`. */
+/** THE COMPOSER whose first message starts a new iterate agent. */
 function NewAgent({
   itx,
-  mind,
   person,
-  kinds,
   links,
 }: {
   itx: Itx;
-  mind: string;
   person: string | undefined;
-  kinds: KindFile[];
   links: ReturnType<typeof useAgentLinks>;
 }) {
   const { NewAgentComposer } = use(homePart());
-  const others = useMemo(
-    () =>
-      kinds.flatMap(({ kind, name, source }) =>
-        kind !== "iterate" && source ? [{ kind, name, source }] : [],
-      ),
-    [kinds],
-  );
-  const { links: frames, loaded } = useAgentKindViewLinks(others);
-  const offers = useMemo(
-    () =>
-      others.flatMap(({ kind }, index) => {
-        const report = loaded[index];
-        return newAgentOffers(kind, report && "newAgent" in report ? report.newAgent : undefined);
-      }),
-    [others, loaded],
-  );
-  const { view, patchView } = useView();
-  const { new: choice, fields } = NewAgentView.parse(view);
-  const picked = offers.find((offer) => offer.value === choice);
-  // what was typed is by kind and field: every kind has a Runner, and one kind's is not another's
-  const values = useMemo(
-    () => newAgentValues(picked, (name) => fields[`${picked?.kind}/${name}`], person),
-    [picked, fields, person],
-  );
-  const frameOf = (offer: NewAgentOffer) =>
-    frames[others.findIndex(({ kind }) => kind === offer.kind)];
-  const line = useKindLine(picked && frameOf(picked), picked, values, mind);
   return (
-    <>
-      {frames.map((frame) => (
-        <AgentKindHiddenFrame key={frame.name} link={frame} frameScript={frameScriptOfPage()} />
-      ))}
-      <NewAgentComposer
-        person={person}
-        offers={offers}
-        offersLoading={others.some((_, index) => !loaded[index])}
-        choice={choice}
-        values={values}
-        line={line}
-        onChoice={(next) => patchView({ new: next })}
-        onField={(name, value) =>
-          picked && patchView({ fields: { ...fields, [`${picked.kind}/${name}`]: value } })
-        }
-        onStart={async (offer, path, startFields) => {
-          const frame = frameOf(offer);
-          if (!frame) throw new Error(`no kind ${offer.kind}`);
-          await startKindAgent(
-            itx,
-            path,
-            frame.startEvents({ choice: offer.choice, fields: startFields, path }),
-          );
-        }}
-        onStarted={(path, kind) => go(pageHref(undefined, { agent: path, kind }))}
-        onCreate={(path) => withAgents(itx).agents.create(path)}
-        onMessage={(path, { message, files }) => messageAgent(itx, path, { message, files })}
-        {...links}
-      />
-    </>
+    <NewAgentComposer
+      person={person}
+      onCreate={(path) => withAgents(itx).agents.create(path)}
+      onMessage={(path, { message, files }) => messageAgent(itx, path, { message, files })}
+      {...links}
+    />
   );
-}
-
-/** New agent's part of `?view`: the picked choice, and what was typed, by `<kind>/<field>`. */
-const NewAgentView = z.object({
-  new: z.string().optional().catch(undefined),
-  fields: z.record(z.string(), z.string()).catch({}).default({}),
-});
-
-/** The kind's line about the choice as typed (`newAgent.describe`), asked of its frame. The line of
- *  the fields as they were stays until the kind has said the new one. */
-function useKindLine(
-  frame: AgentKindViewLink | undefined,
-  picked: NewAgentOffer | undefined,
-  values: Record<string, string>,
-  mind: string,
-) {
-  const [line, setLine] = useState<string | null>(null);
-  const asked = JSON.stringify(values);
-  useEffect(() => {
-    if (!frame || !picked) return;
-    let current = true;
-    frame.describe({ choice: picked.choice, fields: JSON.parse(asked), mind }).then(
-      (said) => current && setLine(said),
-      () => current && setLine(null),
-    );
-    return () => {
-      current = false;
-    };
-  }, [frame, picked, asked, mind]);
-  return picked ? line : null;
 }
 
 // ── what waits for the member ──
@@ -502,10 +396,8 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
  *  context. What draws it is its kind's: iterate's chat, or a kind's own view in a frame. */
 function AgentView({ itx, pages, page, agents, path }: DashPageProps & { path: string }) {
   const kinds = use(kindFilesOf(itx));
-  const kindInUrl = usePageParam("kind");
   const row = agents?.find((agent) => agent.path === path);
-  // an agent New agent just started has no row yet: `?kind=` names its kind until it does
-  const kind = row?.kind || kindInUrl;
+  const kind = row?.kind;
   const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
   const contexts = pages.find((one) => one.id === "contexts");
   return (

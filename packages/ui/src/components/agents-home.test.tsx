@@ -42,6 +42,39 @@ test("a row of every agent is as tall as the browser's text makes it: a larger d
   document.documentElement.style.fontSize = "";
 });
 
+test("a subagent has a row only while it is at work: one that stopped is in its agent's count and no more", async () => {
+  using _ = laidOut();
+  const nowMs = Date.parse("2026-11-16T16:00:00Z");
+  const agent = (path: string, status: AgentRow["status"], lastActivityAt: string): AgentRow => ({
+    path,
+    createdAt: lastActivityAt,
+    parent: null,
+    kind: "claude",
+    host: null,
+    status,
+    activity: null,
+    description: null,
+    title: path,
+    lastActivityAt,
+  });
+  const agents = [
+    agent("/agents/a", "idle", "2026-11-16T15:59:00Z"),
+    agent("/agents/a/at-work", "working", "2026-11-16T15:59:30Z"),
+    agent("/agents/a/stopped", "idle", "2026-11-16T15:00:00Z"),
+    // it still says "working", two days after its last activity
+    agent("/agents/a/stale", "working", "2026-11-14T15:00:00Z"),
+  ];
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () =>
+    root.render(<AllAgents agents={agents} nowMs={nowMs} agentHref={(path) => path || "/"} />),
+  );
+  const rows = [...document.querySelectorAll<HTMLElement>("[data-agent-path]")];
+  expect(rows.map((row) => row.dataset.agentPath)).toEqual(["/agents/a", "/agents/a/at-work"]);
+  expect(rows[0]!.textContent).toContain("and 3 subagents");
+  act(() => root.unmount());
+  document.body.replaceChildren();
+});
+
 /** A page with height, which jsdom lacks, so the virtual list draws its rows; disposing takes it
  *  back. */
 function laidOut() {

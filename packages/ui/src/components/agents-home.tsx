@@ -4,24 +4,20 @@
 // Its two halves are parts of their own (`NewAgentComposer`, `RecentAgents`), for a page that puts
 // something between them (a Dash's home), and `AllAgents` is every agent, for a page of them all.
 //
-// A new agent is iterate's unless the picker above the composer says otherwise
-// (new-agent-picker.tsx: other kinds' choices, the picked choice's fields, the kind's line about
-// it). Sending then starts that kind's agent on a new path, in the folder of the person signed in
-// (lib/agent-summary.ts `newAgentPath`), and sends the message after. Nothing here knows any kind
-// but iterate.
+// A new agent is iterate's: sending starts one on a new path, in the folder of the person signed
+// in (lib/agent-summary.ts `newAgentPath`), and sends the message after.
 import { useMemo, useRef, useState, type ComponentProps } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BotIcon } from "lucide-react";
 import { cn } from "cn";
+import { agentAtWork } from "iterate/agents/mind-now";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
 import { useComposerDraft } from "#/components/agent-chat/use-composer-attachments.ts";
 import { AgentLink, StatusDot, type AgentHref, type OpenAgent } from "#/components/agents-nav.tsx";
 import { kindIcon } from "#/components/agent-look.ts";
 import { timeAgo } from "#/components/context-catalog/context-catalog-rows.ts";
 import { ContextPathText } from "#/components/context-path-text.tsx";
-import { NewAgentPicker } from "#/components/new-agent-picker.tsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import {
   agentDoing,
   agentGroups,
@@ -33,7 +29,6 @@ import {
   topLevelAgents,
   type AgentRow,
 } from "#/lib/agent-summary.ts";
-import type { NewAgentOffer } from "#/lib/new-agent.ts";
 
 export function AgentsHome({
   agents,
@@ -54,18 +49,9 @@ export function AgentsHome({
   );
 }
 
-/** THE COMPOSER WHOSE FIRST MESSAGE STARTS A NEW AGENT, with the picker of other kinds above it. */
+/** THE COMPOSER WHOSE FIRST MESSAGE STARTS A NEW AGENT: an iterate agent. */
 export function NewAgentComposer({
   person,
-  offers,
-  offersLoading,
-  choice,
-  values,
-  line,
-  onChoice,
-  onField,
-  onStart,
-  onStarted,
   onCreate,
   onMessage,
   agentHref,
@@ -74,24 +60,6 @@ export function NewAgentComposer({
   /** The folder of the person signed in (lib/agent-summary.ts `personOf`): a new agent is born in
    *  it, and their agents come first. None: a new agent has no person's folder. */
   person?: string;
-  /** Other kinds' choices for a new agent, each `<kind>/<choice>`. */
-  offers: NewAgentOffer[];
-  /** Whether other kinds are still saying what they offer: the picker's place is kept for them,
-   *  and a choice the page names waits for them. */
-  offersLoading?: boolean;
-  /** The picked offer's value, or `undefined` for iterate: the page's URL. */
-  choice: string | undefined;
-  /** The picked offer's fields, each by its name (lib/new-agent.ts `newAgentValues`): what
-   *  its start is given. The page keeps what the person typed. */
-  values: Record<string, string>;
-  /** The kind's line about the choice as typed (its `newAgent.describe`), which the page asks. */
-  line?: string | null;
-  onChoice: (choice: string | undefined) => void;
-  onField: (name: string, value: string) => void;
-  /** Starts the picked offer's agent at `path`, with its fields' values. */
-  onStart: (offer: NewAgentOffer, path: string, fields: Record<string, string>) => Promise<unknown>;
-  /** Opens an agent another kind just started, at a path the catalog may not list yet. */
-  onStarted: (path: string, kind: string) => void;
   /** Births an agent at `path`. */
   onCreate: (path: string) => Promise<unknown>;
   /** Says the first message to the agent at `path`. */
@@ -104,64 +72,30 @@ export function NewAgentComposer({
   onOpen?: OpenAgent;
 }) {
   const draft = useComposerDraft();
-  const picked = offers.find((offer) => offer.value === choice);
   // the agent born for a first message that then failed to send: sending again goes to it, so a
   // retry leaves no empty agent behind
   const born = useRef<string | undefined>(undefined);
   return (
-    <div className="flex flex-col gap-2">
-      {offers.length > 0 ? (
-        <NewAgentPicker
-          offers={offers}
-          picked={picked}
-          values={values}
-          onChoice={onChoice}
-          onField={onField}
-          line={line}
-        />
-      ) : offersLoading ? (
-        // the picker's place, while the kinds say what they offer
-        <div className="flex items-center gap-2">
-          <NativeSelect size="sm" aria-label="Kind of agent" disabled value="">
-            <NativeSelectOption value="">iterate</NativeSelectOption>
-          </NativeSelect>
-        </div>
-      ) : null}
-      <AgentComposer
-        draft={draft}
-        placeholder="Message a new agent"
-        autoFocusMessage
-        interrupt={null}
-        onSubmit={async (input) => {
-          if (choice && !picked)
-            throw new Error(`The kind of agent ${choice} has not said what it offers yet.`);
-          if (picked) {
-            // another kind's agent: its start events, then the message, on a path of its own
-            const path = newAgentPath(
-              picked.kind,
-              new Date(),
-              picked.byPerson ? person : undefined,
-            );
-            await onStart(picked, path, values);
-            await onMessage(path, input);
-            onStarted(path, picked.kind);
-            return;
-          }
-          // An agent is its path; a new one is born at this moment's path.
-          let path = born.current;
-          if (!path) {
-            path = newAgentPath("web", new Date(), person);
-            await onCreate(path);
-            born.current = path;
-          }
-          await onMessage(path, input);
-          born.current = undefined;
-          if (onOpen) onOpen(path);
-          else location.assign(agentHref(path));
-        }}
-        onAppendRaw={undefined}
-      />
-    </div>
+    <AgentComposer
+      draft={draft}
+      placeholder="Message a new agent"
+      autoFocusMessage
+      interrupt={null}
+      onSubmit={async (input) => {
+        // An agent is its path; a new one is born at this moment's path.
+        let path = born.current;
+        if (!path) {
+          path = newAgentPath("web", new Date(), person);
+          await onCreate(path);
+          born.current = path;
+        }
+        await onMessage(path, input);
+        born.current = undefined;
+        if (onOpen) onOpen(path);
+        else location.assign(agentHref(path));
+      }}
+      onAppendRaw={undefined}
+    />
   );
 }
 
@@ -247,7 +181,8 @@ const rowHeightOfPage = () =>
     : Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
 
 /** EVERY AGENT, as a virtual list: the agents at the top, the most recently active first, each
- *  followed by the agents below its path, indented. Only the rows in view are in the DOM. It fills
+ *  followed by its subagents that are at work now (`agentAtWork`), indented. A subagent that is
+ *  not at work is in its agent's "and 5 subagents" only. Only the rows in view are in the DOM. It fills
  *  its parent, a flex column with a bounded height, and scrolls itself. */
 export function AllAgents({
   agents,
@@ -267,9 +202,12 @@ export function AllAgents({
     () =>
       agentGroups(agents).flatMap(({ row, subagents }) => [
         { row, subagents: subagents.length, depth: 0 },
-        ...subagents.map((sub) => ({ row: sub, subagents: 0, depth: 1 })),
+        // a subagent has a row of its own only while it is at work: the others are in the count
+        ...subagents
+          .filter((sub) => agentAtWork(sub, nowMs))
+          .map((sub) => ({ row: sub, subagents: 0, depth: 1 })),
       ]),
-    [agents],
+    [agents, nowMs],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [rowHeight] = useState(rowHeightOfPage);

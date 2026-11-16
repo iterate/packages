@@ -21,13 +21,6 @@ test("the home page links each recent agent to its chat", () => {
   const html = renderToStaticMarkup(
     <AgentsHome
       agents={agents()}
-      offers={[]}
-      choice={undefined}
-      values={{}}
-      onChoice={() => {}}
-      onField={() => {}}
-      onStart={async () => {}}
-      onStarted={() => {}}
       agentHref={agentHref}
       onCreate={async () => {}}
       onMessage={async () => {}}

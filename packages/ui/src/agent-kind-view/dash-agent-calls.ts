@@ -1,5 +1,5 @@
-// The Dash's calls that open a handle on the mind: a kind's start, a message to an agent, and the
-// events a view appends. Each lets go of the handle it opens on every path, a refusal included:
+// The Dash's calls that open a handle on the mind: a message to an agent, and the events a view
+// appends. Each lets go of the handle it opens on every path, a refusal included:
 // in capnweb the caller disposes every stub it gets, and a stub it never disposes stays held on
 // the other side until the socket closes.
 import { z } from "zod";
@@ -25,7 +25,7 @@ type AgentsRoot = {
  *  can see. On a mind without it, the call is refused over RPC and the refusal reaches the caller. */
 export const withAgents = (itx: Itx) => itx as Itx & AgentsRoot;
 
-/** The events a view or a kind asks to append, as far as this page checks them: each has a type,
+/** The events a view asks to append, as far as this page checks them: each has a type,
  *  and a payload that is an object. Every other key goes on as it is: the platform parses each
  *  event as it commits. */
 const AppendedEvents = z.array(
@@ -43,25 +43,6 @@ export async function appendEvents(
   events: unknown[],
 ): Promise<void> {
   await context.append(...AppendedEvents.parse(events));
-}
-
-/** Starts an agent of another kind at `path`: the kind's start events (its frame's
- *  `startEvents`, which refuses fields it does not take), appended to the new agent's context.
- *  The events and the context are asked for at once; the context is let go on every path. */
-export async function startKindAgent(
-  itx: Itx,
-  path: string,
-  startEvents: Promise<unknown[]>,
-): Promise<void> {
-  const [made, opened] = await Promise.allSettled([startEvents, itx.cd(path)]);
-  if (opened.status === "rejected") throw opened.reason;
-  const context = opened.value;
-  try {
-    if (made.status === "rejected") throw made.reason;
-    await appendEvents(context, made.value);
-  } finally {
-    context[Symbol.dispose]();
-  }
 }
 
 /** Says `input` to the agent at `path` (`itx.agents.get(path).message`), then lets go of the

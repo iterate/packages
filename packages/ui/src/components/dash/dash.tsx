@@ -26,6 +26,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
+import { SquarePenIcon } from "lucide-react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub, useFacetLiveState } from "iterate/react";
@@ -138,6 +139,7 @@ export function Dash({
             links={links}
             page={page}
             waiting={waiting}
+            newAgent={agentsPage ? hrefOfPage(pages, agentsPage) : undefined}
             agents={
               agentsPage ? (
                 <DashAgentsNav
@@ -297,7 +299,7 @@ function OffAnswer({
   return children(!use(servesOf(itx, serves)));
 }
 
-/** The sidebar: the pages, then each group of links. A page whose part the mind does not have
+/** The sidebar: "New agent" first, then the pages, then each group of links. A page whose part the mind does not have
  *  stays in its place, muted, with "Off" beside it. */
 function DashNav({
   itx,
@@ -306,6 +308,7 @@ function DashNav({
   links,
   page,
   waiting,
+  newAgent,
   agents,
 }: {
   itx: Itx;
@@ -314,6 +317,9 @@ function DashNav({
   links: DashLinks[];
   page: DashPage;
   waiting: number;
+  /** Where a new agent starts: the Agents page, whose composer's first message starts one. The
+   *  sidebar's first row goes there. None for a Dash with no Agents page. */
+  newAgent?: string;
   /** The Agents section, below the pages and the links, for a Dash with an Agents page. */
   agents: ReactNode;
 }) {
@@ -326,6 +332,37 @@ function DashNav({
               waiting={waiting}
               render={<RowLink href={`https://iterate.${mind}/secrets/approvals`} />}
             />
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ) : null}
+      {newAgent ? (
+        <SidebarGroup className="pb-0">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  variant="outline"
+                  tooltip="New agent"
+                  render={
+                    <RowLink
+                      href={newAgent}
+                      inPage
+                      onClick={(event) => {
+                        // the composer takes the caret: at once when the page is shown already,
+                        // and when it draws otherwise, which it does only while nothing has focus
+                        event.currentTarget.blur();
+                        document
+                          .querySelector<HTMLElement>('[aria-label="Message a new agent"]')
+                          ?.focus();
+                      }}
+                    />
+                  }
+                >
+                  <SquarePenIcon />
+                  <span>New agent</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}

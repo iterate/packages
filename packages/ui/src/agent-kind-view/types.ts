@@ -94,10 +94,9 @@ export type AgentKindViewKit = {
   ui: AgentKindViewUi;
 };
 
-/** How the Agents app's New agent starts one of a kind's agents: its `choices` in the kind picker
- *  (each listed as "<label> (<kind>)", or as its label alone when that is the kind's own name),
- *  the `fields` shown beside the picker when one is chosen, and `start`, the events appended to
- *  the new agent's path before its first message. Runs in the frame, like `view`. */
+/** How one of a kind's agents is started: its `choices`, the `fields` each choice takes, and
+ *  `start`, the events appended to the new agent's path before its first message. No page of
+ *  @iterate-com/ui offers these: New agent starts iterate agents only. */
 export type AgentKindNewAgent = {
   /** `byPerson: true`: this choice's new agents may be born in the folder of the person who
    *  starts them, `/agents/people/<person>/<kind>/<moment>` (lib/agent-summary.ts
@@ -107,12 +106,12 @@ export type AgentKindNewAgent = {
   fields?: AgentKindNewAgentField[];
   /** `path` is the new agent's; `fields` are the picked choice's alone, each by its name. */
   start(input: { choice: string; fields: Record<string, string>; path: string }): unknown[];
-  /** A line under the picker about what the choice and its fields' values as typed will do (a
+  /** A line about what the choice and its fields' values as typed will do (a
    *  runner that has to be started first, say), or null for none. `mind` is the mind's address.
    *  Text, where `backticks` mark code a person may copy. */
   describe?(input: { choice: string; fields: Record<string, string>; mind: string }): string | null;
 };
-/** A field beside the picker: a line of text, or with `type: "checkbox"` a tick box, whose value
+/** A field of a choice: a line of text, or with `type: "checkbox"` a tick box, whose value
  *  is "on" when ticked and "" when not (`defaultValue: "on"` starts it ticked). `choices`: the ids
  *  of the choices that show the field; none: every choice of the kind.
  *
@@ -141,7 +140,7 @@ export type AgentKindNewAgentField = {
 };
 
 /** A kind of agent whose view is a React component: iterate/agents/kinds' `AgentKind` (`kind`,
- *  `processEvent`, `ephemeralEvents`), with the chat filled in, and how New agent starts one. */
+ *  `processEvent`, `ephemeralEvents`), with the chat filled in, and how one is started. */
 export type AgentKind = SdkAgentKind<
   (kit: AgentKindViewKit) => ComponentType<AgentKindViewProps>
 > & {

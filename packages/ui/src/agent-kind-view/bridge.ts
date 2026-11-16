@@ -3,18 +3,13 @@
 //
 //   host → frame  `update(delta)`: what changed of the view's inputs since the last update. Events
 //                 go as the pages added at either end, never the whole log again.
-//   host → frame  `startEvents(input)`: the events that start a new agent of the kind (its
-//                 `newAgent.start`), for the Agents app's New agent.
-//   host → frame  `describe(input)`: the line New agent shows about the choice as typed (its
-//                 `newAgent.describe`), or null.
-//   frame → host  `loaded(…)` once (what the live read should include, and New agent's choices),
-//                 then the verbs: message,
+//   frame → host  `loaded(…)` once (what the live read should include), then the verbs: message,
 //                 append, fileUrl, setState, loadOlder. Each acts on the one agent the host shows;
 //                 the host never hands over its context stub, whose `invoke` and `cd` reach the
 //                 whole mind.
 import type { AgentChatState } from "../components/agent-chat/agent-chat-search.ts";
 import type { ContextViewSource } from "../components/context-view/context-view.tsx";
-import type { AgentKindNewAgent, AgentKindViewProps } from "./types.ts";
+import type { AgentKindViewProps } from "./types.ts";
 
 type Event = ContextViewSource["events"][number];
 
@@ -52,12 +47,9 @@ export type AgentKindViewUpdate = Partial<Omit<AgentKindViewInputs, "events">> &
   events?: { reset: Event[] } | { prepend: Event[]; append: Event[] };
 };
 
-/** A kind's New agent choices and fields, as data: `start` stays in the frame. */
-export type AgentKindNewAgentOffer = Omit<AgentKindNewAgent, "start" | "describe">;
-
 /** What the frame reports once it has read the kind file. */
 export type AgentKindViewLoaded =
-  | { ephemeralEvents: string[]; newAgent?: AgentKindNewAgentOffer }
+  | { ephemeralEvents: string[] }
   | { error: string }
   /** The agent's kind has no file: the frame shows the Events tab. */
   | { none: true };
@@ -73,10 +65,6 @@ export interface AgentKindViewHostApi {
 
 export interface AgentKindViewFrameApi {
   update(update: AgentKindViewUpdate): void;
-  startEvents(input: Parameters<AgentKindNewAgent["start"]>[0]): Promise<unknown[]>;
-  describe(
-    input: Parameters<NonNullable<AgentKindNewAgent["describe"]>>[0],
-  ): Promise<string | null>;
 }
 
 /** The update from `previous` (what the frame holds) to `next`, or `null` when nothing changed. */
