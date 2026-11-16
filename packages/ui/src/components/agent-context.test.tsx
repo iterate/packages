@@ -208,6 +208,16 @@ test("a guest's page shows none of the agent's scripts: activityRows={false} dra
   expect(document.querySelector("[data-kind=activity]")).toBeNull();
 });
 
+test("a turn in which the agent only thought is no row: in a room that would be one after almost every line", async () => {
+  using _page = await mount({
+    context: { events: [room(1, "typed"), room(30, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    // the request and its settlement, and no script
+    agentContext: agentLog(agentTurn(1).slice(0, 3)),
+  });
+  expect(kinds()).toEqual(["typed", "typed"]);
+});
+
 test("an activity still running is no row: it is the progress line", async () => {
   using _page = await mount({
     context: { events: [room(1, "typed")], caughtUp: true },

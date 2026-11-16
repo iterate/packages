@@ -45,10 +45,17 @@ function isoOf(time: string) {
   return Number.isNaN(ms) ? time : new Date(ms).toISOString();
 }
 
-/** The settled activities of the agent's feed: the activity in flight is the progress line. */
+/** The agent's settled WORK: the activities of its feed that are done and ran a script. The
+ *  activity in flight is the progress line. A turn in which the agent only thought (it read a
+ *  line and chose to say nothing, or answered from what it knew) is no row: in a room the agent
+ *  reads every line, so that would be a row after almost every one, and each would cut a run of
+ *  spoken lines in two. The agent's own chat shows those turns. */
 export function settledActivities(items: readonly AgentUiItem[]): AgentUiActivity[] {
   return items.filter(
-    (item): item is AgentUiActivity => item.kind === "activity" && item.status === "done",
+    (item): item is AgentUiActivity =>
+      item.kind === "activity" &&
+      item.status === "done" &&
+      item.steps.some((step) => step.kind === "code"),
   );
 }
 
