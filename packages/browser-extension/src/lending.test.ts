@@ -118,6 +118,7 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
         waiting?.reject(new Error("Fixture socket closed"));
       });
       let providedBrowser: RpcStub<LentChrome> | undefined;
+      let ready = false;
       const session = new RpcSession(
         {
           send: (message: string) => socket.send(message),
@@ -140,7 +141,6 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
               throw new Error("Durable Object is overloaded. Requests queued for too long.");
             }
             providedBrowser = browser.dup();
-            lends.push({ host, browser: providedBrowser });
             return new FixtureLend();
           },
           append: async () => ({}),
@@ -148,7 +148,13 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
             const terminal = steps.at(-1);
             if (!providedBrowser || !Array.isArray(terminal) || terminal[0] !== "tabs")
               throw new Error("Unexpected fixture probe");
-            return providedBrowser.tabs();
+            const tabs = await providedBrowser.tabs();
+            // The setup probe runs after the controller assigns this lend's group title.
+            if (!ready) {
+              ready = true;
+              lends.push({ host, browser: providedBrowser });
+            }
+            return tabs;
           },
         },
       );
