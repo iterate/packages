@@ -42,10 +42,11 @@ export function colourOf(who: string) {
 }
 
 /** `rows` with every run of consecutive `kind: "said"` rows as ONE row of `kind: "rollup"`, for a
- *  page that builds its own feed. A row of any other kind ends a run. The rollup's key is
- *  `"said:" + <the first line's key>` and its offset the first line's, so the row keeps its
- *  identity as the run grows. Every other row is the same object; with no said row, the answer is
- *  `rows` itself. Pure. */
+ *  page that builds its own feed. A row of any other kind ends a run. The rollup's key names the
+ *  row BEFORE the run, `"said:after:" + <that row's key>`, or `"said:head"` for a run that starts
+ *  the loaded rows: so the row keeps its identity (and a page its open state) as lines are said at
+ *  its end and as older lines load in front of it. Its offset is its first line's. Every other row
+ *  is the same object; with no said row, the answer is `rows` itself. Pure. */
 export function rollUpSpokenLines<Row extends FeedRow>(
   rows: readonly (Row | SaidRow)[],
 ): readonly (Exclude<Row, { kind: "said" }> | SpokenRollupRow)[] {
@@ -54,15 +55,22 @@ export function rollUpSpokenLines<Row extends FeedRow>(
   if (!rows.some(isSaid)) return rows as readonly Exclude<Row, { kind: "said" }>[];
   const out: (Exclude<Row, { kind: "said" }> | SpokenRollupRow)[] = [];
   let run: SpokenRollupRow | undefined;
+  // the key of the last row that is not said: what a run after it is named by
+  let before: string | undefined;
   for (const row of rows) {
     if (!isSaid(row)) {
       run = undefined;
+      before = row.key;
       // The cast: `isSaid` said no, but its guard narrows a generic `Row` to `Row`, not to
       // `Exclude<Row, …>`, which only resolves once `Row` is known.
       out.push(row as Exclude<Row, { kind: "said" }>);
     } else if (run) run.lines.push(row);
     else {
-      run = { key: `said:${row.key}`, kind: "rollup", lines: [row] };
+      run = {
+        key: before ? `said:after:${before}` : "said:head",
+        kind: "rollup",
+        lines: [row],
+      };
       if (row.offset !== undefined) run.offset = row.offset;
       out.push(run);
     }

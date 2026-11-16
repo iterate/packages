@@ -10,30 +10,43 @@ test("rollup: rows with no said row come back as they are, the same array", () =
   expect(rollUpSpokenLines(rows)).toBe(rows);
 });
 
-test("rollup: one run is one row, with the first line's key and offset", () => {
+test("rollup: one run is one row, named as the head and with the first line's offset", () => {
   const lines = [said(1), said(2), said(3)];
-  expect(rollUpSpokenLines(lines)).toEqual([{ key: "said:1", offset: 1, kind: "rollup", lines }]);
+  expect(rollUpSpokenLines(lines)).toEqual([
+    { key: "said:head", offset: 1, kind: "rollup", lines },
+  ]);
 });
 
 test("rollup: a typed row ends a run, so two runs sit around it", () => {
   const rows = [said(1), said(2), typed(3), said(4)];
   expect(rollUpSpokenLines(rows)).toMatchObject([
-    { key: "said:1", kind: "rollup", lines: [{ key: "1" }, { key: "2" }] },
+    { key: "said:head", kind: "rollup", lines: [{ key: "1" }, { key: "2" }] },
     { key: "3", kind: "typed" },
-    { key: "said:4", kind: "rollup", lines: [{ key: "4" }] },
+    { key: "said:after:3", kind: "rollup", lines: [{ key: "4" }] },
   ]);
 });
 
-test("rollup: a run at the end follows the rows before it", () => {
+test("rollup: a run at the end is named by the row before it", () => {
   const rows = [typed(1), typed(2), said(3), said(4)];
-  expect(rollUpSpokenLines(rows).map((row) => row.key)).toEqual(["1", "2", "said:3"]);
+  expect(rollUpSpokenLines(rows).map((row) => row.key)).toEqual(["1", "2", "said:after:2"]);
 });
 
-test("rollup: the row's key stays as its run grows", () => {
+test("rollup: the row's key stays as lines are said at its end", () => {
   const before = rollUpSpokenLines([typed(1), said(2)]);
   const after = rollUpSpokenLines([typed(1), said(2), said(3), said(4)]);
-  expect(before.at(-1)).toMatchObject({ key: "said:2" });
-  expect(after.at(-1)).toMatchObject({ key: "said:2", offset: 2 });
+  expect(before.at(-1)).toMatchObject({ key: "said:after:1" });
+  expect(after.at(-1)).toMatchObject({ key: "said:after:1", offset: 2 });
+});
+
+test("rollup: the row's key stays as older lines load in front of it", () => {
+  // the loaded rows begin inside a run; an older page then puts two more of its lines in front
+  const before = rollUpSpokenLines([said(4), said(5), typed(6)]);
+  const after = rollUpSpokenLines([said(2), said(3), said(4), said(5), typed(6)]);
+  expect(before[0]).toMatchObject({ key: "said:head", offset: 4 });
+  expect(after[0]).toMatchObject({ key: "said:head", offset: 2 });
+  // and a run behind another row keeps its name whatever loads in front of that row
+  const later = rollUpSpokenLines([typed(1), said(2), said(3), said(4), said(5), typed(6)]);
+  expect(later[1]).toMatchObject({ key: "said:after:1", offset: 2 });
 });
 
 test("rollup: every other row is the same object", () => {
