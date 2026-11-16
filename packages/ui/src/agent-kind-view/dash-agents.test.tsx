@@ -11,6 +11,7 @@ import { DashAgents, DashHome } from "./dash-agents.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import type { DashPage, DashPageProps } from "#/components/dash/dash.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
+import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 // jsdom lays nothing out; the composer's CodeMirror measures text ranges after each change
 Object.assign(Range.prototype, {
@@ -412,14 +413,136 @@ test("the opener is not appended while the chat's rows are a saved copy, only wh
   expect(again.host.textContent).toContain(path);
 });
 
+test("an iterate agent drawn a second time, before the catalog and the kinds answer, is its chat with the saved rows at once", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/remembered";
+  const logs = { [path]: [words(1, "Words from the last visit")] };
+  history.replaceState(null, "", `/?agent=${path}`);
+  {
+    await using _first = await draw(DashAgents, mind({ logs }).itx, { waiting: 0 });
+  }
+  const second = mind({ logs });
+  second.holdKinds();
+  second.hold();
+  await using again = await draw(DashAgents, second.itx, { waiting: 0, agents: "unread" });
+  expect(again.host.querySelector("[role=log]")?.textContent).toContain(
+    "Words from the last visit",
+  );
+  // no loading state at any moment: the view was there before the mind said anything
+  expect(again.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(0);
+  expect(again.said.filter((text) => text.includes("Reading"))).toEqual([]);
+  second.release();
+  second.releaseKinds();
+});
+
+test("an agent of a kind with a file, drawn a second time, has its frame before the kinds answer, and the same file keeps that frame", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/claude-same";
+  await rememberKindView(path, "export default {};");
+  const second = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  second.holdKinds();
+  await using again = await draw(DashAgents, second.itx, { waiting: 0, agents: "unread" });
+  const frame = again.host.querySelector("iframe");
+  expect(frame).not.toBe(null);
+  second.releaseKinds();
+  await again.draw(claudeRows(path));
+  // the same element: the frame's document is not loaded again
+  expect(again.host.querySelector("iframe")).toBe(frame);
+});
+
+test("when the kinds answer with another source for the remembered file, the frame mounts again and the store keeps the new source", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/claude-changed";
+  await rememberKindView(path, "export default { old: true };");
+  const second = mind({ kinds: { claude: "agent-kinds/claude.ts" }, source: "export default {};" });
+  second.holdKinds();
+  await using again = await draw(DashAgents, second.itx, { waiting: 0, agents: "unread" });
+  const frame = again.host.querySelector("iframe");
+  expect(frame).not.toBe(null);
+  second.releaseKinds();
+  await again.draw(claudeRows(path));
+  const now = again.host.querySelector("iframe");
+  expect(now).not.toBe(null);
+  expect(now).not.toBe(frame);
+  expect(savedLogTails(member).peek(path)).toMatchObject({
+    view: { kind: "claude", file: { name: "agent-kinds/claude.ts", source: "export default {};" } },
+  });
+});
+
+test("when the catalog says another kind than the remembered one, the view changes to that kind's", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/claude-now-iterate";
+  await rememberKindView(path, "export default {};");
+  const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  await using again = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+  expect(again.host.querySelector("iframe")).not.toBe(null);
+  await again.draw(agentRowsOf({ agents: { [path]: { createdAt: now, kind: "iterate" } } }));
+  expect(again.host.querySelector("iframe")).toBe(null);
+  expect(again.host.querySelector("[role=log]")).not.toBe(null);
+});
+
+test("another member's remembered view is never drawn: the page waits for the kinds and the catalog as on a first visit", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/claude-of-a";
+  await rememberKindView(path, "export default {};");
+  const second = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  second.holdKinds();
+  await using other = await draw(DashAgents, second.itx, {
+    waiting: 0,
+    agents: "unread",
+    actor: "/members/b",
+  });
+  expect(other.host.querySelector("iframe")).toBe(null);
+  expect(other.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
+  second.releaseKinds();
+  await other.draw(claudeRows(path));
+  expect(other.host.querySelector("iframe")).not.toBe(null);
+});
+
+test("the opener is not appended from a remembered view over a saved copy, only once the mind's log says it is empty", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/opened-again";
+  const logs = {
+    [path]: [
+      {
+        offset: 1,
+        type: "events.iterate.com/agent/context-added",
+        payload: { role: "system", content: "You are helpful." },
+      },
+    ],
+  };
+  history.replaceState(null, "", `/?agent=${path}`);
+  {
+    await using _first = await draw(DashAgents, mind({ logs }).itx, { waiting: 0, openers: {} });
+  }
+  const second = mind({ logs });
+  second.hold();
+  second.holdKinds();
+  await using again = await draw(DashAgents, second.itx, {
+    waiting: 0,
+    agents: "unread",
+    openers: { [path]: "Begin with step 1." },
+  });
+  // the remembered view is drawn, over the saved copy
+  expect(again.host.querySelector("[role=log]")).not.toBe(null);
+  expect(second).toMatchObject({ appended: [] });
+  second.release();
+  await act(() => vi.waitFor(() => expect(second.appended).toHaveLength(1)));
+  second.releaseKinds();
+});
+
 /** A mind whose logs are empty but for `logs`: what the page appends is kept in `appended`.
- *  `hold()` keeps every read of a log unanswered until `release()`. `kinds`: each kind's file in the config repo, by kind. Its root has `files`, and a context has
- *  none: only an iterate agent's context links to the root, and the page must not count on it. */
+ *  `hold()` keeps every read of a log unanswered until `release()`, and `holdKinds()` the read of
+ *  the kinds until `releaseKinds()`. `kinds`: each kind's file in the config repo, by kind, each
+ *  with `source`. Its root has `files`, and a context has none: only an iterate agent's context
+ *  links to the root, and the page must not count on it. */
 function mind({
   serves = [],
   integrations,
   kinds,
   unreadable = false,
+  source = "export default {};",
   logs = {},
 }: {
   serves?: string[];
@@ -427,6 +550,8 @@ function mind({
   kinds?: Record<string, string>;
   /** the config repo refuses each read of a file, on a connection that is up */
   unreadable?: boolean;
+  /** the source of every kind's file */
+  source?: string;
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
@@ -435,6 +560,8 @@ function mind({
   let reads = 0;
   let gate = Promise.resolve();
   let release = () => {};
+  let kindsGate = Promise.resolve();
+  let releaseKinds = () => {};
   let asked = 0;
   const contextOf = (path: string) => ({
     readEvents: async (after = 0) => {
@@ -457,14 +584,17 @@ function mind({
   });
   const itx = {
     kv: {
-      get: async (key: string) => (key === "agent-kinds" && kinds ? JSON.stringify(kinds) : null),
+      get: async (key: string) => {
+        await kindsGate;
+        return key === "agent-kinds" && kinds ? JSON.stringify(kinds) : null;
+      },
     },
     repos: {
       get: () => ({
         readFile: async () => {
           reads += 1;
           if (unreadable) throw new Error("no such file");
-          return kinds ? "export default {};" : null;
+          return kinds ? source : null;
         },
       }),
     },
@@ -495,7 +625,41 @@ function mind({
       gate = new Promise((resolve) => (release = resolve));
     },
     release: () => release(),
+    holdKinds: () => {
+      kindsGate = new Promise((resolve) => (releaseKinds = resolve));
+    },
+    releaseKinds: () => releaseKinds(),
   };
+}
+
+/** The member every page signs in as, unless a test says another. */
+const member = { mind: "example.com", actor: "/members/a" };
+
+/** The catalog with one Claude agent at `path`. */
+function claudeRows(path: string) {
+  return agentRowsOf({ agents: { [path]: { createdAt: now, kind: "claude" } } });
+}
+
+/** Something a person said in a chat, at `offset`. */
+function words(offset: number, content: string) {
+  return {
+    offset,
+    type: "events.iterate.com/agent/context-added",
+    payload: { role: "user", content },
+  };
+}
+
+/** A first visit to the Claude agent at `path`, whose kind's file has `source`: the page works out
+ *  its view and keeps it. jsdom loads no frame, so the frame's read never starts and saves no
+ *  rows: the rows it would have shown are saved here. */
+async function rememberKindView(path: string, source: string) {
+  history.replaceState(null, "", `/?agent=${path}`);
+  const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" }, source });
+  {
+    await using first = await draw(DashAgents, itx, { waiting: 0, agents: claudeRows(path) });
+    expect(first.host.querySelector("iframe")).not.toBe(null);
+  }
+  savedLogTails(member).save(path, [{ ...words(1, "Hello"), createdAt: now }], true);
 }
 
 /** A page with height, which jsdom lacks, so the chat's virtual log draws its rows; disposing takes
@@ -537,11 +701,14 @@ async function draw(
     openers,
     agents: first = agents,
     account = true,
+    actor = "/members/a",
   }: {
     /** How many requests wait; undefined: the count is not known yet. */
     waiting: number | undefined;
     /** false: the Dash has not heard yet who is signed in */
     account?: boolean;
+    /** the member signed in */
+    actor?: string;
     openers?: Record<string, string>;
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";
@@ -592,7 +759,7 @@ async function draw(
             <Page
               itx={itx}
               mind="example.com"
-              principal={account ? { actor: "/members/a", email: "jo@example.com" } : undefined}
+              principal={account ? { actor, email: "jo@example.com" } : undefined}
               page={pages[1]!}
               pages={pages}
               links={[]}

@@ -17,6 +17,7 @@
 import {
   Suspense,
   use,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -47,7 +48,7 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
-import { savedLogTails } from "#/lib/saved-log-tail.ts";
+import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -74,6 +75,9 @@ const KindPaths = z.record(z.string(), z.string());
  *  Those answers stand. They are read again only when the session they failed with was gone and a
  *  new one has opened (`keptRead`). */
 const kindFiles = new WeakMap<object, KeptRead<KindFile[]>>();
+/** What each read of the kinds answered, once it has: a view that is drawn already reads it
+ *  without suspending. */
+const answeredKinds = new WeakMap<Promise<KindFile[]>, KindFile[]>();
 function kindFilesOf(itx: Itx): Promise<KindFile[]> {
   const files = keptRead(itx, kindFiles.get(itx), (failed) =>
     (async () => {
@@ -101,8 +105,37 @@ function kindFilesOf(itx: Itx): Promise<KindFile[]> {
       );
     })(),
   );
+  // a new read: its answer is kept for the renders that do not suspend on it
+  if (files !== kindFiles.get(itx))
+    files.answer.then(
+      (kinds) => void answeredKinds.set(files.answer, kinds),
+      () => {},
+    );
   kindFiles.set(itx, files);
   return files.answer;
+}
+
+/** The kinds of `itx`, or undefined while they are read. Never suspends: the view drawn from what
+ *  the page remembered stays the same element when they come. */
+function useKindFiles(itx: Itx) {
+  const files = kindFilesOf(itx);
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      let current = true;
+      // a read that fails is `use`'s to throw: here it only leaves the view as it is
+      files.then(
+        () => {
+          if (current) changed();
+        },
+        () => {},
+      );
+      return () => {
+        current = false;
+      };
+    },
+    [files],
+  );
+  return { files, kinds: useSyncExternalStore(subscribe, () => answeredKinds.get(files)) };
 }
 
 /** THE KIND FRAME'S SCRIPT: one classic file of the build of this package that the page's import
@@ -425,7 +458,9 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
  *  which the view under it draws no strip for (its status is a line at the feed's foot). What
  *  draws it is its kind's: iterate's chat, or a kind's own view in a frame. One loading state
  *  stands from the first paint to the view's own, under a header of the same shape whose tabs
- *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. */
+ *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. When
+ *  the member's store remembers the view that drew the saved rows, that view is drawn at once,
+ *  and the kinds and the catalog only correct it. */
 function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps & { path: string }) {
   // the member's saved rows, once the mind has said who the member is: none are read or saved
   // before, so one member never sees another's
@@ -439,7 +474,11 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
         : undefined;
   // Saved rows of this log wait for the view: the page then says nothing of a read, because
   // none holds the reader up. It says so only once the store has answered that it has none.
-  const quiet = useHasSavedTail(tails, path) !== false;
+  const saved = useHasSavedTail(tails, path);
+  const quiet = saved !== false;
+  // The view that drew the saved rows, from the member's own store alone. The store has answered
+  // when `saved` is known, so its memory holds the view.
+  const remembered = saved && tails && tails !== "pending" ? tails.peek(path)?.view : undefined;
   return (
     <Suspense fallback={<AgentPageReading path={path} agents={agents} quiet={quiet} />}>
       <AgentViewOfKind
@@ -450,6 +489,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
         me={principal?.actor}
         tails={tails}
         quiet={quiet}
+        remembered={remembered}
       />
     </Suspense>
   );
@@ -522,8 +562,10 @@ function AgentPageReading({
   );
 }
 
-/** The view of the agent's kind. None until the catalog has said the kind: iterate's chat over
- *  the log of another kind holds no row, and would say that nothing was said. A path that the
+/** The view of the agent's kind. With none remembered, none until the catalog has said the kind:
+ *  iterate's chat over the log of another kind holds no row, and would say that nothing was said.
+ *  A remembered view is drawn at once, and stays the same element when the kinds and the catalog
+ *  say the same view; when they say another, that one is mounted in its place. A path that the
  *  catalog does not list draws as iterate's. */
 function AgentViewOfKind({
   itx,
@@ -533,31 +575,59 @@ function AgentViewOfKind({
   me,
   tails,
   quiet,
+  remembered,
 }: Pick<DashPageProps, "itx" | "agents"> & {
   path: string;
   opener: string | undefined;
   me: string | undefined;
   tails: TailsOfMember;
   quiet: boolean;
+  /** The view that drew the saved rows of `path`, in the member's own store. */
+  remembered: SavedView | undefined;
 }) {
-  const kinds = use(kindFilesOf(itx));
-  if (!agents) return <AgentPageReading path={path} agents={agents} quiet={quiet} />;
-  const row = agents.find((agent) => agent.path === path);
-  const kind = row?.kind;
-  const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
-  return file ? (
-    <KindChat itx={itx} path={path} file={file} agents={agents} tails={tails} />
+  const { files, kinds } = useKindFiles(itx);
+  // the view the mind's answer says, once the kinds and the catalog have both answered
+  const said = useMemo(() => kinds && agents && viewOf(path, agents, kinds), [path, agents, kinds]);
+  // What is drawn, and its mount: a view the mind's answer changes is another element.
+  const [drawn, setDrawn] = useState<{ view: SavedView; mount: number } | undefined>();
+  const shown = drawn || (remembered && { view: remembered, mount: 0 });
+  const next =
+    said && !(shown && sameView(shown.view, said))
+      ? { view: said, mount: (shown?.mount ?? 0) + 1 }
+      : shown;
+  if (next !== drawn) setDrawn(next);
+  // the mind's answer replaces the saved view, so the next reload mounts it
+  useEffect(() => {
+    if (said && tails && tails !== "pending") tails.saveView(path, said);
+  }, [said, tails, path]);
+  if (!next) {
+    // nothing to draw yet: the kinds are waited for as the page waits for the chat's part
+    use(files);
+    return <AgentPageReading path={path} agents={agents} quiet={quiet} />;
+  }
+  const { view, mount } = next;
+  return view.file ? (
+    <KindChat key={mount} itx={itx} path={path} file={view.file} agents={agents} tails={tails} />
   ) : (
     <IterateChat
+      key={mount}
       itx={itx}
       path={path}
-      row={row}
+      kind={view.kind}
       agents={agents}
       opener={opener}
       me={me}
       tails={tails}
     />
   );
+}
+
+/** The view that the catalog and the kinds say for `path`. */
+function viewOf(path: string, agents: readonly AgentRow[], kinds: KindFile[]): SavedView {
+  // a row with no kind, and a path with no row, are drawn alike: as iterate's
+  const kind = agents.find((agent) => agent.path === path)?.kind || undefined;
+  const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
+  return { kind, file: file && { name: file.name, source: file.source } };
 }
 
 /** Anything said in a chat: by a person, by the agent, or by an opener. Words that raise no turn
@@ -577,11 +647,12 @@ const Said = z.union([
 
 /** ITERATE'S CHAT for any context: the page holds the context and reads it live. An agent of
  *  another kind that has no file opens on the Events tab: the chat draws an iterate agent's
- *  events. The chat's state is `?view`. */
+ *  events. The chat's state is `?view`. Drawn from a remembered view, the catalog may not have
+ *  answered yet: the header then has no title, and `kind` is the remembered one. */
 function IterateChat({
   itx,
   path,
-  row,
+  kind,
   agents,
   opener,
   me,
@@ -589,8 +660,9 @@ function IterateChat({
 }: {
   itx: Itx;
   path: string;
-  row: AgentRow | undefined;
-  agents: readonly AgentRow[];
+  /** The agent's kind; undefined for a path that the catalog does not list. */
+  kind: string | undefined;
+  agents: readonly AgentRow[] | undefined;
   /** What the mind says first, if the chat is empty: a developer's note, which starts a turn. */
   opener: string | undefined;
   /** The signed-in member's actor id: their own messages have no line under them. */
@@ -612,9 +684,7 @@ function IterateChat({
   });
   const state = AgentChatState.safeParse(view).data || {};
   const shown =
-    state.view || !row?.kind || row.kind === "iterate"
-      ? state
-      : { ...state, view: "events" as const };
+    state.view || !kind || kind === "iterate" ? state : { ...state, view: "events" as const };
   // THE MIND SPEAKS FIRST: once the whole log is read and nothing was said in it, the opener is
   // appended once for the mind (its key), whatever reloads or tabs. Never by a saved copy: it may
   // be of a log made again under the same path, and only the mind's answer says it is empty.
@@ -689,8 +759,9 @@ function KindChat({
 }: {
   itx: Itx;
   path: string;
-  file: KindFile;
-  agents: readonly AgentRow[];
+  /** The kind's file: a view of another file is another frame (`AgentViewOfKind` keys it). */
+  file: { name: string; source: string | null };
+  agents: readonly AgentRow[] | undefined;
   tails: TailsOfMember;
 }) {
   const { view, patchView } = useView();

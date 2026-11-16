@@ -5,11 +5,16 @@
 // both for a page.
 //
 //   const tails = savedLogTails({ mind, actor });   one store per owner, for the life of the page
-//   tails.peek(path)                                what this page knows, at once: { tail } or undefined
+//   tails.peek(path)                                what this page knows, at once: { tail, view } or undefined
 //   await tails.read(path)                          the same, else the database's: { events, exhausted }
 //   tails.save(path, events, exhausted)             cheap on every change: the newest durable events
+//   tails.saveView(path, { kind, file })            the view that draws the rows: a reload mounts it at once
 //   tails.drop(path)                                the mind refused the context: forget it
 //   await wipeSavedLogTails()                       the sign-in ended: forget everything
+//
+// The view is kept in the tail's record, so every rule of the tail holds for it: its owner, its
+// bounds, `drop` and the wipe. A view is kept only with a tail: a record with no events is
+// deleted, view and all, and `peek` answers a view only beside a tail.
 //
 // EVERYTHING HERE IS BEST EFFORT. A private window, a full disk or a browser without IndexedDB
 // costs the speed, never the page: no call here throws or rejects, a read that fails answers
@@ -38,6 +43,9 @@ const WRITE_EVERY_MS = 3_000;
 /** How long a read waits for the database before it answers nothing: the mind's own answer is
  *  then near, and a database that hangs must not hold the page. */
 const ANSWER_WITHIN_MS = 300;
+/** The most characters of a kind's file kept with a view. A larger file is not kept, and the view
+ *  is then not remembered: the page waits for the mind's kinds, as on a first visit. */
+const MOST_VIEW_CHARACTERS = 500_000;
 
 const DATABASE = "iterate-saved-log-tails";
 const TAILS = "tails";
@@ -49,17 +57,39 @@ export type SavedEvent = { offset: number; createdAt?: string; ephemeral?: boole
  *  the log's first event. */
 export type SavedTail = { events: readonly SavedEvent[]; exhausted: boolean };
 
+/** The view that drew a context's rows: the agent's kind (none for a path that the mind's catalog
+ *  does not list) and, for a kind with a file of its own, that file's path in the config repo and
+ *  its source (null when it could not be read). */
+const SavedView = z.object({
+  kind: z.string().optional(),
+  file: z.object({ name: z.string(), source: z.string().nullable() }).optional(),
+});
+export type SavedView = z.infer<typeof SavedView>;
+
+/** Whether two views draw the same: the same kind, and the same file, by its path and its source. */
+export function sameView(one: SavedView, other: SavedView) {
+  return (
+    one.kind === other.kind &&
+    one.file?.name === other.file?.name &&
+    one.file?.source === other.file?.source
+  );
+}
+
 /** The store of one owner's saved tails. */
 export type SavedLogTails = {
   /** What this page knows of `path`'s tail, at once: the tail it last saved or read (`tail`
-   *  undefined when it knows there is none), or undefined when only the database can say. */
-  peek(path: string): { tail: SavedTail | undefined } | undefined;
+   *  undefined when it knows there is none) and the view that drew it, or undefined when only the
+   *  database can say. */
+  peek(path: string): { tail: SavedTail | undefined; view?: SavedView } | undefined;
   /** The saved tail of `path`, from memory first, else from the database; undefined when there is
    *  none, or the database has not answered within `ANSWER_WITHIN_MS`. */
   read(path: string): Promise<SavedTail | undefined>;
   /** Keep the newest durable `events` of `path`, within the bounds. In memory at once, and in the
    *  database at once when none was written for `WRITE_EVERY_MS`, else when that time is over. */
   save(path: string, events: readonly SavedEvent[], exhausted: boolean): void;
+  /** Keep the view that draws `path`'s rows, with its tail: written as `save` writes, and only
+   *  when it is another view than the one kept. Before the store has read `path`, after the read. */
+  saveView(path: string, view: SavedView): void;
   /** Write what waits now. Settles when it is written, or failed. */
   flush(): Promise<void>;
   /** Forget `path`, in memory and in the database. */
@@ -77,6 +107,8 @@ const StoredTail = z.object({
       ephemeral: z.boolean().optional(),
     }),
   ),
+  // parsed on its own: a view that does not parse costs the view, not the tail
+  view: z.unknown().optional(),
 });
 
 type Store = SavedLogTails & { forget(): void };
@@ -135,7 +167,10 @@ export function wipeSavedLogTails(): Promise<void> {
 
 function storeOf(mind: string, actor: string): Store {
   /** What this page saved or read, by path: `tail` undefined when there is none. */
-  const memory = new Map<string, { tail: SavedTail | undefined; savedAt: number }>();
+  const memory = new Map<
+    string,
+    { tail: SavedTail | undefined; view: SavedView | undefined; savedAt: number }
+  >();
   /** The paths whose memory the database does not have yet. */
   const dirty = new Set<string>();
   const reading = new Map<string, Promise<SavedTail | undefined>>();
@@ -165,9 +200,9 @@ function storeOf(mind: string, actor: string): Store {
       return undefined;
     }
     const record = StoredTail.safeParse(await settled(asked));
-    return record.success
-      ? { events: record.data.events, exhausted: record.data.exhausted }
-      : undefined;
+    if (!record.success) return undefined;
+    const { events, exhausted, view } = record.data;
+    return { tail: { events, exhausted }, view: SavedView.safeParse(view).data };
   };
 
   const write = async () => {
@@ -181,7 +216,15 @@ function storeOf(mind: string, actor: string): Store {
     try {
       for (const path of paths) {
         const known = memory.get(path);
-        if (known?.tail) tails.put({ mind, actor, path, savedAt: known.savedAt, ...known.tail });
+        if (known?.tail)
+          tails.put({
+            mind,
+            actor,
+            path,
+            savedAt: known.savedAt,
+            ...known.tail,
+            view: known.view,
+          });
         else tails.delete(keyOf(path));
       }
     } catch {
@@ -200,32 +243,63 @@ function storeOf(mind: string, actor: string): Store {
   };
 
   const peek = (path: string) => {
+    const known = memory.get(path);
+    // a view kept before its tail is written with the tail, and shown with it
+    const answer = known && { tail: known.tail, view: known.tail && known.view };
     // a page that wiped, or has no database, knows that there is nothing
-    if (wiped || !globalThis.indexedDB) return memory.get(path) || NOTHING;
-    return memory.get(path);
+    if (wiped || !globalThis.indexedDB) return answer || NOTHING;
+    return answer;
+  };
+
+  const read = (path: string) => {
+    const known = peek(path);
+    if (known) return Promise.resolve(known.tail);
+    let answer = reading.get(path);
+    if (!answer) {
+      answer = new Promise<SavedTail | undefined>((resolve) => {
+        const settle = (stored: { tail: SavedTail; view: SavedView | undefined } | undefined) => {
+          clearTimeout(late);
+          reading.delete(path);
+          // a save or a drop meanwhile is newer than what the database had
+          if (!wiped && !memory.has(path))
+            memory.set(path, { tail: stored?.tail, view: stored?.view, savedAt: 0 });
+          resolve(memory.get(path)?.tail);
+        };
+        const late = setTimeout(() => settle(undefined), ANSWER_WITHIN_MS);
+        readStored(path).then(settle, () => settle(undefined));
+      });
+      reading.set(path, answer);
+    }
+    return answer;
+  };
+
+  const schedule = (path: string) => {
+    dirty.add(path);
+    timer ||= setTimeout(() => void flush(), Math.max(0, wroteAt + WRITE_EVERY_MS - Date.now()));
   };
 
   return {
     peek,
-    read(path) {
-      const known = peek(path);
-      if (known) return Promise.resolve(known.tail);
-      let answer = reading.get(path);
-      if (!answer) {
-        answer = new Promise<SavedTail | undefined>((resolve) => {
-          const settle = (tail: SavedTail | undefined) => {
-            clearTimeout(late);
-            reading.delete(path);
-            // a save or a drop meanwhile is newer than what the database had
-            if (!wiped && !memory.has(path)) memory.set(path, { tail, savedAt: 0 });
-            resolve(memory.get(path)?.tail);
-          };
-          const late = setTimeout(() => settle(undefined), ANSWER_WITHIN_MS);
-          readStored(path).then(settle, () => settle(undefined));
+    read,
+    saveView(path, view) {
+      if (wiped) return;
+      // a file over the bound is not kept: the view is then not remembered at all
+      const kept = (view.file?.source?.length ?? 0) > MOST_VIEW_CHARACTERS ? undefined : view;
+      const keep = () => {
+        const known = memory.get(path);
+        const same = known?.view && kept ? sameView(known.view, kept) : !known?.view && !kept;
+        if (wiped || same) return;
+        memory.set(path, {
+          tail: known?.tail,
+          view: kept,
+          savedAt: known?.tail ? Date.now() : (known?.savedAt ?? 0),
         });
-        reading.set(path, answer);
-      }
-      return answer;
+        // with no tail there is nothing to write: the record waits for the tail's save
+        if (known?.tail) schedule(path);
+      };
+      // the stored record is read first, so the view lands on its tail and not beside an empty one
+      if (memory.has(path)) keep();
+      else void read(path).then(keep);
     },
     save(path, events, exhausted) {
       if (wiped) return;
@@ -241,14 +315,14 @@ function storeOf(mind: string, actor: string): Store {
         known.events.at(-1) === tail.events.at(-1)
       )
         return;
-      memory.set(path, { tail, savedAt: Date.now() });
-      dirty.add(path);
-      timer ||= setTimeout(() => void flush(), Math.max(0, wroteAt + WRITE_EVERY_MS - Date.now()));
+      // the view that drew the rows stays with them
+      memory.set(path, { tail, view: memory.get(path)?.view, savedAt: Date.now() });
+      schedule(path);
     },
     flush,
     drop(path) {
       if (wiped) return;
-      memory.set(path, { tail: undefined, savedAt: Date.now() });
+      memory.set(path, { tail: undefined, view: undefined, savedAt: Date.now() });
       dirty.add(path);
       void flush();
     },

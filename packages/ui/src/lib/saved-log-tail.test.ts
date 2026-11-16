@@ -163,6 +163,113 @@ test("the first save writes at once, the saves of the next 3 s write once at the
   }
 });
 
+test("a view saved with a tail is read back by a new page, and a later save of either keeps the other", async () => {
+  await database();
+  const first = (await page()).savedLogTails(owner);
+  first.save("/agents/a", [event(1)], true);
+  first.saveView("/agents/a", claude("A"));
+  await first.flush();
+  const second = (await page()).savedLogTails(owner);
+  await second.read("/agents/a");
+  expect(second.peek("/agents/a")).toMatchObject({
+    tail: { events: [{ offset: 1 }] },
+    view: claude("A"),
+  });
+  // a later save of the tail keeps the view
+  second.save("/agents/a", [event(1), event(2)], true);
+  await second.flush();
+  const third = (await page()).savedLogTails(owner);
+  await third.read("/agents/a");
+  expect(third.peek("/agents/a")).toMatchObject({ view: claude("A") });
+  // a later save of the view keeps the tail
+  third.saveView("/agents/a", claude("B"));
+  await third.flush();
+  const fourth = (await page()).savedLogTails(owner);
+  await fourth.read("/agents/a");
+  expect(fourth.peek("/agents/a")).toMatchObject({
+    tail: { events: [{ offset: 1 }, { offset: 2 }] },
+    view: claude("B"),
+  });
+});
+
+test("a view saved before its tail is written with the tail, and no view is kept or shown with no tail", async () => {
+  await database();
+  const first = (await page()).savedLogTails(owner);
+  first.saveView("/agents/a", claude("A"));
+  await vi.waitFor(() => expect(first.peek("/agents/a")).toMatchObject({ tail: undefined }));
+  expect(first.peek("/agents/a")?.view).toBe(undefined);
+  first.save("/agents/a", [event(1)], true);
+  await first.flush();
+  const second = (await page()).savedLogTails(owner);
+  await second.read("/agents/a");
+  expect(second.peek("/agents/a")).toMatchObject({ view: claude("A") });
+  // a tail with no event deletes the record, view and all
+  second.save("/agents/a", [], true);
+  await second.flush();
+  const third = (await page()).savedLogTails(owner);
+  expect(await third.read("/agents/a")).toBe(undefined);
+  expect(third.peek("/agents/a")).toMatchObject({ tail: undefined });
+  expect(third.peek("/agents/a")?.view).toBe(undefined);
+});
+
+test("another member reads no view, and drop and a wipe remove it", async () => {
+  await database();
+  const first = (await page()).savedLogTails(owner);
+  for (const path of ["/agents/a", "/agents/b"]) {
+    first.save(path, [event(1)], true);
+    first.saveView(path, claude("A"));
+  }
+  await first.flush();
+  const other = (await page()).savedLogTails({ ...owner, actor: "/members/b" });
+  expect(await other.read("/agents/a")).toBe(undefined);
+  expect(other.peek("/agents/a")?.view).toBe(undefined);
+  const again = (await page()).savedLogTails(owner);
+  // the other member's first use deleted the first one's records
+  expect(await again.read("/agents/a")).toBe(undefined);
+  again.save("/agents/a", [event(1)], true);
+  again.saveView("/agents/a", claude("A"));
+  again.save("/agents/b", [event(1)], true);
+  again.saveView("/agents/b", claude("A"));
+  await again.flush();
+  again.drop("/agents/a");
+  expect(again.peek("/agents/a")?.view).toBe(undefined);
+  await again.flush();
+  const next = await page();
+  const tails = next.savedLogTails(owner);
+  await tails.read("/agents/a");
+  await tails.read("/agents/b");
+  expect(tails.peek("/agents/a")?.view).toBe(undefined);
+  expect(tails.peek("/agents/b")).toMatchObject({ view: claude("A") });
+  await next.wipeSavedLogTails();
+  expect(tails.peek("/agents/b")?.view).toBe(undefined);
+});
+
+test("a record whose view does not parse answers its tail with no view", async () => {
+  const indexedDB = await database();
+  const first = (await page()).savedLogTails(owner);
+  first.save("/agents/a", [event(1)], true);
+  await first.flush();
+  await rewrite(indexedDB, (record) => ({ ...record, view: { kind: 7, file: "claude.ts" } }));
+  const second = (await page()).savedLogTails(owner);
+  expect(await second.read("/agents/a")).toMatchObject({ events: [{ offset: 1 }] });
+  expect(second.peek("/agents/a")).toMatchObject({ tail: { exhausted: true } });
+  expect(second.peek("/agents/a")?.view).toBe(undefined);
+});
+
+test("a kind's file over 500,000 characters is not kept: the view is not remembered", async () => {
+  await database();
+  const first = (await page()).savedLogTails(owner);
+  first.save("/agents/a", [event(1)], true);
+  first.saveView("/agents/a", claude("A"));
+  // a larger file replaces the kept view with none: the kept one is of an older file
+  first.saveView("/agents/a", claude("x".repeat(500_001)));
+  expect(first.peek("/agents/a")?.view).toBe(undefined);
+  await first.flush();
+  const second = (await page()).savedLogTails(owner);
+  expect(await second.read("/agents/a")).toMatchObject({ events: [{ offset: 1 }] });
+  expect(second.peek("/agents/a")?.view).toBe(undefined);
+});
+
 /** The pages that tests loaded and that were not ended yet. */
 const pages: { wipeSavedLogTails(): Promise<void> }[] = [];
 
@@ -186,6 +293,31 @@ async function page() {
 
 function offsets(from: number, to: number) {
   return Array.from({ length: to - from + 1 }, (_, at) => from + at);
+}
+
+/** The view of a Claude agent, whose kind has a file with `source`. */
+function claude(source: string) {
+  return { kind: "claude", file: { name: "agent-kinds/claude.ts", source } };
+}
+
+/** Every record of the database, changed by `change`, as another version of the page could have
+ *  written it. */
+async function rewrite(factory: IDBFactory, change: (record: object) => object) {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = factory.open("iterate-saved-log-tails");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const tails = db.transaction("tails", "readwrite").objectStore("tails");
+  await new Promise<void>((resolve) => {
+    const cursor = tails.openCursor();
+    cursor.onsuccess = () => {
+      if (!cursor.result) return resolve();
+      cursor.result.update(change(cursor.result.value));
+      cursor.result.continue();
+    };
+  });
+  db.close();
 }
 
 function event(offset: number, { ephemeral = false, characters = 10 } = {}) {
