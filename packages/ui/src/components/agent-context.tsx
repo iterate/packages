@@ -91,6 +91,7 @@ export function AgentContext({
   placeholder,
   status,
   strip,
+  eventsTab,
   bodyClassName,
   feedClassName,
 }: {
@@ -126,6 +127,9 @@ export function AgentContext({
   /** `false`: the feed alone, with no strip and no Events tab (the shell's `strip`), for a reader
    *  who must not see the host's raw log. */
   strip?: ComponentProps<typeof AgentShell>["strip"];
+  /** `false`: the strip keeps its status line and loses the Events tab (the shell's `eventsTab`),
+   *  for a reader who may see what the room is doing, but not the host's raw log. */
+  eventsTab?: ComponentProps<typeof AgentShell>["eventsTab"];
   bodyClassName?: string;
   feedClassName?: string;
 }) {
@@ -189,6 +193,7 @@ export function AgentContext({
             onAppend={onAppend}
             status={status}
             strip={strip}
+            eventsTab={eventsTab}
             closeSheet={work.sheet && TRACES_CLOSED}
             sheet={work.sheet}
           >

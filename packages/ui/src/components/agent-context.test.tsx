@@ -317,6 +317,18 @@ test("strip={false} is the feed alone: no Events tab over the host's raw log", a
   expect(kinds()).toEqual(["typed"]);
 });
 
+test("eventsTab={false} keeps the status line and drops the Events tab: a guest's view of a room", async () => {
+  using _page = await mount({
+    context: { events: [room(5, "typed")], caughtUp: true },
+    renderers: roomRenderers,
+    status: { text: "2 speaking", tone: "live" },
+    eventsTab: false,
+  });
+  expect(document.body.textContent).toContain("2 speaking");
+  expect(document.body.textContent).not.toContain("Events");
+  expect(kinds()).toEqual(["typed"]);
+});
+
 test.for([
   { name: "a room row is older than the agent's oldest event", roomAt: 1, reads: true },
   { name: "no room row is older than the agent's oldest event", roomAt: 40, reads: false },
