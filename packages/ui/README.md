@@ -164,3 +164,19 @@ the registry.
 
 Every commit to iterate's main branch that changes the package publishes
 `<version>-main.<commit date>-<commit>` under the `main` dist-tag. `latest` names the same version.
+
+## The source of a version
+
+The package ships built files only. The source is in `packages/ui/src` of
+[iterate/packages](https://github.com/iterate/packages/tree/main/packages/ui/src): an import of
+`@iterate-com/ui/components/dash/dash` is `src/components/dash/dash.tsx` there.
+
+`main` there is the newest build. To read the source of the version a page pins, find the commit it
+names: each commit of that repository ends with `GitOrigin-RevId: <commit>`, and the version's last
+part is the start of it.
+
+```sh
+git clone https://github.com/iterate/packages && cd packages
+git log -1 --format=%H --grep='GitOrigin-RevId: 2da5c60'   # for 0.1.0-main.20261113T222359Z-2da5c60
+git show <that commit>:packages/ui/src/components/dash/dash-pages.tsx
+```
