@@ -145,6 +145,47 @@ The element takes the kit's tokens when the page has the kit's stylesheet, and s
 values when not: dark on a page whose `color-scheme` is dark, light on any other. A whole page:
 [examples/change-my-mind.html](https://github.com/iterate/packages/blob/main/packages/ui/examples/change-my-mind.html).
 
+### A call's spoken lines
+
+What is said in a call, from `@iterate-com/ui/components/call/<part>`. A line said is
+`{ key, who, at, text }`: `who` is the speaker's address, or the agent's name. `CaptionStrip` is one
+quiet line of the newest words under the call, with a button that opens `TranscriptHistory`.
+`TranscriptRollup` is one row of a feed for a run of lines said, and `rollUpSpokenLines` makes the
+runs from the page's rows:
+
+```js
+import { html, useMemo, useState } from "@iterate-com/ui/page";
+import { CaptionStrip } from "@iterate-com/ui/components/call/caption-strip";
+import { TranscriptRollup } from "@iterate-com/ui/components/call/transcript-rollup";
+import { rollUpSpokenLines } from "@iterate-com/ui/components/call/spoken-lines";
+
+// rows: the page's feed, in log order; spoken ones are { key, offset, kind: "said", who, at, text }
+const feed = useMemo(() => rollUpSpokenLines(rows), [rows]);
+const [open, setOpen] = useState({});
+const renderRow = (row) =>
+  row.kind === "rollup"
+    ? html`<${TranscriptRollup}
+        lines=${row.lines}
+        me=${myEmail}
+        expanded=${Boolean(open[row.key])}
+        onToggle=${() => setOpen((was) => ({ ...was, [row.key]: !was[row.key] }))}
+      />`
+    : html`<${MyRow} row=${row} />`;
+
+// under the feed: the newest words, and the viewer's own still being transcribed
+html`<${CaptionStrip}
+  said=${said}
+  live=${{ captions, pending }}
+  me=${myEmail}
+  open=${shown}
+  onOpen=${toggle}
+/>`;
+```
+
+A page that uses `AgentContext` (`@iterate-com/ui/components/agent-context`) passes both through
+its `captions` prop, which sits over the composer: the open `TranscriptHistory` first, then the
+`CaptionStrip`.
+
 ### Your mind's data
 
 `@iterate-com/ui/live` reads a mind live, as the person viewing the page. On the mind's own

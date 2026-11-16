@@ -405,6 +405,43 @@
       ]
     },
     {
+      "name": "call",
+      "type": "registry:component",
+      "description": "A call's spoken lines: the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
+      "dependencies": [
+        "cn",
+        "lucide-react"
+      ],
+      "registryDependencies": [
+        "avatar",
+        "button",
+        "iterate/packages/iterate-logo",
+        "iterate/packages/virtual-log"
+      ],
+      "files": [
+        {
+          "path": "src/components/call/spoken-lines.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/face.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/caption-strip.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/transcript-history.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/transcript-rollup.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "change-my-mind-button",
       "type": "registry:component",
       "description": "The Change my mind button: it copies instructions that a reader gives to their own iterate mind, to make the change a post describes.",

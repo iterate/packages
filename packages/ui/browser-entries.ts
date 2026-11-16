@@ -7,6 +7,18 @@ import path from "node:path";
 
 const ui = import.meta.dirname;
 
+/** The items whose files a page imports one by one, as `components/<item>/<file>`: the call's
+ *  spoken lines (src/components/call/), whose parts a page takes as it needs them. */
+const ITEMS_OF_PARTS: Record<string, string[]> = {
+  call: [
+    "spoken-lines.ts",
+    "face.tsx",
+    "caption-strip.tsx",
+    "transcript-history.tsx",
+    "transcript-rollup.tsx",
+  ],
+};
+
 /** Each entry's name, with the source tsdown builds it from: the modules in src/browser/, one
  *  per registry item of files (its file named after it, `context-view/context-view.tsx`; the theme
  *  item is a stylesheet's, iterate.css), and one per vendored shadcn component
@@ -17,6 +29,9 @@ export function browserEntries(): Record<string, string> {
   );
   const items = registry.items.flatMap((item) => {
     if (!item.files) return [];
+    // an item of parts with no file named after it: each part a page imports is an entry
+    const parts = ITEMS_OF_PARTS[item.name];
+    if (parts) return parts.map((part) => `src/components/${item.name}/${part}`);
     const file = item.files.find(
       ({ path: file }) => path.basename(file, path.extname(file)) === item.name,
     );
