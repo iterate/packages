@@ -181,7 +181,8 @@ const rowHeightOfPage = () =>
     : Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
 
 /** EVERY AGENT, as a virtual list: the agents at the top, the most recently active first, each
- *  followed by its subagents that are at work now (`agentAtWork`), indented. A subagent that is
+ *  followed by its subagents that are at work now (`agentAtWork`), indented. Under a title is
+ *  the agent's activity while it is at work, and otherwise its description: what it is for. A subagent that is
  *  not at work is in its agent's "and 5 subagents" only. Only the rows in view are in the DOM. It fills
  *  its parent, a flex column with a bounded height, and scrolls itself. */
 export function AllAgents({
@@ -229,7 +230,8 @@ export function AllAgents({
           const { row, subagents, depth } = rows[item.index]!;
           const KindIcon = kindIcon(row.kind);
           const at = row.lastActivityAt || row.createdAt;
-          const line = [subagentsLine(subagents), agentDoing(row, nowMs)]
+          // what it does now while it is at work; otherwise what it is for
+          const line = [subagentsLine(subagents), agentDoing(row, nowMs) || row.description]
             .filter(Boolean)
             .join(" · ");
           return (

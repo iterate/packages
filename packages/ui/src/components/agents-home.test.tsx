@@ -75,6 +75,43 @@ test("a subagent has a row only while it is at work: one that stopped is in its 
   document.body.replaceChildren();
 });
 
+test("under a title is what the agent does now while it is at work, and what it is for when it is not", async () => {
+  using _ = laidOut();
+  const nowMs = Date.parse("2026-11-16T16:00:00Z");
+  const agent = (path: string, status: AgentRow["status"], activity: string | null): AgentRow => ({
+    path,
+    createdAt: "2026-11-16T15:59:00Z",
+    parent: null,
+    kind: "iterate",
+    host: null,
+    status,
+    activity,
+    description: `The purpose of ${path}`,
+    title: path,
+    lastActivityAt: "2026-11-16T15:59:30Z",
+  });
+  const agents = [
+    agent("/agents/at-work", "working", "Drawing the monkey"),
+    // its last task ended an hour of silence ago for a list: the label of that task is not shown
+    {
+      ...agent("/agents/done", "idle", "Drawing the monkey"),
+      lastActivityAt: "2026-11-16T14:00:00Z",
+    },
+  ];
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () =>
+    root.render(<AllAgents agents={agents} nowMs={nowMs} agentHref={(path) => path || "/"} />),
+  );
+  const text = (path: string) =>
+    document.querySelector<HTMLElement>(`[data-agent-path="${path}"]`)?.textContent;
+  expect(text("/agents/at-work")).toContain("Drawing the monkey");
+  expect(text("/agents/at-work")).not.toContain("The purpose of");
+  expect(text("/agents/done")).toContain("The purpose of /agents/done");
+  expect(text("/agents/done")).not.toContain("Drawing the monkey");
+  act(() => root.unmount());
+  document.body.replaceChildren();
+});
+
 /** A page with height, which jsdom lacks, so the virtual list draws its rows; disposing takes it
  *  back. */
 function laidOut() {
