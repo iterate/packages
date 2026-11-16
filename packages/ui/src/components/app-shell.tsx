@@ -660,18 +660,29 @@ function MindSwitcher({
 }
 
 /** The height the page can show. Safari shrinks only the visual viewport for a phone's keyboard, so
- *  a page sized in CSS units goes behind it. Pinch zoom shrinks it too, and is no keyboard. */
+ *  a page sized in CSS units goes behind it. A pinch shrinks the visual viewport too, in the
+ *  pinch's own px: times its scale it is the page's height again. So a pinch alone changes
+ *  nothing, and a keyboard that goes while the page is pinched gives its room back. The height is
+ *  taken again when the page is shown again: a keyboard that went while it was hidden said
+ *  nothing. */
 function useHeightOfWhatIsVisible() {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
     const fit = () => {
-      if (viewport.scale > 1) return;
-      document.documentElement.style.setProperty("--app-height", `${String(viewport.height)}px`);
-      window.scrollTo(0, 0);
+      const height = Math.round(viewport.height * viewport.scale * 100) / 100;
+      document.documentElement.style.setProperty("--app-height", `${String(height)}px`);
+      // a pinched page stays where the person put it
+      if (viewport.scale <= 1) window.scrollTo(0, 0);
     };
     viewport.addEventListener("resize", fit);
-    return () => viewport.removeEventListener("resize", fit);
+    window.addEventListener("pageshow", fit);
+    document.addEventListener("visibilitychange", fit);
+    return () => {
+      viewport.removeEventListener("resize", fit);
+      window.removeEventListener("pageshow", fit);
+      document.removeEventListener("visibilitychange", fit);
+    };
   }, []);
 }
 

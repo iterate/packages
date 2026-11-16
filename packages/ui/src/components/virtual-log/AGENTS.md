@@ -26,8 +26,11 @@ Rules that the code cannot show you:
   failed: the error says it. `Feed` (`agent-chat/chat-parts.tsx`) does this for a kind's view.
 - A wait is one loading state to the eye. `LogReading` stays unseen for the first 200 ms of the
   wait, so a fast read paints none, and one that takes another's place goes on with its wait. A
-  page that waits before a view exists shows `AgentReading` (`agent-chat/agent-shell.tsx`): the
-  same line in the same place. Do not add a second word for the same wait.
+  page that waits before a view exists shows `AgentReading` (`agent-chat/agent-reading.tsx`): the
+  strip the view will draw, and the same line in the same place. Do not add a second word for the
+  same wait.
+- The loading line stands where the first row will stand: under the list's `paddingStart`, with a
+  row's own padding (`ChatReading`). Nothing moves when the rows come.
 - `older` stops on an error: a view passes `OLDER_EXHAUSTED` once its context has one. If not, the
   list asks for the failed page again each time the read ends. A kind's frame passes `OLDER_FAILED`:
   the same stop, and `Feed` then shows neither a loading state nor its words for an empty log.

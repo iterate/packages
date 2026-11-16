@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test, vi } from "vitest";
 import { AgentChat, AgentProgress } from "./agent-chat.tsx";
+import { AgentReading } from "./agent-reading.tsx";
 import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 test("shared-conversation progress shows work and its public summary without response or script content", () => {
@@ -435,6 +436,42 @@ test("a loading state stays unseen for 200 ms, and one that takes another's plac
     document.body.replaceChildren();
     clock.mockRestore();
   }
+});
+
+test("a page's loading state before there is a view is the view's own: the same strip and the same line, so the view moves nothing when it comes", async () => {
+  // what stands where, by the classes that place it: the strip's row, its tabs, the feed's column
+  // and the loading line
+  const placed = () => {
+    const tabs = document.querySelector("[role=tablist]");
+    const line = document.querySelector("[data-slot=log-reading]");
+    return {
+      strip: tabs?.closest("[data-slot=tabs]")?.parentElement?.className,
+      tabs: tabs?.className,
+      column: line?.parentElement?.className.match(/mx-auto w-full max-w-3xl px-4 md:px-6/)?.[0],
+      line: line?.className,
+      // a row's own 8 px under the feed's 8 px start: where the first row will stand
+      lineIsWhereARowIs: line?.classList.contains("pt-4"),
+    };
+  };
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<AgentReading />));
+  const page = placed();
+  // the page's strip cannot be pressed, and says no count of events
+  expect(Boolean(document.querySelector("[inert] [role=tablist]"))).toBe(true);
+  expect(document.querySelector("[role=tablist]")?.textContent).toBe("ChatEvents");
+  act(() => root.unmount());
+  document.body.replaceChildren();
+  using _chat = await mount({
+    processors: { rows: [], loaded: false },
+    liveState: {},
+    caughtUp: false,
+  });
+  expect(document.querySelector("[role=tablist]")?.textContent).toBe("ChatEvents0");
+  expect(placed()).toEqual(page);
+  expect(page).toMatchObject({
+    column: "mx-auto w-full max-w-3xl px-4 md:px-6",
+    lineIsWhereARowIs: true,
+  });
 });
 
 test("the page's own text for an empty composer", async () => {

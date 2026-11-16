@@ -38,6 +38,7 @@ import {
 } from "react";
 import { z } from "zod";
 import type { AgentChatState } from "./agent-chat-search.ts";
+import { ChatReading } from "./agent-reading.tsx";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
 import type { AgentProgressData } from "./agent-progress.ts";
@@ -68,7 +69,6 @@ import {
   OLDER_EXHAUSTED,
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
-import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 import { remembered } from "#/components/virtual-log/remembered.ts";
 
 type AgentChatContext = ContextViewSource & { processors: { loaded: boolean } };
@@ -491,8 +491,7 @@ function ChatEmpty({
   empty: ReactNode;
 }) {
   if (failed) return null;
-  if (!caughtUp || readProgress !== undefined)
-    return <LogReading label="Reading the log" progress={readProgress} className="py-6" />;
+  if (!caughtUp || readProgress !== undefined) return <ChatReading progress={readProgress} />;
   if (empty)
     return (
       <div data-slot="agent-chat-empty" className="flex h-full items-center justify-center py-6">

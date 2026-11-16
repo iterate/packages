@@ -2,7 +2,8 @@
 // Two of the shell's options: the desktop sidebar's state for a person who has not toggled it, and
 // the floating phone header, which the person's moves over the page show and put away. What the
 // header looks like at each state is CSS (the pull request's screenshots); this file reads the
-// state the CSS reads.
+// state the CSS reads. And the shell's height, which follows what a phone shows: a keyboard takes
+// room, a pinch takes none.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -30,6 +31,52 @@ test.for<{ name: string; sidebarDefaultOpen?: boolean; cookie?: string; state: s
   using _shell = await mount({ sidebarDefaultOpen }, { cookie });
   expect(document.querySelector("[data-slot=sidebar]")?.getAttribute("data-state")).toBe(state);
 });
+
+test.for<{ name: string; then: { height: number; scale: number }; shown: boolean; height: string }>(
+  [
+    // the keyboard's 300 px come back: 577.39 px of a page pinched to 1.15 are 664 of its own
+    {
+      name: "the keyboard goes while the page is pinched",
+      then: { height: 577.39, scale: 1.15 },
+      shown: false,
+      height: "664px",
+    },
+    { name: "the keyboard goes", then: { height: 664, scale: 1 }, shown: false, height: "664px" },
+    {
+      name: "a pinch comes while the keyboard is in",
+      then: { height: 316.52, scale: 1.15 },
+      shown: false,
+      height: "364px",
+    },
+    // no resize came (the keyboard went while the page was hidden): the height is taken again
+    {
+      name: "the page is shown again with the keyboard gone",
+      then: { height: 664, scale: 1 },
+      shown: true,
+      height: "664px",
+    },
+  ],
+)(
+  "the shell is as high as what a phone shows, when $name: $height",
+  async ({ then, shown, height }) => {
+    const viewport = Object.assign(new EventTarget(), { height: 664, scale: 1 });
+    vi.stubGlobal("visualViewport", viewport);
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    using _shell = await mount({}, {});
+    const shellHeight = () => document.documentElement.style.getPropertyValue("--app-height");
+    // the keyboard comes: a shorter visual viewport
+    Object.assign(viewport, { height: 364 });
+    viewport.dispatchEvent(new Event("resize"));
+    expect(shellHeight()).toBe("364px");
+    Object.assign(viewport, then);
+    if (shown) document.dispatchEvent(new Event("visibilitychange"));
+    else viewport.dispatchEvent(new Event("resize"));
+    expect(shellHeight()).toBe(height);
+    document.documentElement.style.removeProperty("--app-height");
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  },
+);
 
 test("a floating header goes as a finger takes a long page down, and comes back on a pull", async () => {
   using shell = await mount({ phoneHeader: "floating" }, { feedScrolls: true });

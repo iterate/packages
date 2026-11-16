@@ -31,7 +31,7 @@ import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
-import { AgentReading } from "#/components/agent-chat/agent-shell.tsx";
+import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
 import {

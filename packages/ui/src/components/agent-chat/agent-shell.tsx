@@ -11,23 +11,14 @@
 //     <${MyChat} … />
 //   </${ui.AgentShell}>`
 import { useMemo, type ReactNode } from "react";
-import { CircleIcon } from "lucide-react";
-import { cn } from "cn";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { agentEventInspectors } from "./agent-event-inspectors.tsx";
-import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
+import { AgentStrip, type AgentShellStatus } from "./agent-strip.tsx";
 import type { EventInspectors } from "#/components/context-view/types.tsx";
 import { ContextView, type ContextViewSource } from "#/components/context-view/context-view.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
-import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
-/** What the strip says the agent is doing, and how loudly. */
-export type AgentShellStatus = {
-  text: string;
-  tone: "live" | "amber" | "muted";
-  /** A tooltip: what went wrong, say. */
-  detail?: string;
-};
+export type { AgentShellStatus };
 
 export function AgentShell({
   path,
@@ -79,7 +70,7 @@ export function AgentShell({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {strip ? (
-        <ShellStrip
+        <AgentStrip
           status={status}
           view={view}
           hasChat={Boolean(children)}
@@ -120,89 +111,6 @@ export function AgentShell({
         children
       )}
       {sheet}
-    </div>
-  );
-}
-
-/** THE LOADING STATE OF AN AGENT'S VIEW BEFORE THERE IS A SHELL: what a page shows while it does not
- *  know yet which view the agent has, or while that view's own document loads. It is the chat's
- *  own loading line in the chat's own place (under the strip's height, in the feed's column), so
- *  the shell that follows moves nothing. */
-export function AgentReading() {
-  return (
-    <div className="pt-10 pointer-coarse:pt-12">
-      <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
-        <LogReading label="Reading the log" className="py-6" />
-      </div>
-    </div>
-  );
-}
-
-/** The strip: one line of status, and Chat | Events. Its height is `AgentReading`'s top. */
-function ShellStrip({
-  status,
-  view,
-  hasChat,
-  tabs,
-  held,
-  wholeLogHeld,
-  onStateChange,
-}: {
-  status: AgentShellStatus | undefined;
-  view: AgentChatState["view"];
-  hasChat: boolean;
-  /** `false`: the status alone. */
-  tabs: boolean;
-  /** How many events are held, and whether they are the whole log: the Events tab's count. */
-  held: number;
-  wholeLogHeld: boolean;
-  onStateChange: (patch: Partial<AgentChatState>) => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-3 px-4 py-1">
-      {status?.text ? (
-        <span
-          className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
-          title={status.detail}
-          data-status={status.tone}
-        >
-          <CircleIcon
-            className={cn(
-              "size-2 shrink-0",
-              status.tone === "live" && "animate-pulse fill-success text-success",
-              status.tone === "amber" && "fill-warning text-warning",
-              status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
-            )}
-          />
-          <span className="truncate">{status.text}</span>
-        </span>
-      ) : null}
-      {tabs ? (
-        <Tabs
-          value={view || "chat"}
-          onValueChange={(value) =>
-            onStateChange({ view: value === "chat" ? undefined : "events" })
-          }
-          className="ml-auto"
-        >
-          <TabsList className="h-8 pointer-coarse:h-10">
-            {hasChat ? (
-              <TabsTrigger value="chat" className="text-xs">
-                Chat
-              </TabsTrigger>
-            ) : null}
-            <TabsTrigger value="events" className="text-xs">
-              <span className="inline-flex items-baseline gap-1.5">
-                Events
-                <span className="font-mono text-2xs text-muted-foreground/70">
-                  {held}
-                  {wholeLogHeld ? "" : "+"}
-                </span>
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      ) : null}
     </div>
   );
 }

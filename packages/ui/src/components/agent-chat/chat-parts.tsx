@@ -5,11 +5,11 @@
 import { useCallback, type ReactNode } from "react";
 import { cn } from "cn";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
+import { ChatReading } from "./agent-reading.tsx";
 import { AgentComposer } from "./composer.tsx";
 import { useComposerDraft } from "./use-composer-attachments.ts";
 import { VirtualLog, type VirtualLogRowInfo } from "#/components/virtual-log/virtual-log.tsx";
 import { OLDER_EXHAUSTED, type OlderPages } from "#/components/virtual-log/older-pages.ts";
-import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
 /** One row of a `Feed`: its identity, and where it sits in the log when it is an event's. */
 export type FeedRow = { key: string; offset?: number };
@@ -51,13 +51,7 @@ export function Feed<Row extends FeedRow>({
       rowInfo={ROWS}
       renderRow={render}
       older={older}
-      empty={
-        older.failed ? null : older.exhausted ? (
-          empty
-        ) : (
-          <LogReading label="Reading the log" className="py-6" />
-        )
-      }
+      empty={older.failed ? null : older.exhausted ? empty : <ChatReading />}
       tail={tail}
       label="Chat"
       footer={

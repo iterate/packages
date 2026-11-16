@@ -80,7 +80,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/agent-reading.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/agent-shell.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-strip.tsx",
           "type": "registry:component"
         },
         {

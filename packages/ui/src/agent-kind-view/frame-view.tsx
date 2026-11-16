@@ -2,7 +2,8 @@
 // from what the host sent, or the Events tab when there is no view, it failed to load, or it threw.
 import { Component, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import type { RpcStub } from "capnweb";
-import { AgentReading, AgentShell } from "../components/agent-chat/agent-shell.tsx";
+import { AgentReading } from "../components/agent-chat/agent-reading.tsx";
+import { AgentShell } from "../components/agent-chat/agent-shell.tsx";
 import { OLDER_FAILED } from "../components/virtual-log/older-pages.ts";
 import type { AgentKindViewHostApi, AgentKindViewInputs } from "./bridge.ts";
 import type { InputsStore, LoadedView } from "./frame.ts";
