@@ -12,6 +12,26 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // the Markdown renderer loads after the first render: on a loaded machine that takes seconds
 vi.setConfig({ testTimeout: 30_000 });
 
+test("a link to another page that names its way back here opens in this tab; one that returns elsewhere opens a new tab", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const back = encodeURIComponent(`${window.location.origin}/?agent=/agents/onboarding`);
+  await act(async () => {
+    root.render(
+      <MessageResponse>
+        {`[Sign](https://iterate.example.com/keys/enrol?actor=iterate-com&next=${back}) or [elsewhere](https://iterate.example.com/keys?next=https%3A%2F%2Fother.example%2F).`}
+      </MessageResponse>,
+    );
+  });
+  await drawn(() => expect(host.querySelectorAll("a")).toHaveLength(2));
+  const [sign, elsewhere] = [...host.querySelectorAll("a")];
+  expect(sign?.hasAttribute("target")).toBe(false);
+  expect(elsewhere?.getAttribute("target")).toBe("_blank");
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 test("a link in an agent's words is an <a> with its href, and no dialog opens on a click", async () => {
   const host = document.createElement("div");
   document.body.append(host);

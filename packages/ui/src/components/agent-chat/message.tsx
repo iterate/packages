@@ -131,10 +131,17 @@ function MessageMarkdownLink({
   );
 }
 
+/** Whether a link stays in this tab: a link to this page or its origin, and a link to another
+ *  page that names its way back here (`next=<a URL of this origin>`, as the pages of a mind's
+ *  stack take it). Such a page brings the person back by itself, so a new tab would leave them
+ *  with two tabs of this chat. */
 function isSameOrigin(href: string): boolean {
   if (href.startsWith("#")) return true;
   try {
-    return new URL(href, window.location.href).origin === window.location.origin;
+    const url = new URL(href, window.location.href);
+    if (url.origin === window.location.origin) return true;
+    const next = url.searchParams.get("next");
+    return Boolean(next) && new URL(next!, url).origin === window.location.origin;
   } catch {
     return false;
   }
