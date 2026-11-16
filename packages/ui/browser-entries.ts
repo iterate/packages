@@ -47,6 +47,11 @@ export function browserEntries(): Record<string, string> {
     "agent-kind-view/host": "src/agent-kind-view/host.ts",
     // `<change-my-mind>`, the button for a page with no React: one script tag defines it
     "change-my-mind": "src/browser/change-my-mind.ts",
+    // the chat's parts for a page of its own (a call's log, a room's chat): `Feed`, `MessageBubble`,
+    // `Composer` and `Markdown`, and `AgentShell`'s Chat | Events strip. A kind's view gets the same
+    // parts as `ui` (src/agent-kind-view/kit.ts); a page imports them by these names.
+    "components/agent-chat/chat-parts": "src/components/agent-chat/chat-parts.tsx",
+    "components/agent-chat/agent-shell": "src/components/agent-chat/agent-shell.tsx",
     ...Object.fromEntries(
       [...items, ...shadcn]
         .sort()

@@ -57,6 +57,8 @@
       "./react-dom/client": "./dist/react-dom/client.mjs",
       "./agent-kind-view/host": "./dist/agent-kind-view/host.mjs",
       "./change-my-mind": "./dist/change-my-mind.mjs",
+      "./components/agent-chat/chat-parts": "./dist/components/agent-chat/chat-parts.mjs",
+      "./components/agent-chat/agent-shell": "./dist/components/agent-chat/agent-shell.mjs",
       "./components/agent-chat/agent-chat": "./dist/components/agent-chat/agent-chat.mjs",
       "./components/agents-home": "./dist/components/agents-home.mjs",
       "./components/agents-nav": "./dist/components/agents-nav.mjs",
