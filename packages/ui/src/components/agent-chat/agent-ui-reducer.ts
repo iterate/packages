@@ -320,6 +320,9 @@ export type AgentUiMessageItem = {
   /** The sender's short label (stream-event.ts `saidByOf`), drawn under the bubble of anyone but
    *  the viewer. */
   saidBy?: string;
+  /** The context that sent it, when that is another context than the mind's root: another agent.
+   *  Its words are a report to the agent, not a person's. */
+  from?: string;
 };
 
 export type AgentUiStreamPauseItem = {
@@ -336,6 +339,8 @@ export type AgentUiBackgroundMessage = {
   text: string;
   timestampMs: number;
   files?: AgentUiFileAttachment[];
+  /** The context that sent it, as on a message item. */
+  from?: string;
 };
 
 /** Inputs that started no turn (`dont-trigger-request`): what the agent reads, which no one said to
@@ -378,8 +383,8 @@ export type AgentUiState = {
   /** The highest trigger an intent has named so far. */
   latestTriggerOffset: number;
   /** Who said each `agent/message-received`, by its offset: iterate's loop relays the words as a
-   *  `context-added` of its own, which names no person. */
-  senderByMessage: Record<number, MessageSender>;
+   *  `context-added` of its own, which names no person, and may name no context. */
+  senderByMessage: Record<number, { sender?: MessageSender; from?: string }>;
 };
 
 export function initialAgentUiState(): AgentUiState {
@@ -444,8 +449,12 @@ function reduceAgentUiEvent(
     // the bubble comes from the `context-added` the loop makes of it.
     case "events.iterate.com/agent/message-received": {
       const sender = senderOf(event.source);
-      if (!sender) return state;
-      return { ...state, senderByMessage: { ...state.senderByMessage, [event.offset]: sender } };
+      const from = readContextFrom(event);
+      if (!sender && !from) return state;
+      return {
+        ...state,
+        senderByMessage: { ...state.senderByMessage, [event.offset]: { sender, from } },
+      };
     }
 
     // The canonical model-visible context event. User context renders as a
@@ -477,8 +486,9 @@ function reduceAgentUiEvent(
 
       const files = readFileAttachments(event);
       if (role === "user") {
-        const sender =
-          senderOf(event.source) ?? state.senderByMessage[relayedMessageOffset(event) ?? -1];
+        const relayed = state.senderByMessage[relayedMessageOffset(event) ?? -1];
+        const sender = senderOf(event.source) ?? relayed?.sender;
+        const from = readContextFrom(event) ?? relayed?.from;
         const message = {
           offset: event.offset,
           text,
@@ -486,6 +496,7 @@ function reduceAgentUiEvent(
           timestampMs,
           sender,
           saidBy: sender && saidByOf(sender),
+          from,
         };
         if (readRecord(event, "llmRequestPolicy")?.behaviour === "dont-trigger-request")
           return emitBackgroundItem(state, items, {
@@ -1002,6 +1013,13 @@ function readOptionalReason(event: StreamEvent): { reason: string } | Record<str
 function readNumber(event: StreamEvent, key: string): number | null {
   const value = readPayloadRecord(event)?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** The context path a message's `from` names (core's `messagePayload`), unless it is the root:
+ *  `/` is the mind's code and its people, so its words are a person's. */
+function readContextFrom(event: StreamEvent): string | undefined {
+  const from = readString(event, "from");
+  return from?.startsWith("/") && from !== "/" ? from : undefined;
 }
 
 /** The llm-request-requested offset an LLM lifecycle event references. */

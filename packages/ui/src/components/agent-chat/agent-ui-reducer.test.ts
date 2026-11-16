@@ -82,6 +82,75 @@ test("a message sent with message() keeps who said it on the bubble the loop mak
   ]);
 });
 
+test("a helper's report keeps the context that sent it on the user item the loop makes of it, and starts the same turn", () => {
+  const report = [
+    {
+      type: "events.iterate.com/agent/message-received",
+      offset: 7,
+      payload: { message: "The site is up.", from: "/agents/onboarding/website" },
+    },
+    {
+      type: "events.iterate.com/agent/context-added",
+      offset: 8,
+      payload: { role: "user", actor: { type: "user" }, content: "The site is up." },
+      source: {
+        processor: {
+          slug: "agent",
+          version: "1",
+          whileProcessing: { offset: 7, type: "events.iterate.com/agent/message-received" },
+        },
+      },
+    },
+    { ...request, offset: 9, payload: { triggerOffset: 8 } },
+  ];
+  const state = reduceAll(report);
+  expect(state.items).toMatchObject([
+    { kind: "user", id: "user-8", text: "The site is up.", from: "/agents/onboarding/website" },
+  ]);
+  // the same events with no `from` fold to the same turn: the sender changes the row, not the fold
+  const unsigned = reduceAll(
+    report.map((event) =>
+      event.offset === 7 ? { ...event, payload: { message: "The site is up." } } : event,
+    ),
+  );
+  expect(state).toMatchObject({ live: unsigned.live });
+  expect(state.items.map(({ id, kind }) => ({ id, kind }))).toEqual(
+    unsigned.items.map(({ id, kind }) => ({ id, kind })),
+  );
+});
+
+test.for([
+  { name: "the root, the mind's code and its people", from: "/" },
+  { name: "no context path", from: "website" },
+  { name: "no string", from: 7 },
+])("a `from` of $name is a person's message, with no sender context", ({ from }) => {
+  const state = reduceAll([
+    {
+      type: "events.iterate.com/agent/context-added",
+      payload: { role: "user", actor: { type: "user" }, content: "hello", from },
+    },
+  ]);
+  expect(state.items).toMatchObject([{ kind: "user", text: "hello", from: undefined }]);
+});
+
+test("a message that starts no turn keeps the context that sent it on its background message", () => {
+  const state = reduceAll([
+    {
+      type: "events.iterate.com/agent/context-added",
+      payload: {
+        role: "user",
+        actor: { type: "user" },
+        content: "fyi",
+        from: "/agents/onboarding/look",
+        llmRequestPolicy: { behaviour: "dont-trigger-request" },
+      },
+    },
+  ]);
+  expect(state.items).toMatchObject([
+    { kind: "background", messages: [{ text: "fyi", from: "/agents/onboarding/look" }] },
+  ]);
+});
+
 test("streams thinking and response deltas into the live llm step", () => {
   const state = reduceAll([
     {

@@ -255,6 +255,7 @@ export function AgentChat({
           signedUrl={signedUrl}
           itemFooter={itemFooter}
           me={me}
+          agentPath={path}
           statusRow={strip ? null : chatStatusRow(status, feed.state)}
           aboveComposer={aboveComposer}
           empty={empty}
@@ -376,6 +377,7 @@ function ChatTab({
   signedUrl,
   itemFooter,
   me,
+  agentPath,
   statusRow,
   aboveComposer,
   empty,
@@ -398,6 +400,7 @@ function ChatTab({
   signedUrl: SignedUrl;
   itemFooter: ((item: AgentUiItem) => ReactNode) | undefined;
   me: string | undefined;
+  agentPath: string;
   statusRow: ReactNode;
   aboveComposer: ReactNode;
   empty: ReactNode;
@@ -486,6 +489,7 @@ function ChatTab({
       signedUrl={signedUrl}
       itemFooter={itemFooter}
       me={me}
+      agentPath={agentPath}
     />
   );
 }

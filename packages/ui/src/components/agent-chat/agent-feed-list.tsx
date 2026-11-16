@@ -8,7 +8,8 @@ import type { OlderPages } from "#/components/virtual-log/older-pages.ts";
 import { ReadProgress } from "#/components/virtual-log/read-progress.tsx";
 import { VirtualLog, type VirtualLogRowInfo } from "#/components/virtual-log/virtual-log.tsx";
 
-/** A row's height until it is measured. */
+/** A row's height until it is measured. Another agent's words are one quiet row, as tall as an
+ *  activity's. */
 const ESTIMATED_HEIGHT: Record<AgentUiItem["kind"], number> = {
   user: 96,
   assistant: 72,
@@ -20,7 +21,8 @@ const ESTIMATED_HEIGHT: Record<AgentUiItem["kind"], number> = {
 
 const CHAT_ROWS: VirtualLogRowInfo<AgentUiItem> = {
   key: (row) => row.id,
-  estimateSize: (row) => ESTIMATED_HEIGHT[row.kind],
+  estimateSize: (row) =>
+    row.kind === "user" && row.from ? ESTIMATED_HEIGHT.activity : ESTIMATED_HEIGHT[row.kind],
   // a message's; what the agent did is counted by the words around it
   offset: (row) => (row.kind === "user" || row.kind === "assistant" ? row.offset : undefined),
 };
@@ -40,6 +42,7 @@ export function AgentFeedList({
   signedUrl,
   itemFooter,
   me,
+  agentPath,
 }: {
   feed: { state: AgentUiState; items: readonly AgentUiItem[] };
   older: OlderPages;
@@ -61,6 +64,8 @@ export function AgentFeedList({
   signedUrl: ComponentProps<typeof AgentFeedItemRow>["signedUrl"];
   itemFooter?: (item: AgentUiItem) => ReactNode;
   me: string | undefined;
+  /** This chat's agent, which tells its helpers' words from another agent's. */
+  agentPath: string;
 }) {
   const { items, state } = feed;
   const renderRow = useCallback(
@@ -74,11 +79,12 @@ export function AgentFeedList({
           traceOffset={row.kind === "assistant" ? traceOffsets.get(row.id) : undefined}
           signedUrl={signedUrl}
           me={me}
+          agentPath={agentPath}
         />
         {itemFooter?.(row)}
       </>
     ),
-    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me],
+    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me, agentPath],
   );
   return (
     <VirtualLog

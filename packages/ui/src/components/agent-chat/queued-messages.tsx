@@ -2,6 +2,10 @@
 // PART OF THE COMPOSER — input that has not reached the agent yet belongs with the input surface,
 // not in the feed's history. A rounded card tucked behind the pill; on phones only the newest
 // message stays pinned, with a "+N more" toggle.
+//
+// The panel is a PERSON's queue. Another agent's words can wait for the next turn too (a helper's
+// report that comes in while the agent works): they are no input of the reader's, so they are
+// not drawn here. The feed shows them as a report row once a request has taken them up.
 import { useState } from "react";
 import { BanIcon } from "lucide-react";
 import { cn } from "cn";
@@ -11,7 +15,7 @@ import { Spinner } from "#/components/ui/spinner.tsx";
 import { Button } from "#/components/ui/button.tsx";
 
 export function QueuedMessagesPanel({
-  messages,
+  messages: queued,
   isInterrupting,
   onInterrupt,
   signedUrl,
@@ -22,6 +26,7 @@ export function QueuedMessagesPanel({
   signedUrl: SignedUrl;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const messages = queued.filter((message) => !message.from);
   if (messages.length === 0) return null;
   const hiddenCount = messages.length - 1;
   return (

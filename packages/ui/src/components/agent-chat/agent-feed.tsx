@@ -1,11 +1,13 @@
-// The feed rows: a person's message, the assistant's prose, the quiet "3 messages came in" row over
-// what reached the agent without starting a turn, and the quiet "Ran code 2× · 3 requests · 7.4 s"
+// The feed rows: a person's message, the assistant's prose, the quiet "website reported" row over
+// another agent's words, the quiet "3 messages came in" row over what reached the agent without
+// starting a turn, and the quiet "Ran code 2× · 3 requests · 7.4 s"
 // activity row that opens into rounds — the LLM step that wrote a script and the code step that ran
 // it, each a `Script | Result | Meta` tab group. Items come from the shared reducer
 // (agent-ui-reducer.ts); this file owns only their look.
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   BanIcon,
+  BotIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   CodeIcon,
@@ -13,6 +15,7 @@ import {
   PaperclipIcon,
   PauseIcon,
   PlayIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "cn";
 import {
@@ -25,6 +28,7 @@ import {
   type AgentUiActivity,
   type AgentUiActivityRound,
   type AgentUiBackgroundItem,
+  type AgentUiBackgroundMessage,
   type AgentUiCodeStep,
   type AgentUiFileAttachment,
   type AgentUiItem,
@@ -70,6 +74,7 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   traceOffset,
   signedUrl,
   me,
+  agentPath,
 }: {
   item: AgentUiItem;
   expanded: boolean;
@@ -81,9 +86,23 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   /** The viewer's address or actor id. Their own bubbles have no line under them; with none, every
    *  person's has one. */
   me?: string;
+  /** This chat's agent: another agent's words "reported" when it is one of its helpers, below it,
+   *  else "wrote". */
+  agentPath?: string;
 }) {
   switch (item.kind) {
     case "user":
+      if (item.from)
+        return (
+          <ReportRow
+            item={item}
+            from={item.from}
+            agentPath={agentPath}
+            expanded={expanded}
+            onToggle={onToggle}
+            signedUrl={signedUrl}
+          />
+        );
       return (
         <Message from="user" className="pb-2 pt-3.5" data-kind="user">
           <MessageContent className="group-[.is-user]:rounded-2xl">
@@ -181,19 +200,101 @@ function BackgroundRow({
 }) {
   const count = item.messages.length;
   return (
-    <div className="flex flex-col py-0.5" data-kind="background">
+    <FoldedRow
+      kind="background"
+      icon={InboxIcon}
+      title="Read by the agent, without starting a turn"
+      expanded={expanded}
+      onToggle={() => onToggle(item.id)}
+      line={count === 1 ? "1 message came in" : `${String(count)} messages came in`}
+    >
+      {count > BACKGROUND_SHOWN ? (
+        <p>The newest {BACKGROUND_SHOWN}. The Events tab has them all.</p>
+      ) : null}
+      {item.messages.slice(-BACKGROUND_SHOWN).map((message) => (
+        <FoldedMessage key={message.offset} message={message} signedUrl={signedUrl} />
+      ))}
+    </FoldedRow>
+  );
+}
+
+// ── another agent's words: the quiet "website reported" row ──
+
+/** Words another agent sent (a helper's report, mostly): what the agent reads, which its person did
+ *  not say. So it is no bubble on the person's side, but a quiet row on the agent's that opens into
+ *  the words. */
+function ReportRow({
+  item,
+  from,
+  agentPath,
+  expanded,
+  onToggle,
+  signedUrl,
+}: {
+  item: AgentUiMessageItem;
+  from: string;
+  agentPath: string | undefined;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+  signedUrl: SignedUrl;
+}) {
+  const name = from.split("/").findLast(Boolean) || from;
+  const helper = Boolean(agentPath) && from.startsWith(`${agentPath}/`);
+  return (
+    <FoldedRow
+      kind="report"
+      icon={BotIcon}
+      title={from}
+      expanded={expanded}
+      onToggle={() => onToggle(item.id)}
+      line={
+        <>
+          {helper ? `${name} reported` : `${name} wrote`}
+          <time
+            dateTime={new Date(item.timestampMs).toISOString()}
+            title={formatDateTime(item.timestampMs)}
+            className="ml-1.5 text-muted-foreground/60"
+          >
+            {formatClockTime(item.timestampMs)}
+          </time>
+        </>
+      }
+    >
+      <FoldedMessage message={item} signedUrl={signedUrl} />
+    </FoldedRow>
+  );
+}
+
+/** A quiet row the reader opens: its line, and under it, while open, what it folds. */
+function FoldedRow({
+  kind,
+  icon: Icon,
+  title,
+  line,
+  expanded,
+  onToggle,
+  children,
+}: {
+  kind: "background" | "report";
+  icon: LucideIcon;
+  title: string;
+  line: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col py-0.5" data-kind={kind}>
       <Button
         variant="ghost"
         size="sm"
         aria-expanded={expanded}
-        title="Read by the agent, without starting a turn"
-        onClick={() => onToggle(item.id)}
+        title={title}
+        onClick={onToggle}
         className="-ml-2.5 max-w-full self-start font-normal text-muted-foreground"
       >
-        <InboxIcon data-icon="inline-start" className="text-muted-foreground/60" />
-        <span className="min-w-0 truncate">
-          {count === 1 ? "1 message came in" : `${String(count)} messages came in`}
-        </span>
+        <Icon data-icon="inline-start" className="text-muted-foreground/60" />
+        <span className="min-w-0 truncate">{line}</span>
         <ChevronRightIcon
           data-icon="inline-end"
           className={cn("text-muted-foreground/50 transition-transform", expanded && "rotate-90")}
@@ -201,27 +302,31 @@ function BackgroundRow({
       </Button>
       {expanded ? (
         <div className="mb-1.5 ml-1 mt-0.5 flex min-w-0 flex-col gap-1.5 border-l-2 border-muted py-1 pl-4 text-xs leading-5 text-muted-foreground">
-          {count > BACKGROUND_SHOWN ? (
-            <p>The newest {BACKGROUND_SHOWN}. The Events tab has them all.</p>
-          ) : null}
-          {item.messages.slice(-BACKGROUND_SHOWN).map((message) => (
-            <div
-              key={message.offset}
-              className="min-w-0"
-              title={formatDateTime(message.timestampMs)}
-            >
-              {message.text === "" ? null : (
-                <p className="whitespace-pre-wrap wrap-break-word">{message.text}</p>
-              )}
-              <MessageAttachments
-                files={message.files}
-                hasText={message.text !== ""}
-                signedUrl={signedUrl}
-              />
-            </div>
-          ))}
+          {children}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** One message's words and files in an open quiet row; its time on hover. */
+function FoldedMessage({
+  message,
+  signedUrl,
+}: {
+  message: AgentUiBackgroundMessage;
+  signedUrl: SignedUrl;
+}) {
+  return (
+    <div className="min-w-0" title={formatDateTime(message.timestampMs)}>
+      {message.text === "" ? null : (
+        <p className="whitespace-pre-wrap wrap-break-word">{message.text}</p>
+      )}
+      <MessageAttachments
+        files={message.files}
+        hasText={message.text !== ""}
+        signedUrl={signedUrl}
+      />
     </div>
   );
 }

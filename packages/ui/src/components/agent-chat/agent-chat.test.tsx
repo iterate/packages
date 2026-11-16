@@ -567,6 +567,135 @@ test.for<{ name: string; me: string | undefined; lines: (readonly [string, strin
   },
 );
 
+test("another agent's words are one folded quiet row, not a bubble: a helper's line says it reported, and a press opens and closes its words", async () => {
+  using _layout = laidOut();
+  const ada = { actor: "/members/ada", email: "ada@example.com" };
+  using _chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: {},
+      events: [
+        { ...said(1, "mine"), source: { principal: ada } },
+        {
+          ...said(2, "theirs"),
+          source: { principal: { actor: "/members/bo", email: "bo@example.com" } },
+        },
+        {
+          offset: 3,
+          type: "events.iterate.com/agent/message-received",
+          createdAt: "2026-11-06T00:00:00.000Z",
+          payload: { message: "The site is up.", from: "/agents/onboarding/website" },
+        },
+        // the cast: the context's event type does not name `whileProcessing`, which the processor
+        // engine stamps on the relay the loop makes of a `message-received`
+        {
+          ...said(4, "The site is up."),
+          source: {
+            processor: {
+              slug: "agent",
+              version: "1",
+              whileProcessing: { offset: 3, type: "events.iterate.com/agent/message-received" },
+            },
+          },
+        } as unknown as Context["events"][number],
+        {
+          ...said(5, "A lead came in."),
+          payload: {
+            role: "user",
+            content: "A lead came in.",
+            actor: { type: "user" },
+            from: "/agents/sales",
+          },
+        },
+        {
+          ...said(6, "from the root"),
+          payload: { role: "user", content: "from the root", actor: { type: "user" }, from: "/" },
+        },
+      ],
+    },
+    { path: "/agents/onboarding", me: "ada@example.com" },
+  );
+  const bubbles = [...document.querySelectorAll("[data-kind=user]")];
+  expect(
+    bubbles.map((bubble) => [
+      bubble.querySelector(".whitespace-pre-wrap")?.textContent,
+      bubble.querySelector("[data-said-by]")?.textContent || null,
+    ]),
+  ).toEqual([
+    ["mine", null],
+    ["theirs", "bo"],
+    ["from the root", null],
+  ]);
+  const reports = [...document.querySelectorAll("[data-kind=report]")];
+  expect(
+    reports.map((report) => ({
+      line: report.querySelector("button span")?.firstChild?.textContent,
+      title: report.querySelector("button")?.getAttribute("title"),
+      expanded: report.querySelector("button")?.getAttribute("aria-expanded"),
+      inBubble: Boolean(report.closest("[data-kind=user]")),
+    })),
+  ).toEqual([
+    {
+      line: "website reported",
+      title: "/agents/onboarding/website",
+      expanded: "false",
+      inBubble: false,
+    },
+    { line: "sales wrote", title: "/agents/sales", expanded: "false", inBubble: false },
+  ]);
+  const page = () => document.body.textContent || "";
+  expect(page()).not.toContain("The site is up.");
+  const press = () =>
+    act(() => document.querySelector<HTMLElement>("[data-kind=report] button")?.click());
+  await press();
+  expect(page()).toContain("The site is up.");
+  await press();
+  expect(page()).not.toContain("The site is up.");
+});
+
+test("words that wait for the next turn: the panel over the composer holds a person's, never another agent's", async () => {
+  using _layout = laidOut();
+  const running = {
+    offset: 2,
+    type: "events.iterate.com/agent/llm-request-requested",
+    createdAt: "2026-11-06T00:00:00.000Z",
+    payload: { model: "m", expiresAt: 9e12, triggerOffset: 1 },
+  };
+  const report = {
+    ...said(3, "The site is up."),
+    payload: {
+      role: "user",
+      content: "The site is up.",
+      actor: { type: "user" },
+      from: "/agents/onboarding/website",
+    },
+  };
+  {
+    // a helper's report alone waits: no panel, and its words are nowhere as the reader's input
+    using _chat = await mount(
+      {
+        processors: { rows: [], loaded: true },
+        liveState: {},
+        events: [said(1, "go"), running, report],
+      },
+      { path: "/agents/onboarding" },
+    );
+    expect(document.querySelector("[data-testid=queued-messages-panel]")).toBeNull();
+  }
+  // a person's words wait beside it: the panel holds theirs alone
+  using _chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: {},
+      events: [said(1, "go"), running, report, said(4, "and make it green")],
+    },
+    { path: "/agents/onboarding" },
+  );
+  const panel = document.querySelector("[data-testid=queued-messages-panel]");
+  expect(panel?.textContent).toContain("and make it green");
+  expect(panel?.textContent).not.toContain("The site is up.");
+});
+
 type Context = ComponentProps<typeof AgentChat>["context"];
 
 /** A state of the read, and what a feed shows in it. */
