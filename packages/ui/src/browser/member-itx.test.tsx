@@ -7,6 +7,7 @@ import { act, Suspense, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { newWebSocketRpcSession, RpcTarget } from "capnweb";
+import { IDBFactory } from "fake-indexeddb";
 import { BotIcon } from "lucide-react";
 import { useContextStub, useIterateContext } from "iterate/react";
 import { connectMemberItx, mayReload, mindOfHost } from "./member-itx.ts";
@@ -36,9 +37,12 @@ test("a socket that closes with 1006 is dialled again: no reload, the same itx c
   expect(reload).not.toHaveBeenCalled();
 });
 
-test("the sign-in ended (1008): the page reloads and dials nothing; the fourth time in a minute it says so", async () => {
+test("the sign-in ended (1008): the saved rows are wiped, then the page reloads and dials nothing; the fourth time in a minute it says so", async () => {
   using _clock = clock();
   const root = { textContent: "the app" };
+  const browser = new IDBFactory();
+  vi.stubGlobal("indexedDB", browser);
+  const wipe = vi.spyOn(browser, "deleteDatabase");
   for (let time = 1; time <= 4; time += 1) {
     const net = network();
     const { itx, reload } = member(net, root);
@@ -47,6 +51,12 @@ test("the sign-in ended (1008): the page reloads and dials nothing; the fourth t
     await vi.advanceTimersByTimeAsync(1_000);
     expect(net.sockets).toHaveLength(1);
     expect(reload).toHaveBeenCalledTimes(time < 4 ? 1 : 0);
+    // the next member of this browser sees none of the saved rows: the wipe came first
+    expect(wipe).toHaveBeenCalledTimes(time);
+    if (time < 4)
+      expect(wipe.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        reload.mock.invocationCallOrder[0]!,
+      );
   }
   expect(root).toMatchObject({ textContent: "Your sign-in ended. Reload the page to sign in." });
 });

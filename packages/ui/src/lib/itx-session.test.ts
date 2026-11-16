@@ -80,6 +80,98 @@ test("a kept value is its last settled answer under the same key", () => {
   expect(keep(undefined, false, "b")).toBe(undefined);
 });
 
+test("a saved tail is shown before the read has caught up: its events, caught up, a saved copy, the same object again", () => {
+  const keep = keptContext<Stamped>();
+  const seed = tail([5, 6, 7], { exhausted: false });
+  const reading = stamped([], { caughtUp: false });
+  const shown = keep(reading, "/a", seed);
+  expect(shown).toMatchObject({
+    caughtUp: true,
+    savedCopy: true,
+    head: 7,
+    older: { loading: false, exhausted: false },
+  });
+  expect(shown.events === seed.events).toBe(true);
+  // React can replay a render: the same input is the same answer
+  expect(keep(reading, "/a", seed)).toBe(shown);
+});
+
+test("after the catch-up the saved events stay as the same objects, the newer ones follow, and it is no saved copy", () => {
+  const keep = keptContext<Stamped>();
+  const seed = tail([5, 6, 7], { exhausted: true });
+  keep(stamped([], { caughtUp: false }), "/a", seed);
+  // the read starts at the copy's newest event (`since`), which it returns again
+  const live = stamped([7, 8, 9], { exhausted: false });
+  const shown = keep(live, "/a", seed);
+  expect(shown.events.map((event) => event.offset)).toEqual([5, 6, 7, 8, 9]);
+  expect(shown.events.slice(0, 3)).toEqual(seed.events);
+  expect(shown.events.slice(0, 3).every((event, at) => event === seed.events[at])).toBe(true);
+  expect(shown.events.at(-1)).toBe(live.events.at(-1));
+  expect(shown).toMatchObject({ older: { exhausted: true } });
+  expect(shown).not.toHaveProperty("savedCopy", true);
+});
+
+test.for([
+  {
+    name: "a gap: the read starts above the copy's newest event",
+    live: [9, 10],
+    at7: "t7",
+    another: false,
+  },
+  {
+    name: "another event at the copy's newest offset (the log made again)",
+    live: [7, 8],
+    at7: "x",
+    // the read began at that offset: what lies below it in the new log is not held yet
+    another: true,
+  },
+  { name: "a log shorter than the copy", live: [1, 2, 3], at7: "t7", another: false },
+])(
+  "the saved rows go when the read does not hold the copy's newest event: $name",
+  ({ live, at7, another }) => {
+    const keep = keptContext<Stamped>();
+    const seed = tail([5, 6, 7], { exhausted: false });
+    keep(stamped([], { caughtUp: false }), "/a", seed);
+    expect(keep.anotherLog("/a")).toBe(false);
+    const read = stamped(live, { exhausted: false });
+    for (const event of read.events) if (event.offset === 7) event.createdAt = at7;
+    expect(keep(read, "/a", seed)).toBe(read);
+    expect(keep.anotherLog("/a")).toBe(another);
+    // another key knows nothing of it
+    expect(keep.anotherLog("/b")).toBe(false);
+  },
+);
+
+test("an error while a saved copy is shown drops its rows; so does a call without the copy", () => {
+  const seed = tail([5, 6, 7], { exhausted: false });
+  const refused = keptContext<Stamped>();
+  refused(stamped([], { caughtUp: false }), "/a", seed);
+  const failed = { ...stamped([], { caughtUp: false }), error: "refused" };
+  expect(refused(failed, "/a", seed)).toBe(failed);
+  const withdrawn = keptContext<Stamped>();
+  withdrawn(stamped([], { caughtUp: false }), "/a", seed);
+  const reading = stamped([], { caughtUp: false });
+  expect(withdrawn(reading, "/a")).toBe(reading);
+});
+
+test("through is the newest durable offset last shown for the key, also when the newest event is ephemeral", () => {
+  const keep = keptContext<Stamped>();
+  expect(keep.through("/a")).toBe(undefined);
+  keep(stamped([], { caughtUp: false }), "/a", tail([5, 6, 7], { exhausted: false }));
+  expect(keep.through("/a")).toBe(7);
+  const live = stamped([7, 8, 9], { exhausted: false });
+  live.events[2]!.ephemeral = true;
+  keep(live, "/a", tail([5, 6, 7], { exhausted: false }));
+  expect([keep.through("/a"), keep.through("/b")]).toEqual([8, undefined]);
+});
+
+test("a saved tail changes nothing once a read has caught up: the log is the live one", () => {
+  const keep = keptContext<Stamped>();
+  keep(stamped([1, 2], { exhausted: true }), "/a");
+  const live = stamped([1, 2, 3], { exhausted: true });
+  expect(keep(live, "/a", tail([1, 2, 3, 4, 5], { exhausted: true }))).toBe(live);
+});
+
 type Log = ReturnType<typeof log>;
 
 /** What `useIterateContext` returns, with events at `offsets`. */
@@ -92,4 +184,28 @@ function log(offsets: number[], { caughtUp = true, exhausted = false }) {
     processors: { loaded: true },
     liveState: { agent: { status: "live" } } as Record<string, { status: string }>,
   };
+}
+
+type Stamped = ReturnType<typeof stamped>;
+
+/** What `useIterateContext` returns, with events at `offsets` that each have a `createdAt`. */
+function stamped(offsets: number[], { caughtUp = true, exhausted = false }) {
+  return {
+    events: offsets.map((offset) => stampedEvent(offset)),
+    caughtUp,
+    error: undefined as string | undefined,
+    head: offsets.at(-1) || 0,
+    older: { loadOlder() {}, loading: !caughtUp, exhausted },
+    processors: { loaded: caughtUp },
+    liveState: { agent: { status: "live" } } as Record<string, { status: string }>,
+  };
+}
+
+/** A saved tail of events at `offsets`, as `#/lib/saved-log-tail.ts` reads it back. */
+function tail(offsets: number[], { exhausted }: { exhausted: boolean }) {
+  return { events: offsets.map((offset) => stampedEvent(offset)), exhausted };
+}
+
+function stampedEvent(offset: number) {
+  return { offset, createdAt: `t${offset}`, ephemeral: undefined as boolean | undefined };
 }

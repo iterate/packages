@@ -346,6 +346,7 @@
         "iterate/packages/iterate-logo",
         "iterate/packages/plain-left-click",
         "iterate/packages/posthog",
+        "iterate/packages/saved-log-tail",
         "sidebar",
         "skeleton"
       ],
@@ -1797,6 +1798,20 @@
       "files": [
         {
           "path": "src/lib/itx-session.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "saved-log-tail",
+      "type": "registry:lib",
+      "description": "The saved tail of a context's log in the browser's IndexedDB, as plain functions: a store per mind and member that keeps each context's newest durable events within bounds, so a reload draws the last rows at once and reads only what is newer, and a wipe of every store when the sign-in ends.",
+      "dependencies": [
+        "zod"
+      ],
+      "files": [
+        {
+          "path": "src/lib/saved-log-tail.ts",
           "type": "registry:lib"
         }
       ]

@@ -276,8 +276,107 @@ test("New agent is the composer alone, on the home and the Agents page, whatever
   }
 });
 
+test("an iterate agent's view drawn a second time shows the saved rows while the mind has not answered", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/saved";
+  const { itx, hold } = mind({
+    logs: {
+      [path]: [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "user", content: "Words from the last visit" },
+        },
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  {
+    await using first = await draw(DashAgents, itx, { waiting: 0 });
+    expect(first.host.querySelector("[role=log]")?.textContent).toContain(
+      "Words from the last visit",
+    );
+  }
+  hold();
+  await using again = await draw(DashAgents, itx, { waiting: 0 });
+  expect(again.host.querySelector("[role=log]")?.textContent).toContain(
+    "Words from the last visit",
+  );
+  expect(again.said.filter((text) => text.includes("Nothing said"))).toEqual([]);
+  // and at no moment of the second draw did the page say that it reads the log: not before the
+  // view was there (the kinds and the catalog were read behind a quiet page), not after
+  expect(again.said.filter((text) => text.includes("Reading the log"))).toEqual([]);
+});
+
+test("the agent page while its view is not there says nothing of a read when saved rows of its log wait, and says it when none do", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/kept";
+  const { itx } = mind({
+    logs: {
+      [path]: [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "user", content: "Words from the last visit" },
+        },
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  {
+    // a first visit reads the log, and the page keeps its rows
+    await using first = await draw(DashAgents, itx, { waiting: 0 });
+    expect(first.host.querySelector("[role=log]")?.textContent).toContain(
+      "Words from the last visit",
+    );
+  }
+  {
+    // again, and the catalog has not said the agent's kind yet: the wait is for the view, and the
+    // rows are held, so the page does not say that it reads
+    await using again = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+    expect(again.host.querySelectorAll("[role=tablist]")).toHaveLength(1);
+    expect(again.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(0);
+  }
+  // another agent, of whose log nothing is held: the page says that it reads
+  history.replaceState(null, "", "/?agent=/agents/never-seen");
+  await using other = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
+  expect(other.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
+});
+
+test("the opener is not appended while the chat's rows are a saved copy, only when the mind's log says it is empty", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const path = "/agents/opened";
+  const { itx, appended, hold, release } = mind({
+    logs: {
+      // nothing said: a system note is context, not a start
+      [path]: [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "system", content: "You are helpful." },
+        },
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  {
+    await using _first = await draw(DashAgents, itx, { waiting: 0, openers: {} });
+  }
+  hold();
+  await using again = await draw(DashAgents, itx, {
+    waiting: 0,
+    openers: { [path]: "Begin with step 1." },
+  });
+  expect(appended).toEqual([]);
+  release();
+  await act(() => vi.waitFor(() => expect(appended).toHaveLength(1)));
+  expect(again.host.textContent).toContain(path);
+});
+
 /** A mind whose logs are empty but for `logs`: what the page appends is kept in `appended`.
- *  `kinds`: each kind's file in the config repo, by kind. Its root has `files`, and a context has
+ *  `hold()` keeps every read of a log unanswered until `release()`. `kinds`: each kind's file in the config repo, by kind. Its root has `files`, and a context has
  *  none: only an iterate agent's context links to the root, and the page must not count on it. */
 function mind({
   serves = [],
@@ -295,8 +394,11 @@ function mind({
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
   let reads = 0;
+  let gate = Promise.resolve();
+  let release = () => {};
   const contextOf = (path: string) => ({
     readEvents: async (after = 0) => {
+      await gate;
       const held = (logs[path] || []).map((event) => ({ ...event, path, createdAt: now }));
       return {
         events: held.filter((event) => event.offset > after),
@@ -335,7 +437,15 @@ function mind({
       }),
     },
   } as unknown as DashPageProps["itx"];
-  return { itx, appended, reads: () => reads };
+  return {
+    itx,
+    appended,
+    reads: () => reads,
+    hold: () => {
+      gate = new Promise((resolve) => (release = resolve));
+    },
+    release: () => release(),
+  };
 }
 
 /** A page with height, which jsdom lacks, so the chat's virtual log draws its rows; disposing takes

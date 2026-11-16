@@ -7,6 +7,7 @@
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
 import { AppShell } from "./app-shell.tsx";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -127,6 +128,29 @@ test("a floating header put away on one page shows again on the next", async () 
   expect(shell.header()).toBe("hidden");
   await shell.render({ phoneHeader: "floating", locationKey: "/minds" });
   expect(shell.header()).toBe("shown");
+});
+
+test("Sign out wipes the saved rows, then posts the form that ends the sign-in", async () => {
+  const browser = new IDBFactory();
+  vi.stubGlobal("indexedDB", browser);
+  const wipe = vi.spyOn(browser, "deleteDatabase");
+  const submit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {});
+  using _shell = await mount(
+    { mind: "example.com", account: { actor: "/members/a", email: "jo@example.com" } },
+    {},
+  );
+  const account = document.querySelector<HTMLElement>('[aria-label="Account"]')!;
+  await act(async () => {
+    account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    account.click();
+  });
+  const signOut = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
+    item.textContent?.includes("Sign out of example.com"),
+  )!;
+  await act(async () => signOut.click());
+  await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+  expect(wipe).toHaveBeenCalledTimes(1);
+  expect(wipe.mock.invocationCallOrder[0]).toBeLessThan(submit.mock.invocationCallOrder[0]!);
 });
 
 test("the header row, the default, has no state to show or hide", async () => {

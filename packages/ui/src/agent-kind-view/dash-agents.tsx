@@ -26,11 +26,12 @@ import {
 import { ShieldAlertIcon, TriangleAlertIcon } from "lucide-react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
-import { facetSnapshotOf, useIterateContext } from "iterate/react";
+import { facetSnapshotOf } from "iterate/react";
 import type { AgentKindViewInputs } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
-import { useHeldContext, useKeptContext } from "#/hooks/use-itx-session.ts";
+import { useHeldContext } from "#/hooks/use-itx-session.ts";
+import { useHasSavedTail, useSavedContext } from "#/hooks/use-saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";
@@ -46,6 +47,7 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
+import { savedLogTails, type SavedLogTails } from "#/lib/saved-log-tail.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
@@ -150,7 +152,7 @@ export function DashAgents(props: DashPageProps) {
   if (path) return <AgentView key={path} {...props} path={path} />;
   return <AgentsOverview {...props} />;
 }
-// an agent view holds its context with `useHeldContext` and keeps its rows (`useKeptContext`)
+// an agent view holds its context with `useHeldContext` and keeps its rows (`useSavedContext`)
 DashAgents.staysOverReconnect = true;
 
 function AgentsOverview({ itx, principal, pages, agents }: DashPageProps) {
@@ -417,15 +419,23 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
  *  draws it is its kind's: iterate's chat, or a kind's own view in a frame. One loading state
  *  stands from the first paint to the view's own, under a header of the same shape whose tabs
  *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. */
-function AgentView({ itx, page, agents, path, principal }: DashPageProps & { path: string }) {
+function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps & { path: string }) {
+  // the member's saved rows, once the mind has said who the member is: none are read or saved
+  // before, so one member never sees another's
+  const tails = principal?.actor ? savedLogTails({ mind, actor: principal.actor }) : undefined;
+  // Saved rows of this log wait for the view: the page then says nothing of a read, because
+  // none holds the reader up. It says so only once the store has answered that it has none.
+  const quiet = useHasSavedTail(tails, path) !== false;
   return (
-    <Suspense fallback={<AgentPageReading path={path} agents={agents} />}>
+    <Suspense fallback={<AgentPageReading path={path} agents={agents} quiet={quiet} />}>
       <AgentViewOfKind
         itx={itx}
         path={path}
         agents={agents}
         opener={page.openers?.[path]}
         me={principal?.actor}
+        tails={tails}
+        quiet={quiet}
       />
     </Suspense>
   );
@@ -483,14 +493,17 @@ function nothingToChange() {}
 function AgentPageReading({
   path,
   agents,
+  quiet,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
+  /** Saved rows wait for the view: no loading line (`AgentReading`). */
+  quiet: boolean;
 }) {
   return (
     <>
       <AgentPageHeader path={path} agents={agents} />
-      <AgentReading strip={false} />
+      <AgentReading strip={false} quiet={quiet} />
     </>
   );
 }
@@ -504,20 +517,32 @@ function AgentViewOfKind({
   agents,
   opener,
   me,
+  tails,
+  quiet,
 }: Pick<DashPageProps, "itx" | "agents"> & {
   path: string;
   opener: string | undefined;
   me: string | undefined;
+  tails: SavedLogTails | undefined;
+  quiet: boolean;
 }) {
   const kinds = use(kindFilesOf(itx));
-  if (!agents) return <AgentPageReading path={path} agents={agents} />;
+  if (!agents) return <AgentPageReading path={path} agents={agents} quiet={quiet} />;
   const row = agents.find((agent) => agent.path === path);
   const kind = row?.kind;
   const file = kind && kind !== "iterate" ? kinds.find((one) => one.kind === kind) : undefined;
   return file ? (
-    <KindChat itx={itx} path={path} file={file} agents={agents} />
+    <KindChat itx={itx} path={path} file={file} agents={agents} tails={tails} />
   ) : (
-    <IterateChat itx={itx} path={path} row={row} agents={agents} opener={opener} me={me} />
+    <IterateChat
+      itx={itx}
+      path={path}
+      row={row}
+      agents={agents}
+      opener={opener}
+      me={me}
+      tails={tails}
+    />
   );
 }
 
@@ -546,6 +571,7 @@ function IterateChat({
   agents,
   opener,
   me,
+  tails,
 }: {
   itx: Itx;
   path: string;
@@ -555,21 +581,32 @@ function IterateChat({
   opener: string | undefined;
   /** The signed-in member's actor id: their own messages have no line under them. */
   me: string | undefined;
+  tails: SavedLogTails | undefined;
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
-  // held and read again at each new session: the rows of the last one stay until then
-  const agent = useHeldContext(itxSessionOf(itx), () => itx.cd(path), [itx, path]);
-  const context = useKeptContext(useIterateContext(agent.stub, AgentChat.contextOptions), path);
+  // held and read again at each new session: the rows of the last one, or of the last page load,
+  // stay until then
+  const session = itxSessionOf(itx);
+  const agent = useHeldContext(session, () => itx.cd(path), [itx, path]);
+  const context = useSavedContext({
+    held: agent,
+    options: AgentChat.contextOptions,
+    path,
+    session,
+    tails,
+  });
   const state = AgentChatState.safeParse(view).data || {};
   const shown =
     state.view || !row?.kind || row.kind === "iterate"
       ? state
       : { ...state, view: "events" as const };
   // THE MIND SPEAKS FIRST: once the whole log is read and nothing was said in it, the opener is
-  // appended once for the mind (its key), whatever reloads or tabs
+  // appended once for the mind (its key), whatever reloads or tabs. Never by a saved copy: it may
+  // be of a log made again under the same path, and only the mind's answer says it is empty.
   const { stub } = agent;
   const empty =
+    !context.savedCopy &&
     context.caughtUp &&
     context.older.exhausted &&
     !context.events.some((event) => Said.safeParse(event).success);
@@ -626,21 +663,25 @@ function watchDocumentClass(changed: () => void) {
  *  member or any member's agent can change, so it does not run in this page: it runs in a
  *  sandboxed frame. The page reads the agent's log live, hands it to the frame, and answers the
  *  frame's few verbs for this one agent. The frame is another document, which loads its script and
- *  the kind's file before it draws: the page's own loading state stands over it until the first
- *  read has answered, so the wait is one state, whatever the kind's view draws meanwhile. */
+ *  the kind's file before it draws: the page's own loading state stands over it until the frame
+ *  has loaded and the first read has answered, so the wait is one state, whatever the kind's view
+ *  draws meanwhile. */
 function KindChat({
   itx,
   path,
   file,
   agents,
+  tails,
 }: {
   itx: Itx;
   path: string;
   file: KindFile;
   agents: readonly AgentRow[];
+  tails: SavedLogTails | undefined;
 }) {
   const { view, patchView } = useView();
-  const agent = useHeldContext(itxSessionOf(itx), () => itx.cd(path), [itx, path]);
+  const session = itxSessionOf(itx);
+  const agent = useHeldContext(session, () => itx.cd(path), [itx, path]);
   const { link, loaded } = useAgentKindViewLink(file.name, file.source);
   // every durable event (the frame's Events tab is the whole log) and, by name, the ephemeral
   // ones the view reads, which a wildcard never matches; nothing until the frame has said which
@@ -650,8 +691,17 @@ function KindChat({
     }),
     [loaded],
   );
-  // read again at each new session: the frame keeps the rows of the last one until then
-  const log = useKeptContext(useIterateContext(loaded ? agent.stub : undefined, options), path);
+  // read again at each new session: the frame keeps the rows of the last one, or of the last page
+  // load, until then. The saved rows are in `inputs` from the first render, and the link sends
+  // the latest inputs when the frame says it is ready (`AgentKindViewLink.push`): the frame
+  // draws them with its first message.
+  const log = useSavedContext({
+    held: { stub: loaded ? agent.stub : undefined, error: agent.error },
+    options,
+    path,
+    session,
+    tails,
+  });
   const documentClass = useSyncExternalStore(
     watchDocumentClass,
     () => document.documentElement.className,
@@ -661,7 +711,10 @@ function KindChat({
   const older = useMemo(() => (exhausted ? null : { loading, exhausted }), [loading, exhausted]);
   const { stub } = agent;
   const hostError = agent.error || (loaded && "error" in loaded ? loaded.error : undefined);
-  const reading = !log.caughtUp && log.events.length === 0 && !log.error && !hostError;
+  // the cover stands until the frame has drawn (its own document loads first) and the log has
+  // answered: a saved copy answers at once, so the frame's load is said outright
+  const reading =
+    (!loaded || (!log.caughtUp && log.events.length === 0)) && !log.error && !hostError;
   const inputs: AgentKindViewInputs = {
     path,
     events: log.events,
@@ -723,7 +776,8 @@ function KindChat({
         />
         {reading ? (
           <div className="absolute inset-0 bg-background">
-            <AgentReading strip={false} />
+            {/* with saved rows the wait is for the frame's own document, not for a read */}
+            <AgentReading strip={false} quiet={log.events.length > 0} />
           </div>
         ) : null}
       </div>

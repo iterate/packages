@@ -75,6 +75,7 @@ import {
 } from "#/components/ui/sidebar.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { resetPosthog } from "#/components/posthog.tsx";
+import { wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
 
 /** Where the switcher's "Connect another mind" goes: every app's connect page
  *  (iterate/app-server `CONNECT_PAGE_PATH`). */
@@ -764,7 +765,8 @@ function AccountMenu({
                   <DropdownMenuItem
                     onClick={() => {
                       resetPosthog();
-                      logout.current?.requestSubmit();
+                      // the next member of this browser sees none of this one's saved rows
+                      void wipeSavedLogTails().then(() => logout.current?.requestSubmit());
                     }}
                   >
                     <LogOutIcon />

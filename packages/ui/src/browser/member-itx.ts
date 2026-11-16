@@ -21,10 +21,11 @@
 //     from shedding the socket as idle (a WebSocket ping does not count, and a browser cannot send
 //     one).
 //   - Only the end of the sign-in reloads a page that reads its session, and the reload reaches
-//     the sign-in. The platform ends an open session with the close code 1008. With no session
-//     open it refuses the upgrade with 401, which a browser shows as 1006: so when a session's
-//     dials have all failed, one plain request to `/itx` asks, and a 401 is the end of the
-//     sign-in. Three reloads in a minute stop them (`mayReload`).
+//     the sign-in. The page's saved rows are wiped first (#/lib/saved-log-tail.ts). The platform
+//     ends an open session with the close code 1008. With no session open it refuses the upgrade
+//     with 401, which a browser shows as 1006: so when a session's dials have all failed, one
+//     plain request to `/itx` asks, and a 401 is the end of the sign-in. Three reloads in a
+//     minute stop them (`mayReload`).
 //   - The proxy answers its session under `ITX_SESSION` (#/lib/itx-session.ts): the epoch, which
 //     grows by one when a session's socket opens, and the state a page shows, which is `open` only
 //     for a good session. The epoch grows at open, so what a page holds opens again at once after
@@ -40,6 +41,7 @@
 import { newWebSocketRpcSession } from "capnweb";
 import type { AuthenticatedApp } from "iterate/app";
 import { ITX_SESSION, type ItxConnection, type ItxSession } from "#/lib/itx-session.ts";
+import { wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -116,7 +118,10 @@ export function connectMemberItx({
     signedOut = true;
     clearTimeout(quiet);
     current.dial.socket.close();
-    reloadOrSay("Your sign-in ended. Reload the page to sign in.");
+    // the next member of this browser sees none of this one's saved rows
+    void wipeSavedLogTails().then(() =>
+      reloadOrSay("Your sign-in ended. Reload the page to sign in."),
+    );
   };
   /** WHETHER THE SIGN-IN ENDED WHILE NO SESSION WAS OPEN, asked over HTTP. The platform ends an
    *  open session with 1008. With no session open it refuses the next upgrade with 401, and a

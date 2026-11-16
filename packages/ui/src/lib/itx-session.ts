@@ -98,17 +98,29 @@ export function kept<T>() {
 
 /** What `keptContext` reads of the SDK's `useIterateContext` result. */
 type LiveContext = {
-  events: readonly { offset: number }[];
+  events: readonly { offset: number; createdAt?: string; ephemeral?: boolean }[];
   caughtUp: boolean;
   error?: string;
+  head?: number;
   older: { loading: boolean; exhausted: boolean };
   processors: { loaded: boolean; error?: string };
   liveState: Record<string, { status: string }>;
 };
 
-/** A KEEPER OF A CONTEXT'S LOG OVER RECONNECTS: `keep(context, key)` answers what
- *  `useIterateContext` returned for the context `key` (its path), with what the view showed in
- *  the place of what a new session has not read yet.
+/** A saved tail of a context's log (#/lib/saved-log-tail.ts): its newest durable events, oldest
+ *  first, and whether they go back to the log's first. */
+export type LogSeed<C extends LiveContext> = { events: C["events"]; exhausted: boolean };
+
+/** What `keptContext` answers: the context, and `savedCopy` while its rows are a saved tail's. */
+export type KeptLiveContext<C extends LiveContext> = C & {
+  /** The rows are a copy saved by an earlier page, not yet checked against the log: draw them,
+   *  and decide nothing by them (an opener, an empty chat). */
+  savedCopy?: boolean;
+};
+
+/** A KEEPER OF A CONTEXT'S LOG OVER RECONNECTS AND RELOADS: `keep(context, key, seed)` answers
+ *  what `useIterateContext` returned for the context `key` (its path), with what the view showed
+ *  in the place of what a new read has not read yet.
  *
  *  THE ROWS A VIEW HOLDS STAY, AS THE SAME OBJECTS. A new session reads the newest page only.
  *  Offsets never change, so the events the view held are still right: once the new read has
@@ -119,8 +131,21 @@ type LiveContext = {
  *  rows go, and the log is the new session's alone. A read that failed shows its error over the
  *  held rows.
  *
+ *  A RELOAD IS THE SAME, WITH THE LAST PAGE LOAD IN THE PLACE OF THE LAST SESSION. `seed` is the
+ *  tail that an earlier page saved. While nothing is shown yet, it is shown as a log that has
+ *  caught up, with `savedCopy`. Once the read has caught up, it is held as a last session's rows
+ *  are, if the read holds its newest event: the same offset and the same `createdAt`. If not, the
+ *  copy is older than the newest page, or of a log made again under the same path, or longer than
+ *  the log: its rows go. An error, or a call without the seed, drops a copy that is shown: a saved
+ *  copy never stands beside an error. Once a read has caught up, a seed changes nothing.
+ *
  *  The processors table stays until the new one is read, and the facets' live state until each
- *  has its seed. Another `key` keeps nothing. */
+ *  has its seed. Another `key` keeps nothing.
+ *
+ *  `keep.through(key)` is the offset of the newest durable event last answered for `key`: the
+ *  `since` of the next read, which then reads only what is newer. `keep.anotherLog(key)` is true
+ *  once a seed was dropped because the log holds ANOTHER event at the seed's newest offset: the
+ *  context was made again, and a read that began at that offset holds only what follows it. */
 export function keptContext<C extends LiveContext>() {
   const keepProcessors = kept<C["processors"]>();
   const keepLiveState = kept<C["liveState"]>();
@@ -130,26 +155,77 @@ export function keptContext<C extends LiveContext>() {
   /** A read that has not caught up came after `shown`: the next one that has is a new session's. */
   let reading = false;
   /** The events shown before the session whose log is read now, and whether they went back to
-   *  the log's first. */
-  let held: { events: C["events"]; exhausted: boolean } | undefined;
+   *  the log's first. `seed`: they are a saved tail's, not yet found in the log. */
+  let held: { events: C["events"]; exhausted: boolean; seed: boolean } | undefined;
+  /** The seed shown while the read has not caught up, answered again for the same input. */
+  let copy: { seed: LogSeed<C>; from: C; log: KeptLiveContext<C> } | undefined;
   /** The last merge, answered again for the same input: a view folds a log by its identity. */
   let merged: { from: C["events"]; held: C["events"]; events: C["events"] } | undefined;
   let older: { from: C["older"]; older: C["older"] } | undefined;
+  /** The last answer, and what it was made of: the same object for the same input. */
+  let answer:
+    | { log: C; processors: C["processors"]; liveState: C["liveState"]; value: C }
+    | undefined;
+  /** The events last answered, for `through`. */
+  let answered: C["events"] | undefined;
+  /** A seed was dropped for an event of another log at its newest offset. */
+  let another = false;
 
-  const logOf = (context: C): C => {
+  const logOf = (context: C, seed: LogSeed<C> | undefined): KeptLiveContext<C> => {
     if (!context.caughtUp && !context.error) {
       reading = true;
-      return shown || context;
+      if (shown) return shown;
+      if (!seed?.events.length) {
+        copy = undefined;
+        return context;
+      }
+      if (copy?.seed !== seed || copy.from !== context) {
+        const head = seed.events.at(-1)!.offset;
+        // The seed's rows in the place of the read's: C with its own events, and its head and
+        // `older` as the seed has them.
+        const log = {
+          ...context,
+          events: seed.events,
+          caughtUp: true,
+          head,
+          older: { ...context.older, loading: false, exhausted: seed.exhausted },
+          savedCopy: true,
+        } as KeptLiveContext<C>;
+        copy = { seed, from: context, log };
+      }
+      return copy.log;
     }
-    if (reading && shown) held = { events: shown.events, exhausted: shown.older.exhausted };
+    if (copy) {
+      // the read answered over a shown copy: hold it as a last session's rows, unless it failed
+      // or the caller withdrew it
+      if (!context.error && seed === copy.seed)
+        held = { events: copy.seed.events, exhausted: copy.seed.exhausted, seed: true };
+      copy = undefined;
+    } else if (reading && shown)
+      held = { events: shown.events, exhausted: shown.older.exhausted, seed: false };
     reading = false;
     const last = held?.events.at(-1);
     const first = context.events[0];
-    // nothing held, or the new page starts above it: events may be missing between the two
-    if (!held || !last || (first ? first.offset > last.offset : !context.error)) {
+    // nothing held, or the new page starts above it: events may be missing between the two; and
+    // a seed whose newest event the read does not hold is of an older page or of another log
+    if (
+      !held ||
+      !last ||
+      (first ? first.offset > last.offset : !context.error) ||
+      (held.seed &&
+        !context.events.some(
+          (event) => event.offset === last.offset && event.createdAt === last.createdAt,
+        ))
+    ) {
+      // the log holds an event at the seed's newest offset, and it is not the seed's
+      another ||= Boolean(
+        held?.seed && last && context.events.some((event) => event.offset === last.offset),
+      );
       held = undefined;
       return (shown = context);
     }
+    // found in the log: from now on the seed's rows are held as any session's
+    if (held.seed) held = { ...held, seed: false };
     if (merged?.from !== context.events || merged.held !== held.events) {
       const start = held.events[0]!.offset;
       const below = context.events.filter((event) => event.offset < start);
@@ -171,13 +247,13 @@ export function keptContext<C extends LiveContext>() {
     return (shown = { ...context, events: merged.events, older: older.older });
   };
 
-  return (context: C, of: string): C => {
+  const keep = (context: C, of: string, seed?: LogSeed<C>): KeptLiveContext<C> => {
     if (of !== key) {
       key = of;
-      shown = held = merged = older = undefined;
-      reading = false;
+      shown = held = copy = merged = older = answer = undefined;
+      reading = another = false;
     }
-    const log = logOf(context);
+    const log = logOf(context, seed);
     const tableRead = context.processors.loaded || Boolean(context.processors.error);
     const processors = keepProcessors(context.processors, tableRead, of);
     const liveState = keepLiveState(
@@ -185,8 +261,21 @@ export function keptContext<C extends LiveContext>() {
       tableRead && Object.values(context.liveState).every((one) => one.status !== "connecting"),
       of,
     );
+    answered = log.events;
     if (log === context && processors === context.processors && liveState === context.liveState)
       return context;
-    return { ...log, processors, liveState };
+    if (answer?.log !== log || answer.processors !== processors || answer.liveState !== liveState)
+      answer = { log, processors, liveState, value: { ...log, processors, liveState } };
+    return answer.value;
   };
+
+  return Object.assign(keep, {
+    /** The offset of the newest durable event last answered for `of`; undefined when none was. */
+    through(of: string): number | undefined {
+      if (of !== key) return undefined;
+      return answered?.findLast((event) => event.ephemeral !== true)?.offset;
+    },
+    /** A seed of `of` was dropped as a copy of another log (see above). */
+    anotherLog: (of: string) => of === key && another,
+  });
 }
