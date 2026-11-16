@@ -4,6 +4,14 @@ import { cn } from "cn";
 import type { ComponentProps, ComponentType, HTMLAttributes } from "react";
 import { Suspense, lazy, memo } from "react";
 import type { ExtraProps, StreamdownProps } from "streamdown";
+import {
+  AgentChoiceButton,
+  choiceTagName,
+  choicesAsTokens,
+  choicesInPlainWords,
+  rehypeAgentChoices,
+  withoutUnfinishedChoice,
+} from "./choice-in-words.tsx";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: "user" | "assistant" | "system" | "tool";
@@ -72,15 +80,26 @@ function MessageMarkdownCode({ children, className, node, ...props }: MarkdownCo
 
 function PlainMessageResponse({ children, className }: StreamdownProps) {
   return (
-    <div className={cn("size-full whitespace-pre-wrap break-words", className)}>{children}</div>
+    <div className={cn("size-full whitespace-pre-wrap break-words", className)}>
+      {children ? choicesInPlainWords(children) : children}
+    </div>
   );
 }
 
+/** streamdown, with its own rehype steps and then the one that finds an agent's choices. */
 const RichMessageResponse: ComponentType<StreamdownProps> = import.meta.env.SSR
   ? PlainMessageResponse
   : lazy(async (): Promise<{ default: ComponentType<StreamdownProps> }> => {
-      const { Streamdown } = await import("streamdown");
-      return { default: Streamdown as ComponentType<StreamdownProps> };
+      const { Streamdown, defaultRehypePlugins } = await import("streamdown");
+      const rehypePlugins = [...Object.values(defaultRehypePlugins), rehypeAgentChoices];
+      const Rich = Streamdown as ComponentType<StreamdownProps>;
+      return {
+        default: ({ children, ...props }) => (
+          <Rich rehypePlugins={rehypePlugins} {...props}>
+            {children ? choicesAsTokens(children) : children}
+          </Rich>
+        ),
+      };
     });
 
 /** A link in the words: a link to this page (`#…`) or to the page's own origin opens in place;
@@ -121,25 +140,40 @@ function isSameOrigin(href: string): boolean {
   }
 }
 
+/** An agent's words as Markdown. A choice (`[[kind:value|label]]`, choice-in-words.tsx) is a button
+ *  when an `AgentChoiceProvider` above handles a press, else its plain words. A draft (any mode but
+ *  "static") hides a choice that has not ended yet. */
 export const MessageResponse = memo(
-  ({ className, components, ...props }: StreamdownProps) => (
-    <Suspense fallback={<PlainMessageResponse className={className} {...props} />}>
-      <RichMessageResponse
-        className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-        // A link opens when clicked, with no "Open external link?" question first. A page that
-        // wants the question passes `linkSafety` itself.
-        linkSafety={{ enabled: false }}
-        components={{
-          a: MessageMarkdownLink,
-          code: MessageMarkdownCode,
-          // MessageMarkdownCode draws a block's own <pre>.
-          pre: ({ children }: ComponentProps<"pre"> & ExtraProps) => children,
-          ...components,
-        }}
-        {...props}
-      />
-    </Suspense>
-  ),
+  ({ className, components, children, ...props }: StreamdownProps) => {
+    const text = children && props.mode !== "static" ? withoutUnfinishedChoice(children) : children;
+    return (
+      <Suspense
+        fallback={
+          <PlainMessageResponse className={className} {...props}>
+            {text}
+          </PlainMessageResponse>
+        }
+      >
+        <RichMessageResponse
+          className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+          // A link opens when clicked, with no "Open external link?" question first. A page that
+          // wants the question passes `linkSafety` itself.
+          linkSafety={{ enabled: false }}
+          components={{
+            a: MessageMarkdownLink,
+            code: MessageMarkdownCode,
+            // MessageMarkdownCode draws a block's own <pre>.
+            pre: ({ children }: ComponentProps<"pre"> & ExtraProps) => children,
+            [choiceTagName]: AgentChoiceButton,
+            ...components,
+          }}
+          {...props}
+        >
+          {text}
+        </RichMessageResponse>
+      </Suspense>
+    );
+  },
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 );
 

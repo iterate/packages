@@ -22,6 +22,14 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   sign-up page): no strip and no Events tab, and the agent's status is the feed's last row.
   `aboveComposer` takes a row of the page's own over the composer. `empty` is the page's own
   greeting, centred in the feed while nothing has been said, and `placeholder` the composer's text.
+  `eventsTab={false}` keeps the strip's status and drops the Events tab. `attach={false}` makes the
+  composer take words only: no `+`, so no files and no raw mode.
+- A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`
+  or `link`; no label: the value is the words). `onChoice` gets `{ kind, value, label }` on a press,
+  through a React context (`choice-in-words.tsx`); `choiceState` draws one as "chosen" or "busy".
+  With no `onChoice` a choice is its plain words. A text kind is a `span` with the button role, so
+  it wraps with its sentence; `link` is a pill `<button>`. A running answer shows its words and
+  hides one not finished yet. In code it stays as written.
 - The page's own rows go under a feed item through `itemFooter`. `inspectors` gives the Events
   tab's inspector a body for the page's own event types. The rows of the Events tab are the same
   for every type: the type as stored and a glance at the payload.

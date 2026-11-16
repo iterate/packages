@@ -2,7 +2,8 @@
 // (the raw log, `ContextView`) and a slot for one right-edge sheet. The Chat tab is the kind's own:
 // its `children`. With none, the shell is the Events tab alone, which is what an agent whose kind has
 // no view gets. `strip={false}` drops the strip, and with it the Events tab: the Chat tab alone, for
-// a page whose reader is no developer. It fills its parent, a flex column with a bounded height.
+// a page whose reader is no developer. `eventsTab={false}` keeps the strip's status and drops the
+// tabs and the Events tab. It fills its parent, a flex column with a bounded height.
 //
 // A kind's view (agent-kind-view/) builds on this, as iterate's `AgentChat` does:
 //
@@ -36,6 +37,7 @@ export function AgentShell({
   onAppend,
   status,
   strip = true,
+  eventsTab = true,
   inspectors,
   sheet,
   closeSheet,
@@ -57,6 +59,9 @@ export function AgentShell({
   /** `false`: no strip, and the Chat tab alone, whatever `state.view` says. Without `children` the
    *  Events tab stays, with no strip over it. */
   strip?: boolean;
+  /** `false`: the strip keeps its status, with no tabs, and the Chat tab is all there is. Without
+   *  `children` the Events tab stays. */
+  eventsTab?: boolean;
   /** Inspector bodies for the kind's own event types, over the agent ones. */
   inspectors?: EventInspectors;
   /** One right-edge sheet of the kind's own (iterate's traces), drawn over both tabs. */
@@ -68,7 +73,7 @@ export function AgentShell({
   children?: ReactNode;
 }) {
   const error = hostError || context.error;
-  const view = !children ? "events" : strip ? state.view : undefined;
+  const view = !children ? "events" : strip && eventsTab ? state.view : undefined;
   const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -77,6 +82,7 @@ export function AgentShell({
           status={status}
           view={view}
           hasChat={Boolean(children)}
+          tabs={eventsTab || !children}
           held={context.events.length}
           wholeLogHeld={!context.older || context.older.exhausted}
           onStateChange={onStateChange}
@@ -122,6 +128,7 @@ function ShellStrip({
   status,
   view,
   hasChat,
+  tabs,
   held,
   wholeLogHeld,
   onStateChange,
@@ -129,6 +136,8 @@ function ShellStrip({
   status: AgentShellStatus | undefined;
   view: AgentChatState["view"];
   hasChat: boolean;
+  /** `false`: the status alone. */
+  tabs: boolean;
   /** How many events are held, and whether they are the whole log: the Events tab's count. */
   held: number;
   wholeLogHeld: boolean;
@@ -153,28 +162,32 @@ function ShellStrip({
           <span className="truncate">{status.text}</span>
         </span>
       ) : null}
-      <Tabs
-        value={view || "chat"}
-        onValueChange={(value) => onStateChange({ view: value === "chat" ? undefined : "events" })}
-        className="ml-auto"
-      >
-        <TabsList className="h-8 pointer-coarse:h-10">
-          {hasChat ? (
-            <TabsTrigger value="chat" className="text-xs">
-              Chat
-            </TabsTrigger>
-          ) : null}
-          <TabsTrigger value="events" className="text-xs">
-            <span className="inline-flex items-baseline gap-1.5">
-              Events
-              <span className="font-mono text-2xs text-muted-foreground/70">
-                {held}
-                {wholeLogHeld ? "" : "+"}
+      {tabs ? (
+        <Tabs
+          value={view || "chat"}
+          onValueChange={(value) =>
+            onStateChange({ view: value === "chat" ? undefined : "events" })
+          }
+          className="ml-auto"
+        >
+          <TabsList className="h-8 pointer-coarse:h-10">
+            {hasChat ? (
+              <TabsTrigger value="chat" className="text-xs">
+                Chat
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger value="events" className="text-xs">
+              <span className="inline-flex items-baseline gap-1.5">
+                Events
+                <span className="font-mono text-2xs text-muted-foreground/70">
+                  {held}
+                  {wholeLogHeld ? "" : "+"}
+                </span>
               </span>
-            </span>
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 // The composer's paste: image files in a paste are staged as attachments, as from the `+`, and a
 // submit sends them as data URLs; the paste's text still goes into the message editor (CodeMirror,
 // loaded for real). Out of scope: drop and the file picker.
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { AgentComposer } from "./composer.tsx";
@@ -80,9 +80,20 @@ test("a paste of plain text stages nothing and pastes the text into the message"
   expect(composer.draft()).toMatchObject({ message: "hello", attachments: { entries: [] } });
 });
 
+test("a composer for words only has no `+`, no file input, and a pasted file stages nothing", async () => {
+  const composer = await renderComposer({ attach: false, onAppendRaw: async () => {} });
+
+  expect(composer.container.querySelector('button[title="Composer mode"]')).toBeNull();
+  expect(composer.container.querySelector('input[type="file"]')).toBeNull();
+
+  await composer.paste({ files: [new File(["first"], "screenshot-1.png", { type: "image/png" })] });
+
+  expect(composer.draft()).toMatchObject({ attachments: { entries: [] } });
+});
+
 type Paste = { files?: File[]; items?: File[]; text?: string };
 
-async function renderComposer() {
+async function renderComposer(props: Partial<ComponentProps<typeof AgentComposer>> = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   const onSubmit = vi.fn<(input: unknown) => Promise<void>>(async () => {});
@@ -97,6 +108,7 @@ async function renderComposer() {
         onSubmit={onSubmit}
         onAppendRaw={undefined}
         interrupt={null}
+        {...props}
       />
     );
   }
@@ -110,6 +122,7 @@ async function renderComposer() {
   });
 
   const composer = {
+    container,
     onSubmit,
     draft: () => current!,
     async paste({ files = [], items = [], text = "" }: Paste) {

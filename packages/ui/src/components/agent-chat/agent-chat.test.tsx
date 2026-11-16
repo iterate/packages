@@ -303,6 +303,30 @@ test.for<{ name: string; caughtUp: boolean; shown: string; greeting: boolean }>(
   );
 });
 
+test.for([
+  { eventsTab: true, tabs: 2 },
+  { eventsTab: false, tabs: 0 },
+])(
+  "a strip with eventsTab $eventsTab keeps the agent's status words, and has $tabs tabs",
+  async ({ eventsTab, tabs }) => {
+    using chat = await mount(
+      {
+        processors: { rows: [], loaded: true },
+        liveState: {
+          agent: {
+            status: "live",
+            value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
+          },
+        },
+      },
+      { eventsTab },
+    );
+    expect(chat.status()).toBe("Idle");
+    expect(document.querySelectorAll("[role=tab]")).toHaveLength(tabs);
+    expect(document.body.textContent?.includes("Events")).toBe(eventsTab);
+  },
+);
+
 type Context = ComponentProps<typeof AgentChat>["context"];
 
 /** A page with height, which jsdom lacks, so the virtual log draws its rows; disposing takes it

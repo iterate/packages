@@ -6,7 +6,10 @@
 // over a composer, the EVENTS (the raw log, `ContextView`), and the TRACES (one right-edge sheet:
 // an LLM request or a script run). It fills its parent, a flex column with a bounded height.
 // `strip={false}` is the chat alone, for a page whose reader is no developer: no strip and no
-// Events tab, and the agent's status is the feed's last row while it works.
+// Events tab, and the agent's status is the feed's last row while it works. `eventsTab={false}`
+// keeps the strip's status and drops the Events tab; `attach={false}` makes the composer take words
+// only. A choice in the agent's words (`[[kind:value|label]]`, choice-in-words.tsx) is a button that
+// calls `onChoice`, through a React context; with no `onChoice` it is its plain words.
 // CONTROLLED, as `ContextView` is: the tab, the open trace and the Events tab's every choice are
 // `state` (agent-chat-search.ts) and come back as an `onStateChange` patch, so a chat is a link.
 // Only the activity rows opened in place stay local.
@@ -51,6 +54,7 @@ import type { Inspect, SignedUrl } from "./agent-feed.tsx";
 import { AgentFeedList } from "./agent-feed-list.tsx";
 import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
+import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import type { StreamEvent } from "./stream-event.ts";
@@ -143,6 +147,10 @@ export function AgentChat({
   aboveComposer,
   empty,
   placeholder = "Message this agent",
+  eventsTab = true,
+  attach = true,
+  onChoice,
+  choiceState,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -177,6 +185,14 @@ export function AgentChat({
   empty?: ReactNode;
   /** The composer's text while it is empty. */
   placeholder?: string;
+  /** `false`: the strip keeps the agent's status and has no Events tab (the raw log). */
+  eventsTab?: boolean;
+  /** `false`: the composer takes words only: no `+`, so no files and no raw mode. */
+  attach?: boolean;
+  /** What a press of a choice in the agent's words does. Absent: a choice is its plain words. */
+  onChoice?: AgentChoiceHandlers["onChoice"];
+  /** A choice's state, drawn on its button: "chosen", or "busy" while its press is sent. */
+  choiceState?: AgentChoiceHandlers["choiceState"];
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -203,6 +219,7 @@ export function AgentChat({
       onAppend={onAppend}
       status={status}
       strip={strip}
+      eventsTab={eventsTab}
       closeSheet={TRACES_CLOSED}
       sheet={
         <InspectorSheet
@@ -214,26 +231,29 @@ export function AgentChat({
         />
       }
     >
-      <ChatTab
-        feed={feed}
-        events={fold.events}
-        older={older}
-        logShare={logShare}
-        caughtUp={context.caughtUp}
-        readingForFirstRow={readingForFirstRow}
-        toggled={toggled}
-        onToggle={onToggle}
-        inspect={inspect}
-        signedUrl={signedUrl}
-        itemFooter={itemFooter}
-        statusRow={strip ? null : chatStatusRow(status, feed.state)}
-        aboveComposer={aboveComposer}
-        empty={empty}
-        placeholder={placeholder}
-        draft={draft}
-        onMessage={onMessage}
-        onAppend={onAppend}
-      />
+      <AgentChoiceProvider onChoice={onChoice} choiceState={choiceState}>
+        <ChatTab
+          feed={feed}
+          events={fold.events}
+          older={older}
+          logShare={logShare}
+          caughtUp={context.caughtUp}
+          readingForFirstRow={readingForFirstRow}
+          toggled={toggled}
+          onToggle={onToggle}
+          inspect={inspect}
+          signedUrl={signedUrl}
+          itemFooter={itemFooter}
+          statusRow={strip ? null : chatStatusRow(status, feed.state)}
+          aboveComposer={aboveComposer}
+          empty={empty}
+          placeholder={placeholder}
+          draft={draft}
+          onMessage={onMessage}
+          onAppend={onAppend}
+          attach={attach}
+        />
+      </AgentChoiceProvider>
     </AgentShell>
   );
 }
@@ -352,6 +372,7 @@ function ChatTab({
   draft,
   onMessage,
   onAppend,
+  attach,
 }: {
   feed: Feed;
   events: readonly StreamEvent[];
@@ -371,6 +392,7 @@ function ChatTab({
   draft: ComposerDraft;
   onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
+  attach: boolean;
 }) {
   // the person's own words land in view, wherever they were reading
   const [followTail, setFollowTail] = useState(0);
@@ -427,6 +449,7 @@ function ChatTab({
               draft={draft}
               placeholder={placeholder}
               autoFocusMessage
+              attach={attach}
               interrupt={interrupt}
               onSubmit={(message) => {
                 setFollowTail((count) => count + 1);

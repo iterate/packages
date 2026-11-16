@@ -2,7 +2,8 @@
 // editor that grows with the draft, a raw-event editor that appends YAML or JSON to the agent's
 // log, attachment chips with drag-and-drop and paste, and one round button that sends — or, while a
 // turn runs, STOPS it (an interruption is a property of the person's next input). A composer for an
-// agent that does not exist yet has no log to append to, so it has no raw mode. On a narrow screen
+// agent that does not exist yet has no log to append to, so it has no raw mode. `attach={false}` takes
+// words only: no `+`, no files, no raw mode. On a narrow screen
 // (below `sm`) it is compact: the buttons and padding shrink, so the words get the width and the
 // chat keeps the height (a phone's keyboard takes half the screen).
 import { useState, type DragEvent, type ReactNode } from "react";
@@ -64,6 +65,7 @@ function AgentPillComposer({
   autoFocusMessage = false,
   isInterrupting = false,
   onInterrupt,
+  attach = true,
 }: {
   mode: AgentComposerMode;
   onModeChange: (mode: AgentComposerMode) => void;
@@ -75,13 +77,15 @@ function AgentPillComposer({
   autoFocusMessage?: boolean;
   isInterrupting?: boolean;
   onInterrupt?: () => Promise<void> | void;
+  /** `false`: words only: no `+` (no files, no raw mode), and a paste or drop adds no file. */
+  attach?: boolean;
 }) {
   // the raw editor while it is the open mode; otherwise the message editor is
   const openRaw = mode === "raw" ? raw : undefined;
   const canSubmit = !isSubmitting && (openRaw ? openRaw.value.trim() !== "" : message.canSubmit);
   const showInterrupt = mode === "message" && !!onInterrupt;
   const { isDragging, dropHandlers } = useFileDrop({
-    accepts: !isSubmitting,
+    accepts: attach && !isSubmitting,
     onFiles: (files) => {
       if (mode !== "message") onModeChange("message");
       message.onAddFiles(files);
@@ -109,13 +113,15 @@ function AgentPillComposer({
           isDragging && "ring-2 ring-primary/40 border-primary/40",
         )}
       >
-        <ComposerModeMenu
-          mode={mode}
-          onModeChange={onModeChange}
-          hasRaw={Boolean(raw)}
-          isSubmitting={isSubmitting}
-          onAttach={message.onAttach}
-        />
+        {attach ? (
+          <ComposerModeMenu
+            mode={mode}
+            onModeChange={onModeChange}
+            hasRaw={Boolean(raw)}
+            isSubmitting={isSubmitting}
+            onAttach={message.onAttach}
+          />
+        ) : null}
         {openRaw ? (
           <CodeEditor
             value={openRaw.value}
@@ -132,7 +138,7 @@ function AgentPillComposer({
               // A pasted screenshot is an attachment, as from the `+`. Text in the same paste still
               // pastes: the editor takes it, so this handler never calls preventDefault.
               const files = clipboardFiles(event.clipboardData);
-              if (files.length > 0 && !isSubmitting) message.onAddFiles(files);
+              if (attach && files.length > 0 && !isSubmitting) message.onAddFiles(files);
             }}
           >
             {message.attachments ? <div className="px-1 pb-1">{message.attachments}</div> : null}
@@ -372,6 +378,7 @@ export function AgentComposer({
   onAppendRaw,
   interrupt,
   autoFocusMessage = false,
+  attach = true,
 }: {
   draft: ComposerDraft;
   /** The empty editor's text, which also names its textbox. */
@@ -382,6 +389,9 @@ export function AgentComposer({
   /** Null while no turn is running. */
   interrupt: StreamInterrupt | null;
   autoFocusMessage?: boolean;
+  /** `false`: the composer takes words only: no `+`, so no files and no raw mode (`onAppendRaw` is
+   *  not offered), and a paste or drop of files adds none. */
+  attach?: boolean;
 }) {
   const { message, setMessage, attachments } = draft;
   const [mode, setMode] = useState<AgentComposerMode>("message");
@@ -437,10 +447,11 @@ export function AgentComposer({
 
   return (
     <>
-      <AttachmentFileInput attachments={attachments} />
+      {attach ? <AttachmentFileInput attachments={attachments} /> : null}
       <AgentPillComposer
         mode={mode}
         onModeChange={setMode}
+        attach={attach}
         autoFocusMessage={autoFocusMessage}
         message={{
           value: message,
@@ -456,7 +467,7 @@ export function AgentComposer({
           placeholder,
         }}
         raw={
-          onAppendRaw
+          attach && onAppendRaw
             ? {
                 value: rawText,
                 onValueChange: setRawText,

@@ -63,7 +63,12 @@ export function Feed<Row extends FeedRow>({
   );
 }
 
-/** Markdown, as a chat draws an agent's words. */
+// A page that draws a line as plain text, not Markdown, runs it through this: a choice in the
+// words (`[[kind:value|label]]`, choice-in-words.tsx) reads as its label.
+export { choicesInPlainWords } from "./choice-in-words.tsx";
+
+/** Markdown, as a chat draws an agent's words: a choice in them is a button where a handler is
+ *  provided (`AgentChoiceProvider`), and its plain words where none is. */
 export function Markdown({ children, className }: { children: string; className?: string }) {
   return <MessageResponse className={className}>{children}</MessageResponse>;
 }
