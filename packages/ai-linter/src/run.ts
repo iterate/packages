@@ -784,7 +784,7 @@ function githubApi(io: LintIo, connection: string) {
                 accept === "raw"
                   ? "application/vnd.github.raw+json"
                   : "application/vnd.github+json",
-              authorization: `Bearer getSecret("/secrets/github-${connection}", { field: "accessToken" })`,
+              authorization: `Bearer getSecret("/secrets/github-installation-${connection}", { field: "accessToken" })`,
               "user-agent": "iterate-ai-linter",
               "x-github-api-version": "2022-11-28",
               ...(body === undefined ? {} : { "content-type": "application/json" }),

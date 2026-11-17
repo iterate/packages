@@ -29,6 +29,19 @@ const SOURCE = [
   "",
 ].join("\n");
 
+test("the installation's credential serves every GitHub read and the published Check Run", async () => {
+  const github = fakeGithub({
+    authorization: 'Bearer getSecret("/secrets/github-installation-42", { field: "accessToken" })',
+  });
+  const outcome = await lintHead({ ...job, connection: "42" }, config, io({ github }).lintIo);
+  expect(outcome).toMatchObject({ status: "linted", problems: [], findings: 3 });
+  expect(checkRunOf(github.posted)).toMatchObject({
+    conclusion: "neutral",
+    external_id: job.key,
+    output: { title: "3 findings" },
+  });
+});
+
 test("every part runs: the review and a neutral Check Run carry the findings of both engines", async () => {
   const github = fakeGithub({});
   const outcome = await lintHead(job, config, io({ github }).lintIo);
@@ -486,6 +499,8 @@ const WHOLE_DIFF_RULE =
  *  `source`, listed with `alsoListed` after it, 100 a page. `checkRuns` are on the head already.
  *  `fail` answers a request instead, by method and path. */
 function fakeGithub(options: {
+  /** The only credential this installation accepts, still an unresolved placeholder. */
+  authorization?: string;
   source?: string;
   rulesFolder?: string;
   extraRules?: Record<string, string>;
@@ -551,6 +566,8 @@ function fakeGithub(options: {
     return { status: 404, body: { message: `no route for GET ${path}` } };
   };
   const fetch: LintIo["fetch"] = async (request) => {
+    if (options.authorization && request.headers.get("authorization") !== options.authorization)
+      return answer({ status: 403, body: "this installation has no such credential" });
     const url = new URL(request.url);
     const failure = options.fail?.(request.method, url.pathname);
     if (failure) return answer(failure);
