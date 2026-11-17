@@ -49,10 +49,11 @@ export function saidByOf(sender: MessageSender): string {
   return `${sender.email?.split("@", 1)[0] || sender.actor}${sender.script ? " (a script)" : ""}`;
 }
 
-/** Whether the viewer `me` (their address or actor id) typed it: a message their script wrote is
- *  not one they typed. */
+/** Whether the message is the viewer's own: `me` (their address or actor id) typed it, or a
+ *  script wrote it on their behalf (a Slack relay, a computer's bridge). Their own words carry no
+ *  line under them (Jonas, 16 and 17 Nov 2026). */
 export function sentByMe(sender: MessageSender, me: string | undefined): boolean {
-  if (!me || sender.script) return false;
+  if (!me) return false;
   return sender.actor === me || sender.email?.toLowerCase() === me.toLowerCase();
 }
 

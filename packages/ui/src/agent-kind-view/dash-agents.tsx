@@ -607,7 +607,15 @@ function AgentViewOfKind({
   }
   const { view, mount } = next;
   return view.file ? (
-    <KindChat key={mount} itx={itx} path={path} file={view.file} agents={agents} tails={tails} />
+    <KindChat
+      key={mount}
+      itx={itx}
+      path={path}
+      file={view.file}
+      agents={agents}
+      me={me}
+      tails={tails}
+    />
   ) : (
     <IterateChat
       key={mount}
@@ -755,6 +763,7 @@ function KindChat({
   path,
   file,
   agents,
+  me,
   tails,
 }: {
   itx: Itx;
@@ -762,6 +771,8 @@ function KindChat({
   /** The kind's file: a view of another file is another frame (`AgentViewOfKind` keys it). */
   file: { name: string; source: string | null };
   agents: readonly AgentRow[] | undefined;
+  /** The signed-in member's actor id, for a view that draws AgentChat. */
+  me: string | undefined;
   tails: TailsOfMember;
 }) {
   const { view, patchView } = useView();
@@ -818,6 +829,8 @@ function KindChat({
     documentClass,
     // Chat | Events are the page's header's
     tabsInHeader: true,
+    // oxlint-disable-next-line iterate/simple-truthiness-check -- the wire view: an absent optional field stays absent
+    ...(me && { me }),
   };
   // the view's state, as the frame reads it
   const state = inputs.state;

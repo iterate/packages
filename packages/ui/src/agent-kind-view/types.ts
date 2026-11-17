@@ -67,6 +67,9 @@ export type AgentKindViewProps = {
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** A signed download URL for a file under the agent's path. */
   signedUrl: (path: string) => Promise<string>;
+  /** The viewer's actor id or address, when the page knows it: `AgentChat` draws no sender line
+   *  under their own messages. */
+  me?: string;
 };
 
 /** iterate's components a view builds with (agent-chat/chat-parts.tsx and agent-shell.tsx say

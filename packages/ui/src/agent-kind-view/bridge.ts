@@ -42,6 +42,8 @@ export type AgentKindViewInputs = {
   /** `true`: the page draws Chat | Events in its own header, and the tab is `state.view`: the
    *  view's shell draws no strip, and its status is a line at the feed's foot. */
   tabsInHeader?: boolean;
+  /** The viewer's actor id, when the page knows it (`AgentKindViewProps.me`). */
+  me?: string;
 };
 
 /** What changed: the fields that did, and the events added at either end, or all of them again

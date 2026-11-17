@@ -79,6 +79,7 @@ function propsOf(
     onMessage: async (input) => await host.message(input),
     onAppend: async (events) => await host.append(events),
     signedUrl: async (path) => await host.fileUrl(path),
+    me: held.me,
   };
 }
 

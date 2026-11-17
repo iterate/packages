@@ -139,6 +139,24 @@ test("a kind file that failed to load is no failed read: the Events tab in its p
   expect(document.body.textContent).toContain("1 loaded of ~10,000 events");
 });
 
+test("the frame hands the view the viewer the page names: a kind that draws AgentChat hides their own messages' line", async () => {
+  const seen: (string | undefined)[] = [];
+  const view: LoadedView = {
+    component: (props: AgentKindViewProps) => {
+      seen.push(props.me);
+      return null;
+    },
+    ephemeralEvents: [],
+  };
+  {
+    using _view = await mount({ caughtUp: true, older: null, me: "/members/ada" }, view);
+    expect(seen.at(-1)).toBe("/members/ada");
+  }
+  // a page that does not say who looks: the view is told nothing
+  using _view = await mount({ caughtUp: true, older: null }, view);
+  expect(seen.at(-1)).toBeUndefined();
+});
+
 test.for<{ name: string; offsets: number[]; answered: "rows" | "empty" }>([
   { name: "a session with words", offsets: [1, 2], answered: "rows" },
   { name: "a session in which nothing was said", offsets: [], answered: "empty" },

@@ -515,12 +515,12 @@ test.for<{ name: string; me: string | undefined; lines: (readonly [string, strin
   {
     name: "the viewer by their actor",
     me: "/members/ada",
-    lines: [null, ["bo", "bo@example.com"], ["ada (a script)", "ada@example.com"]],
+    lines: [null, ["bo", "bo@example.com"], null],
   },
   {
     name: "the viewer by their address, in another case",
     me: "Ada@Example.com",
-    lines: [null, ["bo", "bo@example.com"], ["ada (a script)", "ada@example.com"]],
+    lines: [null, ["bo", "bo@example.com"], null],
   },
   {
     name: "no viewer",
@@ -532,7 +532,7 @@ test.for<{ name: string; me: string | undefined; lines: (readonly [string, strin
     ],
   },
 ])(
-  "with $name, a line under each bubble that the viewer did not type: a short name, the full address on hover",
+  "with $name, a line under each bubble that is not the viewer's (typed or by their script): a short name, the full address on hover",
   async ({ me, lines }) => {
     using _layout = laidOut();
     const ada = { actor: "/members/ada", email: "ada@example.com" };
