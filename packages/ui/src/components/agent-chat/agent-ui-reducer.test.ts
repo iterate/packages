@@ -657,7 +657,7 @@ test("a run request RunRequested refuses (no code) is no step", () => {
   expect(state.live).toBeNull();
 });
 
-test("keeps the live indicator while a running script emits chat messages", () => {
+test("a running script's chat message shows at once and the live indicator stays", () => {
   const countdownEvents: Array<Partial<StreamEvent> & { type: string; payload?: unknown }> = [
     {
       type: "events.iterate.com/agent/llm-request-requested",
@@ -689,9 +689,11 @@ test("keeps the live indicator while a running script emits chat messages", () =
   ];
   const running = reduceAll(countdownEvents);
 
-  expect(running).toMatchObject({ items: [] });
-  expect(running.deferredAssistantMessages).toMatchObject([{ kind: "assistant", text: "20" }]);
-  expect(running).toMatchObject({ queuedUserMessages: [] });
+  expect(running).toMatchObject({
+    items: [{ kind: "assistant", text: "20" }],
+    deferredAssistantMessages: [],
+    queuedUserMessages: [],
+  });
   expect(running.live?.steps.at(-1)).toMatchObject({
     kind: "code",
     requestOffset: 3,
@@ -701,8 +703,8 @@ test("keeps the live indicator while a running script emits chat messages", () =
   const completed = settleAtIdle(reduceAll([...countdownEvents, runSettled(3)]));
 
   expect(completed.live).toBeNull();
-  expect(completed.items.map((item) => item.kind)).toEqual(["activity", "assistant"]);
-  expect(completed.items[0]).toMatchObject({
+  expect(completed.items.map((item) => item.kind)).toEqual(["assistant", "activity"]);
+  expect(completed.items[1]).toMatchObject({
     kind: "activity",
     status: "done",
     steps: [
@@ -712,11 +714,10 @@ test("keeps the live indicator while a running script emits chat messages", () =
   });
 });
 
-// Regression: prod stream agents/web/2026-08-07t15-50-03-269z. The script
-// sent the visible reply (deferred while its code step ran), settled, and
-// the stream went quiet — the journal fold alone must emit the reply, not
-// hold it hostage until an idle boundary or some future event arrives.
-test("flushes a script-sent reply when its script settles and nothing else is running", () => {
+// The script sends the visible reply, settles, and the stream goes quiet. The reply shows at once,
+// and the journal fold alone closes the activity at the settle: it does not wait for an idle
+// boundary or some future event.
+test("a script-sent reply shows at once and its script's settle closes the activity when nothing else runs", () => {
   const state = reduceAll([
     {
       type: "events.iterate.com/agent/context-added",
@@ -753,12 +754,12 @@ test("flushes a script-sent reply when its script settles and nothing else is ru
 
   expect(state.live).toBeNull();
   expect(state).toMatchObject({ deferredAssistantMessages: [] });
-  expect(state.items.map((item) => item.kind)).toEqual(["user", "activity", "assistant"]);
-  expect(state.items.at(-1)).toMatchObject({
+  expect(state.items.map((item) => item.kind)).toEqual(["user", "assistant", "activity"]);
+  expect(state.items[1]).toMatchObject({
     kind: "assistant",
     text: "I'm using **xai/grok-4.5**.",
   });
-  expect(state.items[1]).toMatchObject({
+  expect(state.items[2]).toMatchObject({
     kind: "activity",
     status: "done",
     steps: [
@@ -1005,13 +1006,13 @@ test("the reported idle boundary never closes a running model call: only its llm
 
 test("the reported idle boundary settles the activity after a later journal event", () => {
   const state = reduceAll([
-    runRequested(1, 'async (itx) => itx.chat.sendMessage("kumquat")'),
+    runRequested(1, 'async (itx) => { await itx.chat.sendMessage("kumquat"); return "sent"; }'),
     {
       type: "events.iterate.com/agent/web-message-sent",
       offset: 2,
       payload: { message: "kumquat" },
     },
-    { ...runSettled(1), offset: 3 },
+    { ...runSettled(1, { status: "succeeded", result: "sent" }), offset: 3 },
     {
       type: "events.iterate.com/agent/context-added",
       offset: 4,
@@ -1027,8 +1028,8 @@ test("the reported idle boundary settles the activity after a later journal even
 
   expect(projected.live).toBeNull();
   expect(projected.items).toMatchObject([
-    { kind: "activity", steps: [{ kind: "code", status: "done", success: true }] },
     { kind: "assistant", text: "kumquat" },
+    { kind: "activity", steps: [{ kind: "code", status: "done", success: true }] },
   ]);
 });
 
@@ -1340,7 +1341,7 @@ test("a reply that lands at once follows the replies held before it in log order
   ]);
 });
 
-test("a message that names no request still waits for the running script", () => {
+test("a message that names no request shows at once while a script runs", () => {
   const state = reduceAll([
     runRequested(1, "async () => longWork()"),
     { type: "events.iterate.com/agent/llm-request-requested", offset: 2, payload: { model: "m" } },
@@ -1349,8 +1350,78 @@ test("a message that names no request still waits for the running script", () =>
   ]);
 
   expect(state).toMatchObject({
+    items: [{ kind: "assistant", text: "from a script" }],
+    deferredAssistantMessages: [],
+    live: { status: "running", steps: [{ kind: "code", status: "running" }, { kind: "llm" }] },
+  });
+});
+
+test("a message that names no request waits while only a model call runs", () => {
+  const state = reduceAll([
+    { type: "events.iterate.com/agent/llm-request-requested", offset: 1, payload: { model: "m" } },
+    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "from elsewhere" } },
+  ]);
+
+  expect(state).toMatchObject({
     items: [],
-    deferredAssistantMessages: [{ text: "from a script" }],
+    deferredAssistantMessages: [{ text: "from elsewhere" }],
+  });
+});
+
+test("a script that sends a link and then polls shows the link at once, and its settle closes the activity", () => {
+  const started = [
+    runRequested(1, "async (itx) => pollForConnection(itx)"),
+    {
+      type: "events.iterate.com/agent/web-message-sent",
+      payload: { message: "[Connect Cloudflare](https://example.com/connect)" },
+    },
+  ];
+  const linked = reduceAll(started);
+
+  expect(linked).toMatchObject({
+    items: [{ kind: "assistant", text: "[Connect Cloudflare](https://example.com/connect)" }],
+    deferredAssistantMessages: [],
+    live: { status: "running", steps: [{ kind: "code", status: "running" }] },
+  });
+
+  const polling = [
+    ...started,
+    {
+      type: "events.iterate.com/agent/summary-updated",
+      payload: { activity: "Checking for your Cloudflare connection" },
+    },
+  ];
+
+  expect(deriveAgentUiLiveStatus(reduceAll(polling))).toMatchObject({
+    phase: "running",
+    statusText: "Checking for your Cloudflare connection",
+  });
+
+  const nudged = [
+    ...polling,
+    {
+      type: "events.iterate.com/agent/web-message-sent",
+      payload: { message: "Still waiting for the connection." },
+    },
+  ];
+
+  expect(reduceAll(nudged)).toMatchObject({
+    items: [
+      { kind: "assistant" },
+      { kind: "assistant", text: "Still waiting for the connection." },
+    ],
+    live: { status: "running", steps: [{ kind: "code", status: "running" }] },
+  });
+
+  const settled = settleAtIdle(reduceAll([...nudged, runSettled(1)]));
+
+  expect(settled.live).toBeNull();
+  expect(settled).toMatchObject({ deferredAssistantMessages: [], queuedUserMessages: [] });
+  expect(settled.items.map((item) => item.kind)).toEqual(["assistant", "assistant", "activity"]);
+  expect(settled.items[2]).toMatchObject({
+    kind: "activity",
+    status: "done",
+    steps: [{ kind: "code", status: "done", success: true }],
   });
 });
 
@@ -1383,7 +1454,7 @@ test("a request that input starts while a script still runs moves the script's e
   });
 });
 
-test("a settling script flushes its held reply and the input that queued behind it in log order", () => {
+test("a running script's reply shows at once, and its settle flushes the input that queued behind the script", () => {
   const state = reduceAll([
     runRequested(1, "async () => longWork()"),
     {
@@ -1395,9 +1466,9 @@ test("a settling script flushes its held reply and the input that queued behind 
   ]);
 
   expect(state.items).toMatchObject([
+    { kind: "assistant", text: "X is done" },
     { kind: "activity", steps: [{ kind: "code", status: "done", success: true }] },
     { kind: "user", text: "and then?" },
-    { kind: "assistant", text: "X is done" },
   ]);
   expect(state).toMatchObject({ deferredAssistantMessages: [], queuedUserMessages: [] });
 });

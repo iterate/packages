@@ -89,6 +89,9 @@ export type AgentUiCodeStep = {
    * it mid-run). Round headers show this instead of a bare start time.
    */
   activitySummary?: string;
+  /** True once this running script sent a message, which went out at once
+   * (see emitAssistantMessageItem): nothing is held for its settle to release. */
+  repliedAtOnce?: boolean;
 };
 
 export type AgentUiStep = AgentUiLlmStep | AgentUiCodeStep;
@@ -719,8 +722,8 @@ function reduceAgentUiEvent(
         activitySummary: state.summaryActivity || undefined,
       };
       const next = { ...state, live: { ...state.live, steps } };
-      // A visible reply the script sent was deferred while its step ran (see
-      // emitAssistantMessageItem). If this settle is the turn's last journal
+      // A reply can still be held here (an extracted answer that waited for
+      // the work it started; see emitAssistantMessageItem). If this settle is the turn's last journal
       // fact — nothing running, no follow-up round — no later event exists to
       // flush it, and the idle-boundary flush is a transient overlay driven
       // by the agent's idle report, which can lag or wedge. Journal facts alone must
@@ -728,18 +731,28 @@ function reduceAgentUiEvent(
       // loop is the same situation even with no deferred messages: the pause
       // fact already landed (possibly mid-request), no follow-up round is
       // coming, and no second pause will arrive to close the activity. A
-      // reply that already went out at once is the same: when this script
-      // returned nothing (the turn ends, no follow-up round) nothing else
-      // closes the activity. A script that returned a value is followed by a
-      // request that joins this activity, so it stays open for that.
+      // reply that already went out at once is the same (a request's answer,
+      // or a message a running script sent): when this script returned
+      // nothing (the turn ends, no follow-up round) nothing else closes the
+      // activity. A script that returned a value is followed by a request
+      // that joins this activity, so it stays open for that. A script's own
+      // message counts only when no later step joined the activity: that
+      // step's turn is not over because this script's is.
       const turnEnds = settlement.status === "succeeded" && settlement.result === undefined;
       const repliedAtOnce = next.live.steps.some(
         (candidate) => candidate.kind === "llm" && candidate.repliedAtOnce,
       );
+      // Its own message held nothing back, so a settle that is not a success closes the activity
+      // too, as it did while that message was held: no later event is sure to come.
+      const scriptRepliedAtOnce =
+        step.repliedAtOnce &&
+        index === steps.length - 1 &&
+        (turnEnds || settlement.status !== "succeeded");
       if (
         (next.deferredAssistantMessages.length > 0 ||
           next.queuedUserMessages.length > 0 ||
           next.paused ||
+          scriptRepliedAtOnce ||
           (repliedAtOnce && turnEnds)) &&
         !isAgentUiActivityWorking(next.live)
       ) {
@@ -897,14 +910,19 @@ function emitUserMessageItem(
 
 /**
  * Assistant output belongs after the activity that produced it. Transport
- * adapters all use this path so a Slack/Telegram echo cannot split a running
- * script group while web output remains deferred. The one exception is the
- * answer of a finished request while only OLDER work still runs (input sent
- * during a long script): nothing that request started is running, so the
- * reply lands at once, above the still-live activity, after the held replies
- * before it in log order. The activity stays live and whole until its own
- * settlements close it; the request's step is marked, so a script settlement
- * that ends the turn closes it (see itx/run-settled).
+ * adapters all use this path, so a Slack/Telegram echo cannot split a running
+ * script group. Two messages land at once instead, above the still-live
+ * activity, after the held replies before them in log order:
+ * - the answer of a finished request while only OLDER work still runs (input
+ *   sent during a long script): nothing that request started is running;
+ * - a message a RUNNING SCRIPT sends (no llmRequestOffset while a code step
+ *   runs): a script that sends a link and then polls must not hide the link
+ *   until it settles.
+ * The activity stays live and whole until its own settlements close it. The
+ * request's step, or the running code step, is marked `repliedAtOnce`, so a
+ * script settlement that ends the turn closes it (see itx/run-settled). Any
+ * other message (an extracted one whose request started work still running,
+ * or one with no llmRequestOffset while only an llm step runs) is held.
  */
 function emitAssistantMessageItem(
   state: AgentUiState,
@@ -926,6 +944,16 @@ function emitAssistantMessageItem(
       repliedAtOnce: true,
     }));
     return { ...replied, deferredAssistantMessages: [] };
+  }
+  const scriptRuns = settled.live.steps.some(
+    (step) => step.kind === "code" && step.status === "running",
+  );
+  if (llmRequestOffset === null && scriptRuns) {
+    items.push(...settled.deferredAssistantMessages, item);
+    const steps = settled.live.steps.map((step) =>
+      step.kind === "code" && step.status === "running" ? { ...step, repliedAtOnce: true } : step,
+    );
+    return { ...settled, live: { ...settled.live, steps }, deferredAssistantMessages: [] };
   }
   return {
     ...settled,

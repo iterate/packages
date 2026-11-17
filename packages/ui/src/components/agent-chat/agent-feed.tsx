@@ -795,8 +795,12 @@ export function AgentLiveActivity({
       ) : null}
       {showStepRail ? <LiveStepRail live={live} liveStep={liveStep} inspect={inspect} /> : null}
       {/* The running answer streams below the status even when the rail is collapsed — this is
-          the whole point of the live tail. */}
-      {!showStepRail && liveStep && liveStepHasVisibleContent(liveStep) ? (
+          the whole point of the live tail. A running script's code does not: the status below
+          says what it does, and a press on it opens the script. */}
+      {!showStepRail &&
+      liveStep &&
+      liveStep.kind !== "code" &&
+      liveStepHasVisibleContent(liveStep) ? (
         <LiveStepStream step={liveStep} />
       ) : null}
       <AgentLiveStatus
