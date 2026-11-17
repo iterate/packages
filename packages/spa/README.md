@@ -31,4 +31,6 @@ supplies credentials. `--env preview` targets the separate preview account.
 
 `pnpm --filter @iterate-com/spa build` copies the static files, builds the Chrome extension
 (`packages/browser-extension`'s `dist/`) and zips it with fflate. `/downloads/` serves the versioned
-unpacked extension and installation/update instructions. The app itself still needs no build or server to run.
+unpacked extension and installation/update instructions. https://chrome.iterate.com/ is its short
+address: the iterate.com mind answers that host with this page and its ZIP (`case "chrome"` in
+iterate/iterate-config `worker.ts`). The app itself still needs no build or server to run.
