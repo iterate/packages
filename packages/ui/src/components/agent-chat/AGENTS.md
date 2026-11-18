@@ -44,11 +44,14 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   typing or not, and `marks`. The page says it in one ephemeral `presence/status` that names its
   own row (`context.subscription`), when it changes and when another principal's page appears.
   A status counts only when the platform's stamp on it is the principal who holds that row, and
-  it goes with the row. A page with no `context.subscription` says nothing and still shows who is
+  it goes with the row. The stamp is a member's own session (`source.principal`) or a person's
+  one-context view (`source.onBehalfOf` with `via.appPage` and no `run` or `call`); code that ran
+  for someone is nobody. A page with no `context.subscription` says nothing and still shows who is
   here. A context whose rows carry no `heldBy` (a platform that does not stamp them yet) shows
   nobody. Status events are no row: the Events tab and its count leave them out
-  (`isPresenceEvent`). Pass `presence` only on a page of a signed-in principal whose session may
-  append to the context, with their actor id as `me`. `AgentChat.contextOptions` names the status
+  (`isPresenceEvent`). Pass `presence` only on a page of a signed-in person whose session may
+  append the status to the context (a member's session, or a person's one-context view), with
+  their actor id as `me`. `AgentChat.contextOptions` names the status
   type. A face is initials on the principal's own colour (`Face`); no picture is looked up.
 - `onMessage` gets a `key` for each message. Hand it on as `message(input, { key })`: a send that
   is tried again after a lost answer then lands once.

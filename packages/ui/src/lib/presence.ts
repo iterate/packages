@@ -15,9 +15,12 @@
 // in ONE ephemeral event, `presence/status`, which names the page's own row (`subscription`): when
 // it changes, and once, a moment later, when a page of another principal appears. No beat. A
 // status counts only while its row is a page, and only when the platform's stamp on the event
-// (`source.principal`; never `onBehalfOf`, a schedule, a copy or the platform's own fact) is the
-// principal who holds that row: nobody sets another person's status, and a closed page's status
-// goes with its row.
+// says who said it and that is the principal who holds that row: nobody sets another person's
+// status, and a closed page's status goes with its row. The stamp says who in two shapes alone
+// (`saidBy`): a member's own session (`source.principal`), or a person's one-context view
+// (`source.onBehalfOf` with `via.appPage` and no `run` or `call`, as core/itx person-context.ts
+// appends it). Code that ran for someone (`run`), a facet's call for them (`call`), a schedule, a
+// copy and the platform's own fact are nobody's.
 //
 // "Typing" lasts 6 s after the status said so, on the mind's clock: a page learns how far its own
 // clock is from the mind's from the newest event it has received, so a status that reaches a page
@@ -116,17 +119,32 @@ const Status = z.object({
   marks: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 
-/** The stamp a status must carry: the principal whose own session appended it, now. */
-const StampedByPrincipal = z.object({
-  createdAt: z.string(),
-  source: z.object({
-    principal: z.object({ actor: z.string().min(1) }),
-    onBehalfOf: z.undefined().optional(),
-    schedule: z.undefined().optional(),
-    copiedFrom: z.undefined().optional(),
-    platform: z.undefined().optional(),
-  }),
+/** The stamp of a status: who said it, now, or nothing when no person did. */
+const StatusStamp = z.object({
+  schedule: z.undefined().optional(),
+  copiedFrom: z.undefined().optional(),
+  platform: z.undefined().optional(),
+  principal: z.object({ actor: z.string().min(1) }).optional(),
+  onBehalfOf: z
+    .object({
+      principal: z.object({ actor: z.string().min(1) }),
+      via: z.object({ appPage: z.string() }),
+      run: z.undefined().optional(),
+      call: z.undefined().optional(),
+    })
+    .optional(),
 });
+
+/** The actor whose page said a status, by the platform's stamp on it (`source`): a member's own
+ *  session, or a person's one-context view. Anything else, both at once included, is nobody's. */
+function saidBy(source: unknown): string | undefined {
+  const stamp = StatusStamp.safeParse(source);
+  if (!stamp.success) return undefined;
+  const { principal, onBehalfOf } = stamp.data;
+  if (principal && !onBehalfOf) return principal.actor;
+  if (onBehalfOf && !principal) return onBehalfOf.principal.actor;
+  return undefined;
+}
 
 /** An event of a context's log, as far as presence reads it. */
 export type PresenceEvent = {
@@ -311,10 +329,10 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
         // the freshest event tells how far the mind's clock is ahead of this page's
         ahead = Math.max(ahead ?? -Infinity, at - arrivedAt);
         if (!isPresenceEvent(event)) continue;
-        const stamped = StampedByPrincipal.safeParse(event);
+        const actor = saidBy(event.source);
         const status = Status.safeParse(event.payload);
-        if (!stamped.success || !status.success) continue;
-        const key = statusKey(stamped.data.source.principal.actor, status.data.subscription);
+        if (!actor || !status.success) continue;
+        const key = statusKey(actor, status.data.subscription);
         if ((statuses.get(key)?.at || 0) > at) continue;
         statuses.set(key, { ...status.data, at });
       }

@@ -9,12 +9,14 @@ import {
   hereOf,
   type PresenceEvent,
   type PresencePage,
+  type PresencePrincipal,
   type PresenceRow,
 } from "./presence.ts";
 
 const ADA = { actor: "/members/ada", email: "ada@example.com" };
 const BOB = { actor: "/members/bob", email: "bob@example.com" };
 const CY = { actor: "/members/cy", email: "cy@example.com" };
+const GUEST = { actor: "user_9", name: "Gil", kind: "guest" as const };
 
 test.for<{
   name: string;
@@ -127,6 +129,40 @@ test("a status counts only when the platform's stamp is the principal who holds 
   expect(page.presence.get()).toMatchObject([{ actor: BOB.actor, state: "active", typing: false }]);
   page.take([...page.taken, status(BOB, "bob-1", { away: true })]);
   expect(page.presence.get()).toMatchObject([{ actor: BOB.actor, state: "away", typing: false }]);
+});
+
+// A person who is no member reaches the chat through a one-context view, whose appends the
+// platform stamps `onBehalfOf` the person, `via` the app's page, with no `run` and no `call`
+// (core/itx person-context.ts).
+test("a person's status from their one-context view counts for the row they hold", () => {
+  using page = viewer();
+  page.see([row("bob-1", BOB), row("guest-1", GUEST)]);
+  page.take([viewStatus(GUEST, "guest-1", { away: true, typing: true, marks: ["voice"] })]);
+  expect(page.presence.get()).toMatchObject([
+    { actor: BOB.actor, state: "active", typing: false, marks: [] },
+    { actor: GUEST.actor, state: "away", typing: true, marks: ["voice"] },
+  ]);
+});
+
+test("a person's status counts only when the stamp is the holder's view, for the row they hold", () => {
+  using page = viewer();
+  page.see([row("bob-1", BOB), row("guest-1", GUEST)]);
+  const said = viewStatus(GUEST, "guest-1", { away: true, typing: true });
+  const onBehalfOf = { principal: GUEST, via: { appPage: "chat" } };
+  page.take([
+    // code that ran for the guest, a facet's call for them, an append with no app page
+    { ...said, source: { origin: "/", onBehalfOf: { ...onBehalfOf, run: "/agents/a@4" } } },
+    { ...said, source: { origin: "/", onBehalfOf: { ...onBehalfOf, call: "/agents/a#agent.x" } } },
+    { ...said, source: { origin: "/", onBehalfOf: { principal: GUEST } } },
+    // a member's session that also names the guest
+    { ...said, source: { origin: "/", principal: BOB, onBehalfOf } },
+    // the guest's view names Bob's row
+    viewStatus(GUEST, "bob-1", { away: true, typing: true }),
+  ]);
+  expect(page.presence.get()).toMatchObject([
+    { actor: BOB.actor, state: "active", typing: false },
+    { actor: GUEST.actor, state: "active", typing: false },
+  ]);
 });
 
 test("one principal is away only when every page of theirs is; the marks of each page are theirs", () => {
@@ -259,7 +295,7 @@ test("a new array of the same events (a reconnect) gives the same picture, and f
  *  `principal` through an app's page (`via`), consuming the chat's types unless told. */
 function row(
   name: string,
-  principal: { actor: string; email: string } | undefined,
+  principal: PresencePrincipal | undefined,
   { via = true, consumes = ["*", "presence/status"] }: { via?: boolean; consumes?: string[] } = {},
 ): PresenceRow {
   return {
@@ -292,6 +328,21 @@ function status(
     createdAt: new Date(at).toISOString(),
     payload: { subscription, away, typing, marks },
     source: { origin: "/", principal },
+  };
+}
+
+/** A `presence/status` as the platform commits it from a person's one-context view: stamped
+ *  `onBehalfOf` the person, through the app's page, with no `run` and no `call`. */
+function viewStatus(
+  principal: PresencePrincipal,
+  subscription: string,
+  state: { away?: boolean; typing?: boolean; marks?: string[] },
+): PresenceEvent {
+  return {
+    type: "presence/status",
+    createdAt: new Date().toISOString(),
+    payload: { subscription, away: false, typing: false, ...state },
+    source: { origin: "/", onBehalfOf: { principal, via: { appPage: "chat" } } },
   };
 }
 
