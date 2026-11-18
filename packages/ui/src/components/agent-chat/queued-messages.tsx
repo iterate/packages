@@ -4,7 +4,7 @@
 // message stays pinned, with a "+N more" toggle.
 //
 // The panel is the PEOPLE's queue. Several people can write to one agent, so each waiting message
-// says whose it is: a face and a name, or "You". Another agent's words can wait for the next turn
+// says whose it is: a face and a name, or "You", as the feed draws a participant (participant.tsx). Another agent's words can wait for the next turn
 // too (a helper's report that comes in while the agent works): they are no person's input, so they
 // are not drawn here. The feed shows them as a report row once a request has taken them up.
 // Everyone in the conversation is trusted alike: anyone may interrupt, whoever's answer runs.
@@ -13,9 +13,8 @@ import { BanIcon } from "lucide-react";
 import { cn } from "cn";
 import type { AgentUiMessageItem } from "./agent-ui-reducer.ts";
 import { UserMessageBody, type SignedUrl } from "./agent-feed.tsx";
+import { FaceAndName } from "./participant.tsx";
 import { sentByMe } from "./stream-event.ts";
-import { Face } from "#/components/call/face.tsx";
-import { faceOf, labelOf } from "#/lib/principal-label.ts";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { Button } from "#/components/ui/button.tsx";
 
@@ -83,26 +82,18 @@ export function QueuedMessagesPanel({
               !expanded && index < messages.length - 1 && "hidden sm:block",
             )}
           >
-            <QueuedBy message={message} me={me} />
+            {message.sender && message.saidBy ? (
+              <FaceAndName
+                principal={message.sender}
+                words={sentByMe(message.sender, me) ? "You" : message.saidBy}
+                className="mb-1"
+                data-queued-by
+              />
+            ) : null}
             <UserMessageBody item={message} signedUrl={signedUrl} />
           </div>
         ))}
       </div>
     </div>
-  );
-}
-
-/** Whose waiting words these are, as the platform stamped them. Nothing for words that name
- *  nobody (the mind's own code sent them). */
-function QueuedBy({ message, me }: { message: AgentUiMessageItem; me: string | undefined }) {
-  const { sender, saidBy } = message;
-  if (!sender || !saidBy) return null;
-  return (
-    <span className="font-readme mb-1 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-      <Face small {...faceOf(sender)} />
-      <span data-queued-by title={labelOf(sender)} className="max-w-48 truncate">
-        {sentByMe(sender, me) ? "You" : saidBy}
-      </span>
-    </span>
   );
 }

@@ -15,13 +15,21 @@ import {
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: "user" | "assistant" | "system" | "tool";
+  /** Which side a person's bubble stands on: the viewer's at the end (right), another
+   *  participant's at the start (left). The bubble looks the same on both. */
+  side?: "start" | "end";
 };
 
-export const Message = ({ className, from, ...props }: MessageProps) => (
+export const Message = ({ className, from, side = "end", ...props }: MessageProps) => (
   <div
     className={cn(
       "group flex w-full flex-col gap-2",
-      from === "user" ? "is-user ml-auto max-w-[95%] justify-end" : "is-assistant",
+      from === "user"
+        ? side === "end"
+          ? "is-user ml-auto max-w-[95%] justify-end"
+          : // as wide as its bubble, so the bubble's own `ml-auto` has no room to push it right
+            "is-user w-fit max-w-[95%]"
+        : "is-assistant",
       className,
     )}
     {...props}

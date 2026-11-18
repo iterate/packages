@@ -1,4 +1,5 @@
-// The feed rows: a person's message, the assistant's prose, the quiet "website reported" row over
+// The feed rows: a person's message (the viewer's at the right, another participant's at the left
+// with their face: participant.tsx), the assistant's prose, the quiet "website reported" row over
 // another agent's words, the quiet "3 messages came in" row over what reached the agent without
 // starting a turn, and the quiet "Ran code 2× · 3 requests · 7.4 s"
 // activity row that opens into rounds — the LLM step that wrote a script and the code step that ran
@@ -48,12 +49,12 @@ import {
   looksLikeCode,
 } from "./agent-events.ts";
 import { useTickingNowMs } from "./use-ticking-now-ms.ts";
-import { sentByMe } from "./stream-event.ts";
+import { sentByMe, type MessageSender } from "./stream-event.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
+import { ParticipantBubble, ParticipantFace } from "./participant.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
-import { Face } from "#/components/call/face.tsx";
-import { faceOf, labelOf } from "#/lib/principal-label.ts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
+import { labelOf } from "#/lib/principal-label.ts";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -77,6 +78,7 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   signedUrl,
   me,
   agentPath,
+  continuesRun = false,
 }: {
   item: AgentUiItem;
   expanded: boolean;
@@ -85,12 +87,16 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   /** The llm request behind an assistant message, so its bubble opens the trace on hover. */
   traceOffset: number | undefined;
   signedUrl: SignedUrl;
-  /** The viewer's address or actor id. Their own bubbles have no line under them; with none, every
-   *  person's has one. */
+  /** The viewer's address or actor id. Their own bubbles stand at the right; another
+   *  participant's at the left, with their face. With none, every bubble that names a sender is
+   *  another participant's. */
   me?: string;
   /** This chat's agent: another agent's words "reported" when it is one of its helpers, below it,
    *  else "wrote". */
   agentPath?: string;
+  /** A message of the same sender is the row before this one (agent-feed-list.tsx): another
+   *  participant's bubble then has no face and no name over it. */
+  continuesRun?: boolean;
 }) {
   switch (item.kind) {
     case "user":
@@ -105,12 +111,21 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
             signedUrl={signedUrl}
           />
         );
+      if (item.sender && item.saidBy && !sentByMe(item.sender, me))
+        return (
+          <ParticipantMessage
+            item={item}
+            sender={item.sender}
+            saidBy={item.saidBy}
+            first={!continuesRun}
+            signedUrl={signedUrl}
+          />
+        );
       return (
         <Message from="user" className="pb-2 pt-3.5" data-kind="user">
           <MessageContent className="group-[.is-user]:rounded-2xl">
             <UserMessageBody item={item} signedUrl={signedUrl} />
           </MessageContent>
-          <SaidBy item={item} me={me} />
         </Message>
       );
     case "assistant":
@@ -326,18 +341,41 @@ function FoldedMessage({
   );
 }
 
-/** Under a person's bubble, who sent it: their face and short name, the long label on hover.
- *  Nothing under the viewer's own, and nothing for words that name nobody. */
-function SaidBy({ item, me }: { item: AgentUiMessageItem; me: string | undefined }) {
-  const { sender, saidBy } = item;
-  if (!sender || !saidBy || sentByMe(sender, me)) return null;
+/** Another participant's message: a bubble at the left. The first of their run has their short
+ *  name over it and their face beside it, in the gutter; the bubbles after it keep the indent and
+ *  have neither. */
+function ParticipantMessage({
+  item,
+  sender,
+  saidBy,
+  first,
+  signedUrl,
+}: {
+  item: AgentUiMessageItem;
+  sender: MessageSender;
+  saidBy: string;
+  first: boolean;
+  signedUrl: SignedUrl;
+}) {
   return (
-    <span className="font-readme ml-auto flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-      <Face small {...faceOf(sender)} />
-      <span data-said-by title={labelOf(sender)} className="max-w-48 truncate">
-        {saidBy}
-      </span>
-    </span>
+    <div
+      data-kind="user"
+      data-from="other"
+      className={cn("flex flex-col gap-1 pb-2", first ? "pt-3.5" : "pt-0")}
+    >
+      {first ? (
+        <span
+          data-said-by
+          title={labelOf(sender)}
+          className="font-readme truncate pl-8 text-2xs text-muted-foreground"
+        >
+          {saidBy}
+        </span>
+      ) : null}
+      <ParticipantBubble face={first ? <ParticipantFace principal={sender} /> : undefined}>
+        <UserMessageBody item={item} signedUrl={signedUrl} />
+      </ParticipantBubble>
+    </div>
   );
 }
 

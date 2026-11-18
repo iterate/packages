@@ -1,9 +1,11 @@
 // The chat, on the virtual log (virtual-log/virtual-log.tsx): the feed's settled items are its rows,
-// the work in flight is its tail (with the chat's own status row after it, if any), and the
-// composer is its footer.
+// the work in flight is its tail (with the dots of who else is typing and the chat's own status row
+// after it, if any), and the composer is its footer.
 import { useCallback, type ComponentProps, type ReactNode } from "react";
 import { AgentFeedItemRow, AgentLiveActivity } from "./agent-feed.tsx";
 import type { AgentUiItem, AgentUiState } from "./agent-ui-reducer.ts";
+import { TypingInStream } from "./participant.tsx";
+import type { PresentPrincipal } from "#/lib/presence.ts";
 import type { OlderPages } from "#/components/virtual-log/older-pages.ts";
 import { ReadProgress } from "#/components/virtual-log/read-progress.tsx";
 import { VirtualLog, type VirtualLogRowInfo } from "#/components/virtual-log/virtual-log.tsx";
@@ -43,6 +45,7 @@ export function AgentFeedList({
   itemFooter,
   me,
   agentPath,
+  typing,
 }: {
   feed: { state: AgentUiState; items: readonly AgentUiItem[] };
   older: OlderPages;
@@ -66,10 +69,13 @@ export function AgentFeedList({
   me: string | undefined;
   /** This chat's agent, which tells its helpers' words from another agent's. */
   agentPath: string;
+  /** Everyone but the viewer who is typing now: their faces with dots end the tail. None with
+   *  presence off. */
+  typing: readonly PresentPrincipal[];
 }) {
   const { items, state } = feed;
   const renderRow = useCallback(
-    (row: AgentUiItem) => (
+    (row: AgentUiItem, index: number) => (
       <>
         <AgentFeedItemRow
           item={row}
@@ -80,11 +86,12 @@ export function AgentFeedList({
           signedUrl={signedUrl}
           me={me}
           agentPath={agentPath}
+          continuesRun={continuesRun(items[index - 1], row)}
         />
         {itemFooter?.(row)}
       </>
     ),
-    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me, agentPath],
+    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me, agentPath, items],
   );
   return (
     <VirtualLog
@@ -92,7 +99,7 @@ export function AgentFeedList({
       rowInfo={CHAT_ROWS}
       renderRow={renderRow}
       tail={
-        state.live || after ? (
+        state.live || typing.length > 0 || after ? (
           <>
             {state.live ? (
               <AgentLiveActivity
@@ -103,6 +110,7 @@ export function AgentFeedList({
                 me={me}
               />
             ) : null}
+            {typing.length > 0 ? <TypingInStream typing={typing} /> : null}
             {after}
           </>
         ) : undefined
@@ -118,4 +126,14 @@ export function AgentFeedList({
       columnClassName="mx-auto w-full max-w-3xl px-4 md:px-6"
     />
   );
+}
+
+/** Whether a message goes on the run of the row before it: both are messages that name the same
+ *  sender, both written by that sender or both by their script, with no other row between them.
+ *  Decided from the two rows alone, as each row is drawn: a boolean prop keeps the row memoised,
+ *  and older rows read in above a run change only the run's first row. */
+function continuesRun(previous: AgentUiItem | undefined, item: AgentUiItem): boolean {
+  if (previous?.kind !== "user" || item.kind !== "user" || previous.from || item.from) return false;
+  const [before, now] = [previous.sender, item.sender];
+  return Boolean(before && now && before.actor === now.actor && before.script === now.script);
 }

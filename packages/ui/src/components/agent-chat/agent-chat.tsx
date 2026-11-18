@@ -14,9 +14,11 @@
 // `state` (agent-chat-search.ts) and come back as an `onStateChange` patch, so a chat is a link.
 // Only the activity rows opened in place stay local.
 // SEVERAL PEOPLE IN ONE CHAT. Every member's words name their sender (the platform's stamp), in the
-// feed and in the queue, and anyone may interrupt any answer. With `presence` (lib/presence.ts), a
-// line over the composer shows who else has it open now (the platform's rows of their pages) and
-// who is typing (each page's own status), and "Shared" says what sharing it means. Each message goes out with a
+// feed and in the queue, and anyone may interrupt any answer. Another participant's bubbles stand at
+// the left under their face and name (participant.tsx). With `presence` (lib/presence.ts), a line
+// over the composer shows who else has it open now (the platform's rows of their pages), the end of
+// the feed shows who is typing (each page's own status) as their face with dots, and "Shared" says
+// what sharing it means. Each message goes out with a
 // key, so a send that is tried again lands once.
 // THE HOST holds the agent's context and calls the SDK. `context` is what
 // `useIterateContext(stub, AgentChat.contextOptions)` returns, and each thing the chat does to the
@@ -78,7 +80,12 @@ import {
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
 import { remembered } from "#/components/virtual-log/remembered.ts";
-import { isPresenceEvent, PRESENCE_EVENT_TYPES, usePresence } from "#/lib/presence.ts";
+import {
+  isPresenceEvent,
+  PRESENCE_EVENT_TYPES,
+  usePresence,
+  type PresentPrincipal,
+} from "#/lib/presence.ts";
 
 type AgentChatContext = ContextViewSource & { processors: { loaded: boolean } };
 type Feed = ReturnType<typeof agentFeedOf>;
@@ -245,6 +252,10 @@ export function AgentChat({
     subscription: context.subscription,
   });
   const wrote = useMemo(() => othersWhoWrote(feed.items, me), [feed.items, me]);
+  const typing = useMemo(
+    () => here.present.filter((principal) => !principal.me && principal.typing),
+    [here.present],
+  );
   // a page's status events are no row of the log: the Events tab and its count leave them out
   const logContext = useMemo(
     () =>
@@ -303,6 +314,7 @@ export function AgentChat({
           attach={attach}
           presenceLine={presence ? <PresenceLine present={here.present} wrote={wrote} /> : null}
           onTyping={presence ? here.typing : undefined}
+          typing={typing}
         />
       </AgentChoiceProvider>
     </AgentShell>
@@ -481,6 +493,7 @@ function ChatTab({
   attach,
   presenceLine,
   onTyping,
+  typing,
 }: {
   feed: Feed;
   events: readonly StreamEvent[];
@@ -509,6 +522,8 @@ function ChatTab({
   /** Who else is here, beside the agent's status; null where the page is no seat. */
   presenceLine: ReactNode;
   onTyping: ((isTyping: boolean) => void) | undefined;
+  /** Everyone but the viewer who is typing now, for the end of the feed. */
+  typing: readonly PresentPrincipal[];
 }) {
   // the person's own words land in view, wherever they were reading
   const [followTail, setFollowTail] = useState(0);
@@ -598,6 +613,7 @@ function ChatTab({
       itemFooter={itemFooter}
       me={me}
       agentPath={agentPath}
+      typing={typing}
     />
   );
 }

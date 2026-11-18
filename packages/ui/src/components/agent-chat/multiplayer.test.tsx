@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // SEVERAL PEOPLE IN ONE CHAT: who else is here (the platform's rows of their pages) and who is
-// typing (each page's ephemeral status, by the platform's stamp), what "Shared" says, whose each waiting message is, that anyone may interrupt
-// and the feed says who did, and that a message keeps its key while it is tried again.
+// typing (each page's ephemeral status, by the platform's stamp), what "Shared" says, which side of
+// the feed each message stands on and whose face is over it, whose each waiting message is, that
+// anyone may interrupt and the feed says who did, and that a message keeps its key while it is
+// tried again.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -61,7 +63,7 @@ test("a chat shows who else has it open and who is typing: the rows' holders and
     "bo@example.com is here",
     "cy@example.com is here, in another tab or app, 2 pages",
   ]);
-  expect(chat.line()?.querySelector("[data-typing]")?.textContent).toBe("bo is typing…");
+  expect(chat.line()?.querySelector("[role=status]")?.textContent).toBe("bo is typing…");
   // the others are new to this page: it says its own status once, and nothing in it says who
   await vi.waitFor(() =>
     expect(chat.sent()).toEqual([
@@ -194,6 +196,7 @@ test("with presence off a page sends nothing and shows no line: presence is the 
   // outlasts the 400 ms in which a page answers another's arrival
   await act(() => new Promise((done) => setTimeout(done, 450)));
   expect(chat.line()?.outerHTML).toBeUndefined();
+  expect(document.querySelector("[data-typing-in-stream]")?.outerHTML).toBeUndefined();
   expect(chat.sent()).toEqual([]);
 });
 
@@ -252,7 +255,7 @@ test("a page's status events are no row: the Events tab neither counts nor shows
   expect(document.body.textContent).not.toContain("presence/status");
 });
 
-test("a face beside a written name is hidden from a screen reader; a face in the line says who in words", async () => {
+test("a face says who in words, over another person's bubble and in the line", async () => {
   using chat = await mount(
     [{ ...said(1, "hello"), source: { principal: BO } }],
     { me: ADA.actor, presence: true },
@@ -264,7 +267,7 @@ test("a face beside a written name is hidden from a screen reader; a face in the
       face.getAttribute("aria-label"),
     ]),
   ).toEqual([
-    ["true", null],
+    [null, "bo@example.com"],
     [null, "bo@example.com is here"],
   ]);
   expect(chat.faces()).toEqual(["bo@example.com is here"]);
@@ -290,6 +293,11 @@ test("each waiting message says whose it is, and anyone may interrupt an answer,
   ).toEqual([
     ["bo", "bo@example.com"],
     ["You", "ada@example.com"],
+  ]);
+  // each beside the face the feed draws over a person's bubble, which says who
+  expect(labels("[data-testid=queued-messages-panel] [data-slot=avatar]")).toEqual([
+    ["B", "bo@example.com"],
+    ["A", "ada@example.com"],
   ]);
   // Bo's answer is running; Ada stops it
   const interrupt = [...(panel?.querySelectorAll("button") || [])].find((button) =>
@@ -351,7 +359,7 @@ test("the feed says who stopped an answer: the principal whose input carried the
   ]);
 });
 
-test("a guest's message shows their name and that they are a guest, under the bubble and in the queue, on a face of their name's initials", async () => {
+test("a guest's message shows their name and that they are a guest, over the bubble and in the queue, on a face of their name's initials", async () => {
   using _chat = await mount(
     [saidFor(1, "go", GUEST), running(2, 1), saidFor(3, "and make it green", GUEST)],
     { me: ADA.actor },
@@ -460,6 +468,182 @@ test("the key is the draft's: it outlives a visit to the Events tab, and a file 
   expect([keys[1] === keys[0], keys[2] === keys[0]]).toEqual([true, false]);
 });
 
+// ── which side a message stands on, and whose face is over it ──
+
+test("a chat of one person is drawn as before: their bubble at the right with no face or name, the mind's answer full width", async () => {
+  using _chat = await mount(
+    [
+      { ...said(1, "can you check the DNS"), source: { principal: ADA } },
+      answer(2, "The MX record"),
+    ],
+    { me: ADA.actor },
+  );
+  // the classes are the point: the viewer's bubble and the answer keep every one they had
+  expect(
+    [...document.querySelectorAll("[role=log] [data-kind]")].map((row) => [
+      row.getAttribute("class"),
+      row.firstElementChild?.getAttribute("class"),
+    ]),
+  ).toEqual([
+    [
+      "group flex w-full flex-col gap-2 is-user ml-auto max-w-[95%] justify-end pb-2 pt-3.5",
+      "is-user:dark flex w-fit max-w-full min-w-0 flex-col gap-2 text-sm wrap-break-word group-[.is-user]:ml-auto group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground group-[.is-assistant]:text-foreground group-[.is-user]:rounded-2xl",
+    ],
+    [
+      "group flex w-full flex-col gap-2 is-assistant py-2",
+      "is-user:dark flex w-fit max-w-full min-w-0 flex-col gap-2 text-sm wrap-break-word group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground group-[.is-assistant]:text-foreground",
+    ],
+  ]);
+  expect(feedRows()).toEqual([
+    { kind: "user", from: null, shows: ["can you check the DNS"] },
+    { kind: "assistant", from: null, shows: ["The MX record"] },
+  ]);
+  expect(labels("[role=log] [data-slot=avatar]")).toEqual([]);
+});
+
+test("another person's message stands at the left under their face and short name, and no name is under any bubble", async () => {
+  using _chat = await mount(
+    [
+      { ...said(1, "can you check the DNS"), source: { principal: ADA } },
+      { ...said(2, "also the SPF record please"), source: { principal: BO } },
+    ],
+    { me: ADA.actor },
+  );
+  // a row's parts from top to bottom: the name comes before the bubble
+  expect(feedRows()).toEqual([
+    { kind: "user", from: null, shows: ["can you check the DNS"] },
+    { kind: "user", from: "other", shows: ["by bo", "also the SPF record please"] },
+  ]);
+  expect(labels("[role=log] [data-slot=avatar]")).toEqual([["B", "bo@example.com"]]);
+});
+
+test("a run of one person's messages has one face and one name; the mind's answer or another person starts a new run", async () => {
+  using _chat = await mount(
+    [
+      saidFor(1, "also the SPF record please", BO),
+      saidFor(2, "and DKIM", BO),
+      saidFor(3, "and DMARC", BO),
+      answer(4, "On it"),
+      saidFor(5, "thanks", BO),
+      saidFor(6, "me too", CY),
+      saidFor(7, "and the TTL", BO),
+    ],
+    { me: ADA.actor },
+  );
+  expect(feedRows()).toEqual([
+    { kind: "user", from: "other", shows: ["by bo", "also the SPF record please"] },
+    { kind: "user", from: "other", shows: ["and DKIM"] },
+    { kind: "user", from: "other", shows: ["and DMARC"] },
+    { kind: "assistant", from: null, shows: ["On it"] },
+    { kind: "user", from: "other", shows: ["by bo", "thanks"] },
+    { kind: "user", from: "other", shows: ["by cy", "me too"] },
+    { kind: "user", from: "other", shows: ["by bo", "and the TTL"] },
+  ]);
+});
+
+test("a guest, a person's script and another mind each stand at the left under a face, and a script starts its own run", async () => {
+  using _chat = await mount(
+    [
+      saidFor(1, "hi", GUEST),
+      { ...said(2, "from the script"), source: { onBehalfOf: { principal: BO, run: "r1" } } },
+      { ...said(3, "and from me"), source: { principal: BO } },
+      {
+        ...said(4, "hello from a mind"),
+        source: { signer: { principal: { actor: "garple.com", kind: "mind" } } },
+      },
+    ] as Row[],
+    { me: ADA.actor },
+  );
+  expect(feedRows()).toEqual([
+    { kind: "user", from: "other", shows: ["by Bob Proof (guest)", "hi"] },
+    { kind: "user", from: "other", shows: ["by bo (a script)", "from the script"] },
+    { kind: "user", from: "other", shows: ["by bo", "and from me"] },
+    { kind: "user", from: "other", shows: ["by garple.com", "hello from a mind"] },
+  ]);
+  expect(labels("[role=log] [data-slot=avatar]")).toEqual([
+    ["BP", "Bob Proof (guest)"],
+    ["B", "bo@example.com"],
+    ["B", "bo@example.com"],
+    ["GC", "garple.com"],
+  ]);
+});
+
+test.for([
+  { name: "by actor id", me: ADA.actor },
+  { name: "by address", me: "ADA@example.com" },
+])(
+  "the viewer's own message stays at the right with no face or name, known $name",
+  async ({ me }) => {
+    using _chat = await mount([{ ...said(1, "mine"), source: { principal: ADA } }], { me });
+    expect(feedRows()).toEqual([{ kind: "user", from: null, shows: ["mine"] }]);
+    expect(labels("[role=log] [data-slot=avatar]")).toEqual([]);
+  },
+);
+
+test("a page's own row under an item is the next element after the row, which keeps its kind", async () => {
+  using _chat = await mount(
+    [
+      { ...said(1, "mine"), source: { principal: ADA } },
+      { ...said(2, "theirs"), source: { principal: BO } },
+      answer(3, "On it"),
+    ],
+    { me: ADA.actor, itemFooter: (item) => <span data-footer={item.id} /> },
+  );
+  expect(
+    [...document.querySelectorAll("[data-footer]")].map((footer) => [
+      footer.getAttribute("data-footer"),
+      footer.previousElementSibling?.getAttribute("data-kind"),
+      footer.previousElementSibling?.getAttribute("data-from"),
+    ]),
+  ).toEqual([
+    ["user-1", "user", null],
+    ["user-2", "user", "other"],
+    ["assistant-3", "assistant", null],
+  ]);
+});
+
+// ── who is typing, at the end of the feed ──
+
+test("a person who types is their face with dots at the end of the feed, the line's words are for a screen reader, and both go when they stop", async () => {
+  using chat = await mount(
+    [status(1, BO, "bo-page", { typing: true })],
+    { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO)], subscription: "ada-page" },
+  );
+  expect(labels("[data-typing-in-stream] [data-slot=avatar]")).toEqual([["B", "bo@example.com"]]);
+  const words = () => chat.line()?.querySelector("[role=status]");
+  expect([words()?.textContent, words()?.getAttribute("class")]).toEqual([
+    "bo is typing…",
+    "sr-only",
+  ]);
+  await chat.append([status(2, BO, "bo-page")]);
+  expect(document.querySelector("[data-typing-in-stream]")?.outerHTML).toBeUndefined();
+  expect(words()?.textContent).toBe("");
+});
+
+test("the feed draws three typists and counts the rest", async () => {
+  const typists = ["bo", "cy", "di", "ed", "fy"].map((name) => ({
+    actor: `/members/${name}`,
+    email: `${name}@example.com`,
+  }));
+  using chat = await mount(
+    typists.map((principal, index) =>
+      status(index + 1, principal, `${principal.actor}-page`, { typing: true }),
+    ),
+    { me: ADA.actor, presence: true },
+    { pages: typists.map((principal) => page(`${principal.actor}-page`, principal)) },
+  );
+  expect([
+    labels("[data-typing-in-stream] [data-slot=avatar]").map(([, title]) => title),
+    labels("[data-typing-more]"),
+    chat.line()?.querySelector("[role=status]")?.textContent,
+  ]).toEqual([
+    ["bo@example.com", "cy@example.com", "di@example.com"],
+    [["+2", null]],
+    "5 people are typing…",
+  ]);
+});
+
 /** The source of the loop's copy of the message at offset 1, as iterate's loop appends it. */
 const relay = {
   processor: {
@@ -499,6 +683,20 @@ test('the live row says "interrupted by you" to who stopped the answer, when not
     expect.stringContaining("interrupted by you"),
   ]);
 });
+
+/** Each row of the feed: its kind, its side (`other`: another participant's), and its parts from
+ *  top to bottom: "by <name>" for the line with a name, else the part's words without the initials
+ *  of the face that stands beside a bubble. */
+const feedRows = () =>
+  [...document.querySelectorAll("[role=log] [data-kind]")].map((row) => ({
+    kind: row.getAttribute("data-kind"),
+    from: row.getAttribute("data-from"),
+    shows: [...row.children].map((part) => {
+      if (part.matches("[data-said-by]")) return `by ${part.textContent}`;
+      const initials = part.querySelector("[data-slot=avatar]")?.textContent || "";
+      return part.textContent.slice(initials.length);
+    }),
+  }));
 
 /** The text and the title of each element that `selector` finds in the page, in order. */
 const labels = (selector: string) =>
@@ -595,6 +793,16 @@ function saidFor(offset: number, content: string, principal: ShownPrincipal) {
   return { ...said(offset, content), source: { onBehalfOf: { principal } } } as unknown as Row;
 }
 
+/** The agent's answer, as its loop sends it to the web chat. */
+function answer(offset: number, message: string) {
+  return {
+    offset,
+    type: "events.iterate.com/agent/web-message-sent",
+    createdAt: AT,
+    payload: { message },
+  };
+}
+
 /** A request the agent is writing an answer to. */
 function running(offset: number, triggerOffset: number) {
   return {
@@ -650,7 +858,7 @@ async function mount(
     Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
   const appended: { type: string; ephemeral?: boolean; payload: Record<string, unknown> }[][] = [];
   const root = createRoot(document.body.appendChild(document.createElement("div")));
-  const context = {
+  let context = {
     events,
     caughtUp: true,
     presence: { actors: [], rpcStubs: pages.map((row) => `subscription:${row.name}`) },
@@ -699,6 +907,11 @@ async function mount(
     line,
     /** The Events tab, or the chat again. */
     show,
+    /** `rows` come into the log, and the chat is drawn again. */
+    append(rows: Row[]) {
+      context = { ...context, events: [...context.events, ...rows] };
+      return show();
+    },
     /** Attaches a file, as a paste does. */
     attach: (file: File) => paste("", [file]),
     /** Takes the attached file of that name out of the draft. */

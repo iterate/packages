@@ -143,6 +143,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/participant.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/presence-line.tsx",
           "type": "registry:component"
         },

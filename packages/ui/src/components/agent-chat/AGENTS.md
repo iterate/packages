@@ -27,15 +27,17 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   composer take words only: no `+`, so no files and no raw mode.
 - Several people can use one chat. Who sent a message is the platform's stamp on its event
   (`senderOf` in `stream-event.ts`, the rule of `iterate/agents`' `speakerOf`), never a name in a
-  payload. Another person's bubble has their face and short name under it, each waiting message
-  in the queue says whose it is, and an answer that was stopped says who stopped it. Anyone may
+  payload. The viewer's bubbles stand at the right. Another participant's (a person, a guest,
+  another mind) stand at the left, and the first of a run has their face and short name over it
+  (`participant.tsx`; the run is decided from the row before, in `agent-feed-list.tsx`). Each
+  waiting message in the queue says whose it is with the same face and name, and an answer that was stopped says who stopped it. Anyone may
   interrupt any answer. How a principal is shown, in words and as a face, is decided in one place,
   [`lib/principal-label.ts`](../../lib/principal-label.ts): an email, else the name a person who
   is no member gave (a guest's is marked " (guest)"), else the actor id. A name is the person's
   claim: text only, never a key, never compared with `me`.
-- `presence` shows, in a line over the composer, who else has the chat open now, who is typing,
-  and a button that says who can use the conversation ("Shared" when another principal is here or
-  wrote, else "Open to members"). [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
+- `presence` shows, in a line over the composer, who else has the chat open now and a button that says who can use the conversation ("Shared" when another principal is here or
+  wrote, else "Open to members"). Who is typing is their face with dots at the end of the feed (the
+  virtual log's tail); the line says it in words to a screen reader only. [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
   IS HERE is the platform's: each open chat reads the log through a row of the context's
   subscriptions table, a live callback that the context removes when the page's socket closes,
   and the platform stamps who holds it (`heldBy`). A row is a page while its stub is lent

@@ -2,8 +2,9 @@
 // now, the words "… is typing" while one of them writes, and a button that opens who can use this
 // conversation: "Shared" when another principal is here or wrote, else "Open to members". The
 // button is always there, because what it says is always true. One line of a fixed height beside
-// the agent's status, so the composer does not move when someone arrives, types or leaves. On a
-// narrow column the typing words are cut short; the faces and the button keep their width.
+// the agent's status, so the composer does not move when someone arrives, types or leaves. The
+// typing words are for a screen reader only: the eye sees who types at the end of the feed, as
+// their face with dots (participant.tsx `TypingInStream`), from the same principals.
 //
 // The faces come from `usePresence` (lib/presence.ts): the platform's rows of the pages open now and
 // who holds each, never a name a page wrote. A face is the principal's initials on their own
@@ -63,8 +64,9 @@ export function PresenceLine({
       data-slot="agent-presence"
       className="flex h-6 min-w-0 items-center justify-end gap-1.5 px-1 pb-1 text-xs text-muted-foreground"
     >
-      {/* always in the page, so a screen reader announces the words when they come */}
-      <span data-typing role="status" className="min-w-0 truncate">
+      {/* always in the page, so a screen reader announces the words when they come; out of sight,
+          because the feed draws the same fact */}
+      <span role="status" className="sr-only">
         {typing.length > 0 ? typingWords(typing) : null}
       </span>
       {others.length > 0 ? (
