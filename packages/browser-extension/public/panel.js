@@ -1,4 +1,4 @@
-import { issuerCandidatesOf } from "./address.js";
+import { mindIssuerOf } from "./address.js";
 const app = document.getElementById("app");
 const escape = (value) =>
   String(value ?? "")
@@ -76,12 +76,9 @@ function render(state) {
     document.getElementById("login").onclick = async () => {
       try {
         const mind = document.getElementById("mind").value;
-        const candidates = issuerCandidatesOf(mind);
+        const issuer = mindIssuerOf(mind);
         const granted = await chrome.permissions.request({
-          origins: candidates.flatMap((issuer) => [
-            `${issuer}/*`,
-            `${issuer.replace(/^https/, "wss")}/*`,
-          ]),
+          origins: [`${issuer}/*`, `${issuer.replace(/^https/, "wss")}/*`],
         });
         if (!granted) throw new Error("Allow access to the mind's host to sign in.");
         await request({ action: "login", mind });

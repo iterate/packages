@@ -45,12 +45,12 @@ itx> await installGithubSync(itx, await itx.repos.get("/repos/config").modules({
 
 ### Through iterate Cloud's GitHub App
 
-A mind whose stack names an iterate Cloud (`cloud: { origin }`) needs no App of its own. A
+A mind needs no App of its own: iterate Cloud, at `https://cloud.iterate.com`, has one. A
 member connects the Cloud's App once, and the Cloud mints the installation's token and delivers its
 pushes, signed by the Cloud's key:
 
 ```sh
-itx> (await itx.secrets.beginOAuth("/secrets/github", { client: { cloud: "github", accounts: ["acme"] } })).authorizationUrl
+itx> (await itx.secrets.beginOAuth("/secrets/github", { client: { cloud: "github", origin: "https://cloud.iterate.com", accounts: ["acme"] } })).authorizationUrl
 # open it and approve: the mind is connected to the App's installation on acme, the repository's
 # account, and to no other. Where the App is not installed there yet, pass `install: true` instead:
 # the member installs it on GitHub's page, and that installation is connected.

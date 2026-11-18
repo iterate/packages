@@ -1053,10 +1053,6 @@
         {
           "path": "src/lib/facet-view.ts",
           "type": "registry:lib"
-        },
-        {
-          "path": "src/lib/mind-site.ts",
-          "type": "registry:lib"
         }
       ]
     },

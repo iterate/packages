@@ -149,7 +149,7 @@ export async function exportMind(
           .filter(
             ([, entry]) => entry.claimed && entry.cloudflare && entry.requested?.verb !== "remove",
           )
-          .map(([hostname]) => ({ hostname, primary: hostname === state.primaryHostname }));
+          .map(([hostname]) => ({ hostname, primary: hostname === state.controlPlaneHostname }));
     }
     backup.records = records;
   }
@@ -262,7 +262,7 @@ const MindRecords = z.object({
         claimed: z.boolean(),
       }),
     ),
-    primaryHostname: z.string().nullable(),
+    controlPlaneHostname: z.string().nullable(),
   }),
 });
 

@@ -167,7 +167,7 @@ whole.
 ## The device's calls on the wire
 
 ```ts
-const { itx: root } = await connectMind({ address: "example.com" }); // iterate/node
+const { itx: root } = await connectMind({ address: "iterate.example.com" }); // iterate/node
 // when the device connects: provisioning, then one subscription for every call
 const { path } = await root.voice.ensureVoiceDevice({
   client: "home_assistant_voice_preview_edition",

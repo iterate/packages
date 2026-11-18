@@ -32,12 +32,12 @@ import { RestoreRefused, restoreMind } from "./restore.ts";
  *  hook. */
 const WORKER_UPDATED = "events.iterate.com/mind/worker-updated";
 
-/** A mind's backup page, as an integration its worker hosts. `slug` is the routing slug it
- *  answers on, `backup` by default: `backup--<mind>.<base>`, or `backup.<primary hostname>`. */
+/** A mind's backup page, as an integration its worker hosts. `slug` is the card's name and the
+ *  first label of the page's hostname, `backup` by default: the worker's `fetch` hands the
+ *  requests on `backup.<zone>` to this integration's `fetch`. */
 export function mindBackup(options: { slug?: string } = {}): Integration {
-  const routingSlug = options.slug || "backup";
+  const slug = options.slug || "backup";
   return {
-    routingSlug,
     async fetch(request, host) {
       const denied = host.auth.require(request);
       if (denied) return denied;
@@ -50,15 +50,18 @@ export function mindBackup(options: { slug?: string } = {}): Integration {
       try {
         await itx.cd(INTEGRATIONS_PATH).append({
           type: "events.iterate.com/integration/configured",
-          idempotencyKey: `${routingSlug}:registry:${event.path}@${event.offset}`,
+          idempotencyKey: `${slug}:registry:${event.path}@${event.offset}`,
           payload: {
-            integration: routingSlug,
+            integration: slug,
             card: {
               title: "Backup",
               description:
                 "One zip of the mind: kv, files, the config repo and the secrets catalog. Download it, keep one in the mind's files, or restore one.",
               status: { kind: "ok" },
-              actions: [{ label: "Open", routingSlug, path: "/" }],
+              // `itx.url()` is the apex of the mind's first zone
+              actions: [
+                { label: "Open", url: `https://${slug}.${new URL(await itx.url()).hostname}/` },
+              ],
             },
           },
         });

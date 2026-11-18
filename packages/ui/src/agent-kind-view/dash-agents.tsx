@@ -288,7 +288,7 @@ function NeedsYou({
         <NeedsYouRows
           integrations={integrations}
           approvals={waiting}
-          approvalsHref={`https://iterate.${mind}/secrets/approvals`}
+          approvalsHref={`https://${mind}/secrets/approvals`}
           integrationsHref={integrationsPage && pageHref(integrationsPage.id)}
         />
       </Suspense>

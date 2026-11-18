@@ -4,7 +4,7 @@ import { ChromePage } from "./page.js";
 import { locatorSource } from "./locator-source.js";
 import { oauthClient } from "./oauth.js";
 import { agentInstructions } from "./instructions.js";
-import { issuerCandidatesOf, issuerOf } from "./address.js";
+import { answeringIssuer, mindIssuerOf } from "./address.js";
 import { openOffscreenApi, disconnectOffscreen } from "./offscreen-client.js";
 
 // Root overload lasted about 12 minutes (measured 2026-11-16), so five retries are too short.
@@ -947,49 +947,12 @@ export function createLending(shareOnBrowserStart) {
   let bearerRuleWrites = Promise.resolve();
   const writeBearerRule = (write) => (bearerRuleWrites = bearerRuleWrites.then(write, write));
 
-  /** The API proxy, or null when a newer connect or a sign-out came first. */
-  async function openApiConnection({ issuer, token, current, signal, onFailure, onRefusal }) {
+  /** The API proxy, or null when a newer connect or a sign-out came first. The mind's API is a
+   *  WebSocket alone, and it checks the bearer inside the session: a bearer that it refuses fails
+   *  the first call on the proxy with the code UNAUTHENTICATED, which ends the lend for good
+   *  (`reconnectKind` retries no coded refusal). */
+  async function openApiConnection({ issuer, token, current, onFailure }) {
     const url = new URL("/api", issuer);
-    // An empty HTTP RPC batch checks the existing bearer boundary without invoking any method.
-    // Browser WebSocket errors alone would hide an HTTP authorization refusal.
-    const response = await fetch(url.href, {
-      method: "POST",
-      body: "",
-      headers: { authorization: `Bearer ${token}` },
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-      signal,
-    });
-    if (response.status === 401 || response.status === 403) {
-      const refusal = Object.assign(
-        new Error("The mind refused this browser's authorization. Sign in again."),
-        {
-          code: response.status === 401 ? "UNAUTHORIZED" : "FORBIDDEN",
-        },
-      );
-      // A late negative answer can end this attempt's retry wait, but cannot open a socket.
-      await onRefusal(refusal);
-      throw refusal;
-    }
-    if (!current()) return null;
-    if (response.status === 429 || response.status >= 500) {
-      const retryAfter = response.headers.get("retry-after");
-      const seconds = Number(retryAfter);
-      const retryAfterMs = Number.isFinite(seconds)
-        ? seconds * 1000
-        : Date.parse(retryAfter) - Date.now();
-      throw Object.assign(new Error("The mind's API is temporarily unavailable."), {
-        code: "UNAVAILABLE",
-        data: {
-          kind: [429, 503].includes(response.status) ? "overloaded" : "disconnected",
-          retryAfterMs,
-        },
-      });
-    }
-    if (!response.ok) throw new Error(`The API bearer check returned HTTP ${response.status}.`);
-    await response.text();
-    if (!current()) return null;
     url.protocol = "wss:";
     const addRules = [
       {
@@ -1020,20 +983,15 @@ export function createLending(shareOnBrowserStart) {
   // generation to this counter before touching the page or the socket.
   let generation = 0;
   let live = null;
-  let connectionAbort;
   let retryTimer;
   let beatTimer;
   let drawTimer;
   let retries = 0;
   let recoveryUntil = null;
-  let retryFrom = null;
   let cancelPending = () => {};
 
   function disconnect() {
     generation += 1;
-    retryFrom = null;
-    connectionAbort?.abort();
-    connectionAbort = null;
     void disconnectOffscreen().catch(console.error);
     clearTimeout(retryTimer);
     clearTimeout(beatTimer);
@@ -1101,8 +1059,9 @@ export function createLending(shareOnBrowserStart) {
     members: [],
   };
   let writes = Promise.resolve();
+  // A mind's issuer is the origin at its address, which may be any hostname (./address.js).
   const isMindSession = (value) =>
-    typeof value?.issuer === "string" && value.issuer.startsWith("https://iterate.");
+    typeof value?.issuer === "string" && value.issuer.startsWith("https://");
 
   function snapshot() {
     return {
@@ -1164,7 +1123,6 @@ export function createLending(shareOnBrowserStart) {
       Number.isFinite(suggested) && suggested > 0 ? suggested : 0,
     );
     if (state.sharing && kind && !expired) {
-      retryFrom = mine;
       const initial =
         kind === "overloaded" ? LENDING_TIMING.overloadedInitialMs : LENDING_TIMING.retryInitialMs;
       const backoff = Math.min(LENDING_TIMING.retryCapMs, initial * 2 ** retries);
@@ -1239,8 +1197,6 @@ export function createLending(shareOnBrowserStart) {
       recoveryUntil = null;
     }
     const mine = disconnect();
-    connectionAbort = new AbortController();
-    const setupSignal = connectionAbort.signal;
     const setupDeadline = Date.now() + LENDING_TIMING.setupDeadlineMs;
     const setupCurrent = () => mine === generation && Date.now() < setupDeadline;
     publish({ phase: "connecting", retryAt: null, error: "", members: [] });
@@ -1268,13 +1224,7 @@ export function createLending(shareOnBrowserStart) {
             issuer: currentSession.issuer,
             token,
             current: setupCurrent,
-            signal: setupSignal,
             onFailure: (error) => connectionFailed(currentSession, mine, error, true),
-            onRefusal: (error) => {
-              // Only the wait left by this exact attempt can accept its late refusal.
-              if (state.phase === "waiting" && retryFrom === mine)
-                return connectionFailed(currentSession, generation, error, false);
-            },
           });
           if (!itx) return null;
           live = itx;
@@ -1477,11 +1427,11 @@ export function createLending(shareOnBrowserStart) {
           throw new Error("Turn sharing off and wait for the current sign-in or token request.");
         const mine = generation;
         allowSessionWrites = true;
-        const candidates = issuerCandidatesOf(message.mind);
+        const issuer = mindIssuerOf(message.mind);
         signInRequest = (async () => {
           await chrome.storage.local.set({ mind: message.mind.trim() });
           if (mine !== generation) throw new Error("This sign-in ended.");
-          return oauth.signIn(await issuerOf(candidates));
+          return oauth.signIn(await answeringIssuer(issuer));
         })();
         try {
           const signedIn = await signInRequest;

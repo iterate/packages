@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthenticatedApp } from "iterate/app";
+import { mindMcpUrlOf } from "iterate/mind-api";
 import type { Principal } from "iterate/principal";
 import { useContextStub } from "iterate/react";
 import { servesOf } from "./serves.ts";
@@ -76,7 +77,8 @@ export type DashLinks = { title: string; rows: DashLink[] };
 /** What the Dash's shell hands every page it draws. */
 export type DashPageProps = {
   itx: Itx;
-  /** the mind's address: `example.com` */
+  /** the mind's address, which is its control-plane hostname: `iterate.example.com`. Its sign-in, its
+   *  keys and its approvals pages are there. */
   mind: string;
   /** who is signed in, as the session says; undefined while the Dash does not know yet (it
    *  draws before the mind has answered), which is not the same as nobody: a page that writes
@@ -356,7 +358,7 @@ function Secrets({
 }
 
 /** What the mind's packages registered, live from one subscription. */
-export function DashIntegrations({ itx, mind }: DashPageProps) {
+export function DashIntegrations({ itx }: DashPageProps) {
   // asked while the page's part loads
   void servesOf(itx, "integrations");
   const { IntegrationsPage } = use(integrationsPart());
@@ -372,7 +374,7 @@ export function DashIntegrations({ itx, mind }: DashPageProps) {
         off={<DashPartIsOff title="Integrations">This mind has no integrations yet.</DashPartIsOff>}
       >
         <DashScroll>
-          <IntegrationsPage openRegistry={openRegistry} deps={[itx, epoch]} mind={mind} />
+          <IntegrationsPage openRegistry={openRegistry} deps={[itx, epoch]} />
         </DashScroll>
       </IfServed>
     </Suspense>
@@ -414,7 +416,7 @@ export function DashMcp({ mind }: DashPageProps) {
   const { McpConnect } = use(mcpPart());
   return (
     <DashScroll>
-      <McpConnect server={`https://iterate.${mind}/mcp`} />
+      <McpConnect server={mindMcpUrlOf(mind)} />
     </DashScroll>
   );
 }

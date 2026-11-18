@@ -12,12 +12,12 @@ test("each command names the server by the mind, with no dot: two minds are two 
   expect([...host.querySelectorAll("code")].map((code) => code.textContent)).toEqual(
     expect.arrayContaining([
       "https://iterate.example.com/mcp",
-      "claude mcp add --transport http example-com https://iterate.example.com/mcp",
-      "codex mcp add example-com --url https://iterate.example.com/mcp",
-      "codex mcp login example-com",
+      "claude mcp add --transport http iterate-example-com https://iterate.example.com/mcp",
+      "codex mcp add iterate-example-com --url https://iterate.example.com/mcp",
+      "codex mcp login iterate-example-com",
     ]),
   );
   // what Claude Code's /mcp lists is that name too
-  expect(host.textContent).toContain("pick example-com, Authenticate.");
+  expect(host.textContent).toContain("pick iterate-example-com, Authenticate.");
   await act(() => root.unmount());
 });

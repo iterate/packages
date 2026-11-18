@@ -365,9 +365,3 @@ export function mayReload(storage: Pick<Storage, "getItem" | "setItem">, now: nu
   }
   return reloads.length < 3;
 }
-
-/** The mind of a host of it: the mind is its domain, and each app's host is one label under it
- *  (`dash.example.com` is of `example.com`). */
-export function mindOfHost(hostname = location.hostname) {
-  return hostname.split(".").slice(1).join(".") || hostname;
-}

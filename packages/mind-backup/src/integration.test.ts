@@ -29,11 +29,6 @@ test.for([
   expect(response).toMatchObject({ status });
 });
 
-test("the integration answers the backup routing slug, or the one it is given", () => {
-  expect(mindBackup()).toMatchObject({ routingSlug: "backup" });
-  expect(mindBackup({ slug: "safe" })).toMatchObject({ routingSlug: "safe" });
-});
-
 test("the page names the mind and lets its scripts reach only its own origin, and its script is one that a browser reads", async () => {
   const response = await fetchPage(fakeMind(), request("/"));
   const page = await response.text();
@@ -205,7 +200,7 @@ test("the install hook registers the card on /integrations, keyed by the publica
               title: "Backup",
               description: expect.stringContaining("One zip of the mind"),
               status: { kind: "ok" },
-              actions: [{ label: "Open", routingSlug: "backup", path: "/" }],
+              actions: [{ label: "Open", url: "https://backup.example.com/" }],
             },
           },
         },
@@ -226,12 +221,12 @@ function request(
     key?: string;
   } = {},
 ) {
-  const headers = new Headers({ "x-iterate-routing-slug": "backup" });
+  const headers = new Headers();
   if (input.member !== false) headers.set("x-itx-principal", '{"actor":"user_test"}');
   if (input.key) headers.set("x-secrets-key", input.key);
   // the length an upload arrives with at the edge, which a Request built here does not carry
   if (input.body) headers.set("content-length", input.length || String(input.body.length));
-  return new Request(`https://backup--source.iterate.app${path}`, {
+  return new Request(`https://backup.example.com${path}`, {
     method: input.method || "GET",
     headers,
     body: input.body || undefined,

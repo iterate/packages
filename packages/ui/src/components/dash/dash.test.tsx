@@ -14,7 +14,7 @@ import { go, usePageParam } from "#/lib/page-url.ts";
 test("one list makes the sidebar; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
   await using dash = await draw("/", []);
   const { host } = dash;
-  expect(host.querySelector("h1")?.textContent).toBe("example.com");
+  expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
   // the sidebar's row leads to ?page=analytics, and says Off
   expect(linksNamed(host, "Analytics").map((link) => link.getAttribute("href"))).toEqual([
     "?page=analytics",
@@ -49,7 +49,7 @@ test("a page that did not load says so on its own page alone, with the way to lo
   // the sidebar stays, and another page draws as before
   await act(() => linksNamed(host, "Home")[0]!.click());
   expect(host.querySelector('[role="alert"]')).toBeNull();
-  expect(host.querySelector("h1")?.textContent).toBe("example.com");
+  expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
 });
 
 test("a page that threw is handed to the page's error capture, once, when the page has one", async () => {
@@ -263,7 +263,7 @@ test("while a page's part loads, its place holds quiet shapes and no words", asy
 
 test("a page the URL does not name is the first page", async () => {
   await using dash = await draw("/?page=nothing-here", []);
-  expect(dash.host.querySelector("h1")?.textContent).toBe("example.com");
+  expect(dash.host.querySelector("h1")?.textContent).toBe("iterate.example.com");
 });
 
 test("the sidebar's agents: one row per agent and the agents below its path, newest first, six at most", async () => {
@@ -519,7 +519,7 @@ test("with paths, each page and each agent has a path of its own: a deep link, a
     // the first page is the root
     await act(() => linksNamed(host, "Home")[0]!.click());
     expect(location).toMatchObject({ pathname: "/", search: "" });
-    expect(host.querySelector("h1")?.textContent).toBe("example.com");
+    expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
   } finally {
     delete document.documentElement.dataset.addresses;
     history.replaceState(null, "", "/");
@@ -707,7 +707,10 @@ async function draw(
     removeEventListener() {},
   }));
   vi.stubGlobal("fetch", async () =>
-    Response.json({ minds: [{ address: "example.com", lastUsedAt: 0 }], lastUsed: "example.com" }),
+    Response.json({
+      minds: [{ address: "iterate.example.com", lastUsedAt: 0 }],
+      lastUsed: "iterate.example.com",
+    }),
   );
   // jsdom lays nothing out: cmdk asks for both
   vi.stubGlobal(
@@ -755,7 +758,7 @@ async function draw(
       <Dash
         app="Dash"
         itx={itx}
-        mind="example.com"
+        mind="iterate.example.com"
         principal={principal === "ask" ? undefined : principal}
         pages={drawn}
         links={links}

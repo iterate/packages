@@ -52,7 +52,13 @@ test("every part is read through the mind's root; a secret whose cell the platfo
   expect(backup).toEqual(
     expect.objectContaining({
       records: {
-        routes: [{ fetchRouteName: "blog", requestMatcher: { routingSlug: "blog" }, priority: 0 }],
+        routes: [
+          {
+            fetchRouteName: "blog",
+            requestMatcher: { url: { hostname: "blog.example.com" } },
+            priority: 0,
+          },
+        ],
         schedules: [{ key: "heartbeat", when: { everyMs: 300000 } }],
         integrations: [
           { provider: "github", connection: "acme", account: "acme", client: "iterate" },
@@ -230,7 +236,7 @@ function mind() {
     routes: [
       {
         fetchRouteName: "blog",
-        requestMatcher: { routingSlug: "blog" },
+        requestMatcher: { url: { hostname: "blog.example.com" } },
         priority: 0,
         configuredOffset: 12,
       },
@@ -252,6 +258,6 @@ function mind() {
         claimed: false,
       },
     },
-    primaryHostname: "example.com",
+    controlPlaneHostname: "example.com",
   });
 }

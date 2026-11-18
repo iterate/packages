@@ -82,7 +82,7 @@ export const Route = createFileRoute("/minds/$mind")({
   ssr: false,
   // the mind's sign-in: a browser with none leaves to sign in, or to the connect page
   beforeLoad: ({ params, location }) => clientFor(params.mind).authenticate(location.href),
-  // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- the second read needs the first, and a first load's read is one batch that takes no calls after an await (iterate/app `read`)
+  // react-doctor-disable-next-line react-doctor/tanstack-start-loader-parallel-fetch -- the second read needs the first: `itx.agents` is called only once its rule is known to be there
   loader: async ({ context }) => {
     // a read each: `itx.agents` is called only once the rule that adds it is known to be there.
     // The first also asks who is signed in, for the account menu.

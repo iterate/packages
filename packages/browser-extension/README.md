@@ -26,7 +26,8 @@ sharing on. Chrome restart or extension reload leaves sharing off.
   API and hosts `public/socket-worker.js`, which owns the socket and external capnweb session.
   `public/rpc-transport.js` carries capnweb strings across the port; it does not queue browser actions
   for recovery. The `WORKERS` offscreen reason matches the dedicated worker it creates.
-- `public/address.js` — shared mind address discovery.
+- `public/address.js` — the mind's address from what a person typed, by the rule of
+  `iterate/mind-api`, applied once; and its issuer.
 - `public/instructions.js` — agent instructions prepared by the worker; the panel copies the text.
 - `public/icon-{16,32,48,128}.png` — the iterate logo, as
   PNGs (Chrome takes no SVG icons). Flat in `public/`: the SPA's zip packs only top-level files.
@@ -122,13 +123,12 @@ A service-worker WebSocket bypasses DNR in Chromium 155. The dedicated worker ho
 [offscreen document](https://developer.chrome.com/docs/extensions/reference/api/offscreen) uses
 that existing header path. No core authentication route or stack change is needed.
 
-Before each socket attempt, send an authenticated empty HTTP RPC batch to the same `/api`. It
-contains no API operations and returns 200 after bearer validation. 401/403 ends recovery before
-an opaque browser WebSocket error could hide the refusal. 429/503 and other 5xx responses enter
-bounded recovery and retain Retry-After. This adds one request per setup, with no periodic HTTP
-probe. The check is inside the 20-second setup bound and is aborted when the connection ends.
-An explicit WebSocket policy refusal (1008) also ends recovery. The API's known normal token-expiry
-reason instead starts bounded renewal with a fresh token; a refused refresh or bearer still stops it.
+The API has no other transport than the socket, and checks the bearer inside the session: the
+socket's worker calls `authenticate()` with no token, which reads the bearer of the upgrade, and
+takes the session's `mind`. A bearer that the mind refuses fails the first call with the code
+`UNAUTHENTICATED`, which ends recovery and waits for the person. The socket closes with 1008 and
+the reason "the sign-in for this session ended: authenticate again" at the token's end, which
+renews the token, and with 1012 when the mind behind the session restarted, which reconnects.
 
 The worker creates the offscreen document when it connects. Closing the panel does not touch it.
 Document loss ends that transport; the worker's bounded recovery creates a fresh document. Losing

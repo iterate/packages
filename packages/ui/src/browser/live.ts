@@ -13,7 +13,7 @@
 // subscribe to its log with `connectEventLog`.
 // packages/ui/examples/README.md "Signing in" says which.
 export { newWebSocketRpcSession } from "capnweb";
-export { memberItx, mindOfHost } from "./member-itx.ts";
+export { memberItx } from "./member-itx.ts";
 export { itxSessionOf } from "#/lib/itx-session.ts";
 export { savedLogTails, wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
 export { useSavedContext } from "#/lib/saved-context.ts";

@@ -125,7 +125,13 @@ test("a repo links to its GitHub repository through iterate Cloud's App: the ins
         ],
       });
     },
-    secrets: { set },
+    secrets: {
+      set,
+      // the catalog says which Cloud the connection was made through
+      list: async () => [
+        { path: "/secrets/github", cloud: "github", cloudOrigin: "https://cloud.example.com" },
+      ],
+    },
     repos: { get: () => ({ setOrigin }) },
   } as unknown as Parameters<typeof linkThroughCloud>[0];
   expect(await linkThroughCloud(itx, { repository: "acme/config" })).toEqual({
@@ -139,7 +145,8 @@ test("a repo links to its GitHub repository through iterate Cloud's App: the ins
   expect(asked[0]!.headers.get("authorization")).toBe(
     'Bearer getSecret("/secrets/github", { field: "accessToken" })',
   );
-  // the installation's token is the Cloud's to mint: the secret holds no key
+  // the installation's token is the Cloud's to mint, at the Cloud of the connection: the secret
+  // holds no key
   expect(set).toHaveBeenCalledWith(
     "/secrets/github-installation-42",
     {},
@@ -149,7 +156,7 @@ test("a repo links to its GitHub repository through iterate Cloud's App: the ins
         kind: "github-app-installation",
         apiOrigin: "https://api.github.com",
         installationId: "42",
-        client: { cloud: "github" },
+        client: { cloud: "github", origin: "https://cloud.example.com" },
       },
     },
   );
@@ -159,6 +166,9 @@ test("a repo links to its GitHub repository through iterate Cloud's App: the ins
   await expect(linkThroughCloud(itx, { repository: "nobody/config" })).rejects.toThrow(
     /the App is not installed on nobody/,
   );
+  await expect(
+    linkThroughCloud(itx, { repository: "acme/config", connection: "/secrets/a-plain-key" }),
+  ).rejects.toThrow(/is no account connected through iterate Cloud/);
 });
 
 /** A mind root as installing calls it: its repo's origin, its GitHub connections (to `acme` by

@@ -90,7 +90,7 @@ const Records = z.object({
   integrations: z
     .array(z.looseObject({ provider: z.string(), connection: z.string(), account: z.string() }))
     .optional(),
-  /** Each custom hostname the mind served, and whether it was the primary one. */
+  /** Each custom hostname the mind served, and whether it was the control-plane hostname. */
   hostnames: z.array(z.object({ hostname: z.string(), primary: z.boolean() })).optional(),
 });
 

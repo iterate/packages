@@ -4,9 +4,9 @@
 // section stand under its heading (a mark, a title, a few sentences), the sections first. It reads ONE thing: the `integration` facet's live state on `/integrations`, through
 // one subscription. It asks nothing on a timer and nothing of the vault.
 //
-// It knows no router. The page opens the registry's context and names the mind:
+// It knows no router. The page opens the registry's context:
 //
-//   <IntegrationsPage openRegistry={() => itx.cd("/integrations")} deps={[itx]} mind="example.com" />
+//   <IntegrationsPage openRegistry={() => itx.cd("/integrations")} deps={[itx]} />
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { useSyncExternalStore, type DependencyList } from "react";
 import { z } from "zod";
@@ -16,10 +16,8 @@ import {
   IntegrationConnection,
   type IntegrationIcon,
   type IntegrationStatus,
-  type IntegrationTarget,
 } from "iterate/integrations";
 import { useFacetView } from "../lib/facet-view.ts";
-import { integrationTargetHrefOf } from "../lib/mind-site.ts";
 import { buttonVariants } from "#/components/ui/button.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 
@@ -34,7 +32,6 @@ export function IntegrationsPage({
   openRegistry,
   deps,
   seed,
-  mind,
 }: {
   /** Opens the registry's context (`itx.cd("/integrations")`), held while `deps` stand and then
    *  released. Null while it cannot be named yet. */
@@ -43,8 +40,6 @@ export function IntegrationsPage({
   /** The facet's snapshot, when the page read one before it drew: shown until the subscription
    *  answers. */
   seed?: Parameters<typeof useFacetView>[3];
-  /** The mind's address: a button that names a place of the mind leads to that host. */
-  mind: string;
 }) {
   const registryView = useFacetView(openRegistry, deps, "integration", seed, RegistryLive);
   return (
@@ -72,12 +67,7 @@ export function IntegrationsPage({
       )}
       {/* nothing is said about the registry until it has answered: a page with no `seed` would
           say "Nothing is connected" beside "Loading…" */}
-      {registryView.state ? (
-        <IntegrationsGrid
-          registry={registryView.state}
-          hrefOf={(target) => integrationTargetHrefOf(mind, target)}
-        />
-      ) : null}
+      {registryView.state ? <IntegrationsGrid registry={registryView.state} /> : null}
     </div>
   );
 }
@@ -86,14 +76,7 @@ export function IntegrationsPage({
  *  registered beneath it. A package appends the null that takes a card or a row away; the Dash
  *  shows what stands. Each card and row is parsed on its own, so one this page cannot read (a newer
  *  contract's) leaves out only itself. */
-function IntegrationsGrid({
-  registry,
-  hrefOf,
-}: {
-  registry: z.infer<typeof RegistryLive>;
-  /** Where a target leads (`integrationTargetHrefOf`). */
-  hrefOf: (target: IntegrationTarget) => string | null;
-}) {
+function IntegrationsGrid({ registry }: { registry: z.infer<typeof RegistryLive> }) {
   const cards = Object.entries(registry.integrations).flatMap(([integration, value]) => {
     const card = IntegrationCard.safeParse(value).data;
     return card ? [{ integration, card }] : [];
@@ -128,7 +111,6 @@ function IntegrationsGrid({
         integration={integration}
         card={card}
         rows={rows.filter((entry) => entry.integration === integration)}
-        hrefOf={hrefOf}
       />
     ));
   // one bordered list per section, its cards as rows split by hairlines: little chrome, one edge
@@ -148,7 +130,7 @@ function IntegrationsGrid({
               {/* a heading's mark is its icon alone: a letter in a box beside a heading reads as
                   a placeholder */}
               {heading.icon ? (
-                <IntegrationMark title={heading.title} icon={heading.icon} hrefOf={hrefOf} small />
+                <IntegrationMark title={heading.title} icon={heading.icon} small />
               ) : null}
               {/* one step above a card's title, so a section reads as the level above its cards */}
               <h2
@@ -189,12 +171,10 @@ function IntegrationCardView({
   integration,
   card,
   rows,
-  hrefOf,
 }: {
   integration: string;
   card: IntegrationCard;
   rows: { connection: string; row: IntegrationConnection }[];
-  hrefOf: (target: IntegrationTarget) => string | null;
 }) {
   const heading = `integration-${integration}-heading`;
   // The header says the worst of the card and its connections: a card that says "Connected"
@@ -208,7 +188,7 @@ function IntegrationCardView({
     <section aria-labelledby={heading} className="flex min-w-0 flex-col">
       <div className="flex min-w-0 flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 gap-3">
-          <IntegrationMark title={card.title} icon={card.icon} hrefOf={hrefOf} />
+          <IntegrationMark title={card.title} icon={card.icon} />
           {/* a title alone stands level with its mark, and the header is no taller than the mark */}
           <div
             className={cn(
@@ -231,7 +211,7 @@ function IntegrationCardView({
         </div>
         <TargetLinks
           actions={card.actions}
-          hrefOf={hrefOf}
+
           // A card with no status and no connection is not set up yet: its first button is the
           // one thing to do. A package that is in use says so with a status.
           first={rows.length === 0 && !card.status ? "default" : "secondary"}
@@ -246,7 +226,7 @@ function IntegrationCardView({
           aria-label={`${card.title} connections`}
         >
           {rows.map(({ connection, row }) => (
-            <RegistryRow key={connection} row={row} hrefOf={hrefOf} />
+            <RegistryRow key={connection} row={row} />
           ))}
         </ul>
       )}
@@ -260,17 +240,14 @@ function IntegrationCardView({
 function IntegrationMark({
   title,
   icon,
-  hrefOf,
   small,
 }: {
   title: string;
   icon: IntegrationIcon | undefined;
-  hrefOf: (target: IntegrationTarget) => string | null;
   small?: boolean;
 }) {
-  const src = typeof icon === "string" ? icon : icon && hrefOf(icon);
   const size = small ? "size-5 rounded" : "size-8 rounded-md";
-  if (src) return <img src={src} alt="" className={cn("shrink-0 object-contain", size)} />;
+  if (icon) return <img src={icon} alt="" className={cn("shrink-0 object-contain", size)} />;
   return (
     <span
       aria-hidden="true"
@@ -287,13 +264,7 @@ function IntegrationMark({
 /** One connection a package registered. What is said and what can be pressed look different: a
  *  dot in the status's colour before the account, the status's words and the facts as plain text
  *  under it, and the buttons, which look like buttons, at the row's end. */
-function RegistryRow({
-  row,
-  hrefOf,
-}: {
-  row: IntegrationConnection;
-  hrefOf: (target: IntegrationTarget) => string | null;
-}) {
+function RegistryRow({ row }: { row: IntegrationConnection }) {
   return (
     <li className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-start sm:gap-3">
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
@@ -322,7 +293,7 @@ function RegistryRow({
           )}
         </div>
       </div>
-      <TargetLinks actions={row.actions} hrefOf={hrefOf} className="shrink-0 pl-4.5 sm:pl-0" />
+      <TargetLinks actions={row.actions} className="shrink-0 pl-4.5 sm:pl-0" />
     </li>
   );
 }
@@ -378,19 +349,16 @@ function StatusText({ status }: { status: IntegrationStatus }) {
 /** A page's origin never changes: the store that reads it has nothing to tell. */
 const subscribeToNothing = () => () => {};
 
-/** A card's or a row's buttons, each a link to where its target leads (`integrationTargetHrefOf`):
- *  a URL on another origin than the page's opens beside it, a page of the mind's in its place,
- *  and a target that leads nowhere is no link. Each is filled, with an arrow that says which of
+/** A card's or a row's buttons, each a link to its URL:
+ *  a URL on another origin than the page's opens beside it, one of this origin in its place. Each is filled, with an arrow that says which of
  *  the two it does: the only filled things on a card are the things to press. Two buttons alike — the same label to the same place
  *  — are one. */
 function TargetLinks({
   actions,
-  hrefOf,
   first = "secondary",
   className,
 }: {
   actions: IntegrationCard["actions"];
-  hrefOf: (target: IntegrationTarget) => string | null;
   /** How the first button is filled: dark when it is the one thing to do. */
   first?: "default" | "secondary";
   className?: string;
@@ -404,13 +372,11 @@ function TargetLinks({
   );
   const links = new Map<string, { label: string; href: string; beside: boolean }>();
   for (const action of actions) {
-    const href = hrefOf(action);
-    if (href)
-      links.set(`${action.label}\n${href}`, {
-        label: action.label,
-        href,
-        beside: "url" in action && new URL(href).origin !== origin,
-      });
+    links.set(`${action.label}\n${action.url}`, {
+      label: action.label,
+      href: action.url,
+      beside: new URL(action.url).origin !== origin,
+    });
   }
   if (links.size === 0) return null;
   return (

@@ -10,7 +10,7 @@ import { newWebSocketRpcSession, RpcTarget } from "capnweb";
 import { IDBFactory } from "fake-indexeddb";
 import { BotIcon } from "lucide-react";
 import { useContextStub, useIterateContext } from "iterate/react";
-import { connectMemberItx, mayReload, mindOfHost } from "./member-itx.ts";
+import { connectMemberItx, mayReload } from "./member-itx.ts";
 import { DashAgents } from "#/agent-kind-view/dash-agents.tsx";
 import { DashContexts } from "#/components/dash/dash.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
@@ -570,11 +570,6 @@ test("storage that cannot be read or holds something else is no reload yet", () 
   const odd = storage();
   odd.setItem("itx-reloads", '{"not":"a list"}');
   expect(mayReload(odd, 0)).toBe(true);
-});
-
-test("an app's host is one label under its mind", () => {
-  expect(mindOfHost("dash.example.com")).toBe("example.com");
-  expect(mindOfHost("localhost")).toBe("localhost");
 });
 
 /** The test's own clock, and a tab with no reloads behind it; disposing gives the real clock

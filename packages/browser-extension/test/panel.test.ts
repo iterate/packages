@@ -143,10 +143,16 @@ void test("a displaced lend stops until the person chooses Lend again", async ()
   assert.equal(p.controller.snapshot().phase, "displaced");
 });
 
-void test("permanent authentication errors wait for the person", async () => {
+// The mind's API checks the bearer inside the session: a refused one fails the first call.
+void test("a bearer that the mind refuses at authenticate waits for the person", async () => {
   const p = await panel();
   p.plans.push({
-    whoami: () => Promise.reject(Object.assign(new Error("Grant ended"), { code: "UNAUTHORIZED" })),
+    whoami: () =>
+      Promise.reject(
+        Object.assign(new Error("no live credential of this mind: sign in again"), {
+          code: "UNAUTHENTICATED",
+        }),
+      ),
   });
   await p.signedIn();
   await p.tick(600_000);
@@ -523,7 +529,6 @@ async function panel(
   let signing = () => Promise.resolve(session);
   let random = 0.5;
   let signOuts = 0;
-  let authCheck = async () => ({ status: 200, ok: true, text: async () => "" });
   const rules = [];
   const groups = [{ id: 4, windowId: 1, title: "iterate.com" }];
   const tabs = [{ id: 7, groupId: 4, windowId: 1 }];
@@ -603,8 +608,7 @@ async function panel(
   };
   const context = vm.createContext({
     chrome,
-    fetch: async (url, options) => {
-      if (options?.method === "POST" && options.body === "") return authCheck(options.signal);
+    fetch: async (url) => {
       if (url.endsWith("/.well-known/oauth-authorization-server")) return { ok: true };
       throw new Error("Unexpected fixture fetch");
     },
@@ -725,9 +729,6 @@ async function panel(
   await controller.ready;
   return {
     controller,
-    authorization: (check) => {
-      authCheck = check;
-    },
     sharedSession,
     attachForTest: async () => {
       await sockets.at(-1).browser.cdp(7, "Runtime.evaluate", { expression: "0" });
@@ -1423,57 +1424,6 @@ for (const failure of ["overloaded", "disconnected"])
       assert.equal(q.sockets.length, 1);
     });
 
-for (const status of [401, 403])
-  void test(`an HTTP ${status} bearer refusal never opens a socket or retries after restart`, async () => {
-    const p = await panel();
-    p.authorization(async () => ({ status }));
-    await p.signedIn();
-    assert.equal(p.controller.snapshot().phase, "failed");
-    assert.equal(p.sockets.length, 0);
-    const q = await panel(structuredClone(p.sharedSession), p.storage, false, p.now());
-    await q.tick(31 * 60_000);
-    await q.controller.wake();
-    assert.equal(q.sockets.length, 0);
-    assert.equal(q.controller.snapshot().phase, "failed");
-  });
-void test("an unanswered bearer check is aborted by the whole setup deadline", async () => {
-  const p = await panel();
-  let signal;
-  const answer = deferred();
-  p.authorization((value) => {
-    signal = value;
-    return answer.promise;
-  });
-  const pending = p.signedIn();
-  await flush();
-  await p.tick(20_000);
-  await pending;
-  assert.equal(signal.aborted, true);
-  assert.equal(p.sockets.length, 0);
-  assert.equal(p.controller.snapshot().phase, "waiting");
-  answer.resolve({ status: 400 });
-  await flush();
-  assert.equal(p.sockets.length, 0);
-});
-
-void test("a bearer-check overload keeps its longer Retry-After and sends no backoff heartbeat", async () => {
-  const p = await panel();
-  let checks = 0;
-  p.authorization(async () => {
-    checks += 1;
-    return { status: 503, headers: new Headers({ "Retry-After": "90" }) };
-  });
-  await p.signedIn();
-  assert.equal(p.nextWait(), 90_000);
-  await p.tick(89_999);
-  await p.controller.wake();
-  assert.equal(checks, 1);
-  assert.equal(p.sockets.length, 0);
-  await p.tick(1);
-  assert.equal(checks, 2);
-  assert.equal(p.sockets.length, 0);
-});
-
 for (const name of ["prototype", "constructor"])
   void test(`reserved principal ${name} uses a valid lend segment and cannot be chosen as browser name`, async () => {
     const p = await panel();
@@ -1505,67 +1455,4 @@ void test("normal token expiry obtains a fresh token without replay or a platfor
     0,
   );
   assert.equal(p.commands.filter(([, method]) => method === "Input.insertText").length, 1);
-});
-
-for (const status of [401, 403]) {
-  void test(`a late HTTP ${status} after sleep stays terminal before the overdue timeout callback`, async () => {
-    const p = await panel();
-    const answer = deferred();
-    p.authorization(() => answer.promise);
-    const pending = p.signedIn();
-    await flush();
-    p.jump(20_001);
-    answer.resolve({ status });
-    await pending;
-    await p.tick(0);
-    assert.equal(p.controller.snapshot().phase, "failed");
-    assert.equal(p.sockets.length, 0);
-  });
-  void test(`a late HTTP ${status} ends only the retry wait from that failed attempt`, async () => {
-    const p = await panel();
-    const answer = deferred();
-    p.authorization(() => answer.promise);
-    const pending = p.signedIn();
-    await p.tick(20_000);
-    await pending;
-    assert.equal(p.controller.snapshot().phase, "waiting");
-    answer.resolve({ status });
-    await flush();
-    assert.equal(p.controller.snapshot().phase, "failed");
-    assert.equal(p.sockets.length, 0);
-    const q = await panel(structuredClone(p.sharedSession), p.storage, false, p.now());
-    await q.tick(31 * 60_000);
-    await q.controller.wake();
-    assert.equal(q.controller.snapshot().phase, "failed");
-    assert.equal(q.sockets.length, 0);
-  });
-}
-void test("an old refusal cannot overwrite a newer explicit successful share", async () => {
-  const p = await panel();
-  const answer = deferred();
-  p.authorization(() => answer.promise);
-  const pending = p.signedIn();
-  await p.tick(20_000);
-  await pending;
-  p.authorization(async () => ({ status: 200, ok: true, text: async () => "" }));
-  await p.signedIn();
-  assert.equal(p.controller.snapshot().phase, "connected");
-  answer.resolve({ status: 401 });
-  await flush();
-  assert.equal(p.controller.snapshot().phase, "connected");
-  assert.equal(p.sockets.length, 1);
-});
-void test("a late refusal cannot overwrite explicit sharing OFF", async () => {
-  const p = await panel();
-  const answer = deferred();
-  p.authorization(() => answer.promise);
-  const pending = p.signedIn();
-  await p.tick(20_000);
-  await pending;
-  await p.controller.command({ action: "stop" });
-  answer.resolve({ status: 403 });
-  await flush();
-  assert.equal(p.controller.snapshot().phase, "off");
-  assert.equal(p.controller.snapshot().sharing, false);
-  assert.equal(p.sockets.length, 0);
 });

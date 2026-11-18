@@ -75,10 +75,11 @@ export async function installGithubSync(
 /** LINK `repo` TO A GITHUB REPOSITORY THROUGH ITERATE CLOUD'S APP (internal-packages/cloud-clients): the
  *  App is iterate's and its key stays at the Cloud, which mints the installation's token for a
  *  mind that connected the installation. `connection` is the secret a member connected with
- *  `itx.secrets.beginOAuth(path, { client: { cloud: client, accounts: [<the repository's owner>] } })`
+ *  `itx.secrets.beginOAuth(path, { client: { cloud: client, origin: <the Cloud's origin>, accounts: [<the repository's owner>] } })`
  *  (or with `install: true`, where the App is not installed there yet), by default
  *  `/secrets/<client>`. This finds the App's installation on the repository's owner, makes that
- *  installation's token a secret of its own, and sets the repo's origin to use it. The Cloud
+ *  installation's token a secret of its own, at the Cloud that the connection was made through
+ *  (the catalog says its origin), and sets the repo's origin to use it. The Cloud
  *  delivers the installation's pushes on the `log` this answers: pass it to `installGithubSync`.
  *  `api` and `host` are GitHub's, unless a test says otherwise. */
 export async function linkThroughCloud(
@@ -104,6 +105,14 @@ export async function linkThroughCloud(
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository))
     throw new Error(`repository is owner/name, got ${JSON.stringify(repository)}`);
   const owner = repository.split("/")[0]!.toLowerCase();
+  // the Cloud whose App the member connected: the installation's token is that Cloud's to mint
+  const cloudOrigin = (await itx.secrets.list()).find(
+    (secret) => secret.path === connection,
+  )?.cloudOrigin;
+  if (!cloudOrigin)
+    throw new Error(
+      `${connection} is no account connected through iterate Cloud: connect it first`,
+    );
   // the installations the person who connected administers, asked of GitHub with their token
   const answer = await itx.fetch(
     new Request(`${api}/user/installations?per_page=100`, {
@@ -133,7 +142,7 @@ export async function linkThroughCloud(
         kind: "github-app-installation",
         apiOrigin: api,
         installationId,
-        client: { cloud: client },
+        client: { cloud: client, origin: cloudOrigin },
       },
     },
   );

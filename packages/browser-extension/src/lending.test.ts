@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer as createTlsServer } from "node:https";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
@@ -64,19 +64,15 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
       key: readFileSync(join(directory, "key.pem")),
       cert: readFileSync(join(directory, "cert.pem")),
     },
-    (request, response) => {
-      const valid = request.headers.authorization === authorization;
-      if (request.method === "POST" && valid) authorizedChecks += 1;
-      if (request.method === "POST" && !valid) refusedChecks += 1;
-      response.writeHead(valid ? 200 : 401);
+    // the mind's API is a WebSocket alone
+    (_request, response) => {
+      response.writeHead(426);
       response.end();
     },
   );
-  const webSockets = new WebSocketServer({
-    server: tls,
-    verifyClient: ({ req }: { req: IncomingMessage }) =>
-      req.headers.authorization === authorization,
-  });
+  // Every socket opens: the bearer on its request is checked inside the session, at
+  // `authenticate()`, as the mind's API checks it.
+  const webSockets = new WebSocketServer({ server: tls });
   await new Promise<void>((resolve) => tls.listen(0, "127.0.0.1", resolve));
   const tlsAddress = tls.address();
   if (!tlsAddress || typeof tlsAddress === "string") throw new Error("TLS fixture has no port");
@@ -99,7 +95,7 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
   let refusedProvides = 0;
   try {
     webSockets.on("connection", (socket, request) => {
-      expect(request.headers.authorization === authorization).toBe(true);
+      const valid = request.headers.authorization === authorization;
       const host = new URL(`https://${request.headers.host}`).hostname;
       sockets.push(socket);
       const queue: string[] = [];
@@ -119,6 +115,38 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
       });
       let providedBrowser: RpcStub<LentChrome> | undefined;
       let ready = false;
+      // The `mind` of the session that the root of a mind's /api answers to `authenticate()`
+      // (iterate/api `ControlPlaneApi`), as far as the extension calls it.
+      class FixtureMind extends RpcTarget {
+        async whoami() {
+          return { mindSlug: host, principal: { email: "fixture@example.test" } };
+        }
+        async provide(_name: string, browser: RpcStub<LentChrome>) {
+          if (failNextProvide) {
+            failNextProvide = false;
+            refusedProvides += 1;
+            throw new Error("Durable Object is overloaded. Requests queued for too long.");
+          }
+          providedBrowser = browser.dup();
+          return new FixtureLend();
+        }
+        async append() {
+          return {};
+        }
+        async invoke(steps: unknown[]) {
+          const terminal = steps.at(-1);
+          if (!providedBrowser || !Array.isArray(terminal) || terminal[0] !== "tabs")
+            throw new Error("Unexpected fixture probe");
+          const tabs = await providedBrowser.tabs();
+          // The setup probe runs after the controller assigns this lend's group title.
+          if (!ready) {
+            ready = true;
+            lends.push({ host, browser: providedBrowser });
+          }
+          return tabs;
+        }
+      }
+      const mind = new FixtureMind();
       const session = new RpcSession(
         {
           send: (message: string) => socket.send(message),
@@ -133,28 +161,15 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
           abort: () => socket.close(),
         },
         {
-          whoami: async () => ({ mindSlug: host, principal: { email: "fixture@example.test" } }),
-          provide: async (_name: string, browser: RpcStub<LentChrome>) => {
-            if (failNextProvide) {
-              failNextProvide = false;
-              refusedProvides += 1;
-              throw new Error("Durable Object is overloaded. Requests queued for too long.");
+          authenticate: () => {
+            if (!valid) {
+              refusedChecks += 1;
+              throw Object.assign(new Error("no live credential of this mind: sign in again"), {
+                code: "UNAUTHENTICATED",
+              });
             }
-            providedBrowser = browser.dup();
-            return new FixtureLend();
-          },
-          append: async () => ({}),
-          invoke: async (steps: unknown[]) => {
-            const terminal = steps.at(-1);
-            if (!providedBrowser || !Array.isArray(terminal) || terminal[0] !== "tabs")
-              throw new Error("Unexpected fixture probe");
-            const tabs = await providedBrowser.tabs();
-            // The setup probe runs after the controller assigns this lend's group title.
-            if (!ready) {
-              ready = true;
-              lends.push({ host, browser: providedBrowser });
-            }
-            return tabs;
+            authorizedChecks += 1;
+            return { mind };
           },
         },
       );
@@ -409,7 +424,7 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
       .at(-1)!
       .browser.openPage({ url: `http://127.0.0.1:${address.port}/token-renewal` });
     const beforeTokenExpiry = lends.length;
-    sockets.at(-1)!.close(1008, "the sign-in for this session ended: sign in again");
+    sockets.at(-1)!.close(1008, "the sign-in for this session ended: authenticate again");
     await expect.poll(() => lends.length, { timeout: 5_000 }).toBe(beforeTokenExpiry + 1);
     await expect.poll(() => controller.locator("#copy").count()).toBe(1);
     expect(await lends.at(-1)!.browser.tabs()).toEqual(

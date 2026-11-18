@@ -484,7 +484,7 @@ function DashNav({
           <SidebarGroupContent>
             <ApprovalsAlert
               waiting={waiting}
-              render={<RowLink href={`https://iterate.${mind}/secrets/approvals`} />}
+              render={<RowLink href={`https://${mind}/secrets/approvals`} />}
             />
           </SidebarGroupContent>
         </SidebarGroup>

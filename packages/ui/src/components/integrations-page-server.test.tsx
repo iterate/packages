@@ -10,7 +10,6 @@ test("a card with a link draws in a server render, where the page has no origin 
     <IntegrationsPage
       openRegistry={() => new Promise<never>(() => {})}
       deps={[]}
-      mind="example.com"
       seed={{
         rev: 1,
         state: {

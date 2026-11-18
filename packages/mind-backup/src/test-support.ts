@@ -32,7 +32,7 @@ export function fakeMind(
     schedules?: unknown[];
     integrations?: Record<string, unknown>;
     hostnames?: Record<string, unknown>;
-    primaryHostname?: string | null;
+    controlPlaneHostname?: string | null;
   } = {},
 ) {
   const kv = new Map(Object.entries(input.kv || {}));
@@ -81,6 +81,7 @@ export function fakeMind(
   };
   const root = {
     whoami: async () => ({ mindId: "mind_source", path: "/", mindSlug: "source" }),
+    url: async () => "https://example.com/",
     cd: (path: string) => ({
       append: async (event: unknown) => {
         calls.appends.push({ path, event });
@@ -165,7 +166,7 @@ export function fakeMind(
           state: {
             integrations: input.integrations || {},
             hostnames: input.hostnames || {},
-            primaryHostname: input.primaryHostname || null,
+            controlPlaneHostname: input.controlPlaneHostname || null,
           },
         }),
       }),

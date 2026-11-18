@@ -78,7 +78,8 @@ value. The key is the deployment's: type it only into a page whose code you trus
    does not name `packages/mind-backup`.
 
 2. In `worker.ts`, the import, one element of the `integrations` array (iterate/sdk
-   `Integration`: the worker hands it the requests on its routing slug and every event), and a
+   `Integration`: the worker hands it every event, and the requests on its hostname in a case of
+   `fetch`: `case "backup": return backup.fetch(request, this)`), and a
    `backup()` method for `itx.config.backup()`:
 
    ```ts
@@ -92,13 +93,13 @@ value. The key is the deployment's: type it only into a page whose code you trus
        using itx = this.getItx();
        return await backupToFiles(itx);
      }
-     // … processEvent and fetch as core/configs/default has them: they dispatch to `integrations`
+     // … processEvent as core/configs/default has it, and in `fetch` the case that hands
+     // `backup.<zone>` to the integration
    }
    ```
 
-3. Commit. The page is at the mind's `backup` routing slug, for members only:
-   `await itx.url({ routingSlug: "backup" })` (`backup--<mind>.<base>`, or
-   `backup.<primary hostname>`); `mindBackup({ slug })` takes another slug. The install hook lists
+3. Commit. The page is at `backup.<zone>`, for members only; `mindBackup({ slug })` takes
+   another first label. The install hook lists
    it on the Dash's Integrations page, with an Open button.
 
 ## Use

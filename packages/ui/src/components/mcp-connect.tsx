@@ -4,9 +4,9 @@
 //
 //   <McpConnect server="https://iterate.example.com/mcp" />
 //
-// Both tools keep the server under the mind's own name (`mindMcpNameOf`: example-com), so a person
-// with two minds has two servers.
-import { mindMcpNameOf, PLATFORM_HOSTNAME_LABEL } from "iterate/mind-api";
+// Both tools keep the server under the mind's own name (`mindMcpNameOf`: iterate-example-com), so
+// a person with two minds has two servers.
+import { mindMcpNameOf } from "iterate/mind-api";
 import { CopyText } from "#/components/copy-text.tsx";
 import {
   Card,
@@ -19,13 +19,10 @@ import {
 export function McpConnect({
   server,
 }: {
-  /** The mind's MCP server (`mindMcpUrlOf(address)`, or `https://iterate.<domain>/mcp`). */
+  /** The mind's MCP server (`mindMcpUrlOf(address)`). */
   server: string;
 }) {
-  // the mind's address is the server's host without the platform's own label
-  const { host } = new URL(server);
-  const platform = `${PLATFORM_HOSTNAME_LABEL}.`;
-  const name = mindMcpNameOf(host.startsWith(platform) ? host.slice(platform.length) : host);
+  const name = mindMcpNameOf(new URL(server).hostname);
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <div className="flex flex-col gap-1">

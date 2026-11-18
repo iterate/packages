@@ -1,4 +1,4 @@
-import { connectMind } from "iterate/node";
+import { addressOf, connectMind } from "iterate/node";
 
 /** One connection to the mind named by MIND, its address (`example.com`), signed in as the
  *  CLI signs in (`iterate login <address>`, or ITERATE_MIND_TOKEN). Dispose it to close its
@@ -6,5 +6,6 @@ import { connectMind } from "iterate/node";
 export async function connect() {
   const address = process.env.MIND;
   if (!address) throw new Error("MIND is required: the mind's address, like example.com");
-  return await connectMind({ address });
+  // MIND is what a person typed: its shorthand is read here, once
+  return await connectMind({ address: addressOf(address) });
 }

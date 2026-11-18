@@ -761,7 +761,7 @@ function mind({
 }
 
 /** The member every page signs in as, unless a test says another. */
-const member = { mind: "example.com", actor: "/members/a" };
+const member = { mind: "iterate.example.com", actor: "/members/a" };
 
 /** The catalog with one Claude agent at `path`. */
 function claudeRows(path: string) {
@@ -886,7 +886,7 @@ async function draw(
       root.render(
         <AppShell
           app="Dash"
-          mind="example.com"
+          mind="iterate.example.com"
           mindHref={() => "./"}
           account={null}
           locationKey="/"
@@ -894,7 +894,7 @@ async function draw(
           <Suspense fallback="Loading the page…">
             <Page
               itx={itx}
-              mind="example.com"
+              mind="iterate.example.com"
               principal={account ? { actor, email: "jo@example.com" } : undefined}
               page={pages[1]!}
               pages={pages}
