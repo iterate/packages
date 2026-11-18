@@ -80,7 +80,7 @@ function propsOf(
     onAppend: async (events) => await host.append(events),
     signedUrl: async (path) => await host.fileUrl(path),
     me: held.me,
-    presence: held.seat,
+    presence: held.presenceOn,
   };
 }
 

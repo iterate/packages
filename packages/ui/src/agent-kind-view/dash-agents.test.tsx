@@ -133,26 +133,46 @@ test("the agent view takes any path, has no button to its raw view, and says the
   expect(appended).toHaveLength(1);
 });
 
-test("an agent page is a seat in its conversation only where the mind's config turned presence on: then it says that it is here on that agent's context alone, and nothing durable", async () => {
+test("an agent page shows who else is here only where the mind's config turned presence on: from the agent's rows, and nothing durable", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/?agent=/agents/onboarding");
   {
-    // the default: no seat, nothing sent
+    // the default: no line, nothing sent
     const { itx, sent, appended } = mind({});
-    await using _page = await draw(DashAgents, itx, { waiting: 0 });
+    await using page = await draw(DashAgents, itx, { waiting: 0 });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
+    expect(page.host.querySelector("[data-slot=agent-presence]")?.outerHTML).toBeUndefined();
   }
-  const { itx, sent, appended } = mind({});
+  {
+    // alone: the line stands over the composer, and the member sees who may use it
+    const { itx, sent, appended } = mind({});
+    await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+    expect({ sent, appended }).toEqual({ sent: [], appended: [] });
+    expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe(
+      "Open to members",
+    );
+  }
+  // another member's page open on this agent's context: a face. The SDK does not say this page's
+  // own row yet, so the page says no status of its own.
+  const { itx, sent, appended } = mind({
+    pages: {
+      "/agents/onboarding": [
+        { name: "b-page", principal: { actor: "/members/b", email: "b@example.com" } },
+      ],
+    },
+  });
   await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
-  expect(sent).toEqual([{ path: "/agents/onboarding", type: "presence/here" }]);
-  expect(appended).toEqual([]);
-  // the line for the others stands over the composer; alone, the member sees who may use it
-  expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe(
-    "Open to members",
+  await vi.waitFor(() =>
+    expect(
+      page.host
+        .querySelector("[data-slot=agent-presence] [data-slot=avatar]")
+        ?.getAttribute("aria-label"),
+    ).toBe("b@example.com is here"),
   );
+  expect({ sent, appended }).toEqual({ sent: [], appended: [] });
 });
 
-test("the header's count of held events leaves out a seat's presence events", async () => {
+test("the header's count of held events leaves out a page's presence status", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/?agent=/agents/onboarding");
   const { itx } = mind({
@@ -165,8 +185,8 @@ test("the header's count of held events leaves out a seat's presence events", as
         },
         {
           offset: 2,
-          type: "presence/here",
-          payload: { seat: "s", tab: "t", state: "active", typing: false },
+          type: "presence/status",
+          payload: { subscription: "b-page", away: false, typing: false },
           source: { origin: "/", principal: { actor: "/members/b", email: "b@example.com" } },
         },
       ],
@@ -579,7 +599,8 @@ test("the opener is not appended from a remembered view over a saved copy, only 
 });
 
 /** A mind whose logs are empty but for `logs`: what the page appends to a log is kept in
- *  `appended`, and the ephemeral events it sends (its seat's `presence/…`) in `sent`.
+ *  `appended`, and the ephemeral events it sends (its `presence/status`) in `sent`. `pages`: the
+ *  pages other members hold open on a context, by path, as its subscription rows and lent stubs.
  *  `hold()` keeps every read of a log unanswered until `release()`, and `holdKinds()` the read of
  *  the kinds until `releaseKinds()`. `kinds`: each kind's file in the config repo, by kind, each
  *  with `source`. Its root has `files`, and a context has none: only an iterate agent's context
@@ -591,6 +612,7 @@ function mind({
   unreadable = false,
   source = "export default {};",
   logs = {},
+  pages = {},
 }: {
   serves?: string[];
   integrations?: object;
@@ -600,6 +622,7 @@ function mind({
   /** the source of every kind's file */
   source?: string;
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
+  pages?: Record<string, { name: string; principal: { actor: string; email: string } }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
   const sent: { path: string; type: string }[] = [];
@@ -622,8 +645,17 @@ function mind({
       };
     },
     subscribe: async () => ({ [Symbol.dispose]() {} }),
-    subscriptions: { list: async () => [] },
-    rpcStubs: { list: async () => [] },
+    subscriptions: {
+      list: async () =>
+        (pages[path] || []).map(({ name, principal }) => ({
+          name,
+          target: `itx.builtins.rpcStubs.get('subscription:${name}')`,
+          consumes: ["*", "presence/status"],
+          configuredAtOffset: 1,
+          heldBy: { principal, via: { appPage: "dash" } },
+        })),
+    },
+    rpcStubs: { list: async () => (pages[path] || []).map(({ name }) => `subscription:${name}`) },
     invoke: async () => ({ rev: 1, state: path === "/integrations" ? integrations : {} }),
     append: async (...events: { type: string; ephemeral?: boolean }[]) => {
       // an ephemeral event is never in a log
@@ -763,7 +795,7 @@ async function draw(
     /** the member signed in */
     actor?: string;
     openers?: Record<string, string>;
-    /** The Agents page's `presence`: a member's open agent page is a seat in its conversation. */
+    /** The Agents page's `presence`: a member's open agent page shows who else is here. */
     presence?: boolean;
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";

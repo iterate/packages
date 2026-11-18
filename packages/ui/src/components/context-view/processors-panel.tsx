@@ -28,6 +28,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { lentStubKey } from "#/lib/presence.ts";
 
 export function ProcessorsPanel({
   open,
@@ -507,11 +508,6 @@ const kindRank = (kind: Kind) => ["processor", "call", "callback"].indexOf(kind)
 function kindOf(row: ContextViewProcessor): Kind {
   if (row.hostedFacet) return "processor";
   return lentStubKey(row) === undefined ? "call" : "callback";
-}
-
-/** The key of the rpc stub a row delivers to (`itx.builtins.rpcStubs.get('<key>')…`), if it does. */
-function lentStubKey(row: ContextViewProcessor): string | undefined {
-  return /rpcStubs\.get\((["'])(.+?)\1\)/.exec(row.target)?.[2];
 }
 
 function statusOf(row: ContextViewProcessor, kind: Kind): { label: string; tone: string } {

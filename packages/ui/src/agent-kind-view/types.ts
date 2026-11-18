@@ -73,9 +73,9 @@ export type AgentKindViewProps = {
   /** The viewer's actor id or address, when the page knows it: `AgentChat` draws no sender line
    *  under their own messages. */
   me?: string;
-  /** `true`: the page is a seat in the conversation, and `AgentChat` shows who else is here and
-   *  who is typing. A kind's view that wants it also names `PRESENCE_EVENT_TYPES` (the kit's
-   *  `lib/presence`) in its `ephemeralEvents`, or it hears nobody. */
+  /** `true`: `AgentChat` shows who else is here and who is typing. A kind's view that wants it
+   *  also names `PRESENCE_EVENT_TYPES` (the kit's `lib/presence`) in its `ephemeralEvents`: the
+   *  host's row of the log is then a page, and the view hears the others' status. */
   presence?: boolean;
 };
 

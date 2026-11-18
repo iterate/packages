@@ -30,15 +30,23 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   payload. Another person's bubble has their face and short name under it, each waiting message
   in the queue says whose it is, and an answer that was stopped says who stopped it. Anyone may
   interrupt any answer.
-- `presence` makes the page a seat in the conversation ([`lib/presence.ts`](../../lib/presence.ts)).
-  It then sends ephemeral `presence/here` and `presence/gone` events through `onAppend`, and a
-  line over the composer shows who else has the chat open now, who is typing, and a button that
-  says who can use the conversation ("Shared" when another principal is here or wrote, else "Open
-  to members"). Presence events are no row: the Events tab and its count leave them out
-  (`isPresenceEvent`). Pass it only on a page of a signed-in principal whose
-  session may append to the context, with their actor id as `me`. `AgentChat.contextOptions`
-  names the two event types. A face is initials on the principal's own colour (`Face`); no
-  picture is looked up.
+- `presence` shows, in a line over the composer, who else has the chat open now, who is typing,
+  and a button that says who can use the conversation ("Shared" when another principal is here or
+  wrote, else "Open to members"). [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
+  IS HERE is the platform's: each open chat reads the log through a row of the context's
+  subscriptions table, a live callback that the context removes when the page's socket closes,
+  and the platform stamps who holds it (`heldBy`). A row is a page while its stub is lent
+  (`context.presence.rpcStubs`), a principal holds it through an app's page (`via`), and it
+  names the status type in `consumes`. WHAT ONLY A PAGE KNOWS is its status: hidden or not,
+  typing or not, and `marks`. The page says it in one ephemeral `presence/status` that names its
+  own row (`context.subscription`), when it changes and when another principal's page appears.
+  A status counts only when the platform's stamp on it is the principal who holds that row, and
+  it goes with the row. A page with no `context.subscription` says nothing and still shows who is
+  here. A context whose rows carry no `heldBy` (a platform that does not stamp them yet) shows
+  nobody. Status events are no row: the Events tab and its count leave them out
+  (`isPresenceEvent`). Pass `presence` only on a page of a signed-in principal whose session may
+  append to the context, with their actor id as `me`. `AgentChat.contextOptions` names the status
+  type. A face is initials on the principal's own colour (`Face`); no picture is looked up.
 - `onMessage` gets a `key` for each message. Hand it on as `message(input, { key })`: a send that
   is tried again after a lost answer then lands once.
 - A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`

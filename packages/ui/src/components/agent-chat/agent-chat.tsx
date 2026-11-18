@@ -14,9 +14,9 @@
 // `state` (agent-chat-search.ts) and come back as an `onStateChange` patch, so a chat is a link.
 // Only the activity rows opened in place stay local.
 // SEVERAL PEOPLE IN ONE CHAT. Every member's words name their sender (the platform's stamp), in the
-// feed and in the queue, and anyone may interrupt any answer. With `presence`, the page is also a
-// seat in the conversation (lib/presence.ts): a line over the composer shows who else has it open
-// now and who is typing, and "Shared" says what sharing it means. Each message goes out with a
+// feed and in the queue, and anyone may interrupt any answer. With `presence` (lib/presence.ts), a
+// line over the composer shows who else has it open now (the platform's rows of their pages) and
+// who is typing (each page's own status), and "Shared" says what sharing it means. Each message goes out with a
 // key, so a send that is tried again lands once.
 // THE HOST holds the agent's context and calls the SDK. `context` is what
 // `useIterateContext(stub, AgentChat.contextOptions)` returns, and each thing the chat does to the
@@ -212,10 +212,11 @@ export function AgentChat({
   /** The viewer's address or actor id: their own messages have no line under them that says who
    *  sent them. Absent: every person's message has one. */
   me?: string;
-  /** `true`: this page is a seat in the conversation. It says that it is here and when its
-   *  person types, as ephemeral events through `onAppend` (the platform stamps who), and it shows
-   *  who else is here. For a page of a signed-in principal whose session appends to the context:
-   *  `me` is then their actor id. A page whose reader may not append here leaves it off. */
+  /** `true`: the page shows who else has the conversation open, from the context's subscription
+   *  rows and lent stubs, and says whether it is hidden and when its person types, as an
+   *  ephemeral status through `onAppend` that names its own row (`context.subscription`; none: it
+   *  says nothing). For a page of a signed-in principal whose session appends to the context: `me`
+   *  is then their actor id. A page whose reader may not append here leaves it off. */
   presence?: boolean;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
@@ -234,9 +235,17 @@ export function AgentChat({
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
   const status = chatStatus(turn, feed.state);
-  const seat = usePresence({ enabled: presence, events: fold.events, send: onAppend, me });
+  const here = usePresence({
+    enabled: presence,
+    rows: context.processors.rows,
+    rpcStubs: context.presence.rpcStubs,
+    events: fold.events,
+    send: onAppend,
+    me,
+    subscription: context.subscription,
+  });
   const wrote = useMemo(() => othersWhoWrote(feed.items, me), [feed.items, me]);
-  // a seat's presence events are no row of the log: the Events tab and its count leave them out
+  // a page's status events are no row of the log: the Events tab and its count leave them out
   const logContext = useMemo(
     () =>
       context.events.some(isPresenceEvent)
@@ -292,8 +301,8 @@ export function AgentChat({
           onMessage={onMessage}
           onAppend={onAppend}
           attach={attach}
-          presenceLine={presence ? <PresenceLine present={seat.present} wrote={wrote} /> : null}
-          onTyping={presence ? seat.typing : undefined}
+          presenceLine={presence ? <PresenceLine present={here.present} wrote={wrote} /> : null}
+          onTyping={presence ? here.typing : undefined}
         />
       </AgentChoiceProvider>
     </AgentShell>
@@ -302,7 +311,8 @@ export function AgentChat({
 
 /** What a host passes `useIterateContext` for a chat. `consumes`: every durable event (the Events
  *  tab is the whole log) and, named, since a wildcard never matches an ephemeral, the streamed chunk
- *  windows the feed folds into the answer being written. The hook reads the newest page, and older
+ *  windows the feed folds into the answer being written, and the pages' presence status (which
+ *  also makes the log's row a page for `lib/presence`). The hook reads the newest page, and older
  *  pages as the reader scrolls up: the fold needs nothing older than the turns it shows
  *  (agent-ui-reducer.ts). */
 AgentChat.contextOptions = {

@@ -2,6 +2,7 @@
 // envelope is a superset), the inspector bodies an app plugs in per event type, and the rows the
 // panels show. Pure types: this directory renders data the SDK's hooks (`iterate/react`) hand it.
 import type { ReactNode } from "react";
+import type { PresenceRow } from "#/lib/presence.ts";
 
 export type ContextViewEvent = {
   offset: number;
@@ -73,6 +74,10 @@ export type ContextViewProcessor = {
   cursor?: { confirmedOffset: number; attempt: number; nextAttemptAtMs?: number };
   /** Delivery gave up after its retries. */
   halted?: { afterOffset: number; attempts: number; error?: string };
+  /** A live callback's row: who holds it, by the platform's stamp on the event that made it, and
+   *  the app page it was opened through (none: a script's or a CLI's). Absent on any other row, and
+   *  on every row of a platform that does not say it yet. */
+  heldBy?: PresenceRow["heldBy"];
 };
 
 /** Who acted on the context, newest first, from the log's stamps. */

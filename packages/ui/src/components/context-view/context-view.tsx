@@ -375,6 +375,9 @@ export type ContextViewSource = {
   /** The subscriptions table (`itx.subscriptions.list()`): a row hosting a facet is a processor. */
   processors: { rows: readonly ContextViewProcessor[]; error?: string };
   presence: { actors: readonly ContextViewPresence[]; rpcStubs: readonly string[] };
+  /** The name of this page's own row in the subscriptions table: the subscription that reads the
+   *  log. Absent until the SDK's hook says it. */
+  subscription?: string;
   /** Each live state by name — `core`, and every hosted facet's — for the processors panel. */
   liveState: Record<string, LiveStateView>;
 };

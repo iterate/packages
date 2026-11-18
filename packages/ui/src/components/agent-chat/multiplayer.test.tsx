@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// SEVERAL PEOPLE IN ONE CHAT: who else is here and who is typing (a seat's ephemeral events, by the
-// platform's stamp), what "Shared" says, whose each waiting message is, that anyone may interrupt
+// SEVERAL PEOPLE IN ONE CHAT: who else is here (the platform's rows of their pages) and who is
+// typing (each page's ephemeral status, by the platform's stamp), what "Shared" says, whose each waiting message is, that anyone may interrupt
 // and the feed says who did, and that a message keeps its key while it is tried again.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
@@ -34,44 +34,49 @@ const ADA = { actor: "/members/ada", email: "ada@example.com" };
 const BO = { actor: "/members/bo", email: "bo@example.com" };
 const CY = { actor: "/members/cy", email: "cy@example.com" };
 
-test("a page that is a seat says so with no name in what it sends, and shows who else is here and who is typing: the others by the platform's stamp, never the viewer, never a name from a payload", async () => {
+test("a chat shows who else has it open and who is typing: the rows' holders and their own status, never the viewer, never a name from a payload", async () => {
   using chat = await mount(
     [
-      here(1, ADA, "ada-page"),
-      here(2, BO, "bo-page", { typing: true }),
-      here(3, CY, "cy-phone", { state: "away" }),
-      here(4, CY, "cy-laptop", { state: "away" }),
-      // a seat event that names Bo in its payload, sent by nobody the platform names
-      { ...here(5, BO, "forged"), source: { origin: "/" } },
+      status(1, BO, "bo-page", { typing: true }),
+      status(2, CY, "cy-phone", { away: true }),
+      status(3, CY, "cy-laptop", { away: true }),
+      // a status that names Ada's page, sent by nobody the platform names
+      { ...status(4, BO, "ada-page", { typing: true }), source: { origin: "/" } },
     ],
     { me: ADA.actor, presence: true },
+    {
+      pages: [
+        page("ada-page", ADA),
+        page("bo-page", BO),
+        page("cy-phone", CY),
+        page("cy-laptop", CY),
+      ],
+      subscription: "ada-page",
+    },
   );
   expect(chat.faces()).toEqual([
     "bo@example.com is here",
     "cy@example.com is here, in another tab or app, 2 pages",
   ]);
   expect(chat.line()?.querySelector("[data-typing]")?.textContent).toBe("bo is typing…");
-  // the seat's own first event: ephemeral, and nothing in it says who
-  expect(chat.sent()).toMatchObject([
-    {
-      type: "presence/here",
-      ephemeral: true,
-      payload: { state: "active", typing: false, hello: true },
-    },
-  ]);
-  expect(chat.sent().map((event) => Object.keys(event.payload).toSorted())).toEqual([
-    ["hello", "seat", "state", "tab", "typing"],
-  ]);
+  // the others are new to this page: it says its own status once, and nothing in it says who
+  await vi.waitFor(() =>
+    expect(chat.sent()).toEqual([
+      {
+        type: "presence/status",
+        ephemeral: true,
+        payload: { subscription: "ada-page", away: false, typing: false },
+      },
+    ]),
+  );
 });
 
 test("a person who writes in the box is typing for the others, and no longer once the words are sent", async () => {
-  using chat = await mount([], { me: ADA.actor, presence: true });
+  using chat = await mount([], { me: ADA.actor, presence: true }, { subscription: "ada-page" });
   await chat.write("Book the table");
-  await vi.waitFor(() =>
-    expect(chat.sent().map((event) => event.payload.typing)).toEqual([false, true]),
-  );
-  await chat.send(() => chat.sent().length === 3);
-  expect(chat.sent().map((event) => event.payload.typing)).toEqual([false, true, false]);
+  await vi.waitFor(() => expect(chat.sent().map((event) => event.payload.typing)).toEqual([true]));
+  await chat.send(() => chat.sent().length === 2);
+  expect(chat.sent().map((event) => event.payload.typing)).toEqual([true, false]);
 });
 
 test("the loop's copy of a message takes the message's sender only with the message's own words: other words under another person's message are nobody's", () => {
@@ -176,8 +181,15 @@ test("the newest interrupt says who stopped the answer: one that code sent names
   expect(summaryOf(state, items)).toMatch(/2 requests · interrupted$/);
 });
 
-test("a page that is no seat sends nothing and shows no line: presence is the host's to turn on", async () => {
-  using chat = await mount([here(1, BO, "bo-page")], { me: ADA.actor });
+test("with presence off a page sends nothing and shows no line: presence is the host's to turn on", async () => {
+  using chat = await mount(
+    [status(1, BO, "bo-page", { typing: true })],
+    { me: ADA.actor },
+    { pages: [page("bo-page", BO)], subscription: "ada-page" },
+  );
+  await chat.write("Book the table");
+  // outlasts the 400 ms in which a page answers another's arrival
+  await act(() => new Promise((done) => setTimeout(done, 450)));
   expect(chat.line()?.outerHTML).toBeUndefined();
   expect(chat.sent()).toEqual([]);
 });
@@ -197,9 +209,9 @@ test("the button says who can use the conversation, who is here now and who else
     [
       { ...said(1, "mine"), source: { principal: ADA } },
       { ...said(2, "an earlier word"), source: { principal: CY } },
-      here(3, BO, "bo-page"),
     ],
     { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO)] },
   );
   const button = chat.line()?.querySelector("button");
   expect(button?.textContent).toBe("Shared");
@@ -221,25 +233,27 @@ test("the button says who can use the conversation, who is here now and who else
   );
 });
 
-test("a seat's presence events are no row: the Events tab neither counts nor shows them, and the line still hears them", async () => {
+test("a page's status events are no row: the Events tab neither counts nor shows them, and the line still hears them", async () => {
   using chat = await mount(
-    [{ ...said(1, "hello"), source: { principal: ADA } }, here(2, BO, "bo-page")],
+    [{ ...said(1, "hello"), source: { principal: ADA } }, status(2, BO, "bo-page", { away: true })],
     { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO)] },
   );
-  expect(chat.faces()).toEqual(["bo@example.com is here"]);
+  expect(chat.faces()).toEqual(["bo@example.com is here, in another tab or app"]);
   const tab = [...document.querySelectorAll("[role=tab]")].find((element) =>
     element.textContent?.startsWith("Events"),
   );
   expect(tab?.textContent).toBe("Events1");
   await chat.show("events");
   expect(document.body.textContent).toContain("context-added");
-  expect(document.body.textContent).not.toContain("presence/here");
+  expect(document.body.textContent).not.toContain("presence/status");
 });
 
 test("a face beside a written name is hidden from a screen reader; a face in the line says who in words", async () => {
   using chat = await mount(
-    [{ ...said(1, "hello"), source: { principal: BO } }, here(2, BO, "bo-page")],
+    [{ ...said(1, "hello"), source: { principal: BO } }],
     { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO)] },
   );
   expect(
     [...document.querySelectorAll("[data-slot=avatar]")].map((face) => [
@@ -508,27 +522,43 @@ function running(offset: number, triggerOffset: number) {
   };
 }
 
-/** A seat's `presence/here` as the platform commits it: ephemeral, stamped with whose session
+/** A page's `presence/status` as the platform commits it: ephemeral, stamped with whose session
  *  appended it. The cast: the context's event type does not name `ephemeral`. */
-function here(
+function status(
   offset: number,
   principal: { actor: string; email: string },
-  seat: string,
-  more: { state?: "active" | "away"; typing?: boolean } = {},
+  subscription: string,
+  more: { away?: boolean; typing?: boolean } = {},
 ) {
   return {
     offset,
-    type: "presence/here",
-    createdAt: AT,
+    type: "presence/status",
+    createdAt: new Date().toISOString(),
     ephemeral: true,
-    payload: { seat, tab: `tab-of-${seat}`, state: "active", typing: false, ...more },
+    payload: { subscription, away: false, typing: false, ...more },
     source: { origin: "/", principal },
   } as unknown as Row;
 }
 
+/** A page that `principal` holds open: its row of the subscriptions table, as the platform lists it. */
+function page(name: string, principal: { actor: string; email: string }) {
+  return {
+    name,
+    target: `itx.builtins.rpcStubs.get('subscription:${name}')`,
+    consumes: [...AgentChat.contextOptions.consumes],
+    configuredAtOffset: 1,
+    heldBy: { principal, via: { appPage: "dash" } },
+  };
+}
+
 /** The chat over a log of `events`, with a page that has height (jsdom has none, and the
- *  virtual log draws no row without it). Disposing unmounts it and clears the page. */
-async function mount(events: Row[], props: Partial<ComponentProps<typeof AgentChat>> = {}) {
+ *  virtual log draws no row without it), the `pages` open on the context, and the name of the
+ *  chat's own row (`subscription`). Disposing unmounts it and clears the page. */
+async function mount(
+  events: Row[],
+  props: Partial<ComponentProps<typeof AgentChat>> = {},
+  { pages = [], subscription }: { pages?: ReturnType<typeof page>[]; subscription?: string } = {},
+) {
   const sizes = { clientHeight: 600, offsetHeight: 0 };
   const own = Object.keys(sizes).map(
     (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
@@ -540,8 +570,9 @@ async function mount(events: Row[], props: Partial<ComponentProps<typeof AgentCh
   const context = {
     events,
     caughtUp: true,
-    presence: { actors: [], rpcStubs: [] },
-    processors: { rows: [], loaded: true },
+    presence: { actors: [], rpcStubs: pages.map((row) => `subscription:${row.name}`) },
+    processors: { rows: pages, loaded: true },
+    subscription,
     liveState: {},
   };
   const show = (view?: "events") =>
@@ -597,7 +628,7 @@ async function mount(events: Row[], props: Partial<ComponentProps<typeof AgentCh
       [...(line()?.querySelectorAll("[data-slot=avatar]") || [])].map((face) =>
         face.getAttribute("aria-label"),
       ),
-    /** The ephemeral events the page's seat sent. */
+    /** The ephemeral events the page sent. */
     sent: () => appended.flat().filter((event) => event.ephemeral),
     /** Puts `text` into the message box, as a paste does. */
     write: (text: string) => paste(text, []),

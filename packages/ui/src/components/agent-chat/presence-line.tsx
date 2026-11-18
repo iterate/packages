@@ -5,8 +5,8 @@
 // the agent's status, so the composer does not move when someone arrives, types or leaves. On a
 // narrow column the typing words are cut short; the faces and the button keep their width.
 //
-// The faces come from `usePresence` (lib/presence.ts): the platform's stamp on each page's own
-// ephemeral events, never a name a page wrote. A face is the principal's initials on their own
+// The faces come from `usePresence` (lib/presence.ts): the platform's rows of the pages open now and
+// who holds each, never a name a page wrote. A face is the principal's initials on their own
 // colour (`Face`), the same on every page; no picture is looked up anywhere.
 import { UsersIcon } from "lucide-react";
 import { saidByOf, type MessageSender } from "./stream-event.ts";
@@ -92,7 +92,7 @@ export function PresenceLine({
 
 /** A face's words: who, whether their page is in view, and how many pages they have open here. */
 function hereLabel(principal: PresentPrincipal): string {
-  const pages = principal.seats > 1 ? `, ${String(principal.seats)} pages` : "";
+  const pages = principal.pages > 1 ? `, ${String(principal.pages)} pages` : "";
   return `${labelOf(principal)} is ${principal.state === "away" ? "here, in another tab or app" : "here"}${pages}`;
 }
 

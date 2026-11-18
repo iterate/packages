@@ -44,8 +44,8 @@ export type AgentKindViewInputs = {
   tabsInHeader?: boolean;
   /** The viewer's actor id, when the page knows it (`AgentKindViewProps.me`). */
   me?: string;
-  /** `true`: the page is a seat in the conversation (`AgentKindViewProps.presence`). */
-  seat?: boolean;
+  /** `true`: the page shows who else is here (`AgentKindViewProps.presence`). */
+  presenceOn?: boolean;
 };
 
 /** What changed: the fields that did, and the events added at either end, or all of them again

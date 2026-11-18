@@ -725,6 +725,7 @@
         "iterate/packages/code-editor",
         "iterate/packages/context-path-text",
         "iterate/packages/plain-left-click",
+        "iterate/packages/presence",
         "iterate/packages/virtual-log",
         "sheet",
         "spinner"
@@ -1812,7 +1813,7 @@
     {
       "name": "presence",
       "type": "registry:lib",
-      "description": "Who is here now in a context, and who is typing, with nothing durable in its log: each open page of a signed-in principal is a seat that says so by ephemeral events, which the platform stamps; a pure fold of those events, one page's seat as a store, and a hook.",
+      "description": "Who is here now in a context, and who is typing, with nothing durable in its log: the pages open now from the subscriptions table's rows and the lent stubs (who holds each is the platform's stamp), and each page's own status (hidden, typing, marks) in one ephemeral event that only the row's holder may say; one page as a store, and a hook.",
       "dependencies": [
         "zod"
       ],
