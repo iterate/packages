@@ -58,7 +58,7 @@ import {
 } from "./jev.ts";
 
 /** The model the LLM rules and Jev's unsure units go to, unless the install names another. */
-export const DEFAULT_MODEL = "openai/gpt-6-astra";
+export const DEFAULT_MODEL = "openai/gpt-6.2-astra";
 /** The most changed files read from one pull request (GitHub lists 3,000 at most). */
 const MAX_FILES = 1_000;
 /** The most units Jev judges on one head, ~100 s at the pace below; the rest are listed as not judged. */

@@ -16,7 +16,7 @@ const job: Job = {
   headSha: "head1",
   baseSha: "base1",
 };
-const config = { rules: "rules", model: "openai/gpt-6-astra" };
+const config = { rules: "rules", model: "openai/gpt-6.2-astra" };
 
 // iterate-lint-disable-next-line comments/no-narrating-comments -- describes the fixture, whose comment is the narration under test
 /** An added file with a narrating comment (Jev flags it) and a cast (Jev is unsure: the LLM decides). */

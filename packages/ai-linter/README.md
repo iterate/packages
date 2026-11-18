@@ -11,7 +11,8 @@ archive's copy, from 2026-10-02) documents the rule format, and `src/fixtures/ru
 rules written in it.
 
 A rule is decided by one of two engines. An `engine: llm` rule is read by the LLM
-(`openai/gpt-6-astra` unless the install names another model), in one call over the diff, or, for a
+(`openai/gpt-6.2-astra` at medium reasoning effort, unless the install names another model), in one
+call over the diff, or, for a
 rule with `select` and `window`, over only the units its selector picks on added lines with the
 lines around each (a pull request with none makes no call). An `engine: jev` rule is decided by
 `typesafe/jev`, one yes/no request per unit its selector picks on an added line; a unit Jev is
@@ -51,7 +52,7 @@ itx> await installAiLinter(itx, source, { repository: "acme/app" })
 
 - `repository`: the GitHub repository whose pull requests it lints, `owner/name`.
 - `rules`: its rules folder, `rules` by default.
-- `model`: the LLM, `openai/gpt-6-astra` by default.
+- `model`: the LLM, `openai/gpt-6.2-astra` by default.
 - `connection`: by default the mind's one GitHub connection to the repository's owner.
 - `publish`: `false` installs a linter that posts nothing to GitHub: no review, no Check Run. It
   reads GitHub and asks the models as any lint does, and each `ai-linter/linted` outcome says
