@@ -1821,6 +1821,10 @@
         {
           "path": "src/lib/presence.ts",
           "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/principal-label.ts",
+          "type": "registry:lib"
         }
       ]
     },

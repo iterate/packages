@@ -29,7 +29,10 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   (`senderOf` in `stream-event.ts`, the rule of `iterate/agents`' `speakerOf`), never a name in a
   payload. Another person's bubble has their face and short name under it, each waiting message
   in the queue says whose it is, and an answer that was stopped says who stopped it. Anyone may
-  interrupt any answer.
+  interrupt any answer. How a principal is shown, in words and as a face, is decided in one place,
+  [`lib/principal-label.ts`](../../lib/principal-label.ts): an email, else the name a person who
+  is no member gave (a guest's is marked " (guest)"), else the actor id. A name is the person's
+  claim: text only, never a key, never compared with `me`.
 - `presence` shows, in a line over the composer, who else has the chat open now, who is typing,
   and a button that says who can use the conversation ("Shared" when another principal is here or
   wrote, else "Open to members"). [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO

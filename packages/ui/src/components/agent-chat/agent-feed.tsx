@@ -52,6 +52,7 @@ import { sentByMe } from "./stream-event.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
 import { Face } from "#/components/call/face.tsx";
+import { faceOf, labelOf } from "#/lib/principal-label.ts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
@@ -325,16 +326,15 @@ function FoldedMessage({
   );
 }
 
-/** Under a person's bubble, who sent it: their face and short name, the full address on hover.
+/** Under a person's bubble, who sent it: their face and short name, the long label on hover.
  *  Nothing under the viewer's own, and nothing for words that name nobody. */
 function SaidBy({ item, me }: { item: AgentUiMessageItem; me: string | undefined }) {
   const { sender, saidBy } = item;
   if (!sender || !saidBy || sentByMe(sender, me)) return null;
-  const who = sender.email || sender.actor;
   return (
-    <span className="font-readme ml-auto flex items-center gap-1.5 text-2xs text-muted-foreground">
-      <Face small who={who} />
-      <span data-said-by title={who}>
+    <span className="font-readme ml-auto flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+      <Face small {...faceOf(sender)} />
+      <span data-said-by title={labelOf(sender)} className="max-w-48 truncate">
         {saidBy}
       </span>
     </span>
@@ -882,7 +882,7 @@ function LiveActivitySummary({
       aria-expanded={expanded}
       title="Agent activity so far — click to see details"
       onClick={onToggle}
-      className="-ml-2.5 self-start font-mono text-xs font-normal text-muted-foreground"
+      className="-ml-2.5 max-w-full self-start font-mono text-xs font-normal text-muted-foreground"
       data-testid="agent-live-summary"
     >
       {summary.codeCount > 0 ? (
@@ -890,7 +890,7 @@ function LiveActivitySummary({
       ) : (
         <span className="shrink-0 text-2xs leading-none text-muted-foreground/60">✦</span>
       )}
-      <span>
+      <span className="min-w-0 truncate">
         {formatAgentUiActivitySummary(live, {
           summary,
           interruptedPartialHint: "click to see partial response",

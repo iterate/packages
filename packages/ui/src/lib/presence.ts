@@ -32,6 +32,11 @@
 // ephemeral event.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
+import { labelOf, type ShownPrincipal } from "./principal-label.ts";
+
+/** How a principal is shown in words (lib/principal-label.ts), here too for a page that reads
+ *  presence. */
+export { labelOf };
 
 /** What a subscription names in `consumes` to hear who is here. */
 export const PRESENCE_EVENT_TYPES = ["presence/status"];
@@ -48,12 +53,7 @@ const ANSWER_MS = 400;
 
 /** A principal as the platform names one (`source.principal`, a row's `heldBy.principal`). A
  *  row's holder may be a guest: `kind` "guest", with the name they typed in `name` and no email. */
-export type PresencePrincipal = {
-  actor: string;
-  email?: string;
-  name?: string;
-  kind?: "mind" | "guest";
-};
+export type PresencePrincipal = ShownPrincipal;
 
 /** A row of the context's subscriptions table (`itx.subscriptions.list()`), as far as presence
  *  reads it. `heldBy`: who holds a live callback's row, by the platform's stamp on the event that
@@ -79,7 +79,7 @@ export type HerePrincipal = PresencePrincipal & {
 };
 
 /** WHO IS HERE: the principals with a page open now, the others first in the order of their
- *  address or id, then the viewer (`me`: their actor id, or their address). */
+ *  long label, then the viewer (`me`: their actor id, or their address). */
 export function hereOf(
   rows: readonly PresenceRow[],
   rpcStubs: readonly string[],
@@ -107,10 +107,6 @@ export function hereOf(
     (a, b) => Number(a.me) - Number(b.me) || labelOf(a).localeCompare(labelOf(b)),
   );
 }
-
-/** How a principal is shown where a face needs words: their address, else their id. The same
- *  string gives the face its colour and its initials, so one principal looks the same on every page. */
-export const labelOf = (principal: PresencePrincipal) => principal.email || principal.actor;
 
 /** What a page says of itself. Nothing in it names anybody: the platform's stamp does. */
 const Status = z.object({

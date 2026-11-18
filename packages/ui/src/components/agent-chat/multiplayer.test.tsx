@@ -14,6 +14,7 @@ import {
   type AgentUiItem,
 } from "./agent-ui-reducer.ts";
 import type { StreamEvent } from "./stream-event.ts";
+import type { ShownPrincipal } from "#/lib/principal-label.ts";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -33,6 +34,8 @@ Object.assign(Range.prototype, {
 const ADA = { actor: "/members/ada", email: "ada@example.com" };
 const BO = { actor: "/members/bo", email: "bo@example.com" };
 const CY = { actor: "/members/cy", email: "cy@example.com" };
+/** A person who typed a name and proved nothing, as the platform names them. */
+const GUEST = { actor: "user_3715", name: "Bob Proof", kind: "guest" as const };
 
 test("a chat shows who else has it open and who is typing: the rows' holders and their own status, never the viewer, never a name from a payload", async () => {
   using chat = await mount(
@@ -348,6 +351,72 @@ test("the feed says who stopped an answer: the principal whose input carried the
   ]);
 });
 
+test("a guest's message shows their name and that they are a guest, under the bubble and in the queue, on a face of their name's initials", async () => {
+  using _chat = await mount(
+    [saidFor(1, "go", GUEST), running(2, 1), saidFor(3, "and make it green", GUEST)],
+    { me: ADA.actor },
+  );
+  expect(labels("[data-said-by], [data-queued-by]")).toEqual([
+    ["Bob Proof (guest)", "Bob Proof (guest)"],
+    ["Bob Proof (guest)", "Bob Proof (guest)"],
+  ]);
+  expect(labels("[data-slot=avatar]").map(([initials]) => initials)).toEqual(["BP", "BP"]);
+});
+
+test("an interrupt by a guest reads as their name, marked a guest", () => {
+  const { state, items } = foldState([
+    { ...said(1, "go"), source: { principal: ADA } },
+    running(2, 1),
+    interrupt(3, { onBehalfOf: { principal: GUEST } }),
+    cancelled(4, 2),
+  ]);
+  expect(summaryOf(state, items)).toContain("interrupted by Bob Proof (guest)");
+});
+
+test("a guest who is here is a face of their name's initials that says their name and that they are a guest", async () => {
+  using chat = await mount(
+    [],
+    { me: ADA.actor, presence: true },
+    { pages: [page("bob-page", GUEST)] },
+  );
+  expect(chat.faces()).toEqual(["Bob Proof (guest) is here"]);
+  expect(labels("[data-slot=agent-presence] [data-slot=avatar]")).toEqual([
+    ["BP", "Bob Proof (guest) is here"],
+  ]);
+});
+
+test("a member with an email looks as before, also when the stamp has a name; a person with neither is their actor id", async () => {
+  const BO_NAMED = { ...BO, name: "Robert" };
+  const NOBODY_NAMED = { actor: "user_9001" };
+  using chat = await mount(
+    [saidFor(1, "hi", BO_NAMED), saidFor(2, "hello", NOBODY_NAMED)],
+    { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO_NAMED), page("nobody-page", NOBODY_NAMED)] },
+  );
+  expect(labels("[data-said-by]")).toEqual([
+    ["bo", "bo@example.com"],
+    ["user_9001", "user_9001"],
+  ]);
+  expect(chat.faces()).toEqual(["bo@example.com is here", "user_9001 is here"]);
+  expect(labels("[data-slot=avatar]").map(([initials]) => initials)).toEqual([
+    "B",
+    "U9",
+    "B",
+    "U9",
+  ]);
+});
+
+test("a name with markup characters is drawn as its text", async () => {
+  const MARKUP = { ...GUEST, name: "<b>Eve</b>" };
+  using chat = await mount(
+    [saidFor(1, "hi", MARKUP)],
+    { me: ADA.actor, presence: true },
+    { pages: [page("eve-page", MARKUP)] },
+  );
+  expect(labels("[data-said-by]")).toEqual([["<b>Eve</b> (guest)", "<b>Eve</b> (guest)"]]);
+  expect(chat.faces()).toEqual(["<b>Eve</b> (guest) is here"]);
+});
+
 test("a message keeps its key while the same words are tried again, and the next message has another", async () => {
   const keys: string[] = [];
   let fail = true;
@@ -431,6 +500,13 @@ test('the live row says "interrupted by you" to who stopped the answer, when not
   ]);
 });
 
+/** The text and the title of each element that `selector` finds in the page, in order. */
+const labels = (selector: string) =>
+  [...document.querySelectorAll(selector)].map((element) => [
+    element.textContent,
+    element.getAttribute("title"),
+  ]);
+
 /** The loop's copy of the message at offset 1, with `content` and `files`. */
 function copied(offset: number, content: string, files: ReturnType<typeof file>[] = []) {
   const words = said(offset, content);
@@ -512,6 +588,13 @@ function said(offset: number, content: string) {
   };
 }
 
+/** A person's words, appended through a call into the agent on their behalf, as the platform
+ *  names a person who may be no member. The cast: the context's event type does not name
+ *  `onBehalfOf`. */
+function saidFor(offset: number, content: string, principal: ShownPrincipal) {
+  return { ...said(offset, content), source: { onBehalfOf: { principal } } } as unknown as Row;
+}
+
 /** A request the agent is writing an answer to. */
 function running(offset: number, triggerOffset: number) {
   return {
@@ -526,7 +609,7 @@ function running(offset: number, triggerOffset: number) {
  *  appended it. The cast: the context's event type does not name `ephemeral`. */
 function status(
   offset: number,
-  principal: { actor: string; email: string },
+  principal: ShownPrincipal,
   subscription: string,
   more: { away?: boolean; typing?: boolean } = {},
 ) {
@@ -541,7 +624,7 @@ function status(
 }
 
 /** A page that `principal` holds open: its row of the subscriptions table, as the platform lists it. */
-function page(name: string, principal: { actor: string; email: string }) {
+function page(name: string, principal: ShownPrincipal) {
   return {
     name,
     target: `itx.builtins.rpcStubs.get('subscription:${name}')`,

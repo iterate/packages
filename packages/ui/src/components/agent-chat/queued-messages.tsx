@@ -15,6 +15,7 @@ import type { AgentUiMessageItem } from "./agent-ui-reducer.ts";
 import { UserMessageBody, type SignedUrl } from "./agent-feed.tsx";
 import { sentByMe } from "./stream-event.ts";
 import { Face } from "#/components/call/face.tsx";
+import { faceOf, labelOf } from "#/lib/principal-label.ts";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { Button } from "#/components/ui/button.tsx";
 
@@ -96,11 +97,10 @@ export function QueuedMessagesPanel({
 function QueuedBy({ message, me }: { message: AgentUiMessageItem; me: string | undefined }) {
   const { sender, saidBy } = message;
   if (!sender || !saidBy) return null;
-  const who = sender.email || sender.actor;
   return (
-    <span className="font-readme mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
-      <Face small who={who} />
-      <span data-queued-by title={who}>
+    <span className="font-readme mb-1 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+      <Face small {...faceOf(sender)} />
+      <span data-queued-by title={labelOf(sender)} className="max-w-48 truncate">
         {sentByMe(sender, me) ? "You" : saidBy}
       </span>
     </span>

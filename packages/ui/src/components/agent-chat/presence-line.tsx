@@ -9,7 +9,7 @@
 // who holds each, never a name a page wrote. A face is the principal's initials on their own
 // colour (`Face`), the same on every page; no picture is looked up anywhere.
 import { UsersIcon } from "lucide-react";
-import { saidByOf, type MessageSender } from "./stream-event.ts";
+import type { MessageSender } from "./stream-event.ts";
 import { Face } from "#/components/call/face.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -20,7 +20,8 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "#/components/ui/popover.tsx";
-import { labelOf, type PresentPrincipal } from "#/lib/presence.ts";
+import type { PresentPrincipal } from "#/lib/presence.ts";
+import { faceOf, labelOf, shortLabelOf } from "#/lib/principal-label.ts";
 
 /** How many faces the line draws before it counts the rest. */
 const FACES = 5;
@@ -37,14 +38,11 @@ const SHARED_CONVERSATION_TEXT = {
     "The agent acts for whoever writes here, with everything it can reach: its tools, its secrets and its files.",
 };
 
-/** A principal's short name: the part of their address before the "@", or their id. */
-const nameOf = ({ actor, email }: { actor: string; email?: string }) =>
-  saidByOf({ actor, email, script: false });
-
 /** "ada is typing…", "ada and bob are typing…", "3 people are typing…". */
 function typingWords(typing: readonly PresentPrincipal[]): string {
-  if (typing.length === 1) return `${nameOf(typing[0]!)} is typing…`;
-  if (typing.length === 2) return `${nameOf(typing[0]!)} and ${nameOf(typing[1]!)} are typing…`;
+  if (typing.length === 1) return `${shortLabelOf(typing[0]!)} is typing…`;
+  if (typing.length === 2)
+    return `${shortLabelOf(typing[0]!)} and ${shortLabelOf(typing[1]!)} are typing…`;
   return `${String(typing.length)} people are typing…`;
 }
 
@@ -75,7 +73,7 @@ export function PresenceLine({
             <Face
               key={principal.actor}
               small
-              who={labelOf(principal)}
+              {...faceOf(principal)}
               label={hereLabel(principal)}
               className={principal.state === "away" ? "opacity-50" : undefined}
             />
@@ -131,13 +129,13 @@ function SharedWith({
         </PopoverHeader>
         <p className="text-sm text-muted-foreground">{SHARED_CONVERSATION_TEXT.reach}</p>
         {others.length > 0 ? (
-          <p className="text-sm" data-shared-here>
+          <p className="text-sm break-words" data-shared-here>
             Here now: {others.map(labelOf).join(", ")}
           </p>
         ) : null}
         {earlier.length > 0 ? (
-          <p className="text-sm" data-shared-wrote>
-            Also wrote here: {earlier.map((sender) => sender.email || sender.actor).join(", ")}
+          <p className="text-sm break-words" data-shared-wrote>
+            Also wrote here: {earlier.map(labelOf).join(", ")}
           </p>
         ) : null}
       </PopoverContent>

@@ -1,3 +1,5 @@
+import { shortLabelOf, type ShownPrincipal } from "#/lib/principal-label.ts";
+
 /**
  * Minimal committed stream event shape consumed by the events components.
  *
@@ -19,7 +21,9 @@ export type StreamEventSource = {
   /** Who code wrote it for: a script's run, or a person's call into a facet (an agent's
    *  `message()`), which appends as the agent. */
   onBehalfOf?: {
-    principal: { actor: string; email?: string };
+    /** A person who may be no member also has the `name` they gave, and `kind` "guest" when they
+     *  proved nothing (core/lib principal.ts). */
+    principal: { actor: string; email?: string; name?: string; kind?: "mind" | "guest" };
     via?: { appPage: string };
     run?: string;
   };
@@ -33,9 +37,9 @@ export type StreamEventSource = {
   signer?: { principal: { actor: string; kind?: string } };
 };
 
-/** Who sent a message, as the platform stamped its event: the person, and whether their script
- *  wrote it. */
-export type MessageSender = { actor: string; email?: string; script: boolean };
+/** Who sent a message, as the platform stamped its event: the person, with the name a person who
+ *  may be no member gave and whether they are a guest, and whether their script wrote it. */
+export type MessageSender = ShownPrincipal & { script: boolean };
 
 /** The sender a message's event names, by the platform's stamp, as the agent's own loop reads it
  *  (iterate/agents message.ts `speakerOf`). None when it names nobody who said the words: the
@@ -47,21 +51,22 @@ export function senderOf(source: StreamEventSource | undefined): MessageSender |
     const { actor, kind } = source.signer.principal;
     return kind === "mind" ? { actor, script: false } : undefined;
   }
-  const principal = source?.principal || source?.onBehalfOf?.principal;
+  const principal: ShownPrincipal | undefined = source?.principal || source?.onBehalfOf?.principal;
   if (!principal) return undefined;
-  const { actor, email } = principal;
+  const { actor, email, name, kind } = principal;
   return {
     actor,
     email,
+    name,
+    kind,
     script: !source?.principal && Boolean(source?.onBehalfOf?.run),
   };
 }
 
-/** A small label for a sender: the part of their address before the `@`, or their actor id when
- *  there is no address, and " (a script)" when their script wrote it. The page they came through
- *  is no part of it. */
+/** A small label for a sender: their short label (lib/principal-label.ts `shortLabelOf`), and
+ *  " (a script)" when their script wrote it. The page they came through is no part of it. */
 export function saidByOf(sender: MessageSender): string {
-  return `${sender.email?.split("@", 1)[0] || sender.actor}${sender.script ? " (a script)" : ""}`;
+  return `${shortLabelOf(sender)}${sender.script ? " (a script)" : ""}`;
 }
 
 /** Whether the message is the viewer's own: `me` (their address or actor id) typed it, or a
