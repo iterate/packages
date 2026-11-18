@@ -5,7 +5,7 @@
 // one is a capnweb session to a small mind.
 import { act, Suspense, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { newWebSocketRpcSession, RpcTarget } from "capnweb";
 import { IDBFactory } from "fake-indexeddb";
 import { BotIcon } from "lucide-react";
@@ -831,6 +831,13 @@ function member(
   early?: WebSocket,
 ) {
   const reload = vi.fn();
+  // A page never takes its listeners off its window, and one jsdom window serves every test of
+  // this file. So a member's listeners are taken off when its test ends. Else a later test's
+  // "online" has the members of the tests before it dial again, on the real clock, and a socket
+  // of theirs can close when the file's window is gone: an error that no test owns.
+  const heard = [window, document].map(
+    (target) => [target, vi.spyOn(target, "addEventListener")] as const,
+  );
   const itx = connectMemberItx({
     root,
     url: new URL("ws://dash.example.com/itx"),
@@ -839,6 +846,13 @@ function member(
     fetch: net.fetch,
     reload,
   });
+  for (const [target, spy] of heard) {
+    const listeners = [...spy.mock.calls];
+    spy.mockRestore();
+    onTestFinished(() => {
+      for (const [type, listener] of listeners) target.removeEventListener(type, listener);
+    });
+  }
   const session = itxSessionOf(itx);
   session.subscribe(() => {});
   return { itx, session, reload };
