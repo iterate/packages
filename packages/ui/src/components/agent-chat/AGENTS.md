@@ -25,6 +25,22 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   the composer's text.
   `eventsTab={false}` keeps the strip's status and drops the Events tab. `attach={false}` makes the
   composer take words only: no `+`, so no files and no raw mode.
+- Several people can use one chat. Who sent a message is the platform's stamp on its event
+  (`senderOf` in `stream-event.ts`, the rule of `iterate/agents`' `speakerOf`), never a name in a
+  payload. Another person's bubble has their face and short name under it, each waiting message
+  in the queue says whose it is, and an answer that was stopped says who stopped it. Anyone may
+  interrupt any answer.
+- `presence` makes the page a seat in the conversation ([`lib/presence.ts`](../../lib/presence.ts)).
+  It then sends ephemeral `presence/here` and `presence/gone` events through `onAppend`, and a
+  line over the composer shows who else has the chat open now, who is typing, and a button that
+  says who can use the conversation ("Shared" when another principal is here or wrote, else "Open
+  to members"). Presence events are no row: the Events tab and its count leave them out
+  (`isPresenceEvent`). Pass it only on a page of a signed-in principal whose
+  session may append to the context, with their actor id as `me`. `AgentChat.contextOptions`
+  names the two event types. A face is initials on the principal's own colour (`Face`); no
+  picture is looked up.
+- `onMessage` gets a `key` for each message. Hand it on as `message(input, { key })`: a send that
+  is tried again after a lost answer then lands once.
 - A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`
   or `link`; no label: the value is the words). `onChoice` gets `{ kind, value, label }` on a press,
   through a React context (`choice-in-words.tsx`); `choiceState` draws one as "chosen" or "busy".

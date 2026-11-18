@@ -404,6 +404,7 @@ export function AgentComposer({
   interrupt,
   autoFocusMessage = false,
   attach = true,
+  onTyping,
 }: {
   draft: ComposerDraft;
   /** The empty editor's text, which also names its textbox. */
@@ -417,6 +418,9 @@ export function AgentComposer({
   /** `false`: the composer takes words only: no `+`, so no files and no raw mode (`onAppendRaw` is
    *  not offered), and a paste or drop of files adds none. */
   attach?: boolean;
+  /** The person writes (`true`, on each change that leaves words in the box), or has stopped:
+   *  the box is empty, or the words were sent. For a page that shows the others who is typing. */
+  onTyping?: (isTyping: boolean) => void;
 }) {
   const { message, setMessage, attachments } = draft;
   const [mode, setMode] = useState<AgentComposerMode>("message");
@@ -453,6 +457,7 @@ export function AgentComposer({
       // what was written while it was sending is the next message
       setMessage((current) => (current === message ? "" : current));
       attachments.clearFiles();
+      onTyping?.(false);
     }
   }
 
@@ -480,7 +485,10 @@ export function AgentComposer({
         autoFocusMessage={autoFocusMessage}
         message={{
           value: message,
-          onValueChange: setMessage,
+          onValueChange: (value) => {
+            setMessage(value);
+            onTyping?.(value.trim() !== "");
+          },
           onSubmit: submitMessage,
           canSubmit: message.trim() !== "" || attachments.files.length > 0,
           attachments:

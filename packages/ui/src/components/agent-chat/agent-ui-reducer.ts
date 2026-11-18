@@ -5,6 +5,7 @@ import {
   relayedMessageOffset,
   saidByOf,
   senderOf,
+  sentByMe,
   type MessageSender,
   type StreamEvent,
 } from "./stream-event.ts";
@@ -61,6 +62,10 @@ export type AgentUiLlmStep = {
   outcome?: "completed" | "failed" | "cancelled";
   /** Why a cancelled request stopped, when the UI recognizes the reason. */
   cancelReason?: AgentLlmRequestCancelReason;
+  /** Who stopped it, when a principal's words or their press of Interrupt did: the platform's
+   *  stamp on the input that carried the interrupt. Anyone in a shared conversation may stop any
+   *  answer, so the feed says who did. */
+  interruptedBy?: MessageSender;
   errorMessage?: string;
   startedAtMs: number;
 };
@@ -110,6 +115,8 @@ export type AgentUiActivitySummary = {
   requestCount: number;
   outcome: "clean" | "interrupted" | "failed";
   interruptedWithPartialResponse: boolean;
+  /** Who stopped the answer, when the log says (the newest interrupt of the activity). */
+  interruptedBy?: MessageSender;
 };
 
 /** One canonical interpretation of activity attempts for every UI surface. */
@@ -122,6 +129,7 @@ export function summarizeAgentUiActivity(
   let failed = false;
   let interrupted = false;
   let interruptedWithPartialResponse = false;
+  let interruptedBy: MessageSender | undefined;
 
   for (const step of steps) {
     if (step.kind === "code") {
@@ -134,6 +142,8 @@ export function summarizeAgentUiActivity(
     const cancelled = step.outcome === "cancelled";
     if (cancelled && step.cancelReason === "interrupted-by-user-input") {
       interrupted = true;
+      // the newest interrupt says who stopped the answer, also when code sent it and names nobody
+      interruptedBy = step.interruptedBy;
       interruptedWithPartialResponse ||=
         step.thinkingText.length > 0 || step.responseText.length > 0;
     } else if (step.outcome === "failed" || cancelled) {
@@ -153,6 +163,7 @@ export function summarizeAgentUiActivity(
     requestCount,
     outcome,
     interruptedWithPartialResponse,
+    interruptedBy,
   };
 }
 
@@ -162,6 +173,8 @@ export function formatAgentUiActivitySummary(
   options: {
     summary?: AgentUiActivitySummary;
     interruptedPartialHint?: string;
+    /** The viewer's address or actor id: their own interrupt reads "by you". */
+    me?: string;
   } = {},
 ): string {
   const summary = options.summary || summarizeAgentUiActivity(activity);
@@ -169,10 +182,13 @@ export function formatAgentUiActivitySummary(
   if (summary.codeCount > 0) parts.push(`Ran code ${summary.codeCount}×`);
   parts.push(`${summary.requestCount} request${summary.requestCount === 1 ? "" : "s"}`);
   if (summary.outcome === "interrupted") {
+    const how = summary.interruptedBy
+      ? `interrupted by ${sentByMe(summary.interruptedBy, options.me) ? "you" : saidByOf(summary.interruptedBy)}`
+      : "interrupted";
     parts.push(
       summary.interruptedWithPartialResponse && options.interruptedPartialHint
-        ? `interrupted (${options.interruptedPartialHint})`
-        : "interrupted",
+        ? `${how} (${options.interruptedPartialHint})`
+        : how,
     );
   }
   if (summary.outcome === "failed") parts.push("failed");
@@ -385,9 +401,16 @@ export type AgentUiState = {
   paused: boolean;
   /** The highest trigger an intent has named so far. */
   latestTriggerOffset: number;
-  /** Who said each `agent/message-received`, by its offset: iterate's loop relays the words as a
-   *  `context-added` of its own, which names no person, and may name no context. */
-  senderByMessage: Record<number, { sender?: MessageSender; from?: string }>;
+  /** Who said each `agent/message-received`, by its offset, with its words and its files' paths
+   *  (one per line): iterate's loop relays the words as a `context-added` of its own, which names
+   *  no person, and may name no context. The entry goes once a copy has taken it. */
+  senderByMessage: Record<
+    number,
+    { sender?: MessageSender; from?: string; words?: string; files: string }
+  >;
+  /** Who sent the newest input that interrupts the answer being written (its policy says so): the
+   *  request it stops is settled cancelled after it, and takes this as who stopped it. */
+  interruptBy?: MessageSender;
 };
 
 export function initialAgentUiState(): AgentUiState {
@@ -456,7 +479,15 @@ function reduceAgentUiEvent(
       if (!sender && !from) return state;
       return {
         ...state,
-        senderByMessage: { ...state.senderByMessage, [event.offset]: { sender, from } },
+        senderByMessage: {
+          ...state.senderByMessage,
+          [event.offset]: {
+            sender,
+            from,
+            words: readString(event, "message") ?? undefined,
+            files: filePathsOf(readFileAttachments(event)),
+          },
+        },
       };
     }
 
@@ -488,9 +519,43 @@ function reduceAgentUiEvent(
       if (role === "system") return state;
 
       const files = readFileAttachments(event);
+      // The loop's copy of a message names it by a label that its writer sets (iterate/agents
+      // processor.ts, `messageSpeakers`). So a person's words take the message's sender only when
+      // their own stamp names nobody, no schedule, copy or platform wrote them, and their words
+      // and files are the message's: other words, another file, or a second copy under a person's
+      // message are nobody's. The entry goes once a copy has taken it.
+      const offset = relayedMessageOffset(event);
+      const named = offset === undefined ? undefined : state.senderByMessage[offset];
+      const stamped = senderOf(event.source);
+      const relayed =
+        named &&
+        !stamped &&
+        role === "user" &&
+        (!actorType || actorType === "user") &&
+        !readContextFrom(event) &&
+        !event.source?.schedule &&
+        !event.source?.copiedFrom &&
+        !event.source?.platform &&
+        named.words === text &&
+        named.files === filePathsOf(files)
+          ? named
+          : undefined;
+      const sender = stamped || relayed?.sender;
+      const taken =
+        relayed && offset !== undefined
+          ? {
+              ...state,
+              senderByMessage: Object.fromEntries(
+                Object.entries(state.senderByMessage).filter(([key]) => Number(key) !== offset),
+              ),
+            }
+          : state;
+      // THE INTERRUPT is input whose policy says so: a press of Interrupt (a developer item) or a
+      // person's words to an agent set to be interrupted. Who sent it is who stopped the answer.
+      const policy = readRecord(event, "llmRequestPolicy")?.behaviour;
+      const heard =
+        policy === "interrupt-current-request" ? { ...taken, interruptBy: sender } : taken;
       if (role === "user") {
-        const relayed = state.senderByMessage[relayedMessageOffset(event) ?? -1];
-        const sender = senderOf(event.source) ?? relayed?.sender;
         const from = readContextFrom(event) ?? relayed?.from;
         const message = {
           offset: event.offset,
@@ -501,21 +566,21 @@ function reduceAgentUiEvent(
           saidBy: sender && saidByOf(sender),
           from,
         };
-        if (readRecord(event, "llmRequestPolicy")?.behaviour === "dont-trigger-request")
-          return emitBackgroundItem(state, items, {
+        if (policy === "dont-trigger-request")
+          return emitBackgroundItem(heard, items, {
             kind: "background",
             id: `background-${event.offset}`,
             offset: event.offset,
             messages: [message],
           });
-        return emitUserMessageItem(state, items, {
+        return emitUserMessageItem(heard, items, {
           kind: "user",
           id: `user-${event.offset}`,
           ...message,
         });
       }
       if (actorType === "agent") {
-        return emitUserMessageItem(state, items, {
+        return emitUserMessageItem(heard, items, {
           kind: "user",
           id: `user-${event.offset}`,
           offset: event.offset,
@@ -524,7 +589,7 @@ function reduceAgentUiEvent(
           timestampMs,
         });
       }
-      return state;
+      return heard;
     }
 
     case "events.iterate.com/agent/web-message-sent": {
@@ -661,6 +726,8 @@ function reduceAgentUiEvent(
               outputTokens: usage.output,
               errorMessage,
               cancelReason: cancelReason || undefined,
+              interruptedBy:
+                cancelReason === "interrupted-by-user-input" ? state.interruptBy : undefined,
             },
       );
     }
@@ -1026,6 +1093,11 @@ function readFileAttachments(event: StreamEvent): AgentUiFileAttachment[] {
     if (!contentType || !filename || !path || size == null) return [];
     return [{ contentType, filename, path, size }];
   });
+}
+
+/** A message's files as the loop's copy must repeat them: their paths, one per line. */
+function filePathsOf(files: readonly AgentUiFileAttachment[]): string {
+  return files.map((file) => file.path).join("\n");
 }
 
 function readString(event: StreamEvent, key: string): string | null {

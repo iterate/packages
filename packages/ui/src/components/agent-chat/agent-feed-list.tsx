@@ -100,6 +100,7 @@ export function AgentFeedList({
                 toggledIds={toggledIds}
                 onToggle={onToggle}
                 inspect={inspect}
+                me={me}
               />
             ) : null}
             {after}

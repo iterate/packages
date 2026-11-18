@@ -49,6 +49,11 @@ export type DashPage = {
    *  The first time anyone opens it, the agent view appends the words as a developer's note,
    *  which starts the agent's first turn (`/agents/onboarding`'s greeting). */
   openers?: Record<string, string>;
+  /** The Agents page's: `true` makes each member's open agent page a seat in that conversation.
+   *  The chat then shows who else has it open now and who is typing, and what sharing it means.
+   *  A seat sends ephemeral events on the agent's context (nothing durable); the platform stamps
+   *  who. Off unless the mind's config turns it on. */
+  presence?: boolean;
   /** `staysOverReconnect`, a property of the component itself (`Notes.staysOverReconnect =
    *  true`): the page opens again what it holds when the session's epoch grows
    *  (`itxSessionOf(itx)`: the epoch in its hooks' deps, or `useHeldContext`), so the Dash keeps

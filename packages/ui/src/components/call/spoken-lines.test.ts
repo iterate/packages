@@ -1,7 +1,7 @@
 // The plain helpers of a call's spoken lines: the rollup of runs of said rows in a feed, and how a
 // speaker's name, initials and colour come from their address.
 import { expect, test } from "vitest";
-import { colourOf, initialsOf, nameOf, rollUpSpokenLines } from "./spoken-lines.ts";
+import { colourOf, initialsOf, inkOf, nameOf, rollUpSpokenLines } from "./spoken-lines.ts";
 
 // ── rollUpSpokenLines ──
 
@@ -73,6 +73,14 @@ test("a person has the same colour every time, and another person another", () =
   expect(colourOf("ana@example.com")).not.toBe(colourOf("ben@example.com"));
 });
 
+test("a face's initials have at least 4.5:1 contrast with its colour on every one of the 360 hues", () => {
+  const byHue = new Map<string, string>();
+  // a person for each hue: the hash spreads these names over all 360 within a few thousand
+  for (let n = 0; byHue.size < 360; n++) byHue.set(colourOf(`p${n}`), `p${n}`);
+  const contrasts = [...byHue].map(([colour, who]) => contrastOf(colour, inkOf(who)));
+  expect(Math.min(...contrasts)).toBeGreaterThanOrEqual(4.5);
+});
+
 /** A spoken line as a page's feed row. */
 function said(offset: number) {
   return {
@@ -88,4 +96,20 @@ function said(offset: number) {
 /** A typed message as a page's feed row. */
 function typed(offset: number) {
   return { key: String(offset), offset, kind: "typed" as const, text: "hi" };
+}
+
+/** The WCAG 2 contrast of `ink` ("white" or "black") on `colour` (`hsl(h s% l%)`). */
+function contrastOf(colour: string, ink: "white" | "black") {
+  const [hue, saturation, lightness] = (colour.match(/[\d.]+/g) || []).map(Number);
+  const s = saturation! / 100;
+  const l = lightness! / 100;
+  // CSS Color 4: hsl to sRGB
+  const channel = (n: number) => {
+    const k = (n + hue! / 30) % 12;
+    const value = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(8) + 0.0722 * channel(4);
+  const inkLuminance = ink === "white" ? 1 : 0;
+  return (Math.max(luminance, inkLuminance) + 0.05) / (Math.min(luminance, inkLuminance) + 0.05);
 }

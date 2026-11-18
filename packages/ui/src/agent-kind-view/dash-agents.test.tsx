@@ -133,6 +133,52 @@ test("the agent view takes any path, has no button to its raw view, and says the
   expect(appended).toHaveLength(1);
 });
 
+test("an agent page is a seat in its conversation only where the mind's config turned presence on: then it says that it is here on that agent's context alone, and nothing durable", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  {
+    // the default: no seat, nothing sent
+    const { itx, sent, appended } = mind({});
+    await using _page = await draw(DashAgents, itx, { waiting: 0 });
+    expect({ sent, appended }).toEqual({ sent: [], appended: [] });
+  }
+  const { itx, sent, appended } = mind({});
+  await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+  expect(sent).toEqual([{ path: "/agents/onboarding", type: "presence/here" }]);
+  expect(appended).toEqual([]);
+  // the line for the others stands over the composer; alone, the member sees who may use it
+  expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe(
+    "Open to members",
+  );
+});
+
+test("the header's count of held events leaves out a seat's presence events", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx } = mind({
+    logs: {
+      "/agents/onboarding": [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "user", content: "hello", actor: { type: "user" } },
+        },
+        {
+          offset: 2,
+          type: "presence/here",
+          payload: { seat: "s", tab: "t", state: "active", typing: false },
+          source: { origin: "/", principal: { actor: "/members/b", email: "b@example.com" } },
+        },
+      ],
+    },
+  });
+  await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+  const events = [...page.host.querySelectorAll("[data-page-header] [role=tab]")].find((tab) =>
+    tab.textContent?.startsWith("Events"),
+  );
+  expect(events?.textContent).toBe("Events1");
+});
+
 test.for<{ name: string; path: string; kind: string }>([
   { name: "an iterate agent", path: "/agents/onboarding", kind: "iterate" },
   { name: "an agent of a kind with its own view", path: "/agents/session", kind: "claude" },
@@ -532,7 +578,8 @@ test("the opener is not appended from a remembered view over a saved copy, only 
   second.releaseKinds();
 });
 
-/** A mind whose logs are empty but for `logs`: what the page appends is kept in `appended`.
+/** A mind whose logs are empty but for `logs`: what the page appends to a log is kept in
+ *  `appended`, and the ephemeral events it sends (its seat's `presence/…`) in `sent`.
  *  `hold()` keeps every read of a log unanswered until `release()`, and `holdKinds()` the read of
  *  the kinds until `releaseKinds()`. `kinds`: each kind's file in the config repo, by kind, each
  *  with `source`. Its root has `files`, and a context has none: only an iterate agent's context
@@ -555,6 +602,7 @@ function mind({
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
+  const sent: { path: string; type: string }[] = [];
   /** the path of each agent the page started */
   const born: string[] = [];
   let reads = 0;
@@ -577,8 +625,11 @@ function mind({
     subscriptions: { list: async () => [] },
     rpcStubs: { list: async () => [] },
     invoke: async () => ({ rev: 1, state: path === "/integrations" ? integrations : {} }),
-    append: async (...events: unknown[]) => {
-      appended.push({ path, events });
+    append: async (...events: { type: string; ephemeral?: boolean }[]) => {
+      // an ephemeral event is never in a log
+      for (const event of events) if (event.ephemeral) sent.push({ path, type: event.type });
+      const durable = events.filter((event) => !event.ephemeral);
+      if (durable.length > 0) appended.push({ path, events: durable });
     },
     [Symbol.dispose]() {},
   });
@@ -618,6 +669,7 @@ function mind({
   return {
     itx,
     appended,
+    sent,
     born,
     reads: () => reads,
     asked: () => asked,
@@ -699,6 +751,7 @@ async function draw(
   {
     waiting,
     openers,
+    presence,
     agents: first = agents,
     account = true,
     actor = "/members/a",
@@ -710,6 +763,8 @@ async function draw(
     /** the member signed in */
     actor?: string;
     openers?: Record<string, string>;
+    /** The Agents page's `presence`: a member's open agent page is a seat in its conversation. */
+    presence?: boolean;
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";
   },
@@ -730,7 +785,12 @@ async function draw(
     },
   );
   const row = (id: string): DashPage => ({ id, name: id, icon: BotIcon, component: () => null });
-  const pages = [row("home"), { ...row("agents"), openers }, row("contexts"), row("integrations")];
+  const pages = [
+    row("home"),
+    { ...row("agents"), openers, presence },
+    row("contexts"),
+    row("integrations"),
+  ];
   const host = document.body.appendChild(document.createElement("div"));
   // every text the page showed, at any moment
   const said: string[] = [];

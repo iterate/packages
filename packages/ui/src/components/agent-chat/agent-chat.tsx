@@ -13,6 +13,11 @@
 // CONTROLLED, as `ContextView` is: the tab, the open trace and the Events tab's every choice are
 // `state` (agent-chat-search.ts) and come back as an `onStateChange` patch, so a chat is a link.
 // Only the activity rows opened in place stay local.
+// SEVERAL PEOPLE IN ONE CHAT. Every member's words name their sender (the platform's stamp), in the
+// feed and in the queue, and anyone may interrupt any answer. With `presence`, the page is also a
+// seat in the conversation (lib/presence.ts): a line over the composer shows who else has it open
+// now and who is typing, and "Shared" says what sharing it means. Each message goes out with a
+// key, so a send that is tried again lands once.
 // THE HOST holds the agent's context and calls the SDK. `context` is what
 // `useIterateContext(stub, AgentChat.contextOptions)` returns, and each thing the chat does to the
 // agent is a callback. Nothing here imports the SDK's client or a router:
@@ -24,7 +29,7 @@
 //     error={connectError}
 //     state={search}
 //     onStateChange={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
-//     onMessage={({ message, files }) => mind.agents.get(path).message({ message, files })}
+//     onMessage={({ message, files, key }) => mind.agents.get(path).message({ message, files }, { key })}
 //     onAppend={(events) => agent.append(...events)}
 //     signedUrl={async (file) => (await mind.files.get(file).url()).url}
 //   />
@@ -32,6 +37,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -59,8 +65,9 @@ import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
+import { PresenceLine } from "./presence-line.tsx";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
-import type { StreamEvent } from "./stream-event.ts";
+import { sentByMe, type MessageSender, type StreamEvent } from "./stream-event.ts";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
 import type { LiveStateView } from "#/components/context-view/types.tsx";
 import { RIGHT_EDGE_CLOSED } from "#/components/context-view/context-view-search.ts";
@@ -71,6 +78,7 @@ import {
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
 import { remembered } from "#/components/virtual-log/remembered.ts";
+import { isPresenceEvent, PRESENCE_EVENT_TYPES, usePresence } from "#/lib/presence.ts";
 
 type AgentChatContext = ContextViewSource & { processors: { loaded: boolean } };
 type Feed = ReturnType<typeof agentFeedOf>;
@@ -150,6 +158,7 @@ export function AgentChat({
   onChoice,
   choiceState,
   me,
+  presence = false,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -162,8 +171,10 @@ export function AgentChat({
   state: AgentChatState;
   /** A patch to the state; an `undefined` value drops the key. */
   onStateChange: (patch: Partial<AgentChatState>) => void;
-  /** Say something to the agent: the mind's `itx.agents.get(path).message(…)`. */
-  onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
+  /** Say something to the agent: the mind's `itx.agents.get(path).message(…)`. `key` names this
+   *  one message: hand it on as `message(input, { key })`, and a send tried again after a lost
+   *  answer lands once. */
+  onMessage: SendMessage;
   /** Append to the agent's context (`(events) => stub.append(...events)`): the composer's raw mode,
    *  the interrupt, and the Events tab's composer. The events are as a person wrote them, and the
    *  platform parses each. `undefined` until the host holds the context: nothing can be appended. */
@@ -201,6 +212,11 @@ export function AgentChat({
   /** The viewer's address or actor id: their own messages have no line under them that says who
    *  sent them. Absent: every person's message has one. */
   me?: string;
+  /** `true`: this page is a seat in the conversation. It says that it is here and when its
+   *  person types, as ephemeral events through `onAppend` (the platform stamps who), and it shows
+   *  who else is here. For a page of a signed-in principal whose session appends to the context:
+   *  `me` is then their actor id. A page whose reader may not append here leaves it off. */
+  presence?: boolean;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -209,6 +225,7 @@ export function AgentChat({
   const older = (!context.error && context.older) || OLDER_EXHAUSTED;
   const [toggled, onToggle] = useToggledIds();
   const draft = useComposerDraft();
+  const keys = useMessageKeys();
   const { inspected, inspect, onInspect } = useTraces(state, onStateChange);
   const readingForTrace = traceWantsOlder(inspected, older, fold.events);
   // a newest page with nothing to say is no proof of silence: an idle agent's is all wakes
@@ -217,10 +234,20 @@ export function AgentChat({
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
   const status = chatStatus(turn, feed.state);
+  const seat = usePresence({ enabled: presence, events: fold.events, send: onAppend, me });
+  const wrote = useMemo(() => othersWhoWrote(feed.items, me), [feed.items, me]);
+  // a seat's presence events are no row of the log: the Events tab and its count leave them out
+  const logContext = useMemo(
+    () =>
+      context.events.some(isPresenceEvent)
+        ? { ...context, events: context.events.filter((event) => !isPresenceEvent(event)) }
+        : context,
+    [context],
+  );
   return (
     <AgentShell
       path={path}
-      context={context}
+      context={logContext}
       error={hostError}
       state={state}
       onStateChange={onStateChange}
@@ -261,9 +288,12 @@ export function AgentChat({
           empty={empty}
           placeholder={placeholder}
           draft={draft}
+          keys={keys}
           onMessage={onMessage}
           onAppend={onAppend}
           attach={attach}
+          presenceLine={presence ? <PresenceLine present={seat.present} wrote={wrote} /> : null}
+          onTyping={presence ? seat.typing : undefined}
         />
       </AgentChoiceProvider>
     </AgentShell>
@@ -276,8 +306,60 @@ export function AgentChat({
  *  pages as the reader scrolls up: the fold needs nothing older than the turns it shows
  *  (agent-ui-reducer.ts). */
 AgentChat.contextOptions = {
-  consumes: ["*", "events.iterate.com/agent/llm-response-frame"],
+  consumes: ["*", "events.iterate.com/agent/llm-response-frame", ...PRESENCE_EVENT_TYPES],
 };
+
+/** The person's words and files, as the composer hands them over. */
+type OutgoingMessage = Parameters<ComponentProps<typeof AgentComposer>["onSubmit"]>[0];
+/** What a host does with them. */
+type SendMessage = (input: OutgoingMessage & { key: string }) => Promise<void>;
+
+/** Everyone but the viewer who wrote in the rows the page holds, once each, in the order they
+ *  first wrote. */
+function othersWhoWrote(items: readonly AgentUiItem[], me: string | undefined): MessageSender[] {
+  const byActor = new Map<string, MessageSender>();
+  for (const item of items)
+    if (item.kind === "user" && item.sender && !sentByMe(item.sender, me))
+      byActor.set(item.sender.actor, byActor.get(item.sender.actor) || item.sender);
+  return [...byActor.values()];
+}
+
+/** A KEY FOR EACH MESSAGE, kept while the same message is tried again: a send that failed (the
+ *  answer was lost, the first try may have landed) goes out again under its first key, so the
+ *  log holds it once. Another message, or a send that succeeded, starts a new key. A message is
+ *  the same when its words and its files are: each file by its name, its type and its content.
+ *  The keys belong to the draft, so `AgentChat` holds them beside it: they outlive a visit to
+ *  the Events tab, as the draft does. */
+function useMessageKeys() {
+  const [page] = useState(() => crypto.randomUUID().slice(0, 12));
+  const held = useRef<{ count: number; message?: string }>({ count: 0 });
+  return useMemo(
+    () => ({
+      keyFor(input: OutgoingMessage) {
+        const message = JSON.stringify([
+          input.message,
+          input.files.map((file) => [file.filename, file.contentType, contentMark(file.data)]),
+        ]);
+        if (held.current.message !== message) held.current.count += 1;
+        held.current.message = message;
+        return `${page}:${String(held.current.count)}`;
+      },
+      sent() {
+        held.current.message = undefined;
+      },
+    }),
+    [page],
+  );
+}
+
+/** A file's content as a short mark: its length and a hash of every character (FNV-1a, 32 bits).
+ *  It tells a person's own second file from their first; it is no proof against a forger, and
+ *  needs none: the key is the sender's own. */
+function contentMark(data: string): string {
+  let hash = 0x811c9dc5;
+  for (let at = 0; at < data.length; at++) hash = Math.imul(hash ^ data.charCodeAt(at), 0x01000193);
+  return `${String(data.length)}:${(hash >>> 0).toString(16)}`;
+}
 
 /** The agent facet's live state, the fields the strip reads (iterate/agents contract.ts
  *  `stateSchema`): a pause, the one open request, the one pending trigger, the answer whose script
@@ -383,9 +465,12 @@ function ChatTab({
   empty,
   placeholder,
   draft,
+  keys,
   onMessage,
   onAppend,
   attach,
+  presenceLine,
+  onTyping,
 }: {
   feed: Feed;
   events: readonly StreamEvent[];
@@ -406,9 +491,14 @@ function ChatTab({
   empty: ReactNode;
   placeholder: string;
   draft: ComposerDraft;
-  onMessage: ComponentProps<typeof AgentComposer>["onSubmit"];
+  /** The key of each message, which the chat holds beside the draft. */
+  keys: ReturnType<typeof useMessageKeys>;
+  onMessage: SendMessage;
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   attach: boolean;
+  /** Who else is here, beside the agent's status; null where the page is no seat. */
+  presenceLine: ReactNode;
+  onTyping: ((isTyping: boolean) => void) | undefined;
 }) {
   // the person's own words land in view, wherever they were reading
   const [followTail, setFollowTail] = useState(0);
@@ -454,7 +544,12 @@ function ChatTab({
       footer={
         <div className="pointer-events-none bg-linear-to-t from-background from-80% to-transparent px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-4 sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
           <div className="pointer-events-auto mx-auto w-full max-w-3xl">
-            <AgentFootStatus />
+            <div className="flex min-w-0 items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <AgentFootStatus />
+              </div>
+              {presenceLine}
+            </div>
             {aboveComposer}
             {/* Queued input grows the composer column; the feed follows on resize. */}
             <QueuedMessagesPanel
@@ -462,6 +557,7 @@ function ChatTab({
               isInterrupting={interrupt?.isInterrupting || false}
               onInterrupt={interrupt?.run}
               signedUrl={signedUrl}
+              me={me}
             />
             <AgentComposer
               draft={draft}
@@ -469,9 +565,11 @@ function ChatTab({
               autoFocusMessage
               attach={attach}
               interrupt={interrupt}
-              onSubmit={(message) => {
+              onTyping={onTyping}
+              onSubmit={async (message) => {
                 setFollowTail((count) => count + 1);
-                return onMessage(message);
+                await onMessage({ ...message, key: keys.keyFor(message) });
+                keys.sent();
               }}
               onAppendRaw={async (events) => {
                 if (!onAppend) throw new Error("not connected");

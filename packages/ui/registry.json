@@ -23,11 +23,14 @@
         "dropdown-menu",
         "empty",
         "iterate/packages/agent-summary",
+        "iterate/packages/call",
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
+        "iterate/packages/presence",
         "iterate/packages/virtual-log",
+        "popover",
         "sheet",
         "spinner",
         "tabs"
@@ -137,6 +140,10 @@
         },
         {
           "path": "src/components/agent-chat/message.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/presence-line.tsx",
           "type": "registry:component"
         },
         {
@@ -414,6 +421,12 @@
         "iterate/packages/iterate-logo",
         "iterate/packages/virtual-log"
       ],
+      "cssVars": {
+        "theme": {
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        }
+      },
       "files": [
         {
           "path": "src/components/call/spoken-lines.ts",
@@ -1793,6 +1806,20 @@
         {
           "path": "src/components/agent-context-rows.ts",
           "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "presence",
+      "type": "registry:lib",
+      "description": "Who is here now in a context, and who is typing, with nothing durable in its log: each open page of a signed-in principal is a seat that says so by ephemeral events, which the platform stamps; a pure fold of those events, one page's seat as a store, and a hook.",
+      "dependencies": [
+        "zod"
+      ],
+      "files": [
+        {
+          "path": "src/lib/presence.ts",
+          "type": "registry:lib"
         }
       ]
     },

@@ -34,11 +34,33 @@ export const initialsOf = (who: string) =>
     .join("") || "?";
 
 /** A person's colour, the same on every page and every load: a hue from a hash of `who`, at one
- *  lightness that white initials read on. */
+ *  saturation and lightness. `inkOf` gives the initials' colour on it. */
 export function colourOf(who: string) {
+  return `hsl(${hueOf(who)} 55% 45%)`;
+}
+
+/** The initials' colour on `colourOf(who)`: white or black, whichever has the higher contrast
+ *  with it by WCAG 2's relative luminance. On every hue that is at least 4.5:1, the least at hue
+ *  21; a near-black such as #0a0a0a falls under 4.5:1 near hue 205. */
+export function inkOf(who: string): "white" | "black" {
+  // hsl(h 55% 45%) as sRGB, by the CSS Color 4 conversion
+  const hue = hueOf(who);
+  const chroma = 0.55 * Math.min(0.45, 1 - 0.45);
+  const [red, green, blue] = [0, 8, 4].map((n) => {
+    const k = (n + hue / 30) % 12;
+    const channel = 0.45 - chroma * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
+  // contrast is (lighter + 0.05) / (darker + 0.05); white's luminance is 1, black's 0
+  return 1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05 ? "white" : "black";
+}
+
+/** The hue of `who`'s colour: a hash of the string, 0 to 359. */
+function hueOf(who: string) {
   let hash = 0;
   for (const char of who) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return `hsl(${Math.abs(hash) % 360} 55% 45%)`;
+  return Math.abs(hash) % 360;
 }
 
 /** `rows` with every run of consecutive `kind: "said"` rows as ONE row of `kind: "rollup"`, for a

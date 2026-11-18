@@ -23,15 +23,30 @@ export type StreamEventSource = {
     via?: { appPage: string };
     run?: string;
   };
+  /** Set when a schedule fired the event, a row copied it here, or the platform wrote it as its
+   *  own fact: whoever else its source names did not say its words now. */
+  schedule?: unknown;
+  copiedFrom?: unknown;
+  platform?: boolean;
+  /** The key that signed it, when it is a signed statement: another mind's, with `kind: "mind"`
+   *  and its domain as `actor`. */
+  signer?: { principal: { actor: string; kind?: string } };
 };
 
 /** Who sent a message, as the platform stamped its event: the person, and whether their script
  *  wrote it. */
 export type MessageSender = { actor: string; email?: string; script: boolean };
 
-/** The sender a message's event names. None when it names nobody: the mind's own code, mail,
- *  another agent. */
+/** The sender a message's event names, by the platform's stamp, as the agent's own loop reads it
+ *  (iterate/agents message.ts `speakerOf`). None when it names nobody who said the words: the
+ *  mind's own code, mail, another agent, a schedule's occurrence, a row's copy, a platform fact, a
+ *  statement that no mind's key signed. Another mind is named by its domain. */
 export function senderOf(source: StreamEventSource | undefined): MessageSender | undefined {
+  if (source?.schedule || source?.copiedFrom || source?.platform) return undefined;
+  if (source?.signer) {
+    const { actor, kind } = source.signer.principal;
+    return kind === "mind" ? { actor, script: false } : undefined;
+  }
   const principal = source?.principal || source?.onBehalfOf?.principal;
   if (!principal) return undefined;
   const { actor, email } = principal;

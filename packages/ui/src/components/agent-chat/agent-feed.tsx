@@ -51,6 +51,7 @@ import { useTickingNowMs } from "./use-ticking-now-ms.ts";
 import { sentByMe } from "./stream-event.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
+import { Face } from "#/components/call/face.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
@@ -108,15 +109,7 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
           <MessageContent className="group-[.is-user]:rounded-2xl">
             <UserMessageBody item={item} signedUrl={signedUrl} />
           </MessageContent>
-          {item.sender && item.saidBy && !sentByMe(item.sender, me) ? (
-            <span
-              data-said-by
-              title={item.sender.email || item.sender.actor}
-              className="font-readme ml-auto text-2xs text-muted-foreground"
-            >
-              {item.saidBy}
-            </span>
-          ) : null}
+          <SaidBy item={item} me={me} />
         </Message>
       );
     case "assistant":
@@ -157,6 +150,7 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
           expanded={expanded}
           onToggle={onToggle}
           inspect={inspect}
+          me={me}
         />
       );
     case "background":
@@ -331,6 +325,22 @@ function FoldedMessage({
   );
 }
 
+/** Under a person's bubble, who sent it: their face and short name, the full address on hover.
+ *  Nothing under the viewer's own, and nothing for words that name nobody. */
+function SaidBy({ item, me }: { item: AgentUiMessageItem; me: string | undefined }) {
+  const { sender, saidBy } = item;
+  if (!sender || !saidBy || sentByMe(sender, me)) return null;
+  const who = sender.email || sender.actor;
+  return (
+    <span className="font-readme ml-auto flex items-center gap-1.5 text-2xs text-muted-foreground">
+      <Face small who={who} />
+      <span data-said-by title={who}>
+        {saidBy}
+      </span>
+    </span>
+  );
+}
+
 // ── the settled activity: the quiet "Ran code 2× · 3 requests · 7.4 s" row ──
 
 function AgentActivityRow({
@@ -338,11 +348,14 @@ function AgentActivityRow({
   expanded,
   onToggle,
   inspect,
+  me,
 }: {
   activity: AgentUiActivity;
   expanded: boolean;
   onToggle: (id: string) => void;
   inspect: Inspect;
+  /** The viewer, where the row knows them: an answer they stopped reads "interrupted by you". */
+  me?: string;
 }) {
   const summary = summarizeAgentUiActivity(activity);
   const failed = summary.outcome === "failed";
@@ -375,7 +388,7 @@ function AgentActivityRow({
           {!activityLabel || summary.outcome !== "clean"
             ? `${activityLabel ? `${activityLabel} · ` : ""}${formatAgentUiActivitySummary(
                 activity,
-                { summary, interruptedPartialHint: "click to see partial response" },
+                { summary, interruptedPartialHint: "click to see partial response", me },
               )}`
             : [
                 activityLabel,
@@ -747,11 +760,14 @@ export function AgentLiveActivity({
   toggledIds,
   onToggle,
   inspect,
+  me,
 }: {
   state: AgentUiState;
   toggledIds: ReadonlySet<string>;
   onToggle: (id: string) => void;
   inspect: Inspect;
+  /** The viewer: an answer they stopped reads "interrupted by you" while the turn goes on too. */
+  me?: string;
 }) {
   const live = state.live;
   const activityToggleId = live ? `live-activity:${live.id}` : "";
@@ -779,6 +795,7 @@ export function AgentLiveActivity({
         expanded={toggledIds.has(live.id)}
         onToggle={onToggle}
         inspect={inspect}
+        me={me}
       />
     );
   }
@@ -791,6 +808,7 @@ export function AgentLiveActivity({
           doneSteps={doneSteps}
           expanded={activityExpanded}
           onToggle={toggleActivity}
+          me={me}
         />
       ) : null}
       {showStepRail ? <LiveStepRail live={live} liveStep={liveStep} inspect={inspect} /> : null}
@@ -848,11 +866,13 @@ function LiveActivitySummary({
   doneSteps,
   expanded,
   onToggle,
+  me,
 }: {
   live: AgentUiActivity;
   doneSteps: readonly AgentUiStep[];
   expanded: boolean;
   onToggle: () => void;
+  me: string | undefined;
 }) {
   const summary = summarizeAgentUiActivity(live, doneSteps);
   return (
@@ -874,6 +894,7 @@ function LiveActivitySummary({
         {formatAgentUiActivitySummary(live, {
           summary,
           interruptedPartialHint: "click to see partial response",
+          me,
         })}
       </span>
       <ChevronRightIcon

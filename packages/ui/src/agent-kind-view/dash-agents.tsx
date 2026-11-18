@@ -48,6 +48,7 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
+import { isPresenceEvent } from "#/lib/presence.ts";
 import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
@@ -486,6 +487,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
         path={path}
         agents={agents}
         opener={page.openers?.[path]}
+        seat={Boolean(page.presence)}
         me={principal?.actor}
         tails={tails}
         quiet={quiet}
@@ -572,6 +574,7 @@ function AgentViewOfKind({
   path,
   agents,
   opener,
+  seat,
   me,
   tails,
   quiet,
@@ -579,6 +582,8 @@ function AgentViewOfKind({
 }: Pick<DashPageProps, "itx" | "agents"> & {
   path: string;
   opener: string | undefined;
+  /** The page is a seat in the agent's conversation (the Agents page's `presence`). */
+  seat: boolean;
   me: string | undefined;
   tails: TailsOfMember;
   quiet: boolean;
@@ -613,6 +618,7 @@ function AgentViewOfKind({
       path={path}
       file={view.file}
       agents={agents}
+      seat={seat}
       me={me}
       tails={tails}
     />
@@ -624,6 +630,7 @@ function AgentViewOfKind({
       kind={view.kind}
       agents={agents}
       opener={opener}
+      seat={seat}
       me={me}
       tails={tails}
     />
@@ -663,6 +670,7 @@ function IterateChat({
   kind,
   agents,
   opener,
+  seat,
   me,
   tails,
 }: {
@@ -673,6 +681,8 @@ function IterateChat({
   agents: readonly AgentRow[] | undefined;
   /** What the mind says first, if the chat is empty: a developer's note, which starts a turn. */
   opener: string | undefined;
+  /** The page is a seat in the conversation: the chat shows who else is here. */
+  seat: boolean;
   /** The signed-in member's actor id: their own messages have no line under them. */
   me: string | undefined;
   tails: TailsOfMember;
@@ -721,7 +731,7 @@ function IterateChat({
           view: shown.view,
           hasChat: true,
           // no count until the first read has answered
-          held: context.caughtUp || context.events.length ? context.events.length : undefined,
+          held: context.caughtUp || context.events.length ? rowsOf(context.events) : undefined,
           wholeLogHeld: context.older.exhausted,
           onStateChange: patchView,
         }}
@@ -733,15 +743,21 @@ function IterateChat({
         state={shown}
         onStateChange={patchView}
         tabsInHeader
-        onMessage={async ({ message, files }) => {
-          await messageAgent(itx, path, { message, files });
+        onMessage={async ({ message, files, key }) => {
+          await messageAgent(itx, path, { message, files }, key);
         }}
         onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
         signedUrl={(file) => fileUrl(itx, file)}
         me={me}
+        presence={seat}
       />
     </>
   );
+}
+
+/** How many of the held events are rows of the log: a seat's presence events are no row. */
+function rowsOf(events: readonly { type: string }[]): number {
+  return events.filter((event) => !isPresenceEvent(event)).length;
 }
 
 /** The page's theme is the class on its root element: the frame follows it when it changes. */
@@ -763,6 +779,7 @@ function KindChat({
   path,
   file,
   agents,
+  seat,
   me,
   tails,
 }: {
@@ -771,6 +788,8 @@ function KindChat({
   /** The kind's file: a view of another file is another frame (`AgentViewOfKind` keys it). */
   file: { name: string; source: string | null };
   agents: readonly AgentRow[] | undefined;
+  /** The page is a seat in the conversation, for a view that draws AgentChat. */
+  seat: boolean;
   /** The signed-in member's actor id, for a view that draws AgentChat. */
   me: string | undefined;
   tails: TailsOfMember;
@@ -831,13 +850,14 @@ function KindChat({
     tabsInHeader: true,
     // oxlint-disable-next-line iterate/simple-truthiness-check -- the wire view: an absent optional field stays absent
     ...(me && { me }),
+    seat,
   };
   // the view's state, as the frame reads it
   const state = inputs.state;
   // everything the frame may do, to this agent alone: never the agent's stub, which reaches the
   // whole mind
   const verbs: AgentKindViewVerbs = {
-    message: ({ message, files }) => messageAgent(itx, path, { message, files }),
+    message: ({ message, files, key }) => messageAgent(itx, path, { message, files }, key),
     append: async (events) => {
       if (!stub) throw new Error("not connected");
       await appendEvents(stub, events);
@@ -860,7 +880,7 @@ function KindChat({
           view: hasChat ? state.view : "events",
           hasChat,
           // no count until the first read has answered
-          held: loaded && !reading ? log.events.length : undefined,
+          held: loaded && !reading ? rowsOf(log.events) : undefined,
           wholeLogHeld: log.older.exhausted,
           onStateChange: patchView,
         }}

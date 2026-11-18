@@ -62,6 +62,9 @@ export type AgentKindViewProps = {
   onMessage: (input: {
     message: string;
     files: { contentType: string; filename: string; data: string }[];
+    /** The message's own key, from `AgentChat`: the host sends it on, and a send tried again
+     *  lands once. */
+    key?: string;
   }) => Promise<void>;
   /** Append events to the agent's context, as a person wrote them. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
@@ -70,6 +73,10 @@ export type AgentKindViewProps = {
   /** The viewer's actor id or address, when the page knows it: `AgentChat` draws no sender line
    *  under their own messages. */
   me?: string;
+  /** `true`: the page is a seat in the conversation, and `AgentChat` shows who else is here and
+   *  who is typing. A kind's view that wants it also names `PRESENCE_EVENT_TYPES` (the kit's
+   *  `lib/presence`) in its `ephemeralEvents`, or it hears nobody. */
+  presence?: boolean;
 };
 
 /** iterate's components a view builds with (agent-chat/chat-parts.tsx and agent-shell.tsx say

@@ -3,14 +3,18 @@
 // not in the feed's history. A rounded card tucked behind the pill; on phones only the newest
 // message stays pinned, with a "+N more" toggle.
 //
-// The panel is a PERSON's queue. Another agent's words can wait for the next turn too (a helper's
-// report that comes in while the agent works): they are no input of the reader's, so they are
-// not drawn here. The feed shows them as a report row once a request has taken them up.
+// The panel is the PEOPLE's queue. Several people can write to one agent, so each waiting message
+// says whose it is: a face and a name, or "You". Another agent's words can wait for the next turn
+// too (a helper's report that comes in while the agent works): they are no person's input, so they
+// are not drawn here. The feed shows them as a report row once a request has taken them up.
+// Everyone in the conversation is trusted alike: anyone may interrupt, whoever's answer runs.
 import { useState } from "react";
 import { BanIcon } from "lucide-react";
 import { cn } from "cn";
 import type { AgentUiMessageItem } from "./agent-ui-reducer.ts";
 import { UserMessageBody, type SignedUrl } from "./agent-feed.tsx";
+import { sentByMe } from "./stream-event.ts";
+import { Face } from "#/components/call/face.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { Button } from "#/components/ui/button.tsx";
 
@@ -19,11 +23,14 @@ export function QueuedMessagesPanel({
   isInterrupting,
   onInterrupt,
   signedUrl,
+  me,
 }: {
   messages: AgentUiMessageItem[];
   isInterrupting: boolean;
   onInterrupt?: () => Promise<void> | void;
   signedUrl: SignedUrl;
+  /** The viewer's address or actor id: their own waiting words read "You". */
+  me?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const messages = queued.filter((message) => !message.from);
@@ -75,10 +82,27 @@ export function QueuedMessagesPanel({
               !expanded && index < messages.length - 1 && "hidden sm:block",
             )}
           >
+            <QueuedBy message={message} me={me} />
             <UserMessageBody item={message} signedUrl={signedUrl} />
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+/** Whose waiting words these are, as the platform stamped them. Nothing for words that name
+ *  nobody (the mind's own code sent them). */
+function QueuedBy({ message, me }: { message: AgentUiMessageItem; me: string | undefined }) {
+  const { sender, saidBy } = message;
+  if (!sender || !saidBy) return null;
+  const who = sender.email || sender.actor;
+  return (
+    <span className="font-readme mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+      <Face small who={who} />
+      <span data-queued-by title={who}>
+        {sentByMe(sender, me) ? "You" : saidBy}
+      </span>
+    </span>
   );
 }

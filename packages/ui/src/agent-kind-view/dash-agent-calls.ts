@@ -14,7 +14,10 @@ type AgentsRoot = {
   agents: {
     create(path: string): Promise<unknown>;
     get(path: string): {
-      message(input: { message: string; files?: unknown }): Promise<unknown>;
+      message(
+        input: { message: string; files?: unknown },
+        options?: { key: string },
+      ): Promise<unknown>;
       [Symbol.dispose](): void;
     };
   };
@@ -46,15 +49,17 @@ export async function appendEvents(
 }
 
 /** Says `input` to the agent at `path` (`itx.agents.get(path).message`), then lets go of the
- *  agent's handle, whatever the answer. */
+ *  agent's handle, whatever the answer. With `key`, the message's own key from the chat, the
+ *  same message sent again lands once (a mind whose platform does not know keys yet ignores it). */
 export async function messageAgent(
   itx: Itx,
   path: string,
   input: { message: string; files?: unknown },
+  key?: string,
 ): Promise<void> {
   const agent = withAgents(itx).agents.get(path);
   try {
-    await agent.message(input);
+    await (key ? agent.message(input, { key }) : agent.message(input));
   } finally {
     agent[Symbol.dispose]();
   }
