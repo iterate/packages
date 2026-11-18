@@ -94,6 +94,12 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   more: `agents` puts the agents in the sidebar and ⌘K and takes `?agent=<path>`, and `contexts` is
   the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
   `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
+  THE DASH'S ADDRESSES ARE PATHS on a page that says `<html data-addresses="paths">`
+  (`/secrets`, `/agents/onboarding`, `/contexts/repos/config`; the scheme is
+  `components/dash/dash-href.ts`), and queries on any other page, as before. Every part reads
+  `usePageParam` and builds `pageHref`, `agentViewHref` or `rawViewHref`: never read `location`
+  or write a `?page=` link by hand. A link to a Dash from another app keeps the query form
+  (`?agent=<path>`), which every Dash reads.
 - The Agents app's parts (`components/agents-nav`, `components/agents-home`, `lib/agent-summary`)
   serve the hosted app; the Dash takes `StatusDot` and `lib/agent-summary`. None imports a router. They take
   `agentHref(path)` and `onOpen(path)`, so that a page with a client router can make a plain click

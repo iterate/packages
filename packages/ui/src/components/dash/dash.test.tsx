@@ -461,6 +461,90 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
 });
 
+test("with paths, each page and each agent has a path of its own: a deep link, a click, Back, and an old link", async () => {
+  document.documentElement.dataset.addresses = "paths";
+  try {
+    function AgentShown() {
+      const agent = usePageParam("agent");
+      return <p>agent view of {agent || "none"}</p>;
+    }
+    const agents = { id: "agents", name: "Agents", icon: BotIcon, component: AgentShown };
+    // a deep link, opened cold: an agent whose path holds an address
+    await using dash = await draw("/agents/canvas2/ada@example.com/notes.md", [], {
+      pages: [...pages, agents],
+      pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
+      agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
+    });
+    const { host } = dash;
+    const hrefOf = (name: string) => linksNamed(host, name)[0]?.getAttribute("href");
+    expect(host.textContent).toContain("agent view of /agents/canvas2/ada@example.com/notes.md");
+    // every link is a path from the root, so it leads to the same place from any page
+    await until(() => host.querySelector("[data-agent-path] a"));
+    expect({
+      home: hrefOf("Home"),
+      analytics: hrefOf("Analytics"),
+      newAgent: hrefOf("New agent"),
+      all: hrefOf("View all"),
+      pinned: hrefOf("Pinned helper"),
+      agent: host.querySelector("[data-agent-path] a")?.getAttribute("href"),
+    }).toEqual({
+      home: "/",
+      analytics: "/analytics",
+      newAgent: "/agents",
+      all: "/agents",
+      pinned: "/agents/helper",
+      agent: "/agents/t1",
+    });
+    // a click on a page's row, then on the pinned row, which is marked while its agent is open
+    await act(() => linksNamed(host, "Analytics")[0]!.click());
+    expect(location).toMatchObject({ pathname: "/analytics", search: "" });
+    expect(host.textContent).toContain("the charts");
+    await act(() => linksNamed(host, "Pinned helper")[0]!.click());
+    expect(location).toMatchObject({ pathname: "/agents/helper", search: "" });
+    expect(host.textContent).toContain("agent view of /agents/helper");
+    expect(linksNamed(host, "Pinned helper")[0]!.hasAttribute("data-active")).toBe(true);
+    // Back is the page before
+    await act(async () => {
+      history.back();
+      await new Promise((resolve) => addEventListener("popstate", resolve, { once: true }));
+    });
+    expect(location).toMatchObject({ pathname: "/analytics" });
+    expect(host.textContent).toContain("the charts");
+    // an old link, followed from a deep page, shows what it always showed
+    await act(() => go("?page=agents"));
+    expect(location).toMatchObject({ pathname: "/agents", search: "" });
+    expect(host.textContent).toContain("agent view of none");
+    await act(() => go("/?agent=/agents/t1&view=%7B%22view%22%3A%22events%22%7D"));
+    expect(host.textContent).toContain("agent view of /agents/t1");
+    // the first page is the root
+    await act(() => linksNamed(host, "Home")[0]!.click());
+    expect(location).toMatchObject({ pathname: "/", search: "" });
+    expect(host.querySelector("h1")?.textContent).toBe("example.com");
+  } finally {
+    delete document.documentElement.dataset.addresses;
+    history.replaceState(null, "", "/");
+  }
+});
+
+test("with paths, the Contexts page shows the context whose path follows its id, a dot in it or not", async () => {
+  // this test's itx cannot open the root: the page says so
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  document.documentElement.dataset.addresses = "paths";
+  try {
+    await using dash = await draw("/contexts/agents/a.b", [], {
+      pages: withContexts,
+      contexts: catalogRows,
+    });
+    await until(() => dash.opened.length);
+    expect(dash).toMatchObject({ opened: ["/"] });
+    expect(dash.host.textContent).toContain("/agents/a.b");
+    expect(dash.host.textContent).not.toContain("Pick a context from the list");
+  } finally {
+    delete document.documentElement.dataset.addresses;
+    history.replaceState(null, "", "/");
+  }
+});
+
 async function openPalette() {
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),

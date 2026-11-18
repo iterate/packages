@@ -58,7 +58,7 @@ import {
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, kept, type ItxConnection } from "#/lib/itx-session.ts";
-import { go, linkTo, pageHref, usePageParam, useSearch } from "#/lib/page-url.ts";
+import { go, keysOfLink, linkTo, pageHref, useAddress, usePageParam } from "#/lib/page-url.ts";
 import { titleWithCount, useWaitingApprovals } from "#/lib/waiting-approvals.ts";
 
 export {
@@ -120,7 +120,7 @@ export function Dash({
     schemeOfPage,
     (): "light" => "light",
   );
-  const search = useSearch();
+  const address = useAddress();
   const asked = usePageParam("page");
   const agentsPage = pages.find((row) => row.id === "agents");
   const contextsPage = pages.find((row) => row.id === "contexts");
@@ -157,7 +157,7 @@ export function Dash({
       <AppShell
         app={app}
         mind={mind}
-        mindHref={() => "./"}
+        mindHref={() => pageHref(undefined)}
         nav={
           <DashNav
             itx={itx}
@@ -203,7 +203,7 @@ export function Dash({
               )
             : undefined
         }
-        locationKey={search}
+        locationKey={address}
       >
         <PageBoundary key={page.id} shows={agent || ""}>
           <Suspense fallback={<DashPlaceholder />}>
@@ -340,7 +340,7 @@ function RowLink({
   return (
     <a
       {...props}
-      href={href}
+      href={link?.href || href}
       onClick={(event) => {
         onClick?.(event);
         link?.onClick(event);
@@ -349,9 +349,14 @@ function RowLink({
   );
 }
 
-/** The agent a link opens in place (`?agent=<path>`), or null for any other link. */
-function agentOfHref(href: string) {
-  return href.startsWith("?") ? new URLSearchParams(href).get("agent") : null;
+/** What a pinned row's link opens in place: the agent it names, or one of the pages. A link to
+ *  any other place (another host, a path of the Dash's own host) is the browser's. */
+function inPlaceOf(href: string, pages: DashPage[]) {
+  const keys = keysOfLink(href);
+  const agent = keys?.get("agent") || undefined;
+  const page = keys?.get("page");
+  const inPage = Boolean(keys) && (Boolean(agent) || !page || pages.some((row) => row.id === page));
+  return { agent, inPage };
 }
 
 /** The link to a page of the list: the first one is the Dash's root, "./". */
@@ -516,9 +521,9 @@ function DashNav({
               {pinned.map((row) => (
                 <SidebarMenuItem key={row.name}>
                   <SidebarMenuButton
-                    isActive={!!agent && agentOfHref(row.href) === agent}
+                    isActive={!!agent && inPlaceOf(row.href, pages).agent === agent}
                     tooltip={row.name}
-                    render={<RowLink href={row.href} inPage={row.href.startsWith("?")} />}
+                    render={<RowLink href={row.href} inPage={inPlaceOf(row.href, pages).inPage} />}
                   >
                     <row.icon />
                     <span>{row.name}</span>
