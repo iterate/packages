@@ -5,7 +5,10 @@
 // a page whose reader is no developer. `eventsTab={false}` keeps the strip's status and drops the
 // tabs and the Events tab. `tabsInHeader`: the page draws Chat | Events in its own header
 // (`AgentTabs`), so the shell draws no strip, and the status is a line at the feed's foot
-// (`AgentFootStatus`). It fills its parent, a flex column with a bounded height.
+// (`AgentFootStatus`). `aside` is a control of the kind's own beside Chat | Events: in the strip,
+// or, where the shell draws none, in `asideIn` (an element of the page's own header), through a
+// portal.
+// It fills its parent, a flex column with a bounded height.
 //
 // A kind's view (agent-kind-view/) builds on this, as iterate's `AgentChat` does:
 //
@@ -13,6 +16,7 @@
 //     <${MyChat} … />
 //   </${ui.AgentShell}>`
 import { use, useMemo, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { agentEventInspectors } from "./agent-event-inspectors.tsx";
 import { AgentFootStatusContext, AgentTabsInHeader } from "./agent-shell-contexts.ts";
@@ -34,6 +38,8 @@ export function AgentShell({
   strip = true,
   eventsTab = true,
   tabsInHeader,
+  aside,
+  asideIn,
   inspectors,
   sheet,
   closeSheet,
@@ -62,6 +68,12 @@ export function AgentShell({
    *  the status is a line at the feed's foot. Omitted: what `AgentTabsInHeader` says, which is
    *  `false` unless a kind's frame was asked for it. */
   tabsInHeader?: boolean;
+  /** A control of the kind's own beside Chat | Events (iterate's: who can use this conversation). */
+  aside?: ReactNode;
+  /** An element of the page's own header, beside its Chat | Events, where `aside` is drawn when
+   *  the shell draws no strip: the page keeps its place, so nothing moves when it comes. `null`
+   *  while the page has not drawn it yet. */
+  asideIn?: HTMLElement | null;
   /** Inspector bodies for the kind's own event types, over the agent ones. */
   inspectors?: EventInspectors;
   /** One right-edge sheet of the kind's own (iterate's traces), drawn over both tabs. */
@@ -76,12 +88,13 @@ export function AgentShell({
   const frameSays = use(AgentTabsInHeader);
   // `strip={false}` is the chat alone, with no tabs anywhere
   const inHeader = strip && (tabsInHeader ?? frameSays);
+  const stripShown = strip && !inHeader;
   const view = !children ? "events" : strip && eventsTab ? state.view : undefined;
   const allInspectors = useMemo(() => ({ ...agentEventInspectors, ...inspectors }), [inspectors]);
   const foot = useMemo(() => (inHeader ? { status } : null), [inHeader, status]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {strip && !inHeader ? (
+      {stripShown ? (
         <AgentStrip
           status={status}
           view={view}
@@ -90,8 +103,10 @@ export function AgentShell({
           held={context.events.length}
           wholeLogHeld={!context.older || context.older.exhausted}
           onStateChange={onStateChange}
+          aside={aside}
         />
       ) : null}
+      {!stripShown && asideIn ? createPortal(aside, asideIn) : null}
       {error ? (
         <p data-type="error" className="px-4 py-2 text-sm text-destructive">
           {error}

@@ -157,6 +157,25 @@ test("the frame hands the view the viewer the page names: a kind that draws Agen
   expect(seen.at(-1)).toBeUndefined();
 });
 
+test("the view's verbs stay the same functions while the host sends updates, so its rows stay drawn and an image is signed once", async () => {
+  const signedUrls = new Set<unknown>();
+  const view: LoadedView = {
+    component: (props: AgentKindViewProps) => {
+      signedUrls.add(props.signedUrl);
+      return null;
+    },
+    ephemeralEvents: [],
+  };
+  using frame = await mount({ caughtUp: true, older: null }, view);
+  await act(async () =>
+    frame.inputs.apply({ events: { prepend: [], append: [event(1, "test/said")] } }),
+  );
+  await act(async () =>
+    frame.inputs.apply({ events: { prepend: [], append: [event(2, "test/said")] } }),
+  );
+  expect([...signedUrls]).toHaveLength(1);
+});
+
 test.for<{ name: string; offsets: number[]; answered: "rows" | "empty" }>([
   { name: "a session with words", offsets: [1, 2], answered: "rows" },
   { name: "a session in which nothing was said", offsets: [], answered: "empty" },
@@ -364,6 +383,7 @@ async function mount(
   );
   return {
     host,
+    inputs,
     [Symbol.dispose]: () => {
       act(() => root.unmount());
       document.body.replaceChildren();

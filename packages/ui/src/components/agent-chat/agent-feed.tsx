@@ -49,12 +49,11 @@ import {
   looksLikeCode,
 } from "./agent-events.ts";
 import { useTickingNowMs } from "./use-ticking-now-ms.ts";
-import { sentByMe, type MessageSender } from "./stream-event.ts";
+import { sentByMe } from "./stream-event.ts";
 import { Message, MessageContent, MessageResponse } from "./message.tsx";
-import { ParticipantBubble, ParticipantFace } from "./participant.tsx";
+import { MessageAuthor, ParticipantRow } from "./participant.tsx";
 import { StreamingCodeBlock, StreamingCursor, StreamingText } from "./streaming-text.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import { labelOf } from "#/lib/principal-label.ts";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -113,17 +112,21 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
         );
       if (item.sender && item.saidBy && !sentByMe(item.sender, me))
         return (
-          <ParticipantMessage
-            item={item}
-            sender={item.sender}
-            saidBy={item.saidBy}
+          <ParticipantRow
+            data-kind="user"
+            data-from="other"
+            principal={item.sender}
+            name={item.saidBy}
             first={!continuesRun}
-            signedUrl={signedUrl}
-          />
+          >
+            <UserMessageBody item={item} signedUrl={signedUrl} />
+          </ParticipantRow>
         );
+      // a bubble at the right is the viewer's to the eye, so it is theirs to a screen reader too
       return (
         <Message from="user" className="pb-2 pt-3.5" data-kind="user">
           <MessageContent className="group-[.is-user]:rounded-2xl">
+            <MessageAuthor>You</MessageAuthor>
             <UserMessageBody item={item} signedUrl={signedUrl} />
           </MessageContent>
         </Message>
@@ -337,44 +340,6 @@ function FoldedMessage({
         hasText={message.text !== ""}
         signedUrl={signedUrl}
       />
-    </div>
-  );
-}
-
-/** Another participant's message: a bubble at the left. The first of their run has their short
- *  name over it and their face beside it, in the gutter; the bubbles after it keep the indent and
- *  have neither. */
-function ParticipantMessage({
-  item,
-  sender,
-  saidBy,
-  first,
-  signedUrl,
-}: {
-  item: AgentUiMessageItem;
-  sender: MessageSender;
-  saidBy: string;
-  first: boolean;
-  signedUrl: SignedUrl;
-}) {
-  return (
-    <div
-      data-kind="user"
-      data-from="other"
-      className={cn("flex flex-col gap-1 pb-2", first ? "pt-3.5" : "pt-0")}
-    >
-      {first ? (
-        <span
-          data-said-by
-          title={labelOf(sender)}
-          className="font-readme truncate pl-8 text-2xs text-muted-foreground"
-        >
-          {saidBy}
-        </span>
-      ) : null}
-      <ParticipantBubble face={first ? <ParticipantFace principal={sender} /> : undefined}>
-        <UserMessageBody item={item} signedUrl={signedUrl} />
-      </ParticipantBubble>
     </div>
   );
 }
@@ -1102,7 +1067,10 @@ export function UserMessageBody({
 }) {
   return (
     <>
-      {item.text === "" ? null : <div className="whitespace-pre-wrap leading-6">{item.text}</div>}
+      {item.text === "" ? null : (
+        // a long word or link wraps, so a bubble is never wider than its column
+        <div className="whitespace-pre-wrap leading-6 wrap-anywhere">{item.text}</div>
+      )}
       <MessageAttachments files={item.files} hasText={item.text !== ""} signedUrl={signedUrl} />
     </>
   );

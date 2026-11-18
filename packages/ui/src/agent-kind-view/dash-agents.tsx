@@ -7,7 +7,8 @@
 //               `?agent=<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
-//               header is one row: the agent's title and path, and Chat | Events. The row's
+//               header is one row: the agent's title and path, who can use the conversation
+//               (with presence on), and Chat | Events. The row's
 //               `openers` are what the mind says first in an empty chat.
 //
 // They live here, out of the shadcn registry, because they host kinds' frames: a registry item may
@@ -28,7 +29,7 @@ import { ShieldAlertIcon, TriangleAlertIcon } from "lucide-react";
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { facetSnapshotOf } from "iterate/react";
-import type { AgentKindViewInputs } from "./bridge.ts";
+import type { AgentKindViewInputs, AgentKindViewLoaded } from "./bridge.ts";
 import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
 import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
 import { useHeldContext } from "#/hooks/use-itx-session.ts";
@@ -481,7 +482,16 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
   // when `saved` is known, so its memory holds the view.
   const remembered = saved && tails && tails !== "pending" ? tails.peek(path)?.view : undefined;
   return (
-    <Suspense fallback={<AgentPageReading path={path} agents={agents} quiet={quiet} />}>
+    <Suspense
+      fallback={
+        <AgentPageReading
+          path={path}
+          agents={agents}
+          quiet={quiet}
+          presence={Boolean(page.presence)}
+        />
+      }
+    >
       <AgentViewOfKind
         itx={itx}
         path={path}
@@ -499,15 +509,23 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
 
 /** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
  *  cut at its end where it does not fit, and Chat | Events at the right, which never wrap. With no
- *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet. */
+ *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet.
+ *  With `presence`, a place of a button's size before the tabs, from the first paint: the chat
+ *  draws who can use the conversation in it (`AgentChat`'s `asideIn`, which `aside` receives),
+ *  so the tabs do not move when it comes. */
 function AgentPageHeader({
   path,
   agents,
   tabs,
+  presence,
+  aside,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
   tabs?: Omit<ComponentProps<typeof AgentTabs>, "className">;
+  presence: boolean;
+  /** Receives the place's element. */
+  aside?: (element: HTMLElement | null) => void;
 }) {
   const title = agents?.find((agent) => agent.path === path)?.title;
   return (
@@ -524,19 +542,24 @@ function AgentPageHeader({
           className={title ? "text-sm md:text-xs md:text-muted-foreground" : "text-sm"}
         />
       </span>
-      {tabs ? (
-        <AgentTabs {...tabs} className="shrink-0" />
-      ) : (
-        <div inert className="shrink-0">
-          <AgentTabs
-            view={undefined}
-            hasChat
-            held={undefined}
-            wholeLogHeld
-            onStateChange={nothingToChange}
-          />
-        </div>
-      )}
+      <span className="flex shrink-0 items-center gap-1">
+        {presence ? (
+          <span ref={aside} data-slot="agent-header-aside" className="flex size-7 shrink-0" />
+        ) : null}
+        {tabs ? (
+          <AgentTabs {...tabs} />
+        ) : (
+          <div inert>
+            <AgentTabs
+              view={undefined}
+              hasChat
+              held={undefined}
+              wholeLogHeld
+              onStateChange={nothingToChange}
+            />
+          </div>
+        )}
+      </span>
     </AppShellPageHeader>
   );
 }
@@ -550,15 +573,18 @@ function AgentPageReading({
   path,
   agents,
   quiet,
+  presence,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
   /** Saved rows wait for the view: no loading line (`AgentReading`). */
   quiet: boolean;
+  /** The header keeps the place of who can use the conversation. */
+  presence: boolean;
 }) {
   return (
     <>
-      <AgentPageHeader path={path} agents={agents} />
+      <AgentPageHeader path={path} agents={agents} presence={presence} />
       <AgentReading strip={false} quiet={quiet} />
     </>
   );
@@ -608,7 +634,7 @@ function AgentViewOfKind({
   if (!next) {
     // nothing to draw yet: the kinds are waited for as the page waits for the chat's part
     use(files);
-    return <AgentPageReading path={path} agents={agents} quiet={quiet} />;
+    return <AgentPageReading path={path} agents={agents} quiet={quiet} presence={presence} />;
   }
   const { view, mount } = next;
   return view.file ? (
@@ -689,6 +715,8 @@ function IterateChat({
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
+  // the header's place for who can use the conversation, once the header has drawn it
+  const [aside, setAside] = useState<HTMLElement | null>(null);
   // held and read again at each new session: the rows of the last one, or of the last page load,
   // stay until then
   const session = itxSessionOf(itx);
@@ -707,6 +735,8 @@ function IterateChat({
   // appended once for the mind (its key), whatever reloads or tabs. Never by a saved copy: it may
   // be of a log made again under the same path, and only the mind's answer says it is empty.
   const { stub } = agent;
+  // one function while `itx` is the same: each mounted row and attachment keeps its signed URL
+  const signedUrl = useCallback((file: string) => fileUrl(itx, file), [itx]);
   const empty =
     !context.savedCopy &&
     context.caughtUp &&
@@ -735,6 +765,8 @@ function IterateChat({
           wholeLogHeld: context.older.exhausted,
           onStateChange: patchView,
         }}
+        presence={presence}
+        aside={setAside}
       />
       <AgentChat
         path={path}
@@ -743,11 +775,12 @@ function IterateChat({
         state={shown}
         onStateChange={patchView}
         tabsInHeader
+        asideIn={aside}
         onMessage={async ({ message, files, key }) => {
           await messageAgent(itx, path, { message, files }, key);
         }}
         onAppend={stub ? (events) => appendEvents(stub, events) : undefined}
-        signedUrl={(file) => fileUrl(itx, file)}
+        signedUrl={signedUrl}
         me={me}
         presence={presence}
       />
@@ -798,13 +831,12 @@ function KindChat({
   const session = itxSessionOf(itx);
   const agent = useHeldContext(session, () => itx.cd(path), [itx, path]);
   const { link, loaded } = useAgentKindViewLink(file.name, file.source);
+  const load = useMemo(() => frameLoadOf(loaded), [loaded]);
   // every durable event (the frame's Events tab is the whole log) and, by name, the ephemeral
   // ones the view reads, which a wildcard never matches; nothing until the frame has said which
   const options = useMemo(
-    () => ({
-      consumes: ["*", ...(loaded && "ephemeralEvents" in loaded ? loaded.ephemeralEvents : [])],
-    }),
-    [loaded],
+    () => ({ consumes: ["*", ...load.ephemeralEvents] }),
+    [load.ephemeralEvents],
   );
   // read again at each new session: the frame keeps the rows of the last one, or of the last page
   // load, until then. The saved rows are in `inputs` from the first render, and the link sends
@@ -825,7 +857,7 @@ function KindChat({
   const { loading, exhausted } = log.older;
   const older = useMemo(() => (exhausted ? null : { loading, exhausted }), [loading, exhausted]);
   const { stub } = agent;
-  const hostError = agent.error || (loaded && "error" in loaded ? loaded.error : undefined);
+  const hostError = agent.error || load.error;
   // the cover stands until the frame has drawn (its own document loads first) and the log has
   // answered: a saved copy answers at once, so the frame's load is said outright
   const reading =
@@ -854,23 +886,14 @@ function KindChat({
   };
   // the view's state, as the frame reads it
   const state = inputs.state;
-  // everything the frame may do, to this agent alone: never the agent's stub, which reaches the
-  // whole mind
-  const verbs: AgentKindViewVerbs = {
-    message: ({ message, files, key }) => messageAgent(itx, path, { message, files }, key),
-    append: async (events) => {
-      if (!stub) throw new Error("not connected");
-      await appendEvents(stub, events);
-    },
-    fileUrl: async (filePath) => {
-      if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
-      return fileUrl(itx, filePath);
-    },
+  const verbs = kindViewVerbs({
+    itx,
+    path,
+    stub,
     setState: patchView,
     loadOlder: log.older.loadOlder,
-  };
-  // a kind with no view, or one that failed to load, is the Events tab alone
-  const hasChat = !loaded || "ephemeralEvents" in loaded;
+  });
+  const { hasChat } = load;
   return (
     <>
       <AgentPageHeader
@@ -884,6 +907,9 @@ function KindChat({
           wholeLogHeld: log.older.exhausted,
           onStateChange: patchView,
         }}
+        // the place stays as the loading header had it, and empty: the kind's view runs in a
+        // frame, which draws nothing into this page
+        presence={presence}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <AgentKindViewFrame
@@ -901,6 +927,52 @@ function KindChat({
       </div>
     </>
   );
+}
+
+/** What a frame's load says: the ephemeral types its view reads, its failure, and whether it has
+ *  a chat. A kind with no view, or one that failed to load, is the Events tab alone; a frame that
+ *  has not loaded yet is drawn as a chat. */
+function frameLoadOf(loaded: AgentKindViewLoaded | undefined): {
+  ephemeralEvents: readonly string[];
+  error: string | undefined;
+  hasChat: boolean;
+} {
+  if (!loaded) return { ephemeralEvents: [], error: undefined, hasChat: true };
+  if ("ephemeralEvents" in loaded)
+    return { ephemeralEvents: loaded.ephemeralEvents, error: undefined, hasChat: true };
+  return {
+    ephemeralEvents: [],
+    error: "error" in loaded ? loaded.error : undefined,
+    hasChat: false,
+  };
+}
+
+/** Everything a kind's frame may do, to this agent alone: never the agent's stub, which reaches
+ *  the whole mind. */
+function kindViewVerbs({
+  itx,
+  path,
+  stub,
+  setState,
+  loadOlder,
+}: Pick<AgentKindViewVerbs, "setState" | "loadOlder"> & {
+  itx: Itx;
+  path: string;
+  stub: Parameters<typeof appendEvents>[0] | undefined;
+}): AgentKindViewVerbs {
+  return {
+    message: ({ message, files, key }) => messageAgent(itx, path, { message, files }, key),
+    append: async (events) => {
+      if (!stub) throw new Error("not connected");
+      await appendEvents(stub, events);
+    },
+    fileUrl: async (filePath) => {
+      if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
+      return fileUrl(itx, filePath);
+    },
+    setState,
+    loadOlder,
+  };
 }
 
 /** The time, read again every `everyMs`: what "3 min" is counted from. */

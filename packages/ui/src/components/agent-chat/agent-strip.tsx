@@ -7,7 +7,7 @@
 // the feed's foot, over the composer (`AgentFootStatus`, which `Feed` and the iterate chat draw).
 // A kind's view in a sandboxed frame hears it through `AgentTabsInHeader`
 // (agent-shell-contexts.ts), which the frame sets.
-import { use } from "react";
+import { use, type ReactNode } from "react";
 import { CircleIcon } from "lucide-react";
 import { cn } from "cn";
 import type { AgentChatState } from "./agent-chat-search.ts";
@@ -31,6 +31,7 @@ export function AgentStrip({
   held,
   wholeLogHeld,
   onStateChange,
+  aside,
 }: {
   status: AgentShellStatus | undefined;
   view: AgentChatState["view"];
@@ -42,20 +43,24 @@ export function AgentStrip({
   held: number | undefined;
   wholeLogHeld: boolean;
   onStateChange: (patch: Partial<AgentChatState>) => void;
+  /** A control of the kind's own, before the tabs (`AgentShell`'s `aside`). */
+  aside: ReactNode;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-3 px-4 py-1">
       {status?.text ? <StatusText status={status} /> : null}
-      {tabs ? (
-        <AgentTabs
-          view={view}
-          hasChat={hasChat}
-          held={held}
-          wholeLogHeld={wholeLogHeld}
-          onStateChange={onStateChange}
-          className="ml-auto"
-        />
-      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {aside}
+        {tabs ? (
+          <AgentTabs
+            view={view}
+            hasChat={hasChat}
+            held={held}
+            wholeLogHeld={wholeLogHeld}
+            onStateChange={onStateChange}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

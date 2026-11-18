@@ -27,8 +27,9 @@ export const Message = ({ className, from, side = "end", ...props }: MessageProp
       from === "user"
         ? side === "end"
           ? "is-user ml-auto max-w-[95%] justify-end"
-          : // as wide as its bubble, so the bubble's own `ml-auto` has no room to push it right
-            "is-user w-fit max-w-[95%]"
+          : // as wide as its bubble, at the start of its grid cell, so the bubble's own `ml-auto` has
+            // no room to push it right; never wider than the cell, so long words wrap
+            "is-user min-w-0 w-fit max-w-full justify-self-start"
         : "is-assistant",
       className,
     )}

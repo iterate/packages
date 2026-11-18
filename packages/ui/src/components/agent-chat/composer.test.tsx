@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The composer's paste: image files in a paste are staged as attachments, as from the `+`, and a
 // submit sends them as data URLs; the paste's text still goes into the message editor (CodeMirror,
-// loaded for real). Out of scope: drop and the file picker.
+// loaded for real). And its round button while a turn runs. Out of scope: drop and the file picker.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -89,6 +89,37 @@ test("a composer for words only has no `+`, no file input, and a pasted file sta
   await composer.paste({ files: [new File(["first"], "screenshot-1.png", { type: "image/png" })] });
 
   expect(composer.draft()).toMatchObject({ attachments: { entries: [] } });
+});
+
+test("while a turn runs the round button sends a draft, which waits in the queue, and stops the turn when the draft is empty, at one size", async () => {
+  const run = vi.fn(async () => {});
+  const composer = await renderComposer({ interrupt: { run, isInterrupting: false } });
+  const round = () =>
+    composer.container.querySelector(
+      "button[title='Stop generation'], button[title='Send message']",
+    );
+  const looks = () => [round()?.getAttribute("title"), round()?.getAttribute("class")];
+  const seen = [looks()];
+  await composer.paste({ text: "and make it green" });
+  seen.push(looks());
+  await composer.send();
+  seen.push(looks());
+  const [, size] = seen[0]!;
+  expect(seen).toEqual([
+    ["Stop generation", size],
+    ["Send message", size],
+    ["Stop generation", size],
+  ]);
+  expect(composer.onSubmit.mock.calls).toMatchObject([[{ message: "and make it green" }]]);
+  expect(run).not.toHaveBeenCalled();
+  // a finger's size on a touch screen of any width, as is the `+`
+  expect([
+    size?.split(" "),
+    composer.container.querySelector("button[title='Composer mode']")?.className.split(" "),
+  ]).toEqual([
+    expect.arrayContaining(["pointer-coarse:size-11"]),
+    expect.arrayContaining(["pointer-coarse:size-11"]),
+  ]);
 });
 
 type Paste = { files?: File[]; items?: File[]; text?: string };

@@ -24,9 +24,12 @@ export function FrameView({
   const held = useSyncExternalStore(inputs.subscribe, inputs.get);
   // what the frame itself reported of its kind file, which the host says back as its own error
   const kindFileError = "error" in view ? view.error : undefined;
+  // the verbs are the host's alone: each update of what it sent keeps them, so the view's rows
+  // stay memoised and an attachment keeps its signed URL
+  const verbs = useMemo(() => verbsOf(host), [host]);
   const props = useMemo(
-    () => held && propsOf(held, host, kindFileError),
-    [held, host, kindFileError],
+    () => held && propsOf(held, host, verbs, kindFileError),
+    [held, host, verbs, kindFileError],
   );
   // the page's header has the tabs: every shell in the frame draws none
   return (
@@ -57,6 +60,7 @@ function FrameBody({ props, view }: { props: AgentKindViewProps | undefined; vie
 function propsOf(
   held: AgentKindViewInputs,
   host: Host,
+  verbs: ReturnType<typeof verbsOf>,
   kindFileError: string | undefined,
 ): AgentKindViewProps {
   const readFailed = Boolean(held.error || (held.hostError && held.hostError !== kindFileError));
@@ -75,12 +79,21 @@ function propsOf(
     },
     error: held.hostError,
     state: held.state,
+    ...verbs,
+    me: held.me,
+    presence: held.presenceOn,
+  };
+}
+
+/** What the view's props call back over the port. */
+function verbsOf(
+  host: Host,
+): Pick<AgentKindViewProps, "onStateChange" | "onMessage" | "onAppend" | "signedUrl"> {
+  return {
     onStateChange: (patch) => void host.setState(patch),
     onMessage: async (input) => await host.message(input),
     onAppend: async (events) => await host.append(events),
     signedUrl: async (path) => await host.fileUrl(path),
-    me: held.me,
-    presence: held.presenceOn,
   };
 }
 

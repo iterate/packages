@@ -36,6 +36,7 @@ export function AgentReading({
             held={undefined}
             wholeLogHeld
             onStateChange={nothingToChange}
+            aside={null}
           />
         </div>
       ) : null}

@@ -204,16 +204,54 @@ test("typing ends 6 s after the last status said it, on the mind's clock, and a 
   ]);
 });
 
-test("typing still ends on time when the page starts saying its status under another row meanwhile", async () => {
+test("typing that was heard ends 6 s after it was said while the page's own row is gone, and after it comes back", async () => {
   using page = viewer();
   page.see([row("bob-1", BOB)]);
   page.take([status(BOB, "bob-1", { typing: true })]);
   page.presence.start(page.send, "ada-1");
-  // a new session gave the page another row: it stops and starts again
+  // the page's socket closed: its row went, and the page says nothing
   page.presence.stop();
-  page.presence.start(page.send, "ada-2");
   await vi.advanceTimersByTimeAsync(6_010);
-  expect(page.presence.get()).toMatchObject([{ actor: BOB.actor, typing: false }]);
+  const typing = [page.presence.get()];
+  // a new session gave the page another row
+  page.presence.start(page.send, "ada-2");
+  page.take([...page.taken, status(BOB, "bob-1", { typing: true })]);
+  await vi.advanceTimersByTimeAsync(6_010);
+  typing.push(page.presence.get());
+  expect(typing).toMatchObject([[{ typing: false }], [{ typing: false }]]);
+});
+
+test("what a principal writes by their own hand ends the typing they said before it, a status of the same instant too; a newer one says it again", () => {
+  using page = viewer();
+  page.see([row("bob-1", BOB)]);
+  const at = Date.now();
+  const typing: boolean[] = [];
+  for (const event of [
+    status(BOB, "bob-1", { typing: true, at: at - 3_000 }),
+    // his script's words, a schedule he set, Cy's words: not his hand
+    written({ onBehalfOf: { principal: BOB, run: "/agents/a@4" } }, at - 2_000),
+    written({ principal: BOB, schedule: { key: "k" } }, at - 2_000),
+    written({ principal: CY }, at - 2_000),
+    // his message, through his own session
+    written({ principal: BOB }, at - 1_000),
+    status(BOB, "bob-1", { typing: true, at: at - 1_000 }),
+    status(BOB, "bob-1", { typing: true, at }),
+  ]) {
+    page.take([...page.taken, event]);
+    typing.push(page.presence.get()[0]!.typing);
+  }
+  expect(typing).toEqual([true, true, true, true, false, false, true]);
+});
+
+test("the viewer's own words let the next key say typing at once, within the 3 s it waits otherwise", async () => {
+  using page = viewer();
+  page.presence.start(page.send, "ada-1");
+  page.presence.typing(true);
+  await vi.advanceTimersByTimeAsync(500);
+  page.take([written({ principal: ADA }, Date.now())]);
+  page.presence.typing(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(page).toMatchObject({ sent: [sent({ typing: true }), sent({ typing: true })] });
 });
 
 test("a page whose clock is ahead of the mind's still shows a fresh status as typing", () => {
@@ -264,6 +302,17 @@ test("a page says its status once, soon, when another principal's page appears, 
   expect(page).toMatchObject({
     sent: [sent({}), sent({ away: true }), sent({ away: true, marks: ["voice"] })],
   });
+});
+
+test("a page that went and came back under the same name hears this page's status again", async () => {
+  using page = viewer();
+  page.presence.start(page.send, "ada-1");
+  page.see([row("ada-1", ADA), row("bob-1", BOB)]);
+  await vi.advanceTimersByTimeAsync(400);
+  page.see([row("ada-1", ADA)]);
+  page.see([row("ada-1", ADA), row("bob-1", BOB)]);
+  await vi.advanceTimersByTimeAsync(400);
+  expect(page).toMatchObject({ sent: [sent({}), sent({})] });
 });
 
 test("a page that does not know its own row says nothing, and still shows who is here", async () => {
@@ -331,6 +380,17 @@ function status(
   };
 }
 
+/** An event of the log (a message) as the platform commits it under `source`, at `at` on the mind's
+ *  clock. */
+function written(source: Record<string, unknown>, at: number): PresenceEvent {
+  return {
+    type: "events.iterate.com/agent/context-added",
+    createdAt: new Date(at).toISOString(),
+    payload: { role: "user", content: "hello" },
+    source: { origin: "/", ...source },
+  };
+}
+
 /** A `presence/status` as the platform commits it from a person's one-context view: stamped
  *  `onBehalfOf` the person, through the app's page, with no `run` and no `call`. */
 function viewStatus(
@@ -393,7 +453,7 @@ function viewer() {
       changed();
     },
     [Symbol.dispose]() {
-      presence.stop();
+      presence.close();
       vi.useRealTimers();
     },
   };

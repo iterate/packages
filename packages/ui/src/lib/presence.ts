@@ -24,7 +24,9 @@
 //
 // "Typing" lasts 6 s after the status said so, on the mind's clock: a page learns how far its own
 // clock is from the mind's from the newest event it has received, so a status that reaches a page
-// late is as old as it is.
+// late is as old as it is. What a principal writes by their own hand ends the typing they said
+// before it: their message and the end of their dots are one moment. Only a status newer than it
+// says they type again, and their own page says it at the next key.
 //
 // The parts, no SDK and no router:
 //   hereOf            the pages now, by principal: the rows and the lent stubs alone
@@ -33,7 +35,7 @@
 //
 // A subscription must name the type (`PRESENCE_EVENT_TYPES`): a wildcard never matches an
 // ephemeral event.
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { labelOf, type ShownPrincipal } from "./principal-label.ts";
 
@@ -101,14 +103,18 @@ export function hereOf(
       byActor.set(principal.actor, {
         ...principal,
         pages: [row.name],
-        me:
-          Boolean(me) &&
-          (principal.actor === me || principal.email?.toLowerCase() === me?.toLowerCase()),
+        me: isViewer(principal, me),
       });
   }
   return [...byActor.values()].sort(
     (a, b) => Number(a.me) - Number(b.me) || labelOf(a).localeCompare(labelOf(b)),
   );
+}
+
+/** Whether `principal` is the viewer, known by their actor id or their address. */
+function isViewer(principal: { actor: string; email?: string }, me: string | undefined): boolean {
+  if (!me) return false;
+  return principal.actor === me || principal.email?.toLowerCase() === me.toLowerCase();
 }
 
 /** What a page says of itself. Nothing in it names anybody: the platform's stamp does. */
@@ -119,12 +125,18 @@ const Status = z.object({
   marks: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 
-/** The stamp of a status: who said it, now, or nothing when no person did. */
-const StatusStamp = z.object({
+/** A stamp of something said now: no schedule fired it, it is no copy and no fact of the platform. */
+const SaidNow = z.object({
   schedule: z.undefined().optional(),
   copiedFrom: z.undefined().optional(),
   platform: z.undefined().optional(),
-  principal: z.object({ actor: z.string().min(1) }).optional(),
+});
+
+const StampPrincipal = z.object({ actor: z.string().min(1), email: z.string().optional() });
+
+/** The stamp of a status: who said it, now, or nothing when no person did. */
+const StatusStamp = SaidNow.extend({
+  principal: StampPrincipal.optional(),
   onBehalfOf: z
     .object({
       principal: z.object({ actor: z.string().min(1) }),
@@ -144,6 +156,20 @@ function saidBy(source: unknown): string | undefined {
   if (principal && !onBehalfOf) return principal.actor;
   if (onBehalfOf && !principal) return onBehalfOf.principal.actor;
   return undefined;
+}
+
+/** The stamp of an event a principal wrote by their own hand: their own session, or a call or a
+ *  view for them. Code that ran for them (`run`) is not their hand. */
+const AuthorStamp = SaidNow.extend({
+  principal: StampPrincipal.optional(),
+  onBehalfOf: z.object({ principal: StampPrincipal, run: z.undefined().optional() }).optional(),
+});
+
+/** Who wrote an event by their own hand, by the platform's stamp on it, if a principal did. */
+function writtenBy(source: unknown): z.infer<typeof StampPrincipal> | undefined {
+  const stamp = AuthorStamp.safeParse(source);
+  if (!stamp.success) return undefined;
+  return stamp.data.principal || stamp.data.onBehalfOf?.principal;
 }
 
 /** An event of a context's log, as far as presence reads it. */
@@ -214,8 +240,10 @@ type PresenceOfPage = {
   /** Start saying this page's status: `send` appends one event to the context, `subscription` is
    *  the name of the page's own row. */
   start(send: PresenceSend, subscription: string): void;
-  /** Stop saying it, and stop every timer. */
+  /** Stop saying it. What the page heard still ends on time. */
   stop(): void;
+  /** Stop saying and hearing: every timer ends. For the end of the page. */
+  close(): void;
 };
 
 /** The newest status of a page, by the principal who said it and the row it names. */
@@ -228,6 +256,8 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
   const page = opts.page || browserPage;
   let here: HerePrincipal[] = [];
   let statuses = new Map<string, HeardStatus>();
+  /** When each principal last wrote by their own hand, on the mind's clock, by actor. */
+  let wrote = new Map<string, number>();
   let present = NOBODY;
   /** What was folded last: the array's first and last event and how many it held. */
   let folded: { first?: PresenceEvent; last?: PresenceEvent; count: number } = { count: 0 };
@@ -255,7 +285,13 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
         pages: pages.length,
         state:
           said.length === pages.length && said.every((status) => status.away) ? "away" : "active",
-        typing: said.some((status) => status.typing && status.at + TYPING_TTL_MS > at),
+        // a status counts for typing while it is fresh and newer than what they wrote last
+        typing: said.some(
+          (status) =>
+            status.typing &&
+            status.at + TYPING_TTL_MS > at &&
+            status.at > (wrote.get(principal.actor) || 0),
+        ),
         marks: [...new Set(said.flatMap((status) => status.marks || []))],
       };
     });
@@ -285,18 +321,28 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
       .then(() => send({ type: "presence/status", ephemeral: true, payload }))
       .catch(() => {});
   };
-  /** Another principal's page that this page has not yet said its status to: say it, soon. */
+  /** Another principal's page that this page has not yet said its status to: say it, soon. A page
+   *  that went is forgotten, so it is greeted again when it comes back under the same name. */
   const greet = () => {
     if (!saying) return;
-    const newcomers = here
+    const others = here
       .filter((principal) => !principal.me)
       .flatMap((principal) => principal.pages);
-    if (newcomers.every((name) => greeted.has(name))) return;
-    greeted = new Set(newcomers);
+    const newcomer = others.some((name) => !greeted.has(name));
+    greeted = new Set(others);
+    if (!newcomer) return;
     answerTimer ||= setTimeout(() => {
       answerTimer = undefined;
       say();
     }, Math.random() * ANSWER_MS);
+  };
+
+  const stop = () => {
+    saying = undefined;
+    unwatch?.();
+    unwatch = undefined;
+    clearTimeout(answerTimer);
+    answerTimer = undefined;
   };
 
   return {
@@ -319,7 +365,10 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
         folded.count > 0 && events[0] === folded.first && events[folded.count - 1] === folded.last;
       if (grewAtEnd && events.length === folded.count) return;
       // another array than the one that only grew: everything in it is read again, from nothing
-      if (!grewAtEnd) statuses = new Map();
+      if (!grewAtEnd) {
+        statuses = new Map();
+        wrote = new Map();
+      }
       const fresh = grewAtEnd ? events.slice(folded.count) : events;
       folded = { first: events[0], last: events.at(-1), count: events.length };
       const arrivedAt = now();
@@ -328,7 +377,14 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
         if (!Number.isFinite(at)) continue;
         // the freshest event tells how far the mind's clock is ahead of this page's
         ahead = Math.max(ahead ?? -Infinity, at - arrivedAt);
-        if (!isPresenceEvent(event)) continue;
+        if (!isPresenceEvent(event)) {
+          const author = writtenBy(event.source);
+          if (!author) continue;
+          wrote.set(author.actor, Math.max(wrote.get(author.actor) || 0, at));
+          // the viewer's own words ended the typing this page said: the next key says it anew
+          if (isViewer(author, opts.me)) typingSaidAt = 0;
+          continue;
+        }
         const actor = saidBy(event.source);
         const status = Status.safeParse(event.payload);
         if (!actor || !status.success) continue;
@@ -355,16 +411,11 @@ export function connectPresence(opts: { me?: string; page?: PresencePage } = {})
       greeted = new Set();
       unwatch = page.watch(say);
       greet();
-      // a `stop` before this start ended the timer of what was heard: it is set again
-      publish();
     },
-    stop() {
-      saying = undefined;
-      unwatch?.();
-      unwatch = undefined;
-      clearTimeout(answerTimer);
+    stop,
+    close() {
+      stop();
       clearTimeout(clockTimer);
-      answerTimer = undefined;
     },
   };
 }
@@ -397,11 +448,14 @@ export function usePresence(opts: {
     sender.current = send;
   }, [send]);
   const saying = enabled && Boolean(send) && subscription ? subscription : undefined;
+  // what the page SAYS follows its own row: a new row, or none, ends it
   useEffect(() => {
-    if (saying) presence.start((event) => sender.current?.([event]), saying);
-    // also for a page that never said anything: the timer of what it heard is stopped with it
+    if (!saying) return;
+    presence.start((event) => sender.current?.([event]), saying);
     return () => presence.stop();
   }, [presence, saying]);
+  // what it HEARS lives as long as the store: the timer that ends a heard typing stops with it
+  useEffect(() => () => presence.close(), [presence]);
   // `mark` says a change only: a new array of the same marks says nothing
   useEffect(() => {
     presence.mark(marks);
@@ -409,7 +463,8 @@ export function usePresence(opts: {
   useEffect(() => {
     if (enabled) presence.see(rows, rpcStubs);
   }, [presence, enabled, rows, rpcStubs]);
-  useEffect(() => {
+  // before paint: a message and the end of its writer's dots are drawn in one frame
+  useLayoutEffect(() => {
     if (enabled) presence.take(events);
   }, [presence, enabled, events]);
   const present = useSyncExternalStore(presence.subscribe, presence.get, () => NOBODY);

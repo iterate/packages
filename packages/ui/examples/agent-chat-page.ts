@@ -44,7 +44,7 @@ export async function agentChatPage(scope: {
   <body>
     <div id="root"><p class="p-4 text-sm text-muted-foreground">Connecting…</p></div>
     <script type="module">
-      import { html, render, useState } from "@iterate-com/ui/page";
+      import { html, render, useCallback, useState } from "@iterate-com/ui/page";
       import { AgentChat } from "@iterate-com/ui/components/agent-chat/agent-chat";
       import { Button } from "@iterate-com/ui/components/ui/button";
       import { Input } from "@iterate-com/ui/components/ui/input";
@@ -64,6 +64,12 @@ export async function agentChatPage(scope: {
         const agent = useContextStub(root.stub ? () => root.stub.cd(path) : null, [root.stub, path]);
         // ONE live read of the agent's context, with the events and the history the chat asks for
         const context = useIterateContext(agent.stub, AgentChat.contextOptions);
+        // one function while the mind's handle is the same: a new one would draw every row again
+        const signedUrl = useCallback(async (file) => {
+          // asked of the mind: only an iterate agent's context links to the root, where files is
+          if (!root.stub) throw new Error("not connected");
+          return (await root.stub.files.get(file).url()).url;
+        }, [root.stub]);
         return html\`<\${AgentChat}
           path=\${path}
           context=\${context}
@@ -80,11 +86,7 @@ export async function agentChatPage(scope: {
             }
           }}
           onAppend=\${agent.stub ? (events) => agent.stub.append(...events) : undefined}
-          signedUrl=\${async (file) => {
-            // asked of the mind: only an iterate agent's context links to the root, where files is
-            if (!root.stub) throw new Error("not connected");
-            return (await root.stub.files.get(file).url()).url;
-          }}
+          signedUrl=\${signedUrl}
           itemFooter=\${(item) =>
             item.kind === "user" &&
             html\`<div class="flex justify-end pb-1">

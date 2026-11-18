@@ -1,6 +1,7 @@
 // The chat, on the virtual log (virtual-log/virtual-log.tsx): the feed's settled items are its rows,
 // the work in flight is its tail (with the dots of who else is typing and the chat's own status row
-// after it, if any), and the composer is its footer.
+// after it, if any), and the composer is its footer. In a chat where nothing was said, the dots of
+// who types stand over the empty greeting, at the foot of its box: the greeting stays where it is.
 import { useCallback, type ComponentProps, type ReactNode } from "react";
 import { AgentFeedItemRow, AgentLiveActivity } from "./agent-feed.tsx";
 import type { AgentUiItem, AgentUiState } from "./agent-ui-reducer.ts";
@@ -74,6 +75,15 @@ export function AgentFeedList({
   typing: readonly PresentPrincipal[];
 }) {
   const { items, state } = feed;
+  const last = items.at(-1);
+  const dots =
+    typing.length > 0 ? (
+      <TypingInStream
+        typing={typing}
+        // their next bubble goes on the run the stream ends with, unless work in flight is between
+        runOf={state.live ? undefined : runSenderOf(last)}
+      />
+    ) : null;
   const renderRow = useCallback(
     (row: AgentUiItem, index: number) => (
       <>
@@ -99,7 +109,7 @@ export function AgentFeedList({
       rowInfo={CHAT_ROWS}
       renderRow={renderRow}
       tail={
-        state.live || typing.length > 0 || after ? (
+        state.live || (dots && last) || after ? (
           <>
             {state.live ? (
               <AgentLiveActivity
@@ -110,14 +120,23 @@ export function AgentFeedList({
                 me={me}
               />
             ) : null}
-            {typing.length > 0 ? <TypingInStream typing={typing} /> : null}
+            {dots}
             {after}
           </>
         ) : undefined
       }
       older={older}
       readingOlder={<ReadProgress label="Loading older messages" value={logShare} />}
-      empty={empty}
+      empty={
+        dots ? (
+          <div className="relative h-full">
+            {empty}
+            <div className="absolute inset-x-0 bottom-0">{dots}</div>
+          </div>
+        ) : (
+          empty
+        )
+      }
       label="Chat"
       footer={footer}
       followTail={followTail}
@@ -136,4 +155,11 @@ function continuesRun(previous: AgentUiItem | undefined, item: AgentUiItem): boo
   if (previous?.kind !== "user" || item.kind !== "user" || previous.from || item.from) return false;
   const [before, now] = [previous.sender, item.sender];
   return Boolean(before && now && before.actor === now.actor && before.script === now.script);
+}
+
+/** The actor whose own run of messages a row ends, if it does: a message they wrote, not their
+ *  script. Their typed message goes on that run. */
+function runSenderOf(row: AgentUiItem | undefined): string | undefined {
+  if (row?.kind !== "user" || row.from || row.sender?.script !== false) return undefined;
+  return row.sender.actor;
 }

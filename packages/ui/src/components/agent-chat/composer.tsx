@@ -1,12 +1,13 @@
 // The pill composer: a `+` menu (Message / Raw event, and Attach files), the CodeMirror message
 // editor that grows with the draft, a raw-event editor that appends YAML or JSON to the agent's
-// log, attachment chips with drag-and-drop and paste, and one round button that sends — or, while a
-// turn runs, STOPS it (an interruption is a property of the person's next input). A composer for an
-// agent that does not exist yet has no log to append to, so it has no raw mode. `attach={false}` takes
-// words only: no `+`, no files, no raw mode. On a narrow screen
-// (below `sm`) it is compact: the buttons and padding shrink, so the words get the width and the
-// chat keeps the height (a phone's keyboard takes half the screen).
-import { useState, type DragEvent, type ReactNode } from "react";
+// log, attachment chips with drag-and-drop and paste, and one round button of one size: Send when
+// the draft can be sent, also while a turn runs (the message then waits in the queue), and STOP
+// while a turn runs and the draft is empty (an interruption is a property of the person's next
+// input). A composer for an agent that does not exist yet has no log to append to, so it has no raw
+// mode. `attach={false}` takes words only: no `+`, no files, no raw mode. On a narrow screen (below
+// `sm`) the padding shrinks, so the words get the width and the chat keeps the height (a phone's
+// keyboard takes half the screen); a touch screen's buttons are a finger's size at every width.
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { parse as parseYaml } from "yaml";
 import {
   ArrowUpIcon,
@@ -83,7 +84,8 @@ function AgentPillComposer({
   // the raw editor while it is the open mode; otherwise the message editor is
   const openRaw = mode === "raw" ? raw : undefined;
   const canSubmit = !isSubmitting && (openRaw ? openRaw.value.trim() !== "" : message.canSubmit);
-  const showInterrupt = mode === "message" && !!onInterrupt;
+  // Stop only while there is nothing to send: words written during a turn are sent, and queue
+  const stops = mode === "message" && Boolean(onInterrupt) && !message.canSubmit && !isSubmitting;
   // files come in by the `+`, a drop or a paste, and by none of them while a message is sent
   const takesFiles = attach && !isSubmitting;
   const { isDragging, dropHandlers } = useFileDrop({
@@ -141,23 +143,15 @@ function AgentPillComposer({
             takesFiles={takesFiles}
           />
         )}
-        {showInterrupt ? (
-          <ComposerStopButton
-            onClick={interrupt}
-            disabled={isSubmitting || isInterrupting}
-            isInterrupting={isInterrupting}
-          />
-        ) : (
-          <Button
-            size="icon-lg"
-            title={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
-            onClick={submit}
-            disabled={!canSubmit}
-            className="relative overflow-hidden rounded-full sm:pointer-coarse:size-11"
-          >
-            {isSubmitting ? <Spinner className="size-4" /> : <ArrowUpIcon className="size-4" />}
-          </Button>
-        )}
+        <ComposerRoundButton
+          stops={stops}
+          sendTitle={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
+          canSubmit={canSubmit}
+          isSubmitting={isSubmitting}
+          isInterrupting={isInterrupting}
+          onSubmit={submit}
+          onInterrupt={interrupt}
+        />
       </div>
     </div>
   );
@@ -280,7 +274,7 @@ function ComposerModeMenu({
             variant="ghost"
             size="icon-lg"
             title="Composer mode"
-            className="rounded-full sm:pointer-coarse:size-11"
+            className="rounded-full pointer-coarse:size-11"
           />
         }
       >
@@ -331,33 +325,47 @@ function ComposerModeMenu({
   );
 }
 
-/** The round button while a turn runs: it stops it. */
-function ComposerStopButton({
-  onClick,
-  disabled,
+/** The round button: it sends, or (`stops`) it stops the running turn, a square in a turning ring.
+ *  One button, so Send and Stop stand at the same place at the same size. */
+function ComposerRoundButton({
+  stops,
+  sendTitle,
+  canSubmit,
+  isSubmitting,
   isInterrupting,
+  onSubmit,
+  onInterrupt,
 }: {
-  onClick: () => void;
-  disabled: boolean;
+  stops: boolean;
+  sendTitle: string;
+  canSubmit: boolean;
+  isSubmitting: boolean;
   isInterrupting: boolean;
+  onSubmit: () => void;
+  onInterrupt: () => void;
 }) {
   return (
     <Button
       size="icon-lg"
-      data-spinner="true"
-      title="Stop generation"
-      onClick={onClick}
-      disabled={disabled}
-      className="relative overflow-hidden rounded-full sm:pointer-coarse:size-11"
+      title={stops ? "Stop generation" : sendTitle}
+      data-spinner={stops ? "true" : undefined}
+      onClick={stops ? onInterrupt : onSubmit}
+      disabled={stops ? isInterrupting : !canSubmit}
+      className="relative overflow-hidden rounded-full pointer-coarse:size-11"
     >
-      <span
-        aria-hidden
-        className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-primary/40 animate-spin"
-      />
-      {isInterrupting ? (
+      {stops ? (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-primary/40 animate-spin"
+        />
+      ) : null}
+      {/* what it does is under way */}
+      {(stops ? isInterrupting : isSubmitting) ? (
         <Spinner className="size-4" />
-      ) : (
+      ) : stops ? (
         <SquareIcon className="size-3.5 fill-current" />
+      ) : (
+        <ArrowUpIcon className="size-4" />
       )}
     </Button>
   );
@@ -429,6 +437,8 @@ export function AgentComposer({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string>();
+  /** Each change of the words counts one: a send ends what it sent, never a newer draft. */
+  const revision = useRef(0);
 
   async function runSubmit(action: () => Promise<void>): Promise<boolean> {
     setIsSubmitting(true);
@@ -447,18 +457,19 @@ export function AgentComposer({
   async function submitMessage() {
     const text = message.trim();
     if (text === "" && attachments.files.length === 0) return;
+    const sent = revision.current;
     const didSubmit = await runSubmit(async () =>
       onSubmit({
         message: text || "(see attached)",
         files: await filesToPayload(attachments.files),
       }),
     );
-    if (didSubmit) {
-      // what was written while it was sending is the next message
-      setMessage((current) => (current === message ? "" : current));
-      attachments.clearFiles();
-      onTyping?.(false);
-    }
+    if (!didSubmit) return;
+    attachments.clearFiles();
+    // what was written while it was sending is the next message, and its person still types
+    if (revision.current !== sent) return;
+    setMessage("");
+    onTyping?.(false);
   }
 
   async function submitRawEvents(append: (events: unknown[]) => Promise<void>) {
@@ -486,6 +497,7 @@ export function AgentComposer({
         message={{
           value: message,
           onValueChange: (value) => {
+            revision.current += 1;
             setMessage(value);
             onTyping?.(value.trim() !== "");
           },

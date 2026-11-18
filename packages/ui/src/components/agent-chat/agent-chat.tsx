@@ -17,9 +17,9 @@
 // feed and in the queue, and anyone may interrupt any answer. Another participant's bubbles stand at
 // the left under their face and name (participant.tsx). With `presence` (lib/presence.ts), a line
 // over the composer shows who else has it open now (the platform's rows of their pages), the end of
-// the feed shows who is typing (each page's own status) as their face with dots, and "Shared" says
-// what sharing it means. Each message goes out with a
-// key, so a send that is tried again lands once.
+// the feed shows who is typing (each page's own status) as their face with dots, and a people icon
+// beside Chat | Events (in the strip, or in the page's own header: `asideIn`) says who can use the
+// conversation. Each message goes out with a key, so a send that is tried again lands once.
 // THE HOST holds the agent's context and calls the SDK. `context` is what
 // `useIterateContext(stub, AgentChat.contextOptions)` returns, and each thing the chat does to the
 // agent is a callback. Nothing here imports the SDK's client or a router:
@@ -67,7 +67,7 @@ import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
-import { PresenceLine } from "./presence-line.tsx";
+import { ConversationAccess, PresenceLine } from "./presence-line.tsx";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import { sentByMe, type MessageSender, type StreamEvent } from "./stream-event.ts";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
@@ -161,6 +161,7 @@ export function AgentChat({
   placeholder = "Message this agent",
   eventsTab = true,
   tabsInHeader,
+  asideIn,
   attach = true,
   onChoice,
   choiceState,
@@ -210,6 +211,11 @@ export function AgentChat({
   /** `true`: the page draws Chat | Events in its own header (`AgentTabs`), the tab being
    *  `state.view`. No strip: the agent's status is a line at the feed's foot, over the composer. */
   tabsInHeader?: boolean;
+  /** An element of the page's own header, beside its Chat | Events, where the chat draws who can
+   *  use this conversation (with `presence`): the page keeps its place while presence is on, so
+   *  nothing moves. `null` while the page has not drawn it yet. Where the chat draws its strip,
+   *  the strip holds it instead. */
+  asideIn?: HTMLElement | null;
   /** `false`: the composer takes words only: no `+`, so no files and no raw mode. */
   attach?: boolean;
   /** What a press of a choice in the agent's words does. Absent: a choice is its plain words. */
@@ -276,6 +282,8 @@ export function AgentChat({
       strip={strip}
       eventsTab={eventsTab}
       tabsInHeader={tabsInHeader}
+      aside={presence ? <ConversationAccess present={here.present} wrote={wrote} /> : null}
+      asideIn={asideIn}
       closeSheet={TRACES_CLOSED}
       sheet={
         <InspectorSheet
@@ -312,7 +320,7 @@ export function AgentChat({
           onMessage={onMessage}
           onAppend={onAppend}
           attach={attach}
-          presenceLine={presence ? <PresenceLine present={here.present} wrote={wrote} /> : null}
+          presenceLine={presence ? <PresenceLine present={here.present} /> : null}
           onTyping={presence ? here.typing : undefined}
           typing={typing}
         />

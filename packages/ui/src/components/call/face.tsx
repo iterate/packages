@@ -36,8 +36,9 @@ export function Face({
       role={label ? "img" : undefined}
       aria-hidden={label ? undefined : true}
     >
-      {/* The two colours that are not tokens: a hue computed from the person, so no stylesheet can
-          name it, and the ink that reads best on it. Neither depends on the theme. */}
+      {/* The two colours that are not tokens: the person's own of a fixed palette, which a hash of
+          `who` chooses, so no stylesheet can name it, and the ink that reads best on it. Neither
+          depends on the theme. */}
       <AvatarFallback
         style={{ background: colourOf(who), color: inkOf(who) }}
         className={cn("font-medium", small ? "text-2xs" : "text-xs")}

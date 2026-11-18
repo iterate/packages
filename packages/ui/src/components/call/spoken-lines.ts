@@ -33,22 +33,28 @@ export const initialsOf = (who: string) =>
     .map((part) => part.charAt(0).toUpperCase())
     .join("") || "?";
 
-/** A person's colour, the same on every page and every load: a hue from a hash of `who`, at one
- *  saturation and lightness. `inkOf` gives the initials' colour on it. */
+/** The colours a face may have, as 0xRRGGBB: twelve hues that are far apart, one colour for each
+ *  (orange, red, amber, lime, green, teal, cyan, blue, violet, fuchsia, pink, slate), each dark
+ *  enough for white initials at 4.9:1 or more by WCAG 2. One lightness for each hue on purpose: a
+ *  dark and a light colour of one hue read as the same person's. They are the same in both themes.
+ *  Numbers, not CSS: `inkOf` reads their channels. */
+const FACE_COLOURS = [
+  0xc2410c, 0xb91c1c, 0xa16207, 0x4d7c0f, 0x15803d, 0x0f766e, 0x0e7490, 0x1d4ed8, 0x6d28d9,
+  0xa21caf, 0xbe185d, 0x475569,
+];
+
+/** A person's colour, the same on every page and every load: one of `FACE_COLOURS`, chosen by a
+ *  hash of `who`, as CSS (`#rrggbb`). `inkOf` gives the initials' colour on it. */
 export function colourOf(who: string) {
-  return `hsl(${hueOf(who)} 55% 45%)`;
+  return `#${faceColourOf(who).toString(16).padStart(6, "0")}`;
 }
 
 /** The initials' colour on `colourOf(who)`: white or black, whichever has the higher contrast
- *  with it by WCAG 2's relative luminance. On every hue that is at least 4.5:1, the least at hue
- *  21; a near-black such as #0a0a0a falls under 4.5:1 near hue 205. */
+ *  with it by WCAG 2's relative luminance. Every one of `FACE_COLOURS` has at least 4.9:1. */
 export function inkOf(who: string): "white" | "black" {
-  // hsl(h 55% 45%) as sRGB, by the CSS Color 4 conversion
-  const hue = hueOf(who);
-  const chroma = 0.55 * Math.min(0.45, 1 - 0.45);
-  const [red, green, blue] = [0, 8, 4].map((n) => {
-    const k = (n + hue / 30) % 12;
-    const channel = 0.45 - chroma * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  const colour = faceColourOf(who);
+  const [red, green, blue] = [16, 8, 0].map((shift) => {
+    const channel = ((colour >> shift) & 0xff) / 255;
     return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
   const luminance = 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
@@ -56,11 +62,16 @@ export function inkOf(who: string): "white" | "black" {
   return 1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05 ? "white" : "black";
 }
 
-/** The hue of `who`'s colour: a hash of the string, 0 to 359. */
-function hueOf(who: string) {
-  let hash = 0;
-  for (const char of who) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return Math.abs(hash) % 360;
+/** `who`'s colour of `FACE_COLOURS`: the 32-bit FNV-1a hash of its UTF-16 code units, mixed by
+ *  murmur3's finaliser, because FNV-1a alone moves few of its bits for a change in the last
+ *  character, and similar names would share a colour. */
+function faceColourOf(who: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < who.length; index++)
+    hash = Math.imul(hash ^ who.charCodeAt(index), 0x01000193);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
+  hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
+  return FACE_COLOURS[((hash ^ (hash >>> 16)) >>> 0) % FACE_COLOURS.length]!;
 }
 
 /** `rows` with every run of consecutive `kind: "said"` rows as ONE row of `kind: "rollup"`, for a

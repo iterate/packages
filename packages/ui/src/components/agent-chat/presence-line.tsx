@@ -1,10 +1,13 @@
 // WHO ELSE IS HERE, over the composer: a face for each other principal with the conversation open
-// now, the words "… is typing" while one of them writes, and a button that opens who can use this
-// conversation: "Shared" when another principal is here or wrote, else "Open to members". The
-// button is always there, because what it says is always true. One line of a fixed height beside
-// the agent's status, so the composer does not move when someone arrives, types or leaves. The
-// typing words are for a screen reader only: the eye sees who types at the end of the feed, as
-// their face with dots (participant.tsx `TypingInStream`), from the same principals.
+// now, and the words "… is typing" while one of them writes. One line of a fixed height beside the
+// agent's status, so the composer does not move when someone arrives, types or leaves. The typing
+// words are for a screen reader only: the eye sees who types at the end of the feed, as their face
+// with dots (participant.tsx `TypingInStream`), from the same principals.
+//
+// WHO CAN USE THIS CONVERSATION, beside Chat | Events (`ConversationAccess`, which the chat hands
+// its shell as `aside`): a quiet people icon whose card says who can use it, who is here now and
+// who else wrote. A count on the icon says how many others are here or wrote; alone, it is the
+// plain icon. It is always there, because what its card says is always true.
 //
 // The faces come from `usePresence` (lib/presence.ts): the platform's rows of the pages open now and
 // who holds each, never a name a page wrote. A face is the principal's initials on their own
@@ -30,8 +33,6 @@ const FACES = 5;
 /** Who can use a conversation, in the words the page shows. An agent's reach is its context's:
  *  whoever writes to it makes it act with all of it. */
 const SHARED_CONVERSATION_TEXT = {
-  shared: "Shared",
-  open: "Open to members",
   title: "Who can use this conversation",
   history:
     "Every member of this mind can open it, read all of its history (the messages, the scripts and their results) and write to it.",
@@ -49,16 +50,12 @@ function typingWords(typing: readonly PresentPrincipal[]): string {
 
 export function PresenceLine({
   present,
-  wrote,
 }: {
   /** Who is here now (`usePresence`), the viewer among them. */
   present: readonly PresentPrincipal[];
-  /** Everyone but the viewer who wrote in the part of the conversation the page holds. */
-  wrote: readonly MessageSender[];
 }) {
   const others = present.filter((principal) => !principal.me);
   const typing = others.filter((principal) => principal.typing);
-  const shared = others.length > 0 || wrote.length > 0;
   return (
     <div
       data-slot="agent-presence"
@@ -85,7 +82,6 @@ export function PresenceLine({
           ) : null}
         </span>
       ) : null}
-      <SharedWith shared={shared} others={others} wrote={wrote} />
     </div>
   );
 }
@@ -96,19 +92,24 @@ function hereLabel(principal: PresentPrincipal): string {
   return `${labelOf(principal)} is ${principal.state === "away" ? "here, in another tab or app" : "here"}${pages}`;
 }
 
-/** "Shared" or "Open to members", and behind it who can use this conversation, who is here now,
- *  and who wrote. */
-function SharedWith({
-  shared,
-  others,
+/** WHO CAN USE THIS CONVERSATION: a people icon, with how many others are here or wrote, and
+ *  behind it the card that says who can use the conversation, who is here now and who else
+ *  wrote. One size whatever it counts, so a header does not move. Its title, the hover text
+ *  and the accessible name, is `SHARED_CONVERSATION_TEXT.title`. A page with a header of its own draws it there, with what
+ *  `usePresence` and the chat's senders say. */
+export function ConversationAccess({
+  present,
   wrote,
 }: {
-  shared: boolean;
-  others: readonly PresentPrincipal[];
+  /** Who is here now (`usePresence`), the viewer among them. */
+  present: readonly PresentPrincipal[];
+  /** Everyone but the viewer who wrote in the part of the conversation the page holds. */
   wrote: readonly MessageSender[];
 }) {
+  const others = present.filter((principal) => !principal.me);
   const here = new Set(others.map((principal) => principal.actor));
   const earlier = wrote.filter((sender) => !here.has(sender.actor));
+  const count = others.length + earlier.length;
   return (
     <Popover>
       <PopoverTrigger
@@ -116,15 +117,24 @@ function SharedWith({
         render={
           <Button
             variant="ghost"
-            size="sm"
-            className="h-5 shrink-0 gap-1 px-1 text-xs text-muted-foreground"
+            size="icon-sm"
+            className="relative shrink-0 text-muted-foreground"
+            title={SHARED_CONVERSATION_TEXT.title}
+            data-others={count}
           />
         }
       >
-        <UsersIcon className="size-3" aria-hidden="true" />
-        {shared ? SHARED_CONVERSATION_TEXT.shared : SHARED_CONVERSATION_TEXT.open}
+        <UsersIcon aria-hidden="true" />
+        {count > 0 ? (
+          <span
+            aria-hidden="true"
+            className="absolute top-0 right-0 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-2xs leading-none text-primary-foreground"
+          >
+            {count > 9 ? "9+" : count}
+          </span>
+        ) : null}
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-80">
+      <PopoverContent side="bottom" align="end" className="w-80">
         <PopoverHeader>
           <PopoverTitle>{SHARED_CONVERSATION_TEXT.title}</PopoverTitle>
           <PopoverDescription>{SHARED_CONVERSATION_TEXT.history}</PopoverDescription>

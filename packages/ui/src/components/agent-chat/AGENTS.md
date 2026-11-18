@@ -29,15 +29,24 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   (`senderOf` in `stream-event.ts`, the rule of `iterate/agents`' `speakerOf`), never a name in a
   payload. The viewer's bubbles stand at the right. Another participant's (a person, a guest,
   another mind) stand at the left, and the first of a run has their face and short name over it
-  (`participant.tsx`; the run is decided from the row before, in `agent-feed-list.tsx`). Each
+  (`participant.tsx`; the run is decided from the row before, in `agent-feed-list.tsx`). The face
+  and the name are for the eye: each bubble says its author once to a screen reader
+  (`MessageAuthor`, "You" for the viewer's), since the list may have unmounted a run's first. Each
   waiting message in the queue says whose it is with the same face and name, and an answer that was stopped says who stopped it. Anyone may
   interrupt any answer. How a principal is shown, in words and as a face, is decided in one place,
   [`lib/principal-label.ts`](../../lib/principal-label.ts): an email, else the name a person who
   is no member gave (a guest's is marked " (guest)"), else the actor id. A name is the person's
   claim: text only, never a key, never compared with `me`.
-- `presence` shows, in a line over the composer, who else has the chat open now and a button that says who can use the conversation ("Shared" when another principal is here or
-  wrote, else "Open to members"). Who is typing is their face with dots at the end of the feed (the
-  virtual log's tail); the line says it in words to a screen reader only. [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
+- `presence` shows, in a line over the composer, who else has the chat open now. Beside Chat |
+  Events, a people button (`ConversationAccess`, title "Who can use this conversation") opens a
+  card that says who can use it, who is here now and who else wrote; a count on it says how many
+  others are here or wrote. The shell draws it in its strip, or, where the page draws the tabs in
+  its own header, in an element of that header which the page passes as `asideIn` and keeps in
+  place while presence is on (the Dash's agent header does). Who is typing is a bubble of dots at
+  the end of the feed (the virtual log's tail), drawn as their next bubble will be; the line says
+  it in words to a screen reader only. What a principal writes ends the typing they said before
+  it, so the dots go in the frame their message lands.
+  [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
   IS HERE is the platform's: each open chat reads the log through a row of the context's
   subscriptions table, a live callback that the context removes when the page's socket closes,
   and the platform stamps who holds it (`heldBy`). A row is a page while its stub is lent

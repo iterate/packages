@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The Dash's agent pages: the home says what waits for the member in a place of its own (nothing,
 // or the requests and the integrations that ask for them), New agent is a composer alone, and the
-// agent view draws any path under one header row (the path, and Chat | Events), with the agent's
+// agent view draws any path under one header row (the path, who can use the conversation where
+// presence is on, and Chat | Events), with the agent's
 // status at the feed's foot, and says the opener once into an empty chat.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -133,24 +134,32 @@ test("the agent view takes any path, has no button to its raw view, and says the
   expect(appended).toHaveLength(1);
 });
 
-test("an agent page shows who else is here only where the mind's config turned presence on: from the agent's rows, and nothing durable", async () => {
+test("an agent page shows who else is here, and in its header who can use the conversation, only where the mind's config turned presence on", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/?agent=/agents/onboarding");
   {
-    // the default: no line, nothing sent
+    // the default: no line, no place in the header, nothing sent
     const { itx, sent, appended } = mind({});
     await using page = await draw(DashAgents, itx, { waiting: 0 });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
     expect(page.host.querySelector("[data-slot=agent-presence]")?.outerHTML).toBeUndefined();
+    expect(page.host.querySelector("[data-slot=agent-header-aside]")?.outerHTML).toBeUndefined();
   }
   {
-    // alone: the line stands over the composer, and the member sees who may use it
+    // alone: the line over the composer holds no words, and the header's place holds the plain
+    // people button
     const { itx, sent, appended } = mind({});
     await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
-    expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe(
-      "Open to members",
-    );
+    expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe("");
+    const access = await vi.waitFor(() => {
+      const button = page.host.querySelector(
+        '[data-page-header] [data-slot=agent-header-aside] button[title="Who can use this conversation"]',
+      );
+      if (!button) throw new Error("the header has no button yet");
+      return button;
+    });
+    expect(access.getAttribute("data-others")).toBe("0");
   }
   // another member's page open on this agent's context: a face. The SDK does not say this page's
   // own row yet, so the page says no status of its own.
@@ -169,6 +178,9 @@ test("an agent page shows who else is here only where the mind's config turned p
         ?.getAttribute("aria-label"),
     ).toBe("b@example.com is here"),
   );
+  expect(
+    page.host.querySelector("[data-slot=agent-header-aside] button")?.getAttribute("data-others"),
+  ).toBe("1");
   expect({ sent, appended }).toEqual({ sent: [], appended: [] });
 });
 
@@ -273,6 +285,32 @@ test("a chat draws a message's image for an agent whose context has no `files`: 
       ),
     ),
   );
+});
+
+test("a message's image is signed once, however often the page draws the chat again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/talk";
+  const file = { contentType: "image/png", filename: "photo.png", path: `${path}/photo.png` };
+  const { itx, signed } = mind({
+    logs: {
+      [path]: [
+        {
+          offset: 1,
+          type: "events.iterate.com/agent/context-added",
+          payload: { role: "user", content: "A photo", files: [{ ...file, size: 3 }] },
+        },
+      ],
+    },
+  });
+  history.replaceState(null, "", `/?agent=${path}`);
+  await using page = await draw(DashAgents, itx, { waiting: 0 });
+  await act(() =>
+    vi.waitFor(() => expect(page.host.querySelector('img[alt="photo.png"]')).not.toBe(null)),
+  );
+  await page.draw(agents);
+  await page.draw(agents);
+  expect(signed).toEqual([file.path]);
 });
 
 test("a message the signed-in member sent has no line under it that says who sent it; another member's has their short name", async () => {
@@ -626,6 +664,8 @@ function mind({
 }) {
   const appended: { path: string; events: unknown[] }[] = [];
   const sent: { path: string; type: string }[] = [];
+  /** the path of each file whose URL the page asked the mind to sign */
+  const signed: string[] = [];
   /** the path of each agent the page started */
   const born: string[] = [];
   let reads = 0;
@@ -693,7 +733,10 @@ function mind({
     cd: async (path: string) => contextOf(path),
     files: {
       get: (path: string) => ({
-        url: async () => ({ url: `https://files.example.com${path}` }),
+        url: async () => {
+          signed.push(path);
+          return { url: `https://files.example.com${path}` };
+        },
         [Symbol.dispose]() {},
       }),
     },
@@ -702,6 +745,7 @@ function mind({
     itx,
     appended,
     sent,
+    signed,
     born,
     reads: () => reads,
     asked: () => asked,
