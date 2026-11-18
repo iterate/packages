@@ -1,0 +1,34 @@
+{
+  "name": "@iterate-com/mac-app",
+  "version": "0.1.0",
+  "description": "This Mac's menu-bar app for an iterate mind: npx @iterate-com/mac-app builds it, installs it and lends it to your mind",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iterate/packages",
+    "directory": "packages/mac-app"
+  },
+  "type": "module",
+  "bin": {
+    "mac-app": "./cli.mjs"
+  },
+  "files": [
+    "cli.mjs",
+    "Package.swift",
+    "Sources",
+    "Support",
+    "Tests",
+    "bridge",
+    "run-on-mac.sh",
+    "README.md"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

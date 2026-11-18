@@ -1,0 +1,291 @@
+import AVFoundation
+import AppKit
+import VoiceMeetCore
+
+/// Answers the local endpoint's callers (a mind, through `iterate provide`) from the Mac's screen,
+/// camera, microphone, speakers and accessibility, and runs commands for them. Each power is off
+/// until the person turns it on in the menu. Nothing is written to disk.
+@MainActor
+final class AppModel {
+    private(set) var microphone = MicrophoneState()
+    /// How often a caller used each thing in this run (by `Shareable.id`), and the last use.
+    private(set) var uses: [String: Int] = [:]
+    private(set) var lastUse: (thing: Shareable, at: Date)?
+    var onChange: (() -> Void)?
+
+    private let log = AppLog("state")
+    private let audioOwner = AudioOwner()
+    private var cameras: [String: CameraUnit] = [:]
+    private let endpoint = LocalEndpoint()
+    private let speaker = Speaker()
+    /// The person's approvals, for things whose choice is "Ask".
+    let approval = Approval()
+    private var activity: NSObjectProtocol?
+    private var microphoneHolders = 0
+    private var isListening = false
+
+    /// True while any camera runs, for the mark in the menu bar.
+    var isAnyCameraRunning: Bool { cameras.values.contains { $0.state.isRunning } }
+
+    /// The panel's preview of one camera draws this layer.
+    func cameraPreviewLayer(for id: String) -> CALayer { unit(id).owner.previewLayer }
+
+    init() {
+        audioOwner.onEvent = { [weak self] event in self?.send(event) }
+        endpoint.onRequest = { [weak self] method, parameters in try await self?.answer(method, parameters) ?? [:] }
+    }
+
+    /// Opens the local endpoint. Not in `init`: a copy of the app that only draws the panel to a
+    /// file (`Panel.render`) must not take the running app's socket.
+    func start() {
+        endpoint.start()
+    }
+
+    func shutDown() {
+        endpoint.stop()
+        audioOwner.stop()
+        speaker.stop()
+        cameras.values.forEach { $0.owner.stop() }
+    }
+
+    // MARK: - The local endpoint
+
+    /// A thing that is off, or whose permission macOS has not given, is a refusal with the reason.
+    /// A thing on "Ask" waits for the person's approval. A caller can change no choice and can
+    /// bring up no permission prompt: the person does both in the panel.
+    private func answer(_ method: String, _ parameters: [String: Any]) async throws -> [String: Any] {
+        let maxWidth = parameters["maxWidth"] as? Int ?? 1600
+        switch method {
+        case "state":
+            return [
+                "things": Shareable.all.map { thing -> [String: Any] in
+                    var row: [String: Any] = [
+                        "thing": thing.id, "kind": thing.power.rawValue, "name": thing.title,
+                        "sharing": thing.sharing.rawValue, "permitted": thing.isPermitted, "uses": uses[thing.id] ?? 0,
+                    ]
+                    if thing.power == .screen { row["display"] = Screen.displays.firstIndex { Shareable.display($0) == thing } }
+                    return row
+                },
+                "microphone": microphone.statusLine,
+            ]
+        case "screen.snapshot":
+            let display = try Screen.resolve(parameters["display"] as? Int)
+            try await use(display, what: "A still picture of the display \"\(display.title)\".")
+            return lend(try await Screen.snapshot(of: Screen.id(of: display), maxWidth: maxWidth), of: "the display \"\(display.title)\"")
+        case "camera.snapshot":
+            let device = try Camera.resolve(parameters["camera"] as? String)
+            try await use(.camera(device), what: "A still picture of the camera \"\(device.localizedName)\".")
+            let owner = unit(device.uniqueID).owner
+            return try await withCamera(device.uniqueID) {
+                // The first frames of a camera are dark: it sets its exposure for a moment.
+                try await wait(seconds: 5, for: "the camera's first picture") { owner.snapshot(maxWidth: 16) != nil }
+                try await Task.sleep(nanoseconds: 700_000_000)
+                guard let picture = owner.snapshot(maxWidth: maxWidth) else {
+                    throw EndpointRefusal("The camera gave no picture.")
+                }
+                return lend(picture, of: "the camera \"\(device.localizedName)\"")
+            }
+        case "microphone.listen":
+            let seconds = min(max(parameters["seconds"] as? Double ?? 5, 0.5), 60)
+            try await use(.microphone, what: "\(String(format: "%.0f", seconds)) seconds of the microphone.")
+            return try await withMicrophone {
+                // One recording at a time: a second caller waits for the first one's end.
+                while isListening { try await Task.sleep(nanoseconds: 100_000_000) }
+                isListening = true
+                defer { isListening = false }
+                let wave = await audioOwner.listen(seconds: seconds)
+                log.info("endpoint: lent \(String(format: "%.1f", seconds)) s of the microphone, \(wave.count) bytes of WAV")
+                return ["wavBase64": wave.base64EncodedString(), "seconds": seconds]
+            }
+        case "speaker.play":
+            guard let sound = Data(base64Encoded: parameters["soundBase64"] as? String ?? ""), !sound.isEmpty else {
+                throw EndpointRefusal("speaker.play needs a sound: the bytes of a sound file.")
+            }
+            let player = try speaker.open(sound)
+            try await use(.speaker, what: "Play a sound of \(String(format: "%.1f", player.duration)) seconds through the speakers.")
+            log.info("endpoint: plays a sound of \(String(format: "%.1f", player.duration)) s, \(sound.count) bytes")
+            try await speaker.play(player)
+            return ["seconds": player.duration]
+        case "speaker.say":
+            guard let words = parameters["words"] as? String, !words.isEmpty else {
+                throw EndpointRefusal("speaker.say needs words.")
+            }
+            try await use(.speaker, what: "Say through the speakers:\n\n\(words.prefix(700))")
+            log.info("endpoint: says \(words.count) characters through the speakers")
+            try await speaker.say(String(words.prefix(5_000)))
+            return ["characters": min(words.count, 5_000)]
+        case "accessibility.frontWindow":
+            try await use(.accessibility, what: "The text and controls of the window in front.")
+            return try Accessibility.frontWindow(
+                maxDepth: parameters["maxDepth"] as? Int ?? 12,
+                maxNodes: parameters["maxNodes"] as? Int ?? 1_500
+            )
+        case "run":
+            guard let argv = parameters["argv"] as? [String] else {
+                throw EndpointRefusal("run needs a command: argv is a list of strings.")
+            }
+            let stdin = Data(base64Encoded: parameters["stdinBase64"] as? String ?? "") ?? Data()
+            let input = String(data: stdin, encoding: .utf8) ?? ""
+            let shown = argv.joined(separator: " ").prefix(300) + (input.isEmpty ? "" : "\n\nWith this input:\n" + input.prefix(700))
+            try await use(.commands, what: "Run this command with this app's permissions:\n\n\(shown)")
+            log.info("endpoint: runs \(argv.joined(separator: " ").prefix(300))")
+            return try await Commands.run(argv, stdin: stdin, timeout: parameters["timeoutSeconds"] as? Double ?? 120)
+        default:
+            throw EndpointRefusal(
+                "No method \"\(method)\". The methods are: state, screen.snapshot, camera.snapshot, microphone.listen, speaker.play, speaker.say, accessibility.frontWindow, run."
+            )
+        }
+    }
+
+    /// Refuses a thing that is off or not permitted, asks the person first when its choice is
+    /// "Ask", then counts the use, so that the menu bar and the panel show it.
+    private func use(_ thing: Shareable, what: String) async throws {
+        let sharing = thing.sharing
+        guard sharing != .off else {
+            throw EndpointRefusal("The Mac's owner has this off in the iterate panel: \(thing.title). A mind cannot \(thing.does).")
+        }
+        if let permission = thing.power.permission, !permission.isGranted {
+            throw EndpointRefusal(
+                "macOS has not given this app \(permission.title). The Mac's owner gives it from the iterate panel, at \(thing.title)."
+            )
+        }
+        if sharing == .ask, approval.isApproved(thing) == nil {
+            try await approval.ask(for: thing, what: what)
+        }
+        uses[thing.id, default: 0] += 1
+        lastUse = (thing, Date())
+        log.info("endpoint: a caller uses \(thing.id) (\(thing.title)), use \(uses[thing.id] ?? 0) of this run")
+        onChange?()
+    }
+
+    /// Runs `body` with one camera on.
+    private func withCamera<Answer>(_ id: String, _ body: () async throws -> Answer) async throws -> Answer {
+        holdCamera(id)
+        defer { releaseCamera(id) }
+        try await wait(seconds: 10, for: "the camera") { self.unit(id).state.isOn }
+        return try await body()
+    }
+
+    /// A camera runs while it has a holder: a caller's snapshot, or the panel's preview while the
+    /// panel is open. It stops when the last holder lets go.
+    func holdCamera(_ id: String) {
+        let unit = unit(id)
+        unit.holders += 1
+        if !unit.state.isRunning { send(.startRequested, to: id) }
+    }
+
+    func releaseCamera(_ id: String) {
+        let unit = unit(id)
+        unit.holders = max(0, unit.holders - 1)
+        if unit.holders == 0 { send(.stopRequested, to: id) }
+    }
+
+    /// Each camera has its own state machine and its own owner, so several can run at once.
+    private final class CameraUnit {
+        var state = CameraState()
+        var holders = 0
+        let owner: Camera
+
+        init(_ owner: Camera) {
+            self.owner = owner
+        }
+    }
+
+    private func unit(_ id: String) -> CameraUnit {
+        if let unit = cameras[id] { return unit }
+        let unit = CameraUnit(Camera(deviceID: id))
+        unit.owner.onEvent = { [weak self] event in self?.send(event, to: id) }
+        cameras[id] = unit
+        return unit
+    }
+
+    /// Runs `body` with the microphone on. The microphone runs while it has a holder (a call), and
+    /// stops when the last one lets go.
+    private func withMicrophone<Answer>(_ body: () async throws -> Answer) async throws -> Answer {
+        microphoneHolders += 1
+        if !microphone.isRunning { send(MicrophoneEvent.startRequested) }
+        defer {
+            microphoneHolders -= 1
+            if microphoneHolders == 0 { send(MicrophoneEvent.stopRequested) }
+        }
+        try await wait(seconds: 10, for: "the microphone") { self.microphone.phase == .on }
+        // The engine starts twice on a Mac (the README's "Notes from the first runs"): let it settle.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        try await wait(seconds: 10, for: "the microphone") { self.microphone.phase == .on }
+        return try await body()
+    }
+
+    /// Waits, at most `seconds`, until `isReady`. The wait is bounded: a refusal names what did not come.
+    private func wait(seconds: Double, for what: String, until isReady: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !isReady() {
+            guard Date() < deadline else { throw EndpointRefusal("Gave up after \(Int(seconds)) s of waiting for \(what).") }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private func lend(_ picture: (data: Data, width: Int, height: Int), of source: String) -> [String: Any] {
+        log.info("endpoint: lent a picture of \(source), \(picture.width) × \(picture.height) px, \(picture.data.count) bytes of JPEG")
+        return [
+            "jpegBase64": picture.data.base64EncodedString(),
+            "pixelWidth": picture.width,
+            "pixelHeight": picture.height,
+        ]
+    }
+
+    // MARK: - The two state machines
+
+    private func send(_ event: MicrophoneEvent) {
+        let effects = microphone.handle(event)
+        log.info("microphone: \(Self.short(event)) -> \(Self.short(microphone.phase))\(Self.list(effects))")
+        for effect in effects {
+            switch effect {
+            // `use` has checked the permission; a caller brings up no prompt.
+            case .checkAccess: send(Permission.microphone.isGranted ? MicrophoneEvent.accessGranted : .accessDenied)
+            case .startEngine: audioOwner.start()
+            case .stopEngine: audioOwner.stop()
+            case .restartEngine: audioOwner.restart()
+            case .setMuted(let isMuted): audioOwner.setMuted(isMuted)
+            }
+        }
+        stateDidChange()
+    }
+
+    private func send(_ event: CameraEvent, to id: String) {
+        let unit = unit(id)
+        let effects = unit.state.handle(event)
+        log.info("camera \(id.suffix(6)): \(Self.short(event)) -> \(Self.short(unit.state.phase))\(Self.list(effects))")
+        for effect in effects {
+            switch effect {
+            case .checkAccess: send(Permission.camera.isGranted ? .accessGranted : .accessDenied, to: id)
+            case .startSession: unit.owner.start()
+            case .stopSession: unit.owner.stop()
+            }
+        }
+        stateDidChange()
+    }
+
+    /// One activity token while the microphone or the camera runs, so App Nap does not slow them.
+    private func stateDidChange() {
+        let isBusy = microphone.isRunning || isAnyCameraRunning
+        if isBusy, activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .latencyCritical],
+                reason: "The microphone or the camera is in use"
+            )
+        } else if !isBusy, let token = activity {
+            ProcessInfo.processInfo.endActivity(token)
+            activity = nil
+        }
+        onChange?()
+    }
+
+    /// `String(describing:)` puts the module's name before every type; the log is easier to read without.
+    private static func short(_ value: Any) -> String {
+        String(describing: value).replacingOccurrences(of: "VoiceMeetCore.", with: "")
+    }
+
+    private static func list(_ effects: [Any]) -> String {
+        effects.isEmpty ? "" : "; effects: " + effects.map(short).joined(separator: ", ")
+    }
+}
