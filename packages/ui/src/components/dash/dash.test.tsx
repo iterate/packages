@@ -437,6 +437,30 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
   expect(location).toMatchObject({ pathname: "/", search: "?agent=/agents/helper" });
 });
 
+test("New agent is never marked or boxed, and a pinned row is marked only while its own agent is open", async () => {
+  await using dash = await draw("/", [], {
+    pages: [
+      ...pages,
+      { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents page</p> },
+    ],
+    pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
+  });
+  /** [is it marked as the current row, is it drawn as a box] of the sidebar row with this name */
+  const look = (name: string) => {
+    const row = linksNamed(dash.host, name)[0]!;
+    return [row.hasAttribute("data-active"), /bg-background|shadow-\[/.test(row.className)];
+  };
+  const marked = () => ({ newAgent: look("New agent"), pinned: look("Pinned helper") });
+  // home, the pinned agent's own view, another agent's view, and the page New agent links to
+  expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
+  await act(() => go("?agent=/agents/helper"));
+  expect(marked()).toEqual({ newAgent: [false, false], pinned: [true, false] });
+  await act(() => go("?agent=/agents/helper/sub"));
+  expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
+  await act(() => go("?page=agents"));
+  expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
+});
+
 async function openPalette() {
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),

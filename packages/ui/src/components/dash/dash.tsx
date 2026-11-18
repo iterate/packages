@@ -166,6 +166,7 @@ export function Dash({
             links={links}
             pinned={pinned}
             page={page}
+            agent={agent}
             waiting={waiting}
             newAgent={agentsPage ? hrefOfPage(pages, agentsPage) : undefined}
             agents={
@@ -348,6 +349,11 @@ function RowLink({
   );
 }
 
+/** The agent a link opens in place (`?agent=<path>`), or null for any other link. */
+function agentOfHref(href: string) {
+  return href.startsWith("?") ? new URLSearchParams(href).get("agent") : null;
+}
+
 /** The link to a page of the list: the first one is the Dash's root, "./". */
 function hrefOfPage(pages: DashPage[], page: DashPage) {
   return pageHref(page === pages[0] ? undefined : page.id);
@@ -433,13 +439,11 @@ function OffAnswer({
   return children(!use(servesOf(itx, serves)));
 }
 
-/** The look of New agent and the pinned rows: outlined, and in the icon rail a bare icon as the
- *  pages' rows are (the box is the open sidebar's). */
-const TOP_ROW =
-  "group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:hover:bg-sidebar-accent";
-
-/** The sidebar: "New agent" first, with the rows the mind pins under it, then the pages, then each group of links. A page whose part the mind does not have
- *  stays in its place, muted, with "Off" beside it. */
+/** The sidebar: "New agent" first, with the rows the mind pins under it, then the pages, then each
+ *  group of links. A page whose part the mind does not have stays in its place, muted, with "Off"
+ *  beside it. New agent and the pinned rows are plain rows, as the pages' are: a box around a row
+ *  reads as "you are here", and New agent is an act, never a place. A pinned row is marked only
+ *  while the agent it links to is the open one. */
 function DashNav({
   itx,
   mind,
@@ -447,6 +451,7 @@ function DashNav({
   links,
   pinned = [],
   page,
+  agent,
   waiting,
   newAgent,
   agents,
@@ -457,6 +462,8 @@ function DashNav({
   links: DashLinks[];
   pinned?: DashLink[];
   page: DashPage;
+  /** the open agent's path, when an agent's view is shown */
+  agent: string | undefined;
   /** Undefined until the mind has answered: the alert draws for a count that is known. */
   waiting: number | undefined;
   /** Where a new agent starts: the Agents page, whose composer's first message starts one. The
@@ -485,8 +492,6 @@ function DashNav({
               {newAgent ? (
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    variant="outline"
-                    className={TOP_ROW}
                     tooltip="New agent"
                     render={
                       <RowLink
@@ -511,8 +516,7 @@ function DashNav({
               {pinned.map((row) => (
                 <SidebarMenuItem key={row.name}>
                   <SidebarMenuButton
-                    variant="outline"
-                    className={TOP_ROW}
+                    isActive={!!agent && agentOfHref(row.href) === agent}
                     tooltip={row.name}
                     render={<RowLink href={row.href} inPage={row.href.startsWith("?")} />}
                   >
