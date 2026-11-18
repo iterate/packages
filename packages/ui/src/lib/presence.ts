@@ -46,8 +46,14 @@ const TYPING_TTL_MS = 6_000;
  *  do not answer in the same instant. */
 const ANSWER_MS = 400;
 
-/** A principal as the platform names one (`source.principal`, a row's `heldBy.principal`). */
-export type PresencePrincipal = { actor: string; email?: string; kind?: "mind" };
+/** A principal as the platform names one (`source.principal`, a row's `heldBy.principal`). A
+ *  row's holder may be a guest: `kind` "guest", with the name they typed in `name` and no email. */
+export type PresencePrincipal = {
+  actor: string;
+  email?: string;
+  name?: string;
+  kind?: "mind" | "guest";
+};
 
 /** A row of the context's subscriptions table (`itx.subscriptions.list()`), as far as presence
  *  reads it. `heldBy`: who holds a live callback's row, by the platform's stamp on the event that
