@@ -34,7 +34,13 @@ import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
 import { DashAgentsNav } from "./dash-agents-nav.tsx";
 import { agentViewHref, rawViewHref } from "./dash-href.ts";
-import { DashNote, DashPlaceholder, type DashLinks, type DashPage } from "./dash-pages.tsx";
+import {
+  DashNote,
+  DashPlaceholder,
+  type DashLink,
+  type DashLinks,
+  type DashPage,
+} from "./dash-pages.tsx";
 import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
@@ -81,6 +87,7 @@ export function Dash({
   principal,
   pages,
   links,
+  pinned,
   sidebarDefaultOpen,
 }: {
   /** the app's name, on top of the sidebar: "Dash" */
@@ -93,6 +100,9 @@ export function Dash({
   principal?: Principal | null;
   pages: DashPage[];
   links: DashLinks[];
+  /** Rows the mind pins right under New agent, drawn as it is: a link to another place (an
+   *  agent's view is `?agent=<path>`, which opens in place). */
+  pinned?: DashLink[];
   /** The desktop sidebar for a person who has not toggled it yet: open, or false for the rail of
    *  icons. A page whose HTML draws the frame before the app loads passes what it drew. */
   sidebarDefaultOpen?: boolean;
@@ -154,6 +164,7 @@ export function Dash({
             mind={mind}
             pages={pages}
             links={links}
+            pinned={pinned}
             page={page}
             waiting={waiting}
             newAgent={agentsPage ? hrefOfPage(pages, agentsPage) : undefined}
@@ -422,13 +433,19 @@ function OffAnswer({
   return children(!use(servesOf(itx, serves)));
 }
 
-/** The sidebar: "New agent" first, then the pages, then each group of links. A page whose part the mind does not have
+/** The look of New agent and the pinned rows: outlined, and in the icon rail a bare icon as the
+ *  pages' rows are (the box is the open sidebar's). */
+const TOP_ROW =
+  "group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:hover:bg-sidebar-accent";
+
+/** The sidebar: "New agent" first, with the rows the mind pins under it, then the pages, then each group of links. A page whose part the mind does not have
  *  stays in its place, muted, with "Off" beside it. */
 function DashNav({
   itx,
   mind,
   pages,
   links,
+  pinned = [],
   page,
   waiting,
   newAgent,
@@ -438,6 +455,7 @@ function DashNav({
   mind: string;
   pages: DashPage[];
   links: DashLinks[];
+  pinned?: DashLink[];
   page: DashPage;
   /** Undefined until the mind has answered: the alert draws for a count that is known. */
   waiting: number | undefined;
@@ -459,36 +477,50 @@ function DashNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      {newAgent ? (
+      {newAgent || pinned.length > 0 ? (
         // in the icon rail, the same gap below it as between the other groups
         <SidebarGroup className="pb-0 group-data-[collapsible=icon]:pb-2">
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  variant="outline"
-                  // in the icon rail, a bare icon as the pages' rows are: the box is the open sidebar's
-                  className="group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:hover:bg-sidebar-accent"
-                  tooltip="New agent"
-                  render={
-                    <RowLink
-                      href={newAgent}
-                      inPage
-                      onClick={(event) => {
-                        // the composer takes the caret: at once when the page is shown already,
-                        // and when it draws otherwise, which it does only while nothing has focus
-                        event.currentTarget.blur();
-                        document
-                          .querySelector<HTMLElement>('[aria-label="Message a new agent"]')
-                          ?.focus();
-                      }}
-                    />
-                  }
-                >
-                  <SquarePenIcon />
-                  <span>New agent</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {newAgent ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    variant="outline"
+                    className={TOP_ROW}
+                    tooltip="New agent"
+                    render={
+                      <RowLink
+                        href={newAgent}
+                        inPage
+                        onClick={(event) => {
+                          // the composer takes the caret: at once when the page is shown already,
+                          // and when it draws otherwise, which it does only while nothing has focus
+                          event.currentTarget.blur();
+                          document
+                            .querySelector<HTMLElement>('[aria-label="Message a new agent"]')
+                            ?.focus();
+                        }}
+                      />
+                    }
+                  >
+                    <SquarePenIcon />
+                    <span>New agent</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ) : null}
+              {pinned.map((row) => (
+                <SidebarMenuItem key={row.name}>
+                  <SidebarMenuButton
+                    variant="outline"
+                    className={TOP_ROW}
+                    tooltip={row.name}
+                    render={<RowLink href={row.href} inPage={row.href.startsWith("?")} />}
+                  >
+                    <row.icon />
+                    <span>{row.name}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

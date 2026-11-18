@@ -7,7 +7,7 @@ import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
 import type { Principal } from "iterate/principal";
 import { Dash, DashContexts, type DashPage } from "./dash.tsx";
-import type { DashPageProps } from "./dash-pages.tsx";
+import type { DashLink, DashPageProps } from "./dash-pages.tsx";
 import { ITX_SESSION, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, usePageParam } from "#/lib/page-url.ts";
 
@@ -420,6 +420,23 @@ test("⌘K is one palette on every page: Agents first, then Raw contexts, and / 
   expect(location).toMatchObject({ search: "?page=contexts&context=/agents/people/jo" });
 });
 
+test("a row the mind pins sits right under New agent, and an agent's view opens in place", async () => {
+  await using dash = await draw("/", [], {
+    pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: () => null }],
+    pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
+  });
+  const names = [...dash.host.querySelectorAll("a")].map((link) => link.textContent);
+  expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 3)).toEqual([
+    "New agent",
+    "Pinned helper",
+    "Home",
+  ]);
+  const row = linksNamed(dash.host, "Pinned helper")[0]!;
+  expect(row.getAttribute("href")).toBe("?agent=/agents/helper");
+  await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+  expect(location).toMatchObject({ pathname: "/", search: "?agent=/agents/helper" });
+});
+
 async function openPalette() {
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),
@@ -561,8 +578,10 @@ async function draw(
     whoami,
     session,
     sidebarDefaultOpen,
+    pinned,
   }: {
     pages?: DashPage[];
+    pinned?: DashLink[];
     contexts?: unknown[];
     agents?: Record<string, object>;
     /** Who the page says is signed in; "ask": it does not say, and the Dash asks the mind. */
@@ -632,6 +651,7 @@ async function draw(
         principal={principal === "ask" ? undefined : principal}
         pages={drawn}
         links={links}
+        pinned={pinned}
         sidebarDefaultOpen={sidebarDefaultOpen}
       />,
     ),
