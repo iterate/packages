@@ -91,6 +91,21 @@ test("a mind with telemetry off gets something to do: where to turn it on, with 
   await act(() => root.unmount());
 });
 
+test("when telemetry tables are off, the page shows the plain notice without Unavailable or error styling", async () => {
+  using _clock = ownClock();
+  const notice = "telemetry tables are off: add a telemetry token";
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  await act(() =>
+    root.render(<AnalyticsPage query={async (sql) => ({ rows: [], sql, notice })} />),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(1_000));
+  expect(host.textContent).toContain(notice);
+  expect(host.textContent).not.toContain("Unavailable:");
+  expect(host.querySelector(".text-destructive")).toBeNull();
+  await act(() => root.unmount());
+});
+
 function ownClock() {
   vi.useFakeTimers();
   vi.stubGlobal(

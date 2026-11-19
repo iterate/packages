@@ -59,8 +59,9 @@ import { Textarea } from "#/components/ui/textarea.tsx";
 
 type Row = Record<string, unknown>;
 type Rows = Row[];
-/** A query's answer: its rows and the SQL that ran, or why it did not run. */
-type Answer = { rows: Rows; sql?: string; error?: string };
+/** A query's answer: its rows and the SQL that ran, a plain notice (e.g. telemetry tables off), or
+ *  why it did not run. */
+type Answer = { rows: Rows; sql?: string; error?: string; notice?: string };
 
 /** The live charts' one query: the delivery loop's metrics (core/itx/src/metrics.ts), a minute a
  *  row each. The Analytics SQL API weights `sum` by each data point's sample. */
@@ -302,6 +303,7 @@ function Analytics({
                 title={title}
                 unit={unit}
                 error={live?.error}
+                notice={live?.notice}
                 headline={
                   live &&
                   (counts
@@ -339,16 +341,18 @@ function Analytics({
               unit={unit}
               headline={
                 <Awaited promise={day[index]!} fallback={<Spinner />}>
-                  {({ rows, error }) =>
-                    error ? null : `${format(sum(rows, column))} in the last 24 hours`
+                  {({ rows, error, notice }) =>
+                    error || notice ? null : `${format(sum(rows, column))} in the last 24 hours`
                   }
                 </Awaited>
               }
             >
               <Awaited promise={day[index]!} fallback={<div className="h-40" />}>
-                {({ rows, error }) =>
+                {({ rows, error, notice }) =>
                   error ? (
                     <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+                  ) : notice ? (
+                    <p className="text-sm text-muted-foreground">{notice}</p>
                   ) : (
                     <TimeChart
                       rows={rows}
@@ -437,12 +441,14 @@ function Chart({
   unit,
   headline,
   error,
+  notice,
   children,
 }: {
   title: string;
   unit: string;
   headline?: ReactNode;
   error?: string;
+  notice?: string;
   children: ReactNode;
 }) {
   return (
@@ -450,10 +456,18 @@ function Chart({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{unit}</CardDescription>
-        {headline && !error && <p className="text-xl font-semibold tabular-nums">{headline}</p>}
+        {headline && !error && !notice && (
+          <p className="text-xl font-semibold tabular-nums">{headline}</p>
+        )}
       </CardHeader>
       <CardContent>
-        {error ? <p className="text-sm text-muted-foreground">Unavailable: {error}</p> : children}
+        {error ? (
+          <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+        ) : notice ? (
+          <p className="text-sm text-muted-foreground">{notice}</p>
+        ) : (
+          children
+        )}
       </CardContent>
     </Card>
   );
@@ -544,6 +558,7 @@ function Activity() {
 function Busiest({ dimension, at, answer }: { dimension: Dimension; at: number; answer: Answer }) {
   if (answer.error)
     return <p className="text-sm text-muted-foreground">Unavailable: {answer.error}</p>;
+  if (answer.notice) return <p className="text-sm text-muted-foreground">{answer.notice}</p>;
   // the rows come oldest hour first, so a value's last row has its latest event
   const totals = new Map<string, Row & { events: number }>();
   const hourly = new Map<string, number>();
@@ -615,9 +630,11 @@ function Storage({ answer }: { answer: Promise<Answer> }) {
       </CardHeader>
       <CardContent>
         <Awaited promise={answer} fallback={<Spinner />}>
-          {({ rows, error }) =>
+          {({ rows, error, notice }) =>
             error ? (
               <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
+            ) : notice ? (
+              <p className="text-sm text-muted-foreground">{notice}</p>
             ) : (
               <ResultTable
                 rows={rows}
@@ -704,10 +721,11 @@ function QueryPanel({
           </Button>
         </form>
         {shown?.error && <p className="text-sm text-destructive">{shown.error}</p>}
-        {shown?.sql && (
+        {shown?.notice && <p className="text-sm text-muted-foreground">{shown.notice}</p>}
+        {shown?.sql && !shown.notice && (
           <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{shown.sql}</pre>
         )}
-        {shown?.sql && (
+        {shown?.sql && !shown.notice && (
           <ResultTable
             rows={shown.rows.slice(0, 100)}
             target={(row) => ({ row })}
@@ -812,12 +830,13 @@ function LatestEvents({ column, value }: { column: Dimension; value: string }) {
       <div className="flex flex-col gap-3 px-4 pb-4">
         {!answer && <p className="text-sm text-muted-foreground">Reading its events…</p>}
         {answer?.error && <p className="text-sm text-destructive">{answer.error}</p>}
-        {answer?.sql && (
+        {answer?.notice && <p className="text-sm text-muted-foreground">{answer.notice}</p>}
+        {answer?.sql && !answer.notice && (
           <pre className="rounded-md bg-muted p-2 text-xs break-all whitespace-pre-wrap">
             {answer.sql}
           </pre>
         )}
-        {answer?.sql && answer.rows.length === 0 && (
+        {answer?.sql && !answer.notice && answer.rows.length === 0 && (
           <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>
         )}
         {keyedRows(answer?.rows || []).map(({ key, row }) => (
