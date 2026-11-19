@@ -358,12 +358,23 @@ function Secrets({
 }
 
 /** What the mind's packages registered, live from one subscription. */
-export function DashIntegrations({ itx }: DashPageProps) {
+export function DashIntegrations({ itx, mind }: DashPageProps) {
   // asked while the page's part loads
   void servesOf(itx, "integrations");
   const { IntegrationsPage } = use(integrationsPart());
   // one function for the page's life: the kit's page reads again when it is handed another
   const openRegistry = useCallback(() => itx.cd("/integrations"), [itx]);
+  // a `call` button's press: one function of the mind's config, by its name, on the page's own
+  // `itx` (iterate/integrations `IntegrationCall`, whose schema allows an identifier alone). The
+  // cast: `itx.config` is a name the mind lends, so the context's type does not list it; the stub
+  // is a capnweb proxy, which pipelines any property and call to the mind, and the answer is read
+  // with a schema (`IntegrationCallAnswer`).
+  const callConfig = useCallback(
+    (name: string, args: unknown[]) =>
+      (itx as unknown as { config: Record<string, (...args: unknown[]) => Promise<unknown>> })
+        .config[name]!(...args),
+    [itx],
+  );
   // and at each new session, whose epoch is one of its deps
   const { epoch } = useConnection(itx);
   return (
@@ -374,7 +385,12 @@ export function DashIntegrations({ itx }: DashPageProps) {
         off={<DashPartIsOff title="Integrations">This mind has no integrations yet.</DashPartIsOff>}
       >
         <DashScroll>
-          <IntegrationsPage openRegistry={openRegistry} deps={[itx, epoch]} />
+          <IntegrationsPage
+            openRegistry={openRegistry}
+            deps={[itx, epoch]}
+            callConfig={callConfig}
+            mind={mind}
+          />
         </DashScroll>
       </IfServed>
     </Suspense>
