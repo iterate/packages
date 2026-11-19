@@ -152,8 +152,11 @@ export function AgentKindViewFrame({
   return createElement("iframe", {
     ref: link.attach,
     title: link.name,
-    // scripts, and links that open a tab or download a file; never the page's origin
-    sandbox: "allow-scripts allow-popups allow-downloads",
+    // scripts, and links that open a tab or download a file; never the page's origin. A tab that
+    // a link opens escapes the sandbox: it is an ordinary page of the link's own origin, which the
+    // view cannot read. A sandboxed tab would have no origin, so no sign-in, no passkey and, without
+    // `allow-forms`, no form: the vault's secret form could not be sent from it.
+    sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads",
     srcDoc,
     className: "min-h-0 w-full flex-1 border-0",
   });

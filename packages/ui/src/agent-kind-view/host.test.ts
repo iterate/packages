@@ -1,5 +1,14 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { frameCarriesStyle, frameSheet } from "./host.ts";
+import type { AgentKindViewInputs } from "./bridge.ts";
+import {
+  AgentKindViewFrame,
+  AgentKindViewLink,
+  frameCarriesStyle,
+  frameSheet,
+  type AgentKindViewVerbs,
+} from "./host.ts";
 
 test("the frame carries the page's own style text, and not the rules an editor of the page generated", () => {
   // the page's theme, as a no-build app puts it into itself
@@ -41,4 +50,22 @@ test("a sheet on the page's own host goes into the frame as text, since the fram
       page,
     ),
   ).toBe('<style media="print">a::after { content: "<\\/style>"; }</style>');
+});
+
+test("a tab that a link in a kind's view opens escapes the frame's sandbox, and the frame never gets the page's origin", () => {
+  const html = renderToStaticMarkup(
+    createElement(AgentKindViewFrame, {
+      link: new AgentKindViewLink("/agents/claude/demo", null),
+      frameScript: "https://esm.example.com/frame.js",
+      inputs: {} as AgentKindViewInputs,
+      verbs: {} as AgentKindViewVerbs,
+    }),
+  );
+  const sandbox = (/sandbox="([^"]*)"/.exec(html)?.[1] ?? "").split(" ");
+  // without the escape, the vault's secret form in that tab is blocked: "the form's frame is
+  // sandboxed and the 'allow-forms' permission is not set"
+  expect(sandbox).toEqual(
+    expect.arrayContaining(["allow-scripts", "allow-popups", "allow-popups-to-escape-sandbox"]),
+  );
+  expect(sandbox).not.toContain("allow-same-origin");
 });
