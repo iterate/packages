@@ -1765,7 +1765,7 @@ test("admission order 5: a TURN refresh carries its admission, and one that answ
     const refreshing = facet.hold("join");
     await vi.advanceTimersByTimeAsync(60 * 750);
     expect(facet.calls.filter((one) => one.method === "join").map(({ args }) => args)).toEqual([
-      [{ admit: admissionsOf(facet, "join")[0] }],
+      [{ admit: admissionsOf(facet, "join")[0], seq: expect.any(Number) }],
       [{ admission: admissionsOf(facet, "join")[0] }],
     ]);
     await call.leave();
@@ -1825,6 +1825,95 @@ test("admission order 7: a screen chosen after its press was turned off closes a
   await joining;
   await off;
   call.dispose();
+});
+
+test("follow-up order 2: a dismiss while the voice agent's start is under way withdraws that invite, by its id", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const starting = facet.hold("voiceAgent");
+  const inviting = call.aiInvite();
+  await vi.waitFor(() => expect(facet.steps).toContain("voiceAgent"));
+  await call.aiDismiss();
+  starting.release();
+  await inviting;
+  const [start, stop] = facet.calls
+    .filter((one) => one.method === "voiceAgent")
+    .map(({ args }) => args[0] as { invite?: string });
+  // no `stop`: a call from before `withdraw` refuses it, and sends away no other page's agent
+  expect([start, stop]).toEqual([
+    { start: "v=0", invite: expect.any(String) },
+    { withdraw: start?.invite, why: "sent away" },
+  ]);
+  call.dispose();
+});
+
+test("follow-up order 2: an invite after a dismissed one waits for that one's answer: one start of a page at a time", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const starting = facet.hold("voiceAgent");
+  const first = call.aiInvite();
+  await vi.waitFor(() => expect(facet.steps).toContain("voiceAgent"));
+  await call.aiDismiss();
+  const second = call.aiInvite();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const starts = () =>
+    facet.calls.filter((one) => one.method === "voiceAgent" && "start" in (one.args[0] as object))
+      .length;
+  expect(starts()).toBe(1);
+  starting.release();
+  await first;
+  await second;
+  expect(starts()).toBe(2);
+  call.dispose();
+});
+
+test("follow-up order 5: a rejoin whose new admission fails sends the earlier admission's leave", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  facet.failNext("join", new Error("the call's setup failed"));
+  await outOfTouch(call);
+  const [first, second] = admissionsOf(facet, "join");
+  expect(new Set(admissionsOf(facet, "leave"))).toEqual(new Set([first, second]));
+});
+
+test("follow-up order 7: an Off of a screen that waits for its turn stops it at once", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  const sharing = call.toggleScreen();
+  await vi.waitFor(() => expect(media.opened).toHaveLength(2));
+  const off = call.toggleScreen();
+  expect(media.opened[1]).toMatchObject({ readyState: "ended" });
+  publishing.release();
+  await joining;
+  await sharing;
+  await off;
+  expect(facet).toMatchObject({ published: ["mic"] });
+  call.dispose();
+});
+
+test("follow-up order 7: a dispose while the call has not answered the join settles the Join, and the late answer gets its leave", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const taking = facet.hold("join");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet.steps).toContain("join"));
+  call.dispose();
+  await joining;
+  expect(call.ui).toMatchObject({ joined: false, joining: false });
+  taking.release();
+  await vi.waitFor(() => expect(admissionsOf(facet, "leave")).toHaveLength(2));
+  expect(new Set(admissionsOf(facet, "leave"))).toEqual(new Set(admissionsOf(facet, "join")));
 });
 
 test("a voice agent sent away while a sending repair offers its voice again: that voice goes out of the call", async () => {
@@ -2480,7 +2569,8 @@ function admissionsOf(facet: ReturnType<typeof callFacet>, method: string) {
 }
 
 /** An agent's call facet, as a page's context holds it: each method called, in `steps`, answers at
- *  once, or throws what `fails` names for it; `calls` holds each with its arguments after the page. `hold(method)` keeps that method's next call
+ *  once, or throws what `fails` names for it (`failNext(method, error)`: its next call alone);
+ *  `calls` holds each with its arguments after the page. `hold(method)` keeps that method's next call
  *  unanswered until `release()`; `hold("signal", step)` the next signalling step of that kind
  *  ("publish", "reset", …). Each signalling step is in `signals`, by its first key, and the
  *  kind of each publish in `published`. A subscribe's answer puts each track under the mid
@@ -2492,9 +2582,14 @@ function callFacet(fails: Record<string, Error> = {}) {
   const signals: string[] = [];
   const published: string[] = [];
   const held = new Map<string, Promise<void>>();
+  const once = new Map<string, Error>();
   return {
     steps,
     calls,
+    /** The next call of `method` throws `error`. */
+    failNext(method: string, error: Error) {
+      once.set(method, error);
+    },
     signals,
     published,
     hold(method: string, step?: string) {
@@ -2514,6 +2609,9 @@ function callFacet(fails: Record<string, Error> = {}) {
         held.delete(key);
         await gate;
       }
+      const failing = once.get(method);
+      once.delete(method);
+      if (failing) throw failing;
       if (fails[method]) throw fails[method];
       // each track subscribed to comes under the mid `m-<track>`
       const tracks = (step.subscribe || []).map((track: string) => ({ track, mid: `m-${track}` }));

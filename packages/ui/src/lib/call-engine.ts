@@ -241,6 +241,9 @@ const stopTracks = (stream: MediaStream | null | undefined) => {
  *   it, unless the release that `own` answers came first, when the thing became the page's
  *   (`mic`, `pub`, `local`). Owned after the end, it is closed at once.
  */
+/** The last admission's order number in this tab: each later admission has a higher one, across
+ *  reloads too (it starts at the clock), so the call refuses an older admit that came late. */
+let lastSeq = 0;
 function callScope() {
   const abort = new AbortController();
   const held = new Set<() => void>();
@@ -269,7 +272,7 @@ function callScope() {
     return Object.assign(run, { settled });
   };
   /** The press that opens each kind's picture, while its picker or prompt is open. */
-  const capturing: Partial<Record<"camera" | "screen", object>> = {};
+  const capturing: Partial<Record<"camera" | "screen", { track?: MediaStreamTrack }>> = {};
   return {
     signal: abort.signal,
     get ended() {
@@ -279,6 +282,8 @@ function callScope() {
      *  it, and the facet refuses one that is not the row's current admission (call/rules.ts). So
      *  no leave, offer or agent of this call reaches a later one, whatever the timing. */
     admission: crypto.randomUUID(),
+    /** This admission's order among the page's own (`lastSeq`). */
+    seq: (lastSeq = Math.max(Date.now(), lastSeq + 1)),
     /** This call sent its join: a Leave owes the facet its admission's leave. */
     joinSent: false,
     /** A request to the browser (a device, the screen's picker) for this call: it settles at the
@@ -696,7 +701,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     const call = scope;
     if (!joined || local[kind] || call.capturing[kind]) return;
     // this press's picture: a second press while its picker is open is an Off, which ends it
-    const press = {};
+    const press: { track?: MediaStreamTrack } = {};
     call.capturing[kind] = press;
     const mine = () => call.capturing[kind] === press;
     try {
@@ -716,6 +721,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         track.stop();
         return;
       }
+      // an Off while it waits for its turn stops it at once
+      press.track = track;
       const release = call.own(() => track.stop());
       // the browser's own "Stop sharing", or a camera that went away, ends the share: watched from
       // the moment the picture exists, also while it waits for its turn to be sent
@@ -761,6 +768,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   function videoOff(kind: "camera" | "screen") {
     const call = scope;
     // a picker still open: its picture, when it comes, is closed
+    call.capturing[kind]?.track?.stop();
     delete call.capturing[kind];
     return call
       .send(async () => {
@@ -1095,7 +1103,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   const ai: {
     state: CallUi["ai"];
     /** The invite under way or done: its work goes on only while it is this one. */
-    invite: object | null;
+    /** This invite: its id names it to the call (its claim, its own stop). */
+    invite: { id: string } | null;
     claimed: boolean;
     pc: RTCPeerConnection | null;
     events: RTCDataChannel | null;
@@ -1149,12 +1158,19 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   /** Invite the voice agent, hosted by this tab (a member's: the call refuses anyone else). Why it
    *  did not come is `ui.aiRefusal`: a refusal the call answers as such (no key, a spent credit,
    *  another host) with the call's own words and marks. */
+  /** The last voice agent start this page asked of the call: its call, and its answer (or
+   *  failure). A later call's admission is another row's, so it waits for none of it. */
+  let aiStart: { call: CallScope; answered: Promise<void> } | null = null;
   async function aiInvite() {
     const call = scope;
     // a press while the microphone is still on its way to the call waits for it
     await call.send.settled();
+    // one start of this page at the call at a time: an invite after a dismiss waits for the
+    // dismissed one's answer, so the call's list of withdrawn invites always holds the one
+    // under way (call/rules.ts)
+    if (aiStart?.call === call) await aiStart.answered;
     if (call.ended || ai.state !== "off" || !joined || !pub || !mic) return;
-    const invite = {};
+    const invite = { id: crypto.randomUUID() };
     const current = () => ai.invite === invite;
     ai.invite = invite;
     let refused: VoiceRefusal | null = null;
@@ -1217,9 +1233,20 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       await gathered(pc);
       // an invite that ended while it gathered (a stop, a leave, a new call) asks for no agent
       if (!current() || call.ended) return;
-      const answer = VoiceAnswer.parse(
-        await facet("voiceAgent", page, { start: pc.localDescription!.sdp }, call.admission),
+      const asking = facet(
+        "voiceAgent",
+        page,
+        { start: pc.localDescription!.sdp, invite: invite.id },
+        call.admission,
       );
+      aiStart = {
+        call,
+        answered: asking.then(
+          () => {},
+          () => {},
+        ),
+      };
+      const answer = VoiceAnswer.parse(await asking);
       // a refusal that is expected (no key, a spent credit, another host) is an answer
       if (answer.error) {
         refused = { message: answer.error, credit: answer.credit, noKey: answer.noKey };
@@ -1275,14 +1302,21 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   async function aiStop(why: string, { quiet = false } = {}) {
     if (ai.state === "off") return;
+    // a start under way may have claimed the agent already: its stop goes too
+    const starting = ai.state === "starting";
+    const invite = ai.invite?.id;
     const { tx, claimed } = aiClose();
     // its voice leaves the call on the sending queue, behind an offer that may be under way
     const sending = pub;
     const call = scope;
     if (tx && sending) void call.send(() => unpublish("ai", tx, sending, call)).catch(() => {});
-    // a claim that failed was never this tab's: the call undid it, and another tab's agent stays
-    if (joined && claimed)
-      await facet("voiceAgent", page, { stop: why }, call.admission).catch(() => {});
+    // this invite's agent alone (`withdraw`): another invite's stays, and a start that comes after
+    // its stop claims nothing (call/rules.ts). A claimed one says `stop` too, which a call from
+    // before `withdraw` reads as the plain stop of its (this tab's) agent; an unclaimed one does
+    // not, so such a call sends away nobody's agent.
+    const stop = claimed ? { stop: why, withdraw: invite } : { withdraw: invite, why };
+    if (joined && invite && (claimed || starting))
+      await facet("voiceAgent", page, stop, call.admission).catch(() => {});
     if (!quiet) say(`The voice agent left: ${why}.`);
   }
 
@@ -1314,13 +1348,16 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       // in the call, and the relay's credentials, in one call
       call.joinSent = true;
-      const answer = JoinAnswer.parse(await facet("join", page, { admit: call.admission }));
-      if (call.ended) {
-        // a leave or a dispose came while the call took the page in: its leave may have come
-        // before this join, so this admission's leave again (a newer admission outlives it)
-        void facet("leave", page, call.admission).catch(() => {});
-        throw call.signal.reason;
-      }
+      const asked = facet("join", page, { admit: call.admission, seq: call.seq });
+      // whatever the join answers once a leave or a dispose ended the call, the facet may have
+      // taken the page in after that leave: this admission's leave again (a newer one outlives it)
+      const leaveIfEnded = () => {
+        if (call.ended) void facet("leave", page, call.admission).catch(() => {});
+      };
+      asked.then(leaveIfEnded, leaveIfEnded);
+      // and a dispose does not wait for an answer that may never come
+      const answer = JoinAnswer.parse(await call.until(asked, () => {}));
+      call.signal.throwIfAborted();
       useIce(answer);
       if (!relay.on) say("No TURN relay: this page connects over UDP alone.");
       joined = true;
@@ -1426,6 +1463,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       teardown();
       const next = scope;
       await join(kept);
+      // the new admission did not come in: the earlier one's row goes, by its own leave (which
+      // removes nothing once a newer admission has the row)
+      if (!joined) void facet("leave", page, call.admission).catch(() => {});
       // the notice is the next call's own: a later call hears nothing of this rejoin
       if (scope === next && joined && (camera || screen)) {
         const what =
