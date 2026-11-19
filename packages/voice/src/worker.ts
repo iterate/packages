@@ -48,6 +48,17 @@ async function shortDigest(text: string): Promise<string> {
 }
 
 export default class VoiceWorker extends IterateConfigEntrypoint implements VoiceApi {
+  // THIS WORKER IS NO MIND CONFIG: a rule loads it by name. The platform sends it no mail and no
+  // event of its own, and it serves no page, so these three do nothing and answer 404. They are
+  // here because the base class `IterateConfigEntrypoint` makes `fetch`, `email` and
+  // `processEvent` required: one base class for every loaded Worker is the default, which the
+  // owner may overrule with a base of its own for Workers that are no mind config.
+  async email() {}
+  async processEvent() {}
+  fetch() {
+    return new Response("Not found\n", { status: 404 });
+  }
+
   async health() {
     using itx = this.getItx();
     const { mindId, mindSlug } = await itx.whoami();
