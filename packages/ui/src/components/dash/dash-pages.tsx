@@ -55,6 +55,11 @@ export type DashPage = {
    *  its own status in an ephemeral event on the agent's context (nothing durable); the platform
    *  stamps who. Off unless the mind's config turns it on. */
   presence?: boolean;
+  /** The Agents page's: a call on any agent (an iterate agent's chat), as the mind's config has
+   *  one (`call.ts`, apps.md "A call on an agent"). The header then has the call's controls, and the
+   *  cameras and screens stand over the feed while a call is live. Absent: no call, and no call
+   *  code is loaded. */
+  call?: DashCall;
   /** `staysOverReconnect`, a property of the component itself (`Notes.staysOverReconnect =
    *  true`): the page opens again what it holds when the session's epoch grows
    *  (`itxSessionOf(itx)`: the epoch in its hooks' deps, or `useHeldContext`), so the Dash keeps
@@ -62,6 +67,16 @@ export type DashPage = {
    *  at each new session: a page on the SDK's hooks alone is then never left with a closed
    *  session's stubs. */
   component: ComponentType<DashPageProps> & { staysOverReconnect?: boolean };
+};
+
+/** A CALL ON AN AGENT, as a Dash page turns it on. The facet's spec is the mind's config's, which
+ *  the kit does not know: `enable` turns the call on for the agent at `path`, at the first press
+ *  of "Start a call", and the page then joins it:
+ *  `enable: (itx, path) => itx.cd(path).processors.enable("call", { …the config's CALL_FACET })`.
+ *  `voiceAppHref`: where a member sets up voice, named when the voice agent cannot come. */
+export type DashCall = {
+  enable: (itx: Itx, path: string) => Promise<unknown>;
+  voiceAppHref?: string;
 };
 
 /** A row that leaves the Dash: another app of the mind, or a page of the stack. `count:

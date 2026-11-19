@@ -3,12 +3,14 @@
 // or the requests and the integrations that ask for them), New agent is a composer alone, and the
 // agent view draws any path under one header row (the path, the stack of who is here and can use
 // the conversation where presence is on, and Chat | Events), with the agent's
-// status at the feed's foot, and says the opener once into an empty chat.
+// status at the feed's foot, and says the opener once into an empty chat. Where the Agents page
+// turns calls on, the header has the call's controls and the faces say who is in the call.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon } from "lucide-react";
 import { DashAgents, DashHome } from "./dash-agents.tsx";
+import { AgentCall } from "./dash-call.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import type { DashPage, DashPageProps } from "#/components/dash/dash.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
@@ -642,13 +644,255 @@ test("the opener is not appended from a remembered view over a saved copy, only 
   second.releaseKinds();
 });
 
+test("with the Agents page's `call` off, an agent page has no call: no place, no button, no tiles, nothing turned on", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx, invoked } = mind({ row: "a-page" });
+  await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+  expect({
+    place: page.host.querySelector("[data-slot=agent-header-call]")?.outerHTML,
+    start: page.host.textContent?.includes("Start a call"),
+    tiles: page.host.querySelector("[data-slot=agent-call-tiles]")?.outerHTML,
+    facet: invoked.filter((one) => Array.isArray(one.call)),
+  }).toEqual({ place: undefined, start: false, tiles: undefined, facet: [] });
+});
+
+test("with `call` on and no call on the agent: one Start a call, whose press turns the call on once, then joins", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx, invoked, steps } = mind({ row: "a-page" });
+  const enable = vi.fn(async () => void steps.push("enable"));
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
+  const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-call]");
+  const start = await act(() => vi.waitFor(() => buttonOf(place, "Start a call")));
+  expect(buttonsOf(page.host).filter((one) => one === "Start a call")).toHaveLength(1);
+  // no call facet: its live state is never asked for, so no entry of it fails
+  expect(invoked.filter((one) => String(one.call).includes("'call'"))).toEqual([]);
+  await act(async () => start.click());
+  await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
+  expect(enable).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding");
+});
+
+test("a start that fails says why in words, and Start a call can be pressed again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx, steps } = mind({ row: "a-page" });
+  await using page = await draw(DashAgents, itx, {
+    waiting: 0,
+    call: {
+      enable: async () => {
+        throw new Error("the call's module is not in this mind's config");
+      },
+    },
+  });
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  await act(async () => (await vi.waitFor(() => buttonOf(place, "Start a call"))).click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(place?.querySelector("[role=alert]")?.textContent).toBe(
+        "The call could not start: the call's module is not in this mind's config",
+      ),
+    ),
+  );
+  expect(buttonOf(place, "Start a call")).toMatchObject({ disabled: false });
+  expect(steps).toEqual([]);
+});
+
+test("a call another member is in: Join in the header, a ring on their face, and the card says so", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx } = mind({
+    row: "a-page",
+    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
+    facets: { "/agents/onboarding": { call: callLive({ "b-page": ["mic", "camera"] }) } },
+  });
+  await using page = await draw(DashAgents, itx, {
+    waiting: 0,
+    presence: true,
+    call: { enable: async () => {} },
+  });
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  await act(() => vi.waitFor(() => buttonOf(place, "Join")));
+  expect(page.host.textContent).not.toContain("Start a call");
+  const access = page.host.querySelector<HTMLElement>("button[data-conversation-access]");
+  await act(() =>
+    vi.waitFor(() =>
+      expect(
+        [...(access?.querySelectorAll("[data-slot=avatar]") || [])].map((face) => [
+          face.textContent,
+          face.classList.contains("outline-success"),
+        ]),
+      ).toEqual([
+        ["B", true],
+        ["", false],
+      ]),
+    ),
+  );
+  await act(async () => access!.click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(document.querySelector("[data-shared-here]")?.textContent).toBe(
+        "Here now: b@example.com (in the call, camera)",
+      ),
+    ),
+  );
+});
+
+test("in the call: the bar's buttons and Leave in the same place, the voice agent's too, and the tiles over the feed", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  history.replaceState(null, "", "/?agent=/agents/onboarding");
+  const { itx } = mind({
+    row: "a-page",
+    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
+    facets: {
+      "/agents/onboarding": { call: callLive({ "a-page": ["mic"], "b-page": ["mic"] }) },
+    },
+  });
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  const before = place?.getAttribute("class");
+  await act(async () => (await vi.waitFor(() => buttonOf(place, "Join"))).click());
+  // a member's bar: the voice agent's button is there (a guest's bar has none: call-bar.test.tsx)
+  await act(() =>
+    vi.waitFor(() =>
+      expect([...(place?.querySelectorAll("button") || [])].map((one) => one.title)).toEqual([
+        "Mute",
+        "Share video",
+        "Share the screen",
+        "Devices",
+        "Add a voice agent",
+        "Leave the call",
+      ]),
+    ),
+  );
+  // the place is the one the header drew first, as it was: the faces and the tabs did not move
+  expect(page.host.querySelector("[data-slot=agent-header-call]")).toBe(place);
+  expect(place?.getAttribute("class")).toBe(before);
+  // the tiles stand over the feed, out of the header; the path each connection takes is read at
+  // the engine's next look
+  const tiles = page.host.querySelector("[data-slot=agent-call-tiles]");
+  expect([
+    tiles?.closest("[data-page-header]"),
+    tiles?.querySelector("[data-slot=call-tiles]")?.textContent,
+  ]).toEqual([null, expect.stringContaining("Connecting…")]);
+});
+
+test("a start whose call's live state comes before the join ends: Starting… alone, never Join, then the joined bar; one join", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet();
+  const joining = facet.hold("join");
+  await using page = await drawCall(facet, async () => {
+    // the call is on: its row and its live state come before `enable` answers
+    page.update({ facetOn: true, live: callLive({}) });
+  });
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join"] })));
+  expect(buttonsOf(page.place)).toEqual(["Starting…"]);
+  await act(async () => joining.release());
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
+  expect(page.seen.filter((buttons) => buttons.includes("Join the call"))).toEqual([]);
+  expect(facet.steps.filter((step) => step === "join")).toEqual(["join"]);
+});
+
+test("a start whose call's live state comes after the join ended: the joined bar at once, never an empty header", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet();
+  await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
+  await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
+  expect(buttonOf(page.place, "Leave the call")).toMatchObject({
+    disabled: false,
+  });
+  expect(page.seen.filter((buttons) => buttons.length === 0)).toEqual([]);
+});
+
+test("Leave wins against the live state: one that says 'not in the call' while the leave is on its way joins nothing again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const facet = callFacet();
+  await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
+  now += 6_000;
+  const leaving = facet.hold("leave");
+  await act(async () => buttonOf(page.place, "Leave the call").click());
+  // the call already took the page out: its live state says so before the leave answers
+  await act(async () => page.update({ facetOn: true, live: callLive({}) }));
+  await act(async () => leaving.release());
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Join the call")));
+  now += 10_000;
+  await act(async () => page.update({ facetOn: true, live: callLive({ "b-page": ["mic"] }) }));
+  expect(facet.steps.filter((step) => step === "join")).toEqual(["join"]);
+  expect(buttonOf(page.place, "Join the call")).toBeTruthy();
+});
+
+test("no live state says nothing of who is in the call: a joined page does not join again for it", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const facet = callFacet();
+  await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
+  now += 6_000;
+  // the call's row is there, its live state is no more (a facet that restarts, a lost read)
+  await act(async () => page.update({ facetOn: true }));
+  expect(facet.steps.filter((step) => step === "join")).toEqual(["join"]);
+  expect(buttonOf(page.place, "Leave the call")).toBeTruthy();
+});
+
+test("a start whose call came on but whose join failed: the call's words, and Join to press again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet({ join: new Error("the call has no SFU app") });
+  await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
+    ),
+  );
+  expect(buttonOf(page.place, "Join the call")).toMatchObject({
+    disabled: false,
+  });
+  expect(page.seen.filter((buttons) => buttons.length === 0)).toEqual([]);
+});
+
+test("a start whose join fails before the table shows the call: Join, never Start again", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet({ join: new Error("the call has no SFU app") });
+  // the call came on, but neither its row nor its live state has reached the page yet
+  await using page = await drawCall(facet, async () => {});
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
+    ),
+  );
+  expect(buttonsOf(page.place)).toContain("Join the call");
+  expect(buttonsOf(page.place)).not.toContain("Start a call");
+});
+
 /** A mind whose logs are empty but for `logs`: what the page appends to a log is kept in
  *  `appended`, and the ephemeral events it sends (its `presence/status`) in `sent`. `pages`: the
  *  pages other members hold open on a context, by path, as its subscription rows and lent stubs.
  *  `hold()` keeps every read of a log unanswered until `release()`, and `holdKinds()` the read of
  *  the kinds until `releaseKinds()`. `kinds`: each kind's file in the config repo, by kind, each
  *  with `source`. Its root has `files`, and a context has none: only an iterate agent's context
- *  links to the root, and the page must not count on it. */
+ *  links to the root, and the page must not count on it. `row`: the name of the page's own row
+ *  on a context, which the context answers (none: the page does not know it). `facets`: the
+ *  processors each context hosts, by name, with each one's live state. What the page invokes on a
+ *  context is kept in `invoked`, and each call of the call facet's methods, by method, in `steps`. */
 function mind({
   serves = [],
   integrations,
@@ -657,6 +901,8 @@ function mind({
   source = "export default {};",
   logs = {},
   pages = {},
+  row,
+  facets = {},
 }: {
   serves?: string[];
   integrations?: object;
@@ -667,7 +913,11 @@ function mind({
   source?: string;
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
   pages?: Record<string, { name: string; principal: { actor: string; email: string } }[]>;
+  row?: string;
+  facets?: Record<string, Record<string, unknown>>;
 }) {
+  const invoked: { path: string; call: unknown }[] = [];
+  const steps: string[] = [];
   const appended: { path: string; events: unknown[] }[] = [];
   const sent: { path: string; type: string }[] = [];
   /** the path of each file whose URL the page asked the mind to sign */
@@ -690,19 +940,37 @@ function mind({
         scannedThroughOffset: held.at(-1)?.offset || 0,
       };
     },
-    subscribe: async () => ({ [Symbol.dispose]() {} }),
+    subscribe: async () => ({ name: row, [Symbol.dispose]() {} }),
     subscriptions: {
-      list: async () =>
-        (pages[path] || []).map(({ name, principal }) => ({
+      list: async () => [
+        ...(pages[path] || []).map(({ name, principal }) => ({
           name,
           target: `itx.builtins.rpcStubs.get('subscription:${name}')`,
           consumes: ["*", "presence/status"],
           configuredAtOffset: 1,
           heldBy: { principal, via: { appPage: "dash" } },
         })),
+        ...Object.keys(facets[path] || {}).map((name) => ({
+          name,
+          consumes: [],
+          configuredAtOffset: 1,
+          hostedFacet: { name, className: "Facet" },
+        })),
+      ],
     },
     rpcStubs: { list: async () => (pages[path] || []).map(({ name }) => `subscription:${name}`) },
-    invoke: async () => ({ rev: 1, state: path === "/integrations" ? integrations : {} }),
+    invoke: async (call: unknown) => {
+      invoked.push({ path, call });
+      // a facet's method, as an expression: `["itx", "facets", ["get", name], [method, ...args]]`
+      if (Array.isArray(call)) {
+        const method = String(call[3][0]);
+        steps.push(method);
+        return method === "signal" ? { sdp: "v=0", tracks: [] } : {};
+      }
+      const facet = /facets\.get\('([^']+)'\)\.liveSnapshot/.exec(String(call))?.[1];
+      const state = path === "/integrations" ? integrations : facet && facets[path]?.[facet];
+      return { rev: 1, state: state || {} };
+    },
     append: async (...events: { type: string; ephemeral?: boolean }[]) => {
       // an ephemeral event is never in a log
       for (const event of events) if (event.ephemeral) sent.push({ path, type: event.type });
@@ -749,6 +1017,8 @@ function mind({
   } as unknown as DashPageProps["itx"];
   return {
     itx,
+    invoked,
+    steps,
     appended,
     sent,
     signed,
@@ -764,6 +1034,164 @@ function mind({
     },
     releaseKinds: () => releaseKinds(),
   };
+}
+
+/** Another member, whose page is open on the agent. */
+const memberB = { actor: "/members/b", email: "b@example.com" };
+
+/** The call's live state, with each page in it (by its row) sending `tracks`. */
+function callLive(inCall: Record<string, string[]>) {
+  const who = (page: string) =>
+    page === "a-page"
+      ? { actor: "/members/a", name: "jo@example.com" }
+      : { actor: memberB.actor, name: memberB.email };
+  return {
+    since: 1,
+    inCall: Object.fromEntries(
+      Object.entries(inCall).map(([page, tracks]) => [
+        page,
+        { who: who(page), tracks: Object.fromEntries(tracks.map((track) => [track, 1])) },
+      ]),
+    ),
+    voiceAgent: null,
+    setup: null,
+    links: [],
+  };
+}
+
+/** A browser with a microphone and WebRTC, as far as the call's engine uses them: jsdom has
+ *  neither. Each connection is connected at once, over UDP straight to the SFU. Disposing takes
+ *  the microphone back. */
+function browserMedia() {
+  const track = {
+    kind: "audio",
+    enabled: true,
+    readyState: "live",
+    getSettings: () => ({ deviceId: "default" }),
+    addEventListener() {},
+    stop() {},
+  };
+  const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getUserMedia: async () => stream, enumerateDevices: async () => [] },
+  });
+  vi.stubGlobal(
+    "RTCPeerConnection",
+    class {
+      connectionState = "connected";
+      iceGatheringState = "complete";
+      localDescription: { type: string; sdp: string } | null = null;
+      addEventListener() {}
+      addTransceiver = () => ({ mid: "0", sender: { replaceTrack: async () => {} } });
+      createOffer = async () => ({ type: "offer", sdp: "v=0" });
+      createAnswer = async () => ({ type: "answer", sdp: "v=0" });
+      setLocalDescription = async (description: { type: string; sdp: string }) => {
+        this.localDescription = description;
+      };
+      setRemoteDescription = async () => {};
+      getConfiguration = () => ({});
+      setConfiguration() {}
+      close() {}
+      getStats = async () =>
+        new Map<string, object>([
+          ["t", { type: "transport", selectedCandidatePairId: "p" }],
+          ["p", { localCandidateId: "l", currentRoundTripTime: 0.02 }],
+          ["l", { candidateType: "host", protocol: "udp" }],
+        ]);
+    },
+  );
+  return { [Symbol.dispose]: () => void Reflect.deleteProperty(navigator, "mediaDevices") };
+}
+
+/** An agent's call facet, as a page's context holds it: each method called, in `steps`, answers at
+ *  once, or throws what `fails` names for it. `hold(method)` keeps that method's next call
+ *  unanswered until `release()`. */
+function callFacet(fails: Record<string, Error> = {}) {
+  const steps: string[] = [];
+  const held = new Map<string, Promise<void>>();
+  return {
+    steps,
+    hold(method: string) {
+      let release = () => {};
+      held.set(method, new Promise((resolve) => (release = resolve)));
+      return { release: () => release() };
+    },
+    async invoke(call: unknown) {
+      const method = Array.isArray(call) ? String(call[3][0]) : "";
+      steps.push(method);
+      await held.get(method);
+      if (fails[method]) throw fails[method];
+      return method === "signal" ? { sdp: "v=0", tracks: [] } : {};
+    },
+  };
+}
+
+/** One agent page's call, on a wide screen, as `a-page`, with no call on the agent: `enable` is
+ *  what a start turns the call on with. `update` gives the page what the context says next: the
+ *  call's row, its live state. `place` is the header's place for the controls, and `seen` the
+ *  buttons it had at each moment after the first. */
+async function drawCall(facet: ReturnType<typeof callFacet>, enable: () => Promise<unknown>) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+  const host = document.body.appendChild(document.createElement("div"));
+  const place = host.appendChild(document.createElement("div"));
+  const seen: string[][] = [];
+  const watcher = new MutationObserver(() => seen.push(buttonsOf(place)));
+  watcher.observe(place, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  const root = createRoot(host.appendChild(document.createElement("div")));
+  const update = ({ facetOn = false, live }: { facetOn?: boolean; live?: object }) =>
+    root.render(
+      <AgentCall
+        stub={facet}
+        context={{
+          subscription: "a-page",
+          processors: {
+            rows: facetOn ? [{ hostedFacet: { name: "call" } }] : [],
+            loaded: true,
+          },
+          liveState: live ? { call: { value: live } } : {},
+        }}
+        enable={enable}
+        voiceAppHref={undefined}
+        barIn={place}
+      />,
+    );
+  await act(async () => update({}));
+  return {
+    place,
+    seen,
+    update,
+    async [Symbol.asyncDispose]() {
+      watcher.disconnect();
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
+/** The text of every button in `element`, its title where it has one. */
+function buttonsOf(element: Element) {
+  return [...element.querySelectorAll("button")].map(
+    (one) => one.title || one.textContent?.trim() || "",
+  );
+}
+
+/** The button in `element` whose words or title say `text`; throws while there is none. */
+function buttonOf(element: Element | null | undefined, text: string) {
+  const found = [...(element?.querySelectorAll("button") || [])].find(
+    (one) => one.title === text || one.textContent?.trim() === text,
+  );
+  if (!found) throw new Error(`no button "${text}"`);
+  return found;
 }
 
 /** The member every page signs in as, unless a test says another. */
@@ -834,6 +1262,7 @@ async function draw(
     waiting,
     openers,
     presence,
+    call,
     agents: first = agents,
     account = true,
     actor = "/members/a",
@@ -847,6 +1276,8 @@ async function draw(
     openers?: Record<string, string>;
     /** The Agents page's `presence`: a member's open agent page shows who else is here. */
     presence?: boolean;
+    /** The Agents page's `call`. */
+    call?: DashPage["call"];
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";
   },
@@ -869,7 +1300,7 @@ async function draw(
   const row = (id: string): DashPage => ({ id, name: id, icon: BotIcon, component: () => null });
   const pages = [
     row("home"),
-    { ...row("agents"), openers, presence },
+    { ...row("agents"), openers, presence, call },
     row("contexts"),
     row("integrations"),
   ];

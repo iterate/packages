@@ -67,6 +67,9 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   append the status to the context (a member's session, or a person's one-context view), with
   their actor id as `me`. `AgentChat.contextOptions` names the status
   type. A face is initials on the principal's own colour (`Face`); no picture is looked up.
+- `inCall` marks who of the principals here is in the agent's call (a ring on the face, and "in
+  the call", "camera", "screen" in the card). The host derives it from the call's live state
+  (the Dash: `agent-kind-view/call-presence.ts`); the chat knows nothing else of a call.
 - `onMessage` gets a `key` for each message. Hand it on as `message(input, { key })`: a send that
   is tried again after a lost answer then lands once.
 - A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`

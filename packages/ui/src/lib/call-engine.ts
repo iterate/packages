@@ -963,7 +963,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   async function leave() {
     await aiStop("its host left", { quiet: true });
-    if (joined) await facet("leave", page).catch(() => {});
+    // out before the call hears it: a live state that says "not in the call" while the leave is
+    // on its way is the leave itself, never a reason to join again
+    const wasIn = joined;
+    joined = false;
+    callGen += 1;
+    if (wasIn) await facet("leave", page).catch(() => {});
     teardown();
   }
   async function rejoin() {
@@ -987,17 +992,25 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
 
   /** Each live state of the call: the subscriptions follow it, a host that was sent away closes
    *  its session, and a page that the call took for gone joins afresh. */
-  async function sync(next: CallView) {
+  async function sync(next: CallView, known = true) {
     view = next;
-    // a read sent before the join answered may still say "not in the call"
-    if (joined && !next.me.inCall && !rejoining && !ui.joining && Date.now() - joinedAt > 5_000) {
+    // a read sent before the join answered may still say "not in the call"; and no live state at
+    // all (`known` false) says nothing of who is in it, so it never makes the page join again
+    if (
+      known &&
+      joined &&
+      !next.me.inCall &&
+      !rejoining &&
+      !ui.joining &&
+      Date.now() - joinedAt > 5_000
+    ) {
       say("This page was out of touch, so it joins the call again.");
       await rejoin();
       return;
     }
     reconcile();
     aiMix();
-    if (ai.state === "on" && next.hostPage !== page && Date.now() - ai.startedAt > 8_000)
+    if (known && ai.state === "on" && next.hostPage !== page && Date.now() - ai.startedAt > 8_000)
       void aiStop("it was sent away");
     else if (ai.state === "on" && Date.now() - ai.lastSpeechAt > AI_IDLE_MS)
       void aiStop(`nobody spoke for ${AI_IDLE_MS / 60_000} minutes`);
@@ -1111,8 +1124,9 @@ export function useCall(
   // each live state of the call, and every 5 s for the network line
   useEffect(() => {
     if (!call || !page) return;
-    void call.sync(viewOf(live, page));
-    const timer = setInterval(() => void call.sync(viewOf(live, page)), 5_000);
+    const known = Boolean(live);
+    void call.sync(viewOf(live, page), known);
+    const timer = setInterval(() => void call.sync(viewOf(live, page), known), 5_000);
     return () => clearInterval(timer);
   }, [call, live, page]);
   return { call, ui, live };

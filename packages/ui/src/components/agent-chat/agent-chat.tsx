@@ -67,7 +67,7 @@ import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
-import { ConversationAccess, TypingStatus } from "./presence-line.tsx";
+import { ConversationAccess, TypingStatus, type InCall } from "./presence-line.tsx";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import { sentByMe, type MessageSender, type StreamEvent } from "./stream-event.ts";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
@@ -167,6 +167,7 @@ export function AgentChat({
   choiceState,
   me,
   presence = false,
+  inCall,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -231,6 +232,10 @@ export function AgentChat({
    *  says nothing). For a page of a signed-in principal whose session appends to the context: `me`
    *  is then their actor id. A page whose reader may not append here leaves it off. */
   presence?: boolean;
+  /** With `presence`: who of the principals here is in the agent's call, from the call's live
+   *  state (the host's: the chat knows nothing else of a call). Their faces are marked, and the
+   *  card says so. */
+  inCall?: InCall;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -282,7 +287,11 @@ export function AgentChat({
       strip={strip}
       eventsTab={eventsTab}
       tabsInHeader={tabsInHeader}
-      aside={presence ? <ConversationAccess present={here.present} wrote={wrote} /> : null}
+      aside={
+        presence ? (
+          <ConversationAccess present={here.present} wrote={wrote} inCall={inCall} />
+        ) : null
+      }
       asideIn={asideIn}
       closeSheet={TRACES_CLOSED}
       sheet={

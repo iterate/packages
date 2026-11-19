@@ -7,7 +7,8 @@
 //               `?agent=<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
-//               header is one row: the agent's title and path, who is here and can use the
+//               header is one row: the agent's title and path, the call's controls (with `call`
+//               on: ./dash-call.tsx, an iterate agent's chat alone), who is here and can use the
 //               conversation (with presence on), and Chat | Events. The row's
 //               `openers` are what the mind says first in an empty chat.
 //
@@ -42,6 +43,7 @@ import { ContextPathText } from "#/components/context-path-text.tsx";
 import {
   DashNote,
   DashScroll,
+  type DashCall,
   type DashPage,
   type DashPageProps,
 } from "#/components/dash/dash.tsx";
@@ -63,6 +65,14 @@ function once<T>(load: () => Promise<T>) {
 
 const homePart = once(() => import("#/components/agents-home.tsx"));
 const chatPart = once(() => import("#/components/agent-chat/agent-chat.tsx"));
+// only where the Agents page's row turns calls on: the call's view, and who is in it
+const callPart = once(async () => {
+  // the two modules load at once
+  const people = import("./call-presence.ts");
+  const { AgentCall } = await import("./dash-call.tsx");
+  const { inCallOf } = await people;
+  return { AgentCall, inCallOf };
+});
 
 // ── the kinds ──
 
@@ -489,6 +499,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
           agents={agents}
           quiet={quiet}
           presence={Boolean(page.presence)}
+          call={Boolean(page.call)}
         />
       }
     >
@@ -498,6 +509,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
         agents={agents}
         opener={page.openers?.[path]}
         presence={Boolean(page.presence)}
+        call={page.call}
         me={principal?.actor}
         tails={tails}
         quiet={quiet}
@@ -512,13 +524,17 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
  *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet.
  *  With `presence`, a place before the tabs as wide as one face, from the first paint: the chat
  *  draws the stack of who is here in it (`AgentChat`'s `asideIn`, which `aside` receives), which
- *  grows to its left, so the tabs do not move when it comes or when people arrive. */
+ *  grows to its left, so the tabs do not move when it comes or when people arrive. With `call`,
+ *  a place before that one, as wide as one button, from the first paint: the call's controls
+ *  (`callIn` receives it), which grow to their left as well, so the path gives up the room. */
 function AgentPageHeader({
   path,
   agents,
   tabs,
   presence,
   aside,
+  call,
+  callIn,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
@@ -526,6 +542,9 @@ function AgentPageHeader({
   presence: boolean;
   /** Receives the place's element. */
   aside?: (element: HTMLElement | null) => void;
+  call: boolean;
+  /** Receives the call's place. */
+  callIn?: (element: HTMLElement | null) => void;
 }) {
   const title = agents?.find((agent) => agent.path === path)?.title;
   return (
@@ -543,6 +562,13 @@ function AgentPageHeader({
         />
       </span>
       <span className="flex shrink-0 items-center gap-1">
+        {call ? (
+          <span
+            ref={callIn}
+            data-slot="agent-header-call"
+            className="flex h-7 min-w-7 shrink-0 items-center justify-end"
+          />
+        ) : null}
         {presence ? (
           <span
             ref={aside}
@@ -578,6 +604,7 @@ function AgentPageReading({
   agents,
   quiet,
   presence,
+  call,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
@@ -585,10 +612,12 @@ function AgentPageReading({
   quiet: boolean;
   /** The header keeps the place of who is here and can use the conversation. */
   presence: boolean;
+  /** The header keeps the place of the call's controls. */
+  call: boolean;
 }) {
   return (
     <>
-      <AgentPageHeader path={path} agents={agents} presence={presence} />
+      <AgentPageHeader path={path} agents={agents} presence={presence} call={call} />
       <AgentReading strip={false} quiet={quiet} />
     </>
   );
@@ -605,6 +634,7 @@ function AgentViewOfKind({
   agents,
   opener,
   presence,
+  call,
   me,
   tails,
   quiet,
@@ -614,6 +644,8 @@ function AgentViewOfKind({
   opener: string | undefined;
   /** The page shows who else has the agent's conversation open (the Agents page's `presence`). */
   presence: boolean;
+  /** The Agents page's `call`: an iterate agent's chat has the call's controls. */
+  call: DashCall | undefined;
   me: string | undefined;
   tails: TailsOfMember;
   quiet: boolean;
@@ -638,7 +670,15 @@ function AgentViewOfKind({
   if (!next) {
     // nothing to draw yet: the kinds are waited for as the page waits for the chat's part
     use(files);
-    return <AgentPageReading path={path} agents={agents} quiet={quiet} presence={presence} />;
+    return (
+      <AgentPageReading
+        path={path}
+        agents={agents}
+        quiet={quiet}
+        presence={presence}
+        call={Boolean(call)}
+      />
+    );
   }
   const { view, mount } = next;
   return view.file ? (
@@ -649,6 +689,7 @@ function AgentViewOfKind({
       file={view.file}
       agents={agents}
       presence={presence}
+      call={Boolean(call)}
       me={me}
       tails={tails}
     />
@@ -661,6 +702,7 @@ function AgentViewOfKind({
       agents={agents}
       opener={opener}
       presence={presence}
+      call={call}
       me={me}
       tails={tails}
     />
@@ -701,6 +743,7 @@ function IterateChat({
   agents,
   opener,
   presence,
+  call,
   me,
   tails,
 }: {
@@ -713,11 +756,18 @@ function IterateChat({
   opener: string | undefined;
   /** The chat shows who else is here, and says the page's own status. */
   presence: boolean;
+  /** The agent's call: its controls in the header, its tiles over the feed. */
+  call: DashCall | undefined;
   /** The signed-in member's actor id: their own messages have no line under them. */
   me: string | undefined;
   tails: TailsOfMember;
 }) {
+  // the call's part loads beside the chat's, behind the same loading state
+  const calling = call && callPart();
   const { AgentChat } = use(chatPart());
+  const callKit = calling && use(calling);
+  // the header's place for the call's controls, once the header has drawn it
+  const [callIn, setCallIn] = useState<HTMLElement | null>(null);
   const { view, patchView } = useView();
   // the header's place for who is here and can use the conversation, once the header has drawn it
   const [aside, setAside] = useState<HTMLElement | null>(null);
@@ -746,6 +796,8 @@ function IterateChat({
     context.caughtUp &&
     context.older.exhausted &&
     !context.events.some((event) => Said.safeParse(event).success);
+  const callLive = context.liveState.call?.value;
+  const inCall = useMemo(() => callKit && callKit.inCallOf(callLive), [callKit, callLive]);
   useEffect(() => {
     if (!opener || !stub || !empty) return;
     stub
@@ -771,7 +823,18 @@ function IterateChat({
         }}
         presence={presence}
         aside={setAside}
+        call={Boolean(call)}
+        callIn={setCallIn}
       />
+      {call && callKit ? (
+        <callKit.AgentCall
+          stub={stub}
+          context={context}
+          enable={() => call.enable(itx, path)}
+          voiceAppHref={call.voiceAppHref}
+          barIn={callIn}
+        />
+      ) : null}
       <AgentChat
         path={path}
         context={context}
@@ -787,6 +850,7 @@ function IterateChat({
         signedUrl={signedUrl}
         me={me}
         presence={presence}
+        inCall={inCall}
       />
     </>
   );
@@ -817,6 +881,7 @@ function KindChat({
   file,
   agents,
   presence,
+  call,
   me,
   tails,
 }: {
@@ -827,6 +892,9 @@ function KindChat({
   agents: readonly AgentRow[] | undefined;
   /** The page shows who else is here, for a view that draws AgentChat. */
   presence: boolean;
+  /** The header keeps the call's place as the loading header had it, and empty: a kind's own view
+   *  has no call controls. */
+  call: boolean;
   /** The signed-in member's actor id, for a view that draws AgentChat. */
   me: string | undefined;
   tails: TailsOfMember;
@@ -911,9 +979,10 @@ function KindChat({
           wholeLogHeld: log.older.exhausted,
           onStateChange: patchView,
         }}
-        // the place stays as the loading header had it, and empty: the kind's view runs in a
+        // the places stay as the loading header had them, and empty: the kind's view runs in a
         // frame, which draws nothing into this page
         presence={presence}
+        call={call}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <AgentKindViewFrame

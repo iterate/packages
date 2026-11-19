@@ -72,6 +72,7 @@ export {
   DashRepo,
   DashScroll,
   DashSecrets,
+  type DashCall,
   type DashLink,
   type DashLinks,
   type DashPage,
