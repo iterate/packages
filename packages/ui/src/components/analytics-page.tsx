@@ -279,6 +279,30 @@ function Analytics({
   const [opened, setOpened] = useState<{ target: RowTarget; open: boolean }>();
   const openRow = useCallback((next: RowTarget) => setOpened({ target: next, open: true }), []);
   const target = opened?.target;
+  if (live?.notice) {
+    return (
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-8" data-telemetry-off>
+        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
+        <p className="text-sm">
+          Telemetry is off for this mind: its deploy had no telemetry token ({live.notice}).
+        </p>
+        <p className="text-sm text-muted-foreground">
+          To turn it on, run{" "}
+          <code className="whitespace-nowrap">npx iterate deploy --telemetry-token</code> (or pass{" "}
+          <code className="whitespace-nowrap">CLOUDFLARE_TELEMETRY_API_TOKEN</code>).{" "}
+          <a
+            href="https://github.com/iterate/core/blob/main/core/lib/src/cli/README.md#deploy-a-mind"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4"
+          >
+            The README has the steps
+          </a>
+          .
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
@@ -474,31 +498,33 @@ function Chart({
 }
 
 /** The live query's rows and when they were read, again thirty seconds after each read answers,
- *  while the page is shown: a hidden tab reads nothing, and no two reads overlap. */
+ *  while the page is shown: a hidden tab reads nothing, no two reads overlap, and a telemetry-off
+ *  notice stops polling until the page reloads. */
 function useLive() {
   const query = useTelemetry();
   const [live, setLive] = useState<Answer & { at: number }>();
   useEffect(
     () =>
       repeatAfter(30_000, async (stopped) => {
-        if (document.hidden) return;
+        if (document.hidden) return true;
         const at = Date.now();
         const next = await query(LIVE_SQL, 1);
         if (!stopped()) setLive({ ...next, at });
+        return !next.notice;
       }),
     [query],
   );
   return live;
 }
 
-/** Runs `read` now, and again `ms` after each run settles, until the returned function stops it.
- *  `read` asks `stopped()` before it changes anything. */
-function repeatAfter(ms: number, read: (stopped: () => boolean) => Promise<void>) {
+/** Runs `read` now, and again `ms` after each run settles while `read` returns true, until the
+ *  returned function stops it. `read` asks `stopped()` before it changes anything. */
+function repeatAfter(ms: number, read: (stopped: () => boolean) => Promise<boolean>) {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = async () => {
-    await read(() => stopped);
-    if (!stopped) timer = setTimeout(() => void run(), ms);
+    const keepGoing = await read(() => stopped);
+    if (!stopped && keepGoing) timer = setTimeout(() => void run(), ms);
   };
   void run();
   return () => {

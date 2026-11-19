@@ -91,18 +91,31 @@ test("a mind with telemetry off gets something to do: where to turn it on, with 
   await act(() => root.unmount());
 });
 
-test("when telemetry tables are off, the page shows the plain notice without Unavailable or error styling", async () => {
+test("when telemetry tables are off, the page explains how to turn them on instead of showing zeros and stops polling", async () => {
   using _clock = ownClock();
   const notice = "telemetry tables are off: add a telemetry token";
+  let liveCalls = 0;
+  const query: TelemetryQuery = async (sql) => {
+    if (sql.includes("FROM metrics") && sql.includes("subscription.delivered")) liveCalls += 1;
+    return { rows: [], sql, notice };
+  };
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
-  await act(() =>
-    root.render(<AnalyticsPage query={async (sql) => ({ rows: [], sql, notice })} />),
-  );
+  await act(() => root.render(<AnalyticsPage query={query} />));
   await act(() => vi.advanceTimersByTimeAsync(1_000));
+  expect(host.querySelector("[data-telemetry-off]")).not.toBeNull();
+  expect(host.textContent).toContain(
+    "Telemetry is off for this mind: its deploy had no telemetry token",
+  );
   expect(host.textContent).toContain(notice);
+  expect(host.textContent).toContain("npx iterate deploy --telemetry-token");
+  expect(host.textContent).not.toContain("Rows reach the warehouse");
+  expect(host.textContent).not.toContain("No data yet");
   expect(host.textContent).not.toContain("Unavailable:");
   expect(host.querySelector(".text-destructive")).toBeNull();
+  expect(liveCalls).toBe(1);
+  await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
+  expect(liveCalls).toBe(1);
   await act(() => root.unmount());
 });
 
