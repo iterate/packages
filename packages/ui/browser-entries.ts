@@ -8,7 +8,7 @@ import path from "node:path";
 const ui = import.meta.dirname;
 
 /** The items whose files a page imports one by one, as `components/<item>/<file>`: the call's
- *  spoken lines (src/components/call/), whose parts a page takes as it needs them. */
+ *  parts (src/components/call/), which a page takes as it needs them. */
 const ITEMS_OF_PARTS: Record<string, string[]> = {
   call: [
     "spoken-lines.ts",
@@ -16,6 +16,9 @@ const ITEMS_OF_PARTS: Record<string, string[]> = {
     "caption-strip.tsx",
     "transcript-history.tsx",
     "transcript-rollup.tsx",
+    "call-bar.tsx",
+    "call-tiles.tsx",
+    "call-pip.tsx",
   ],
 };
 

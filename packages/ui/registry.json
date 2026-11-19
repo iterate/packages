@@ -414,18 +414,51 @@
       ]
     },
     {
+      "name": "call-rules",
+      "type": "registry:lib",
+      "description": "The pure rules of a call in a page: the call facet's live state, who may press Join, the network path, the ICE servers, a saved device, the repair of a connection, the simulcast layer of a tile, and the voice agent's idle clock.",
+      "dependencies": [
+        "zod"
+      ],
+      "files": [
+        {
+          "path": "src/lib/call-rules.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "call-engine",
+      "type": "registry:lib",
+      "description": "A call in this tab over Cloudflare's SFU, signalled by the call facet on the agent's context, and the hook that holds it for a page.",
+      "registryDependencies": [
+        "iterate/packages/call-rules"
+      ],
+      "files": [
+        {
+          "path": "src/lib/call-engine.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
       "name": "call",
       "type": "registry:component",
-      "description": "A call's spoken lines: the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
+      "description": "A call on an agent's context: its controls for a header and its tiles beside the chat, the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
       "dependencies": [
         "cn",
         "lucide-react"
       ],
       "registryDependencies": [
+        "alert",
         "avatar",
         "button",
+        "iterate/packages/call-engine",
+        "iterate/packages/call-rules",
         "iterate/packages/iterate-logo",
-        "iterate/packages/virtual-log"
+        "iterate/packages/virtual-log",
+        "native-select",
+        "popover"
       ],
       "cssVars": {
         "theme": {
@@ -452,6 +485,18 @@
         },
         {
           "path": "src/components/call/transcript-rollup.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-bar.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-tiles.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-pip.tsx",
           "type": "registry:component"
         }
       ]
