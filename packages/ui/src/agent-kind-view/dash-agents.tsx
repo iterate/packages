@@ -7,8 +7,8 @@
 //               `?agent=<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
-//               header is one row: the agent's title and path, who can use the conversation
-//               (with presence on), and Chat | Events. The row's
+//               header is one row: the agent's title and path, who is here and can use the
+//               conversation (with presence on), and Chat | Events. The row's
 //               `openers` are what the mind says first in an empty chat.
 //
 // They live here, out of the shadcn registry, because they host kinds' frames: a registry item may
@@ -510,9 +510,9 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
 /** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
  *  cut at its end where it does not fit, and Chat | Events at the right, which never wrap. With no
  *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet.
- *  With `presence`, a place of a button's size before the tabs, from the first paint: the chat
- *  draws who can use the conversation in it (`AgentChat`'s `asideIn`, which `aside` receives),
- *  so the tabs do not move when it comes. */
+ *  With `presence`, a place before the tabs as wide as one face, from the first paint: the chat
+ *  draws the stack of who is here in it (`AgentChat`'s `asideIn`, which `aside` receives), which
+ *  grows to its left, so the tabs do not move when it comes or when people arrive. */
 function AgentPageHeader({
   path,
   agents,
@@ -544,7 +544,11 @@ function AgentPageHeader({
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {presence ? (
-          <span ref={aside} data-slot="agent-header-aside" className="flex size-7 shrink-0" />
+          <span
+            ref={aside}
+            data-slot="agent-header-aside"
+            className="flex h-7 min-w-7 shrink-0 justify-end"
+          />
         ) : null}
         {tabs ? (
           <AgentTabs {...tabs} />
@@ -579,7 +583,7 @@ function AgentPageReading({
   agents: readonly AgentRow[] | undefined;
   /** Saved rows wait for the view: no loading line (`AgentReading`). */
   quiet: boolean;
-  /** The header keeps the place of who can use the conversation. */
+  /** The header keeps the place of who is here and can use the conversation. */
   presence: boolean;
 }) {
   return (
@@ -715,7 +719,7 @@ function IterateChat({
 }) {
   const { AgentChat } = use(chatPart());
   const { view, patchView } = useView();
-  // the header's place for who can use the conversation, once the header has drawn it
+  // the header's place for who is here and can use the conversation, once the header has drawn it
   const [aside, setAside] = useState<HTMLElement | null>(null);
   // held and read again at each new session: the rows of the last one, or of the last page load,
   // stay until then

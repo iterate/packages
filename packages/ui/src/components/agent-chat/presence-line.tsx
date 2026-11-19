@@ -1,20 +1,24 @@
-// WHO ELSE IS HERE, over the composer: a face for each other principal with the conversation open
-// now, and the words "… is typing" while one of them writes. One line of a fixed height beside the
-// agent's status, so the composer does not move when someone arrives, types or leaves. The typing
-// words are for a screen reader only: the eye sees who types at the end of the feed, as their face
-// with dots (participant.tsx `TypingInStream`), from the same principals.
+// WHO IS HERE AND WHO CAN USE THIS CONVERSATION, beside Chat | Events (`ConversationAccess`, which
+// the chat hands its shell as `aside`): a stack of faces, the others who have the conversation
+// open now and the viewer's own last, as shared documents show it. It is one button, and behind
+// it a card says who can use the conversation, who is here now and who else wrote. A press opens
+// the card (on a touch screen too), and so do the pointer resting on the stack and the keyboard's
+// focus. A press holds it open until the next press; the pointer leaving closes only a card the
+// pointer opened (`whyOpen`). It is always there, because what its card says is always true:
+// alone, it is the viewer's own face.
 //
-// WHO CAN USE THIS CONVERSATION, beside Chat | Events (`ConversationAccess`, which the chat hands
-// its shell as `aside`): a quiet people icon whose card says who can use it, who is here now and
-// who else wrote. A count on the icon says how many others are here or wrote; alone, it is the
-// plain icon. It is always there, because what its card says is always true.
+// WHO IS TYPING, in words for a screen reader only (`TypingStatus`), over the composer: the eye
+// sees who types at the end of the feed, as their face with dots (participant.tsx
+// `TypingInStream`), from the same principals. It takes no room, so the composer does not move.
 //
 // The faces come from `usePresence` (lib/presence.ts): the platform's rows of the pages open now and
 // who holds each, never a name a page wrote. A face is the principal's initials on their own
 // colour (`Face`), the same on every page; no picture is looked up anywhere.
-import { UsersIcon } from "lucide-react";
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+import { useId, useState } from "react";
 import type { MessageSender } from "./stream-event.ts";
 import { Face } from "#/components/call/face.tsx";
+import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Popover,
@@ -27,8 +31,9 @@ import {
 import type { PresentPrincipal } from "#/lib/presence.ts";
 import { faceOf, labelOf, shortLabelOf } from "#/lib/principal-label.ts";
 
-/** How many faces the line draws before it counts the rest. */
-const FACES = 5;
+/** How many places the stack has for the others; with more here, the last place is "+n". The
+ *  viewer's face comes after them, so the stack is at most five faces wide. */
+const FACES = 4;
 
 /** Who can use a conversation, in the words the page shows. An agent's reach is its context's:
  *  whoever writes to it makes it act with all of it. */
@@ -40,6 +45,44 @@ const SHARED_CONVERSATION_TEXT = {
     "The agent acts for whoever writes here, with everything it can reach: its tools, its secrets and its files.",
 };
 
+/** Why the card is open: the pointer rests on the stack or the card, the keyboard's focus is on
+ *  the button or in the card, or a press holds it. */
+type Why = "hover" | "focus" | "held";
+
+/** Why the card is open after a change base-ui asks for (`open`, for `reason`), or `null` when it
+ *  closes. A press holds the card, and a press on a held card closes it. The pointer leaving
+ *  closes only a card that the pointer opened, and the keyboard's focus outlasts the pointer. The
+ *  focus opens the card through the handle (`imperative-action`). Escape, a press outside and the
+ *  focus moving on close it whatever opened it. */
+function whyOpen(
+  why: Why | null,
+  open: boolean,
+  reason: PopoverPrimitive.Root.ChangeEventReason,
+): Why | null {
+  if (reason === "trigger-press") return open || why !== "held" ? "held" : null;
+  if (reason === "trigger-hover") return open ? why || "hover" : why === "hover" ? null : why;
+  if (reason === "imperative-action" && open) return why === "held" ? why : "focus";
+  return open ? why || "held" : null;
+}
+
+/** WHO IS TYPING, said to a screen reader: always in the page, so it announces the words when
+ *  they come; out of sight, because the feed draws the same fact. Its box has no height: the
+ *  status in it takes no room. */
+export function TypingStatus({
+  typing,
+}: {
+  /** Everyone but the viewer who is typing now. */
+  typing: readonly PresentPrincipal[];
+}) {
+  return (
+    <div data-slot="agent-presence">
+      <span role="status" className="sr-only">
+        {typing.length > 0 ? typingWords(typing) : null}
+      </span>
+    </div>
+  );
+}
+
 /** "ada is typing…", "ada and bob are typing…", "3 people are typing…". */
 function typingWords(typing: readonly PresentPrincipal[]): string {
   if (typing.length === 1) return `${shortLabelOf(typing[0]!)} is typing…`;
@@ -48,55 +91,11 @@ function typingWords(typing: readonly PresentPrincipal[]): string {
   return `${String(typing.length)} people are typing…`;
 }
 
-export function PresenceLine({
-  present,
-}: {
-  /** Who is here now (`usePresence`), the viewer among them. */
-  present: readonly PresentPrincipal[];
-}) {
-  const others = present.filter((principal) => !principal.me);
-  const typing = others.filter((principal) => principal.typing);
-  return (
-    <div
-      data-slot="agent-presence"
-      className="flex h-6 min-w-0 items-center justify-end gap-1.5 px-1 pb-1 text-xs text-muted-foreground"
-    >
-      {/* always in the page, so a screen reader announces the words when they come; out of sight,
-          because the feed draws the same fact */}
-      <span role="status" className="sr-only">
-        {typing.length > 0 ? typingWords(typing) : null}
-      </span>
-      {others.length > 0 ? (
-        <span className="flex shrink-0 items-center [&>*+*]:-ml-1" data-here={others.length}>
-          {others.slice(0, FACES).map((principal) => (
-            <Face
-              key={principal.actor}
-              small
-              {...faceOf(principal)}
-              label={hereLabel(principal)}
-              className={principal.state === "away" ? "opacity-50" : undefined}
-            />
-          ))}
-          {others.length > FACES ? (
-            <span className="pl-2">+{String(others.length - FACES)}</span>
-          ) : null}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/** A face's words: who, whether their page is in view, and how many pages they have open here. */
-function hereLabel(principal: PresentPrincipal): string {
-  const pages = principal.pages > 1 ? `, ${String(principal.pages)} pages` : "";
-  return `${labelOf(principal)} is ${principal.state === "away" ? "here, in another tab or app" : "here"}${pages}`;
-}
-
-/** WHO CAN USE THIS CONVERSATION: a people icon, with how many others are here or wrote, and
- *  behind it the card that says who can use the conversation, who is here now and who else
- *  wrote. One size whatever it counts, so a header does not move. Its title, the hover text
- *  and the accessible name, is `SHARED_CONVERSATION_TEXT.title`. A page with a header of its own draws it there, with what
- *  `usePresence` and the chat's senders say. */
+/** WHO CAN USE THIS CONVERSATION: the stack of who is here, and behind it the card that says who
+ *  can use the conversation, who is here now and who else wrote. Its accessible name is the
+ *  card's title and who is here. It grows to its left as people come, so a header that holds it
+ *  at its right end does not move its tabs. A page with a header of its own draws it there, with
+ *  what `usePresence` and the chat's senders say. */
 export function ConversationAccess({
   present,
   wrote,
@@ -106,35 +105,45 @@ export function ConversationAccess({
   /** Everyone but the viewer who wrote in the part of the conversation the page holds. */
   wrote: readonly MessageSender[];
 }) {
+  const [why, setWhy] = useState<Why | null>(null);
+  const [handle] = useState(() => PopoverPrimitive.createHandle());
+  const trigger = useId();
   const others = present.filter((principal) => !principal.me);
   const here = new Set(others.map((principal) => principal.actor));
   const earlier = wrote.filter((sender) => !here.has(sender.actor));
-  const count = others.length + earlier.length;
+  const name =
+    others.length > 0
+      ? `${SHARED_CONVERSATION_TEXT.title}. Here now: ${others.map(labelOf).join(", ")}.`
+      : SHARED_CONVERSATION_TEXT.title;
   return (
-    <Popover>
+    <Popover
+      handle={handle}
+      open={Boolean(why)}
+      onOpenChange={(open, details) => {
+        const next = whyOpen(why, open, details.reason);
+        // a close that this card's reason outlasts does not happen, in base-ui either
+        if (!open && next) details.cancel();
+        setWhy(next);
+      }}
+    >
       <PopoverTrigger
+        id={trigger}
         nativeButton
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="relative shrink-0 text-muted-foreground"
-            title={SHARED_CONVERSATION_TEXT.title}
-            data-others={count}
-          />
-        }
+        openOnHover
+        aria-label={name}
+        data-conversation-access
+        data-here={others.length}
+        // the keyboard's focus opens the card through base-ui, which closes it when the focus
+        // moves on; a press focuses the button with no focus ring, and opens it as a press
+        onFocus={(event) => {
+          if (event.currentTarget.matches(":focus-visible")) handle.open(trigger);
+        }}
+        render={<Button variant="ghost" size="sm" className="shrink-0 rounded-full px-0.5" />}
       >
-        <UsersIcon aria-hidden="true" />
-        {count > 0 ? (
-          <span
-            aria-hidden="true"
-            className="absolute top-0 right-0 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-2xs leading-none text-primary-foreground"
-          >
-            {count > 9 ? "9+" : count}
-          </span>
-        ) : null}
+        <FaceStack others={others} me={present.find((principal) => principal.me)} />
       </PopoverTrigger>
-      <PopoverContent side="bottom" align="end" className="w-80">
+      {/* the card holds words only: the focus stays on the button, which names it */}
+      <PopoverContent side="bottom" align="end" initialFocus={false} className="w-80">
         <PopoverHeader>
           <PopoverTitle>{SHARED_CONVERSATION_TEXT.title}</PopoverTitle>
           <PopoverDescription>{SHARED_CONVERSATION_TEXT.history}</PopoverDescription>
@@ -142,7 +151,7 @@ export function ConversationAccess({
         <p className="text-sm text-muted-foreground">{SHARED_CONVERSATION_TEXT.reach}</p>
         {others.length > 0 ? (
           <p className="text-sm break-words" data-shared-here>
-            Here now: {others.map(labelOf).join(", ")}
+            Here now: {others.map(hereLabel).join(", ")}
           </p>
         ) : null}
         {earlier.length > 0 ? (
@@ -153,4 +162,52 @@ export function ConversationAccess({
       </PopoverContent>
     </Popover>
   );
+}
+
+/** A FACE STACK: the others' faces, overlapping, the first `FACES` of them (the last place "+n"
+ *  when more are here), and the viewer's last. Before the viewer's own row is known, a plain
+ *  circle of the same size stands in their place. The faces are for the eye: the button that
+ *  holds the stack says who is here in words. */
+function FaceStack({
+  others,
+  me,
+}: {
+  others: readonly PresentPrincipal[];
+  me: PresentPrincipal | undefined;
+}) {
+  const shown = others.length > FACES ? others.slice(0, FACES - 1) : others;
+  return (
+    <AvatarGroup className="-space-x-1.5">
+      {shown.map((principal) => (
+        <Face
+          key={principal.actor}
+          small
+          {...faceOf(principal)}
+          className={principal.state === "away" ? "size-6 opacity-50" : "size-6"}
+        />
+      ))}
+      {others.length > shown.length ? (
+        <AvatarGroupCount className="size-6 text-2xs">
+          +{String(others.length - shown.length)}
+        </AvatarGroupCount>
+      ) : null}
+      {me ? (
+        <Face small {...faceOf(me)} className="size-6" />
+      ) : (
+        <Avatar className="size-6" aria-hidden="true" data-viewer-unknown>
+          <AvatarFallback />
+        </Avatar>
+      )}
+    </AvatarGroup>
+  );
+}
+
+/** Who is here, in the card: the long label, and whether their page is in view and how many
+ *  pages they have open here. */
+function hereLabel(principal: PresentPrincipal): string {
+  const notes = [
+    principal.state === "away" ? "away" : "",
+    principal.pages > 1 ? `${String(principal.pages)} pages` : "",
+  ].filter(Boolean);
+  return notes.length > 0 ? `${labelOf(principal)} (${notes.join(", ")})` : labelOf(principal);
 }

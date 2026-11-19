@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // The Dash's agent pages: the home says what waits for the member in a place of its own (nothing,
 // or the requests and the integrations that ask for them), New agent is a composer alone, and the
-// agent view draws any path under one header row (the path, who can use the conversation where
-// presence is on, and Chat | Events), with the agent's
+// agent view draws any path under one header row (the path, the stack of who is here and can use
+// the conversation where presence is on, and Chat | Events), with the agent's
 // status at the feed's foot, and says the opener once into an empty chat.
 import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -134,11 +134,11 @@ test("the agent view takes any path, has no button to its raw view, and says the
   expect(appended).toHaveLength(1);
 });
 
-test("an agent page shows who else is here, and in its header who can use the conversation, only where the mind's config turned presence on", async () => {
+test("an agent page's header shows the stack of who is here, which opens who can use the conversation, only where the mind's config turned presence on", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/?agent=/agents/onboarding");
   {
-    // the default: no line, no place in the header, nothing sent
+    // the default: no typing status, no place in the header, nothing sent
     const { itx, sent, appended } = mind({});
     await using page = await draw(DashAgents, itx, { waiting: 0 });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
@@ -146,23 +146,28 @@ test("an agent page shows who else is here, and in its header who can use the co
     expect(page.host.querySelector("[data-slot=agent-header-aside]")?.outerHTML).toBeUndefined();
   }
   {
-    // alone: the line over the composer holds no words, and the header's place holds the plain
-    // people button
+    // alone: the typing status over the composer holds no words, and the header's place holds
+    // the button with one plain circle, as the page does not know its own row yet
     const { itx, sent, appended } = mind({});
     await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
     expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe("");
     const access = await vi.waitFor(() => {
       const button = page.host.querySelector(
-        '[data-page-header] [data-slot=agent-header-aside] button[title="Who can use this conversation"]',
+        "[data-page-header] [data-slot=agent-header-aside] button[data-conversation-access]",
       );
       if (!button) throw new Error("the header has no button yet");
       return button;
     });
-    expect(access.getAttribute("data-others")).toBe("0");
+    expect([
+      access.getAttribute("aria-label"),
+      access.getAttribute("data-here"),
+      access.querySelectorAll("[data-viewer-unknown]").length,
+    ]).toEqual(["Who can use this conversation", "0", 1]);
   }
-  // another member's page open on this agent's context: a face. The SDK does not say this page's
-  // own row yet, so the page says no status of its own.
+  // another member's page open on this agent's context: a face in the header's stack, none over
+  // the composer. The SDK does not say this page's own row yet, so the page says no status of its
+  // own.
   const { itx, sent, appended } = mind({
     pages: {
       "/agents/onboarding": [
@@ -171,16 +176,17 @@ test("an agent page shows who else is here, and in its header who can use the co
     },
   });
   await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+  const access = () =>
+    page.host.querySelector("[data-slot=agent-header-aside] button[data-conversation-access]");
   await vi.waitFor(() =>
-    expect(
-      page.host
-        .querySelector("[data-slot=agent-presence] [data-slot=avatar]")
-        ?.getAttribute("aria-label"),
-    ).toBe("b@example.com is here"),
+    expect(access()?.getAttribute("aria-label")).toBe(
+      "Who can use this conversation. Here now: b@example.com.",
+    ),
   );
-  expect(
-    page.host.querySelector("[data-slot=agent-header-aside] button")?.getAttribute("data-others"),
-  ).toBe("1");
+  expect([
+    [...(access()?.querySelectorAll("[data-slot=avatar]") || [])].map((face) => face.textContent),
+    page.host.querySelector("[data-slot=agent-presence] [data-slot=avatar]")?.outerHTML,
+  ]).toEqual([["B", ""], undefined]);
   expect({ sent, appended }).toEqual({ sent: [], appended: [] });
 });
 

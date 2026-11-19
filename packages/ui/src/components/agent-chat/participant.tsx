@@ -1,7 +1,7 @@
 // participant.tsx — ANOTHER PARTICIPANT IN THE CHAT (a person, a guest, another mind), at the left:
 // their face in a gutter of its own, and beside it their short name, or a bubble. The stream's
 // bubbles, the dots of who is typing and the queue's waiting messages all draw it so, and they read
-// as one thing with the faces of the presence line. The viewer's own bubbles stand at the right
+// as one thing with the header's stack of who is here. The viewer's own bubbles stand at the right
 // with no face, and this conversation's own mind writes the full width with no bubble
 // (agent-feed.tsx).
 import { cn } from "cn";
@@ -104,8 +104,8 @@ export function MessageAuthor({ children }: { children: string }) {
  *  three dots for each of the first three, then how many more. Each row is the row their message
  *  will be, so the bubble that takes its place lands where the dots stood: it goes on the run the
  *  stream ends with (`runOf`, its sender's actor id) with no name and no face, else it starts a run
- *  under the name and beside the face. For the eye only: the presence line's status says it in
- *  words to a screen reader (presence-line.tsx). */
+ *  under the name and beside the face. For the eye only: `TypingStatus` says it in words to a
+ *  screen reader (presence-line.tsx). */
 export function TypingInStream({
   typing,
   runOf,

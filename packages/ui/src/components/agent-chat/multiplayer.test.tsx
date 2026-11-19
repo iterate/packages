@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // SEVERAL PEOPLE IN ONE CHAT: who else is here (the platform's rows of their pages) and who is
 // typing (each page's ephemeral status, by the platform's stamp), who can use the conversation (a
-// people button beside Chat | Events), which side of
+// stack of faces beside Chat | Events, and its card), which side of
 // the feed each message stands on and whose face is over it, whose each waiting message is, that
 // anyone may interrupt and the feed says who did, and that a message keeps its key while it is
 // tried again.
@@ -60,11 +60,14 @@ test("a chat shows who else has it open and who is typing: the rows' holders and
       subscription: "ada-page",
     },
   );
-  expect(chat.faces()).toEqual([
-    "bo@example.com is here",
-    "cy@example.com is here, in another tab or app, 2 pages",
-  ]);
-  expect(chat.line()?.querySelector("[role=status]")?.textContent).toBe("bo is typing…");
+  // the others, then the viewer; Cy's every page is hidden, so Cy's face is dimmed
+  expect(chat.stack()).toEqual(["B", "C", "A"]);
+  expect(chat.access()?.querySelector(".opacity-50")?.textContent).toBe("C");
+  expect(chat.typingStatus()?.textContent).toBe("bo is typing…");
+  await act(async () => chat.access()?.click());
+  expect(chat.card()?.querySelector("[data-shared-here]")?.textContent).toBe(
+    "Here now: bo@example.com, cy@example.com (away, 2 pages)",
+  );
   // the others are new to this page: it says its own status once, and nothing in it says who
   await vi.waitFor(() =>
     expect(chat.sent()).toEqual([
@@ -211,7 +214,7 @@ test("the newest interrupt says who stopped the answer: one that code sent names
   expect(summaryOf(state, items)).toMatch(/2 requests · interrupted$/);
 });
 
-test("with presence off a page sends nothing and shows no line: presence is the host's to turn on", async () => {
+test("with presence off a page sends nothing and shows no stack and no typing status: presence is the host's to turn on", async () => {
   using chat = await mount(
     [status(1, BO, "bo-page", { typing: true })],
     { me: ADA.actor },
@@ -220,25 +223,65 @@ test("with presence off a page sends nothing and shows no line: presence is the 
   await chat.write("Book the table");
   // outlasts the 400 ms in which a page answers another's arrival
   await act(() => new Promise((done) => setTimeout(done, 450)));
-  expect(chat.line()?.outerHTML).toBeUndefined();
+  expect(chat.typingStatus()?.outerHTML).toBeUndefined();
   expect(chat.access()?.outerHTML).toBeUndefined();
   expect(document.querySelector("[data-typing-in-stream]")?.outerHTML).toBeUndefined();
   expect(chat.sent()).toEqual([]);
 });
 
-test("who can use the conversation is a people button beside the tabs that counts the others here or who wrote; the line has none", async () => {
+test("alone, the stack is the viewer's own face, and before their own row is known a plain circle in its place", async () => {
   {
-    using chat = await mount([{ ...said(1, "mine"), source: { principal: ADA } }], {
-      me: ADA.actor,
-      presence: true,
-    });
-    // alone: the plain icon, and a line of the empty status that typing words go into
-    expect(chat.access()?.getAttribute("data-others")).toBe("0");
-    expect(chat.access()?.textContent).toBe("");
-    expect(chat.line()?.querySelector("button")?.outerHTML).toBeUndefined();
-    expect(chat.line()?.querySelector("[role=status]")?.outerHTML).toContain('role="status"');
-    expect(chat.line()?.textContent).toBe("");
+    using chat = await mount(
+      [],
+      { me: ADA.actor, presence: true },
+      { pages: [page("ada-page", ADA)], subscription: "ada-page" },
+    );
+    expect([chat.stack(), chat.access()?.getAttribute("aria-label")]).toEqual([
+      ["A"],
+      "Who can use this conversation",
+    ]);
   }
+  using chat = await mount([], { me: ADA.actor, presence: true });
+  expect([
+    chat.stack(),
+    chat.access()?.querySelector("[data-viewer-unknown]")?.getAttribute("aria-hidden"),
+  ]).toEqual([[""], "true"]);
+});
+
+test("the stack is the others' faces and the viewer's last, and the button's name says who is here", async () => {
+  using chat = await mount(
+    [],
+    { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO), page("bob-page", GUEST), page("ada-page", ADA)] },
+  );
+  expect([chat.stack(), chat.access()?.getAttribute("aria-label")]).toEqual([
+    ["B", "BP", "A"],
+    "Who can use this conversation. Here now: bo@example.com, Bob Proof (guest).",
+  ]);
+});
+
+test("with more than four others here the stack draws three, counts the rest, and ends with the viewer", async () => {
+  const others = ["bo", "cy", "di", "ed", "fy"].map((name) => ({
+    actor: `/members/${name}`,
+    email: `${name}@example.com`,
+  }));
+  using chat = await mount(
+    [],
+    { me: ADA.actor, presence: true },
+    {
+      pages: [
+        ...others.map((principal) => page(`${principal.actor}-page`, principal)),
+        page("ada-page", ADA),
+      ],
+    },
+  );
+  expect([chat.stack(), chat.access()?.getAttribute("data-here")]).toEqual([
+    ["B", "C", "D", "+2", "A"],
+    "5",
+  ]);
+});
+
+test("a press opens the card: who can use the conversation, who is here now and who else wrote", async () => {
   using chat = await mount(
     [
       { ...said(1, "mine"), source: { principal: ADA } },
@@ -247,35 +290,98 @@ test("who can use the conversation is a people button beside the tabs that count
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
   );
-  // one here, one who wrote
-  expect(chat.access()?.getAttribute("data-others")).toBe("2");
-  expect(chat.access()?.textContent).toBe("2");
-  expect(chat.line()?.querySelector("button")?.outerHTML).toBeUndefined();
-  expect(document.body.textContent).not.toContain("Shared");
+  expect(chat.card()?.outerHTML).toBeUndefined();
   await act(async () => chat.access()?.click());
-  const card = document.querySelector("[data-slot=popover-content]");
-  expect(card?.querySelector("[data-slot=popover-title]")?.textContent).toBe(
+  expect(chat.card()?.querySelector("[data-slot=popover-title]")?.textContent).toBe(
     "Who can use this conversation",
   );
-  expect(card?.textContent).toContain(
+  expect(chat.card()?.textContent).toContain(
     "Every member of this mind can open it, read all of its history (the messages, the scripts and their results) and write to it.",
   );
-  expect(card?.textContent).toContain(
+  expect(chat.card()?.textContent).toContain(
     "The agent acts for whoever writes here, with everything it can reach",
   );
-  expect(card?.querySelector("[data-shared-here]")?.textContent).toBe("Here now: bo@example.com");
-  expect(card?.querySelector("[data-shared-wrote]")?.textContent).toBe(
+  expect(chat.card()?.querySelector("[data-shared-here]")?.textContent).toBe(
+    "Here now: bo@example.com",
+  );
+  expect(chat.card()?.querySelector("[data-shared-wrote]")?.textContent).toBe(
     "Also wrote here: cy@example.com",
   );
 });
 
-test("a page's status events are no row: the Events tab neither counts nor shows them, and the line still hears them", async () => {
+test("the pointer resting on the stack opens the card, and so does the keyboard's focus, which closes it when it moves on", async () => {
+  {
+    using chat = await mount([], { me: ADA.actor, presence: true });
+    expect(chat.access()?.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => hoverOn(chat.access()));
+    // after the hover's delay
+    await vi.waitFor(() => expect(chat.access()?.getAttribute("aria-expanded")).toBe("true"));
+    expect(chat.card()?.querySelector("[data-slot=popover-title]")?.textContent).toBe(
+      "Who can use this conversation",
+    );
+  }
+  using chat = await mount([], { me: ADA.actor, presence: true });
+  const next = document.body.appendChild(document.createElement("button"));
+  await act(async () => chat.access()?.focus());
+  const opened = chat.access()?.getAttribute("aria-expanded");
+  await act(async () => next.focus());
+  expect([opened, chat.access()?.getAttribute("aria-expanded")]).toEqual(["true", "false"]);
+});
+
+test("a press holds a card the pointer opened: the pointer leaving keeps it, a second press closes it, and the pointer leaving closes a card it opened", async () => {
+  vi.useFakeTimers();
+  using chat = await mount([], { me: ADA.actor, presence: true });
+  await act(async () => hoverOn(chat.access()));
+  // past the hover's delay, and past the half second in which base-ui keeps any press's card
+  await act(async () => vi.advanceTimersByTime(1000));
+  const hovered = chat.access()?.getAttribute("aria-expanded");
+  await act(async () => chat.access()?.click());
+  await act(async () => leave(chat.access()));
+  const held = chat.access()?.getAttribute("aria-expanded");
+  await act(async () => chat.access()?.click());
+  const pressedAgain = chat.access()?.getAttribute("aria-expanded");
+  await act(async () => hoverOn(chat.access()));
+  await act(async () => vi.advanceTimersByTime(1000));
+  const hoveredAgain = chat.access()?.getAttribute("aria-expanded");
+  await act(async () => leave(chat.access()));
+  await act(async () => vi.advanceTimersByTime(1000));
+  vi.useRealTimers();
+  expect([hovered, held, pressedAgain, hoveredAgain]).toEqual(["true", "true", "false", "true"]);
+  expect(chat.access()?.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("the pointer leaving does not close a card the keyboard's focus opened, and Escape does", async () => {
+  using chat = await mount([], { me: ADA.actor, presence: true });
+  await act(async () => chat.access()?.focus());
+  await act(async () => hoverOn(chat.access()));
+  await act(async () => leave(chat.access()));
+  const left = chat.access()?.getAttribute("aria-expanded");
+  await act(async () =>
+    chat.access()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  expect([left, chat.access()?.getAttribute("aria-expanded")]).toEqual(["true", "false"]);
+});
+
+test("the line over the composer is gone: no face stands there, and the typing status is still in the page", async () => {
+  using chat = await mount(
+    [status(1, BO, "bo-page", { typing: true })],
+    { me: ADA.actor, presence: true },
+    { pages: [page("bo-page", BO)] },
+  );
+  expect([
+    document.querySelector("[data-slot=agent-presence] [data-slot=avatar]")?.outerHTML,
+    chat.typingStatus()?.getAttribute("role"),
+    chat.typingStatus()?.textContent,
+  ]).toEqual([undefined, "status", "bo is typing…"]);
+});
+
+test("a page's status events are no row: the Events tab neither counts nor shows them, and the stack still hears them", async () => {
   using chat = await mount(
     [{ ...said(1, "hello"), source: { principal: ADA } }, status(2, BO, "bo-page", { away: true })],
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
   );
-  expect(chat.faces()).toEqual(["bo@example.com is here, in another tab or app"]);
+  expect(chat.access()?.querySelector(".opacity-50")?.textContent).toBe("B");
   const tab = [...document.querySelectorAll("[role=tab]")].find((element) =>
     element.textContent?.startsWith("Events"),
   );
@@ -285,7 +391,7 @@ test("a page's status events are no row: the Events tab neither counts nor shows
   expect(document.body.textContent).not.toContain("presence/status");
 });
 
-test("each message says its author once to a screen reader, also a later bubble of a run; the face and the name beside a bubble are for the eye, the line's face says who", async () => {
+test("each message says its author once to a screen reader, also a later bubble of a run; the faces beside a bubble and in the stack are for the eye, the stack's button says who", async () => {
   using chat = await mount(
     [
       { ...said(1, "hello"), source: { principal: BO } },
@@ -307,11 +413,15 @@ test("each message says its author once to a screen reader, also a later bubble 
       part.getAttribute("aria-label"),
     ]),
   ).toEqual([
+    // the stack in the strip, before the feed: Bo, and the plain circle of the viewer
+    ["B", "true", null],
+    ["", "true", null],
     ["bo", "true", null],
     ["B", "true", null],
-    ["B", undefined, "bo@example.com is here"],
   ]);
-  expect(chat.faces()).toEqual(["bo@example.com is here"]);
+  expect(chat.access()?.getAttribute("aria-label")).toBe(
+    "Who can use this conversation. Here now: bo@example.com.",
+  );
 });
 
 test("each waiting message says whose it is, and anyone may interrupt an answer, whoever asked for it", async () => {
@@ -428,9 +538,9 @@ test("a guest who is here is a face of their name's initials that says their nam
     { me: ADA.actor, presence: true },
     { pages: [page("bob-page", GUEST)] },
   );
-  expect(chat.faces()).toEqual(["Bob Proof (guest) is here"]);
-  expect(labels("[data-slot=agent-presence] [data-slot=avatar]")).toEqual([
-    ["BP", "Bob Proof (guest) is here"],
+  expect([chat.stack(), chat.access()?.getAttribute("aria-label")]).toEqual([
+    ["BP", ""],
+    "Who can use this conversation. Here now: Bob Proof (guest).",
   ]);
 });
 
@@ -446,10 +556,14 @@ test("a member with an email looks as before, also when the stamp has a name; a 
     ["bo", "bo@example.com"],
     ["user_9001", "user_9001"],
   ]);
-  expect(chat.faces()).toEqual(["bo@example.com is here", "user_9001 is here"]);
+  expect(chat.access()?.getAttribute("aria-label")).toBe(
+    "Who can use this conversation. Here now: bo@example.com, user_9001.",
+  );
+  // the stack in the strip, then the feed
   expect(labels("[data-slot=avatar]").map(([initials]) => initials)).toEqual([
     "B",
     "U9",
+    "",
     "B",
     "U9",
   ]);
@@ -463,7 +577,9 @@ test("a name with markup characters is drawn as its text", async () => {
     { pages: [page("eve-page", MARKUP)] },
   );
   expect(labels("[data-said-by]")).toEqual([["<b>Eve</b> (guest)", "<b>Eve</b> (guest)"]]);
-  expect(chat.faces()).toEqual(["<b>Eve</b> (guest) is here"]);
+  expect(chat.access()?.getAttribute("aria-label")).toBe(
+    "Who can use this conversation. Here now: <b>Eve</b> (guest).",
+  );
 });
 
 test("a message keeps its key while the same words are tried again, and the next message has another", async () => {
@@ -662,14 +778,14 @@ test("a page's own row under an item is the next element after the row, which ke
 
 // ── who is typing, at the end of the feed ──
 
-test("a person who types is their face with dots at the end of the feed, the line's words are for a screen reader, and both go when they stop", async () => {
+test("a person who types is their face with dots at the end of the feed, the status's words are for a screen reader, and both go when they stop", async () => {
   using chat = await mount(
     [status(1, BO, "bo-page", { typing: true })],
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)], subscription: "ada-page" },
   );
   expect(labels("[data-typing-in-stream] [data-said-by]")).toEqual([["bo", "bo@example.com"]]);
-  const words = () => chat.line()?.querySelector("[role=status]");
+  const words = () => chat.typingStatus();
   expect([words()?.textContent, words()?.getAttribute("class")]).toEqual([
     "bo is typing…",
     "sr-only",
@@ -686,11 +802,11 @@ test("a person's dots go when their message lands, also beside a status of the s
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
   );
-  // the rows of dots, the names over them, and the line's words
+  // the rows of dots, the names over them, and the status's words
   const typists = () => [
     document.querySelectorAll("[data-typing-in-stream] > *").length,
     labels("[data-typing-in-stream] [data-said-by]"),
-    chat.line()?.querySelector("[role=status]")?.textContent,
+    chat.typingStatus()?.textContent,
   ];
   const seen = [typists()];
   await chat.append([
@@ -774,7 +890,7 @@ test("the feed draws three typists and counts the rest", async () => {
   expect([
     labels("[data-typing-in-stream] [data-said-by]").map(([, title]) => title),
     labels("[data-typing-more]"),
-    chat.line()?.querySelector("[role=status]")?.textContent,
+    chat.typingStatus()?.textContent,
   ]).toEqual([
     ["bo@example.com", "cy@example.com", "di@example.com"],
     [["+2", null]],
@@ -975,6 +1091,19 @@ function status(
   } as unknown as Row;
 }
 
+/** A mouse that comes onto `element`, in the events a browser sends: the card opens on hover for
+ *  a mouse only. */
+function hoverOn(element: Element | null | undefined) {
+  element?.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+  element?.dispatchEvent(new MouseEvent("mouseenter"));
+  element?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+}
+
+/** The mouse goes off `element`, to the page. */
+function leave(element: Element | null | undefined) {
+  element?.dispatchEvent(new MouseEvent("mouseleave", { relatedTarget: document.body }));
+}
+
 /** A page that `principal` holds open: its row of the subscriptions table, as the platform lists it. */
 function page(name: string, principal: ShownPrincipal) {
   return {
@@ -1027,7 +1156,8 @@ async function mount(
       ),
     );
   await show();
-  const line = () => document.querySelector("[data-slot=agent-presence]");
+  const access = () =>
+    document.querySelector<HTMLButtonElement>("button[data-conversation-access]");
   const textbox = () =>
     vi.waitFor(() => {
       const element = document.querySelector('[role="textbox"]');
@@ -1048,10 +1178,12 @@ async function mount(
     await act(async () => box.dispatchEvent(event));
   };
   return {
-    line,
-    /** The button that says who can use the conversation. */
-    access: () =>
-      document.querySelector<HTMLButtonElement>('button[title="Who can use this conversation"]'),
+    /** The words for a screen reader over the composer, of who is typing. */
+    typingStatus: () => document.querySelector("[data-slot=agent-presence] [role=status]"),
+    /** The button of faces that says who is here and can use the conversation. */
+    access,
+    /** The card behind it, while it is open. */
+    card: () => document.querySelector("[data-slot=popover-content]"),
     /** The Events tab, or the chat again. */
     show,
     /** `rows` come into the log, and the chat is drawn again. */
@@ -1066,11 +1198,11 @@ async function mount(
       const button = document.querySelector<HTMLButtonElement>(`button[title="Remove ${name}"]`);
       await act(async () => button?.click());
     },
-    /** What each face says in words, in the order drawn. */
-    faces: () =>
-      [...(line()?.querySelectorAll("[data-slot=avatar]") || [])].map((face) =>
-        face.getAttribute("aria-label"),
-      ),
+    /** The stack's faces and its count, as drawn: initials, "+n", and "" for a plain circle. */
+    stack: () =>
+      [
+        ...(access()?.querySelectorAll("[data-slot=avatar], [data-slot=avatar-group-count]") || []),
+      ].map((face) => face.textContent),
     /** The ephemeral events the page sent. */
     sent: () => appended.flat().filter((event) => event.ephemeral),
     /** Puts `text` into the message box, as a paste does. */

@@ -1,7 +1,7 @@
 // principal-label.ts — HOW A PRINCIPAL IS SHOWN, in words and as a face, from the platform's stamp
 // (`source.principal`, `source.onBehalfOf.principal`, a subscription row's `heldBy.principal`).
-// The chat's lines, its queue, "interrupted by …", the typing words and the presence line all
-// read these, so one person reads the same everywhere.
+// The chat's lines, its queue, "interrupted by …", the typing words and the stack of who is
+// here all read these, so one person reads the same everywhere.
 //
 // A `name` is the person's own claim (a guest typed it): it is text to show, never a key, and it
 // decides nothing. A principal with an email is shown by the email, as a member always was, also

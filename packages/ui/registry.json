@@ -8,6 +8,7 @@
       "type": "registry:component",
       "description": "One agent's conversation: its chat with a composer, its events, and the traces of its LLM requests and script runs, for a page that holds the agent's context.",
       "dependencies": [
+        "@base-ui/react",
         "@codemirror/state",
         "@codemirror/view",
         "cn",
@@ -19,6 +20,7 @@
         "zod"
       ],
       "registryDependencies": [
+        "avatar",
         "button",
         "dropdown-menu",
         "empty",

@@ -37,14 +37,17 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   [`lib/principal-label.ts`](../../lib/principal-label.ts): an email, else the name a person who
   is no member gave (a guest's is marked " (guest)"), else the actor id. A name is the person's
   claim: text only, never a key, never compared with `me`.
-- `presence` shows, in a line over the composer, who else has the chat open now. Beside Chat |
-  Events, a people button (`ConversationAccess`, title "Who can use this conversation") opens a
-  card that says who can use it, who is here now and who else wrote; a count on it says how many
-  others are here or wrote. The shell draws it in its strip, or, where the page draws the tabs in
-  its own header, in an element of that header which the page passes as `asideIn` and keeps in
-  place while presence is on (the Dash's agent header does). Who is typing is a bubble of dots at
-  the end of the feed (the virtual log's tail), drawn as their next bubble will be; the line says
-  it in words to a screen reader only. What a principal writes ends the typing they said before
+- `presence` shows, beside Chat | Events, a stack of faces (`ConversationAccess`): who else has
+  the chat open now (four places, the last "+n" when more are here) and the viewer's own face
+  last; a plain circle stands in the viewer's place until their own row is known. It is one
+  button, named "Who can use this conversation" and who is here, and it opens a card that says
+  who can use it, who is here now and who else wrote: on a press, on hover and on keyboard focus.
+  The shell draws it in its strip, or, where the page draws the tabs in its own header, in an
+  element of that header which the page passes as `asideIn` and keeps in place while presence is
+  on (the Dash's agent header does). It grows to its left, so the tabs do not move. Who is typing
+  is a bubble of dots at the end of the feed (the virtual log's tail), drawn as their next bubble
+  will be; `TypingStatus`, over the composer, says it in words to a screen reader only and takes
+  no room. What a principal writes ends the typing they said before
   it, so the dots go in the frame their message lands.
   [`lib/presence.ts`](../../lib/presence.ts) has two layers. WHO
   IS HERE is the platform's: each open chat reads the log through a row of the context's

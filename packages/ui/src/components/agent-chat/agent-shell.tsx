@@ -68,7 +68,8 @@ export function AgentShell({
    *  the status is a line at the feed's foot. Omitted: what `AgentTabsInHeader` says, which is
    *  `false` unless a kind's frame was asked for it. */
   tabsInHeader?: boolean;
-  /** A control of the kind's own beside Chat | Events (iterate's: who can use this conversation). */
+  /** A control of the kind's own beside Chat | Events (iterate's: who is here and can use this
+   *  conversation). */
   aside?: ReactNode;
   /** An element of the page's own header, beside its Chat | Events, where `aside` is drawn when
    *  the shell draws no strip: the page keeps its place, so nothing moves when it comes. `null`
