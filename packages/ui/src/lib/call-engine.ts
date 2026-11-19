@@ -10,15 +10,18 @@
 //   TCP candidates straight to the SFU are taken out of every description (call-rules.ts).
 // - DEVICES: a picker for the microphone, the camera and the speaker, kept in this browser. In a
 //   call a new microphone or camera replaces the track on its sender: no new connection.
-// - REPAIR: a connection that fails, or stays disconnected for 5 s, is made anew, five tries at
-//   most; then the page joins the call afresh, once.
+// - REPAIR: a connection that fails, never connects, or stays disconnected for 5 s, is made anew,
+//   five tries at most; then the page joins the call afresh, once for each Join the person pressed.
+//   When that does not help either, the page leaves the call and says so.
+// - ONE CALL, ONE SCOPE (`callScope`): what a call starts (a publish, a subscribe, a device it
+//   opens) runs in that call's scope and stops with it, and the next call never waits on it.
 // - SIMULCAST: the camera goes up in three layers; each tile takes the layer that fits its size.
 // - CAPTURE STARTS ONLY BY THE PERSON'S OWN PRESS: a page that joins again by itself keeps the mute,
 //   and its camera and screen stay off until the person turns them on.
 // - THE VOICE AGENT: the member who invites it hosts it in their tab, which opens GPT-Live over
 //   WebRTC with a session the call made. It hears a mix of the host's microphone and everyone the
 //   host hears, and its voice is published into the call as the host's track `ai`.
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   CallLive,
   cameraLayers,
@@ -82,6 +85,9 @@ export type CallUi = {
   repair: string;
   /** This tab hosts the voice agent: "starting", "on", or "off". */
   ai: "off" | "starting" | "on";
+  /** Why the voice agent this page invited did not come: the call's own words, and its marks
+   *  for a spent credit or no key. */
+  aiRefusal: VoiceRefusal | null;
   devices: {
     mic: { id: string; label: string }[];
     camera: { id: string; label: string }[];
@@ -91,9 +97,9 @@ export type CallUi = {
   };
   videos: CallVideo[];
 };
-/** A refusal of the voice agent that the call answers as such: no key, a spent credit, another
- *  host. `json` holds the call's own words and marks. */
-export type VoiceRefusal = Error & { json?: { error?: string; credit?: true; noKey?: true } };
+/** Why the voice agent did not come: a refusal the call answers as such (no key, a spent credit,
+ *  another host) has its marks; any other failure is its message alone. */
+export type VoiceRefusal = { message: string; credit?: true; noKey?: true };
 
 const IDLE: CallUi = {
   joined: false,
@@ -106,6 +112,7 @@ const IDLE: CallUi = {
   error: "",
   repair: "",
   ai: "off",
+  aiRefusal: null,
   devices: {
     mic: [],
     camera: [],
@@ -120,20 +127,32 @@ const IDLE: CallUi = {
  *  2 s at most, and 300 ms after the first candidate that is not a host one. */
 async function gathered(pc: RTCPeerConnection) {
   if (pc.iceGatheringState === "complete") return;
+  // the listeners go with the wait: each renegotiation waits anew
+  const listening = new AbortController();
   await new Promise<void>((resolve) => {
     let soon: ReturnType<typeof setTimeout> | null = null;
     const done = () => {
       clearTimeout(timer);
       if (soon) clearTimeout(soon);
+      listening.abort();
       resolve();
     };
     const timer = setTimeout(done, 2_000);
-    pc.addEventListener("icegatheringstatechange", () => {
-      if (pc.iceGatheringState === "complete") done();
-    });
-    pc.addEventListener("icecandidate", ({ candidate }) => {
-      if (candidate?.type && candidate.type !== "host") soon ||= setTimeout(done, 300);
-    });
+    const { signal } = listening;
+    pc.addEventListener(
+      "icegatheringstatechange",
+      () => {
+        if (pc.iceGatheringState === "complete") done();
+      },
+      { signal },
+    );
+    pc.addEventListener(
+      "icecandidate",
+      ({ candidate }) => {
+        if (candidate?.type && candidate.type !== "host") soon ||= setTimeout(done, 300);
+      },
+      { signal },
+    );
   });
 }
 
@@ -165,36 +184,38 @@ async function connectedPath(
   const tried = hasRelay()
     ? "neither over UDP nor through Cloudflare's TURN relay"
     : "over UDP, and this page has no TURN relay";
-  if (pc.connectionState !== "connected")
+  if (pc.connectionState !== "connected") {
+    // the listeners go with the wait
+    const listening = new AbortController();
+    const { signal } = listening;
     await new Promise<void>((resolve, reject) => {
+      const end = (error?: unknown) => {
+        clearTimeout(timer);
+        listening.abort();
+        if (error) reject(error);
+        else resolve();
+      };
       const timer = setTimeout(
         () =>
-          reject(
+          end(
             new Error(
               `${name}: no connection to Cloudflare in ${CONNECT_TIMEOUT_MS / 1000} s, ${tried}.`,
             ),
           ),
         CONNECT_TIMEOUT_MS,
       );
-      gen.addEventListener(
-        "abort",
+      gen.addEventListener("abort", () => end(gen.reason), { signal });
+      pc.addEventListener(
+        "connectionstatechange",
         () => {
-          clearTimeout(timer);
-          reject(gen.reason);
+          if (pc.connectionState === "connected") end();
+          if (pc.connectionState === "failed")
+            end(new Error(`${name}: no path to Cloudflare, ${tried}.`));
         },
-        { once: true },
+        { signal },
       );
-      pc.addEventListener("connectionstatechange", () => {
-        if (pc.connectionState === "connected") {
-          clearTimeout(timer);
-          resolve();
-        }
-        if (pc.connectionState === "failed") {
-          clearTimeout(timer);
-          reject(new Error(`${name}: no path to Cloudflare, ${tried}.`));
-        }
-      });
     });
+  }
   const pair = await selectedPair(pc);
   if (!pathAccepted(pair?.path)) {
     pc.close();
@@ -207,6 +228,95 @@ async function connectedPath(
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const nameOf = (error: unknown) => (error instanceof Error ? error.name : "");
+const stopTracks = (stream: MediaStream | null | undefined) => {
+  for (const track of stream?.getTracks() ?? []) track.stop();
+};
+
+/**
+ * ONE CALL'S WORK AND WHAT IT HOLDS, from the join that starts it to the teardown that ends it.
+ * - `signal` aborts at the end: the call's work stops at its next step.
+ * - `send` and `receive` are its two queues, one job at a time each. A job queued after the end
+ *   does not run, and the next call has queues of its own, so it never waits on this one's.
+ * - `own(close)` holds a track, a stream or a connection from the moment it exists: the end closes
+ *   it, unless the release that `own` answers came first, when the thing became the page's
+ *   (`mic`, `pub`, `local`). Owned after the end, it is closed at once.
+ */
+function callScope() {
+  const abort = new AbortController();
+  const held = new Set<() => void>();
+  // rejects at the end, for every caller that waits on this call's queues: a job stuck behind an
+  // unanswered prompt holds nobody past the end
+  const ended = new Promise<never>((_, reject) =>
+    abort.signal.addEventListener("abort", () => reject(abort.signal.reason), { once: true }),
+  );
+  ended.catch(() => {});
+  const queue = () => {
+    let tail: Promise<unknown> = Promise.resolve();
+    const run = <T>(work: () => Promise<T>): Promise<T> => {
+      const next = tail.then(() => {
+        abort.signal.throwIfAborted();
+        return work();
+      });
+      tail = next.catch(() => {});
+      return Promise.race([next, ended]);
+    };
+    /** Resolves once every job queued so far has ended, or the call has. */
+    const settled = () =>
+      Promise.race([tail, ended]).then(
+        () => {},
+        () => {},
+      );
+    return Object.assign(run, { settled });
+  };
+  /** The press that opens each kind's picture, while its picker or prompt is open. */
+  const capturing: Partial<Record<"camera" | "screen", object>> = {};
+  return {
+    signal: abort.signal,
+    get ended() {
+      return abort.signal.aborted;
+    },
+    /** This call's admission, chosen here: every method of the facet that this call sends carries
+     *  it, and the facet refuses one that is not the row's current admission (call/rules.ts). So
+     *  no leave, offer or agent of this call reaches a later one, whatever the timing. */
+    admission: crypto.randomUUID(),
+    /** This call sent its join: a Leave owes the facet its admission's leave. */
+    joinSent: false,
+    /** A request to the browser (a device, the screen's picker) for this call: it settles at the
+     *  call's end, and what it brings after the end is closed (`late`). */
+    until<T>(work: Promise<T>, late: (value: T) => void): Promise<T> {
+      work.then(
+        (value) => {
+          if (abort.signal.aborted) late(value);
+        },
+        () => {},
+      );
+      return Promise.race([work, ended]);
+    },
+    // this call's own work in flight: a new call starts with none of the old one's
+    /** The subscriptions are being made to follow the call; `reconcileAgain`: once more after. */
+    reconciling: false,
+    reconcileAgain: false,
+    /** This call is being left for a new one (`rejoin`). */
+    rejoining: false,
+    capturing,
+    send: queue(),
+    receive: queue(),
+    own(close: () => void) {
+      if (abort.signal.aborted) {
+        close();
+        return () => {};
+      }
+      held.add(close);
+      return () => void held.delete(close);
+    },
+    end() {
+      abort.abort(new Error("the call ended"));
+      for (const close of held) close();
+      held.clear();
+    },
+  };
+}
+type CallScope = ReturnType<typeof callScope>;
 
 /**
  * THE CALL OF ONE PAGE. `facet(method, ...args)` calls one of the call facet's methods (`join`,
@@ -225,8 +335,11 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   const say = (notice: string) => set({ notice });
   const fail = (error: unknown) => set({ error: messageOf(error) });
   /** One step of the SFU's signalling, for this page. */
-  const signal = async (step: Record<string, unknown>) =>
-    SignalAnswer.parse(await facet("signal", page, step));
+  /** One signalling step of `call`, never after its end, under its admission. */
+  const signal = async (step: Record<string, unknown>, call: CallScope) => {
+    call.signal.throwIfAborted();
+    return SignalAnswer.parse(await facet("signal", page, step, call.admission));
+  };
 
   // ── what this page holds ──
   let joined = false;
@@ -239,7 +352,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   // a mid -> the track it carries, and what plays it
   const players = new Map<
     string,
-    { track: string; element: HTMLMediaElement; stream: MediaStream; video: boolean }
+    { track: string; stream: MediaStream } & (
+      | { video: true }
+      | { video: false; element: HTMLMediaElement }
+    )
   >();
   const local: Partial<
     Record<
@@ -247,23 +363,17 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       { stream: MediaStream; track: MediaStreamTrack; tx: RTCRtpTransceiver; onEnded: () => void }
     >
   > = {};
-  let pubQueue: Promise<unknown> = Promise.resolve();
-  let subQueue: Promise<unknown> = Promise.resolve();
-  const onPub = <T>(work: () => Promise<T>) => {
-    const run = pubQueue.then(work);
-    pubQueue = run.catch(() => {});
-    return run;
-  };
-  const onSub = <T>(work: () => Promise<T>) => {
-    const run = subQueue.then(work);
-    subQueue = run.catch(() => {});
-    return run;
-  };
-  let reconciling = false;
-  // one per call: teardown aborts it, and the work of that call (a join, a publish, a rejoin, a
-  // repair) stops at its next step
-  let thisCall = new AbortController();
-  let rejoining = false;
+  // the call under way, or the next one: teardown ends it and makes a new one
+  let scope = callScope();
+  // one more at each teardown: a press that waited (a Start's enable) acts only in the call it saw
+  let epoch = 0;
+  // a microphone a switch is putting in place: a Mute meanwhile goes to it too
+  let switchingTo: MediaStreamTrack | null = null;
+  // the one automatic rejoin (a repair's, or the out-of-touch one), spent until the person presses
+  // Join again
+  let rejoinSpent = false;
+  // the error a receiving connection's failure said, cleared when its repair works
+  let receiveError = "";
   let joinedAt = 0;
   const paths: Record<"pub" | "sub", Pair | null> = { pub: null, sub: null };
 
@@ -274,6 +384,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       if (own)
         videos.push({ key: `local-${kind}`, name: "You", kind, stream: own.stream, local: true });
     }
+    const names = new Map(view?.call.map((one) => [one.peer, one.name]));
     for (const [mid, player] of players) {
       if (!player.video) continue;
       const at = player.track.lastIndexOf(":");
@@ -281,7 +392,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       videos.push({
         key: `mid-${mid}`,
         track: player.track,
-        name: view?.call.find((one) => one.peer === owner)?.name ?? "Someone",
+        name: names.get(owner) ?? "Someone",
         kind: player.track.slice(at + 1),
         stream: player.stream,
         local: false,
@@ -308,14 +419,18 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         if (pc && pc.connectionState !== "closed")
           pc.setConfiguration({ ...pc.getConfiguration(), iceServers });
     } else if (!relay.on) iceServers = [STUN];
+    const call = scope;
     relay.refresh = setTimeout(
-      () => joined && void getIce(),
+      () => joined && !call.ended && void getIce(call),
       Math.max(60, Number(answer?.ttlS) || 0) * 750,
     );
   }
-  /** The credentials again: the call's `join` again. A failure keeps what the page has. */
-  async function getIce() {
-    useIce(JoinAnswer.safeParse(await facet("join", page).catch(() => null)).data ?? null);
+  /** The credentials again, for `call`'s admission while it is the row's: a refresh admits
+   *  nobody. A failure keeps what the page has. */
+  async function getIce(call: CallScope) {
+    const answer = await facet("join", page, { admission: call.admission }).catch(() => null);
+    if (call.ended) return;
+    useIce(JoinAnswer.safeParse(answer).data ?? null);
   }
 
   // ── devices ──
@@ -363,18 +478,26 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     renderDevices();
   }
   /** A device that cannot be opened by its id falls back to the browser's default, and says so. */
-  async function openMedia(kind: "mic" | "camera", id: string) {
+  async function openMedia(kind: "mic" | "camera", id: string, call: CallScope) {
     const base = kind === "mic" ? MIC : CAMERA;
-    const ask = (constraints: MediaTrackConstraints) =>
-      navigator.mediaDevices.getUserMedia(
-        kind === "mic" ? { audio: constraints } : { video: constraints },
+    // the call's own request: one answered after its end is closed, and its caller is not held
+    const ask = (constraints: MediaTrackConstraints) => {
+      call.signal.throwIfAborted();
+      return call.until(
+        navigator.mediaDevices.getUserMedia(
+          kind === "mic" ? { audio: constraints } : { video: constraints },
+        ),
+        stopTracks,
       );
+    };
     if (!id) return ask(base);
     try {
       return await ask({ ...base, deviceId: { exact: id } });
     } catch (error) {
       const why = nameOf(error);
+      // a call that ended asks for no default device
       if (
+        call.ended ||
         !["NotFoundError", "OverconstrainedError", "NotReadableError", "AbortError"].includes(why)
       )
         throw error;
@@ -396,19 +519,40 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     });
   }
   function switchMic(id: string, notice?: string) {
-    return onPub(async () => {
+    const call = scope;
+    return call.send(async () => {
       if (!joined || !mic) return;
       const before = mic;
       let stream: MediaStream;
       try {
-        stream = await openMedia("mic", id);
+        stream = await openMedia("mic", id, call);
       } catch (error) {
         say(`No microphone could be opened (${messageOf(error)}).`);
         return;
       }
+      const release = call.own(() => stopTracks(stream));
       const track = stream.getAudioTracks()[0]!;
       track.enabled = !ui.muted;
-      await pub?.micTx.sender.replaceTrack(track);
+      try {
+        call.signal.throwIfAborted();
+        // only this call's own switch: an old one's never takes a newer call's Mute
+        switchingTo = track;
+        await pub?.micTx.sender.replaceTrack(track);
+        call.signal.throwIfAborted();
+      } catch (error) {
+        // the call ended while the browser opened it (its end stopped it): the microphone it kept
+        // is not this one's
+        if (!call.ended) {
+          stopTracks(stream);
+          say(`The new microphone could not be used (${messageOf(error)}).`);
+        }
+        return;
+      } finally {
+        if (switchingTo === track) switchingTo = null;
+        release();
+      }
+      // the mute as it is now: a press during the switch went to the old microphone
+      track.enabled = !ui.muted;
       mic = stream;
       watchMic();
       for (const old of before.getTracks()) old.stop();
@@ -423,19 +567,35 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     });
   }
   function switchCamera(id: string) {
-    return onPub(async () => {
+    const call = scope;
+    return call.send(async () => {
       const source = local.camera;
       if (!joined || !source) return;
-      const stream = await openMedia("camera", id);
+      const stream = await openMedia("camera", id, call);
       const track = stream.getVideoTracks()[0]!;
-      await source.tx.sender.replaceTrack(track);
-      // the same layers, each scaled again for this camera's width
-      const params = source.tx.sender.getParameters();
-      for (const encoding of params.encodings || []) {
-        const rid = ridOf(encoding.rid);
-        if (rid) encoding.scaleResolutionDownBy = scaleFor(rid, track.getSettings().width);
+      const release = call.own(() => track.stop());
+      try {
+        // the camera went off, or the call ended, while the browser opened it
+        if (local.camera !== source) throw new Error("the camera is off");
+        await source.tx.sender.replaceTrack(track);
+        // the same layers, each scaled again for this camera's width
+        const params = source.tx.sender.getParameters();
+        for (const encoding of params.encodings || []) {
+          const rid = ridOf(encoding.rid);
+          if (rid) encoding.scaleResolutionDownBy = scaleFor(rid, track.getSettings().width);
+        }
+        await source.tx.sender.setParameters(params).catch(() => {});
+        call.signal.throwIfAborted();
+        if (local.camera !== source) throw new Error("the camera is off");
+      } catch (error) {
+        // the call's end stopped it already
+        if (call.ended) return;
+        track.stop();
+        if (local.camera !== source) return;
+        throw error;
+      } finally {
+        release();
       }
-      await source.tx.sender.setParameters(params).catch(() => {});
       source.track.removeEventListener("ended", source.onEnded);
       source.track.stop();
       Object.assign(source, { stream, track });
@@ -447,7 +607,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   async function useSpeaker(id: string) {
     if (!devices.sinkOk) return;
     const elements = [
-      ...[...players.values()].filter((p) => !p.video).map((p) => p.element),
+      ...[...players.values()].flatMap((player) => (player.video ? [] : [player.element])),
       ...(ai.audio ? [ai.audio] : []),
     ];
     try {
@@ -470,51 +630,49 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     } catch {
       // no storage: the choice lasts as long as the page
     }
-    if (kind === "mic") await switchMic(id);
-    else if (kind === "camera") await switchCamera(id).catch(fail);
+    // the switch says its own failure; one of a call that ended meanwhile is no error to show
+    const call = scope;
+    const unlessEnded = (error: unknown) => {
+      if (!call.ended) fail(error);
+    };
+    if (kind === "mic") await switchMic(id).catch(unlessEnded);
+    else if (kind === "camera") await switchCamera(id).catch(unlessEnded);
     else await useSpeaker(id);
     renderDevices();
   }
 
   // ── sending ──
-  /** The microphone, sent: muted from its first frame when `muted` (a rejoin keeps the mute). Stops
-   *  when the call `gen` ends, and closes what it opened that teardown cannot reach. */
-  async function publish(muted: boolean, gen: AbortSignal) {
-    const stream = await openMedia("mic", deviceId("mic"));
-    if (gen.aborted) {
-      for (const track of stream.getTracks()) track.stop();
-      throw gen.reason;
-    }
-    mic = stream;
-    mic.getAudioTracks()[0]!.enabled = !muted;
-    watchMic();
-    void listDevices().then(() => {
-      devices.sink = devices.sinkOk ? deviceId("speaker") : "";
-      renderDevices();
-    });
+  /** The microphone's `track`, sent on a new connection, which is the call's until it is `pub`. */
+  async function publish(track: MediaStreamTrack, call: CallScope) {
     const pc = new RTCPeerConnection(iceConfig());
+    const release = call.own(() => pc.close());
     guard(pc, "pub");
     try {
-      const micTx = pc.addTransceiver(mic.getAudioTracks()[0]!, { direction: "sendonly" });
+      const micTx = pc.addTransceiver(track, { direction: "sendonly" });
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
-      gen.throwIfAborted();
-      const answer = await signal({
-        publish: "mic",
-        mid: micTx.mid,
-        sdp: udpOnly(pc.localDescription!.sdp),
-      });
+      call.signal.throwIfAborted();
+      const answer = await signal(
+        { publish: "mic", mid: micTx.mid, sdp: udpOnly(pc.localDescription!.sdp) },
+        call,
+      );
       await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
-      gen.throwIfAborted();
+      call.signal.throwIfAborted();
       pub = { pc, micTx };
     } catch (error) {
       pc.close();
       throw error;
+    } finally {
+      release();
     }
-    paths.pub = await connectedPath(pc, "Sending", () => relay.on, gen);
+    paths.pub = await connectedPath(pc, "Sending", () => relay.on, call.signal);
   }
   /** One more track on the sending connection: its own sender, an offer, the SFU's answer. */
-  async function publishTrack(track: MediaStreamTrack, kind: "camera" | "screen" | "ai") {
+  async function publishTrack(
+    track: MediaStreamTrack,
+    kind: "camera" | "screen" | "ai",
+    call: CallScope,
+  ) {
     const sending = pub!;
     const sendEncodings =
       kind === "camera"
@@ -525,55 +683,109 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     const tx = sending.pc.addTransceiver(track, { direction: "sendonly", sendEncodings });
     await sending.pc.setLocalDescription(await sending.pc.createOffer());
     await gathered(sending.pc);
-    const answer = await signal({
-      publish: kind,
-      mid: tx.mid,
-      sdp: udpOnly(sending.pc.localDescription!.sdp),
-    });
+    const answer = await signal(
+      { publish: kind, mid: tx.mid, sdp: udpOnly(sending.pc.localDescription!.sdp) },
+      call,
+    );
     await sending.pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
     return tx;
   }
-  function videoOn(kind: "camera" | "screen") {
-    return onPub(async () => {
-      if (!joined || !pub || local[kind]) return;
+  /** The camera or the screen, opened from the press itself (the screen's picker needs the click),
+   *  then sent on the call's sending queue, behind a publish that may be under way. */
+  async function videoOn(kind: "camera" | "screen") {
+    const call = scope;
+    if (!joined || local[kind] || call.capturing[kind]) return;
+    // this press's picture: a second press while its picker is open is an Off, which ends it
+    const press = {};
+    call.capturing[kind] = press;
+    const mine = () => call.capturing[kind] === press;
+    try {
       const stream =
         kind === "camera"
-          ? await openMedia("camera", deviceId("camera"))
-          : await navigator.mediaDevices.getDisplayMedia({
-              video: { frameRate: { ideal: 15, max: 30 } },
-              audio: false,
-            });
+          ? await openMedia("camera", deviceId("camera"), call)
+          : await call.until(
+              navigator.mediaDevices.getDisplayMedia({
+                video: { frameRate: { ideal: 15, max: 30 } },
+                audio: false,
+              }),
+              stopTracks,
+            );
       const track = stream.getVideoTracks()[0]!;
-      const tx = await publishTrack(track, kind).catch((error: unknown) => {
+      // an Off while the picker was open: the chosen picture closes at once, not at its turn
+      if (!mine()) {
         track.stop();
-        throw error;
-      });
-      // the browser's own "Stop sharing", or a camera that went away, ends the share
+        return;
+      }
+      const release = call.own(() => track.stop());
+      // the browser's own "Stop sharing", or a camera that went away, ends the share: watched from
+      // the moment the picture exists, also while it waits for its turn to be sent
       const onEnded = () => {
         if (local[kind]?.onEnded === onEnded) void videoOff(kind);
       };
-      local[kind] = { stream, track, tx, onEnded };
       track.addEventListener("ended", onEnded);
+      const ended = () => track.readyState === "ended";
+      await call
+        .send(async () => {
+          // an Off, a second press, or a picture that ended while it waited: nothing is sent
+          if (!mine() || !pub || local[kind] || ended()) return track.stop();
+          const sending = pub;
+          const tx = await publishTrack(track, kind, call);
+          call.signal.throwIfAborted();
+          if (!mine() || ended()) {
+            track.stop();
+            await unpublish(kind, tx, sending, call);
+            return;
+          }
+          local[kind] = { stream, track, tx, onEnded };
+        })
+        .catch((error: unknown) => {
+          track.stop();
+          throw error;
+        })
+        .finally(() => {
+          release();
+          if (mine()) delete call.capturing[kind];
+        });
       if (kind === "camera") void listDevices();
       videosChanged();
-    }).catch((error: unknown) =>
+    } catch (error) {
+      if (mine()) delete call.capturing[kind];
+      if (call.ended) return;
       fail(
         nameOf(error) === "NotAllowedError"
           ? `The browser did not give this page the ${kind}.`
           : `No ${kind}: ${messageOf(error)}`,
-      ),
-    );
+      );
+    }
   }
   function videoOff(kind: "camera" | "screen") {
-    return onPub(async () => {
-      const source = local[kind];
-      if (!source) return;
-      delete local[kind];
-      source.track.stop();
-      videosChanged();
-      if (pub) await signal({ unpublish: kind, mid: source.tx.mid }).catch(() => {});
-      await source.tx.sender.replaceTrack(null).catch(() => {});
-    }).catch(fail);
+    const call = scope;
+    // a picker still open: its picture, when it comes, is closed
+    delete call.capturing[kind];
+    return call
+      .send(async () => {
+        const source = local[kind];
+        if (!source) return;
+        delete local[kind];
+        source.track.stop();
+        videosChanged();
+        if (pub) await unpublish(kind, source.tx, pub, call);
+      })
+      .catch((error: unknown) => {
+        if (!call.ended) fail(error);
+      });
+  }
+  /** A track this page sends, out of the call: the SFU closes it, and its sender stops, so later
+   *  offers do not carry it. Only on the connection `sending` that sent it, while it is the page's. */
+  async function unpublish(
+    kind: "camera" | "screen" | "ai",
+    tx: RTCRtpTransceiver,
+    sending: NonNullable<typeof pub>,
+    call: CallScope,
+  ) {
+    if (pub !== sending) return;
+    await signal({ unpublish: kind, mid: tx.mid }, call).catch(() => {});
+    if (pub === sending) tx.stop();
   }
 
   // ── receiving ──
@@ -585,20 +797,19 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     guard(pc, "sub");
     pc.addEventListener("track", (event) => {
       const mid = event.transceiver.mid || "";
-      const track = [...subscribed].find(([, s]) => s.mid === mid)?.[0] ?? "?";
+      // a mid this page did not subscribe to has no tile and no sound
+      const track = [...subscribed].find(([, s]) => s.mid === mid)?.[0];
+      if (!track) return;
       const stream = new MediaStream([event.track]);
       if (event.track.kind === "video") {
-        const element = document.createElement("video");
-        element.srcObject = stream;
-        players.set(mid, { track, element, stream, video: true });
+        // the tile plays it (call-tiles.tsx)
+        players.set(mid, { track, stream, video: true });
         videosChanged();
         return;
       }
       const element = Object.assign(new Audio(), { autoplay: true, srcObject: stream });
       sinkOf(element);
-      element
-        .play()
-        .catch(() => say("The browser held back the sound: click anywhere on the page."));
+      play(element);
       players.set(mid, { track, element, stream, video: false });
       aiMix();
     });
@@ -606,16 +817,40 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     return sub;
   }
   /** Answer the SFU's offer on the receiving connection. */
-  async function answerOffer(s: { pc: RTCPeerConnection }, sdp: string | undefined) {
+  async function answerOffer(
+    s: { pc: RTCPeerConnection },
+    sdp: string | undefined,
+    call: CallScope,
+  ) {
     if (!sdp) return;
     await s.pc.setRemoteDescription({ type: "offer", sdp: udpOnly(sdp) });
     await s.pc.setLocalDescription(await s.pc.createAnswer());
     await gathered(s.pc);
-    await signal({ renegotiate: udpOnly(s.pc.localDescription!.sdp) });
+    await signal({ renegotiate: udpOnly(s.pc.localDescription!.sdp) }, call);
   }
   function dropPlayer(mid: string) {
-    players.get(mid)?.element.pause();
+    const player = players.get(mid);
+    if (player && !player.video) {
+      player.element.pause();
+      player.element.srcObject = null;
+    }
     players.delete(mid);
+  }
+  // sound the browser held back until the person's next click on the page
+  let soundHeld = false;
+  function replay() {
+    soundHeld = false;
+    for (const player of players.values())
+      if (!player.video) void player.element.play().catch(() => {});
+    void ai.audio?.play().catch(() => {});
+  }
+  function play(element: HTMLMediaElement) {
+    element.play().catch((error: unknown) => {
+      if (nameOf(error) !== "NotAllowedError" || soundHeld) return;
+      soundHeld = true;
+      say("The browser held back the sound: click anywhere on the page.");
+      addEventListener("click", replay, { once: true, capture: true });
+    });
   }
   function dropSubs() {
     for (const mid of players.keys()) dropPlayer(mid);
@@ -633,15 +868,16 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     }
     return want;
   }
-  /** Stops when the call `gen` ends: its answers must not reach the next call's subscriptions. */
-  async function syncSubs(gen: AbortSignal) {
-    gen.throwIfAborted();
+  /** Stops when the `call` ends: its answers must not reach the next call's subscriptions. The
+   *  receiving connection is made here, on first use. */
+  async function syncSubs(call: CallScope) {
+    call.signal.throwIfAborted();
     if (!joined) return;
     const want = wanted();
     const gone = [...subscribed].filter(([track, s]) => want.get(track) !== s.key);
     if (gone.length && sub) {
-      await signal({ close: gone.map(([, s]) => s.mid) }).catch(() => {});
-      gen.throwIfAborted();
+      await signal({ close: gone.map(([, s]) => s.mid) }, call).catch(() => {});
+      call.signal.throwIfAborted();
       for (const [track, s] of gone) {
         subscribed.delete(track);
         dropPlayer(s.mid);
@@ -656,26 +892,47 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         .filter(([track]) => track.endsWith(":camera"))
         .map(([track]) => [track, layerWanted.get(track) ?? FIRST_LAYER]),
     );
-    const answer = await signal({ subscribe: fresh.map(([track]) => track), layers });
-    gen.throwIfAborted();
+    const answer = await signal({ subscribe: fresh.map(([track]) => track), layers }, call);
+    call.signal.throwIfAborted();
     for (const { track, mid } of answer.tracks || [])
       if (mid) subscribed.set(track, { mid, key: want.get(track), rid: layers[track] });
-    await answerOffer(s, answer.sdp);
-    s.connected ||= connectedPath(s.pc, "Receiving", () => relay.on, gen).then(
+    await answerOffer(s, answer.sdp, call);
+    s.connected ||= connectedPath(s.pc, "Receiving", () => relay.on, call.signal).then(
       (pair) => (paths.sub = pair),
+      (error: unknown) => {
+        // the next look waits on a new try, not on this failure
+        s.connected = null;
+        // one that never connected is made anew, as one that broke: the same bounded repair
+        if (!call.ended && sub === s) void repair("sub");
+        throw error;
+      },
     );
     await s.connected;
   }
+  /** The subscriptions, made to follow the call. A change that comes while one runs is followed
+   *  once it ends. */
   function reconcile() {
-    if (!joined || reconciling || repairs.sub) return;
-    const gen = thisCall.signal;
-    reconciling = true;
-    void onSub(() => syncSubs(gen))
+    if (!joined || repairs.sub) return;
+    const call = scope;
+    if (call.reconciling) {
+      call.reconcileAgain = true;
+      return;
+    }
+    call.reconciling = true;
+    void call
+      .receive(() => syncSubs(call))
       // an error of a call that ended is no news
       .catch((error: unknown) => {
-        if (!gen.aborted) fail(error);
+        if (call.ended) return;
+        receiveError = messageOf(error);
+        fail(error);
       })
-      .finally(() => (reconciling = false));
+      .finally(() => {
+        call.reconciling = false;
+        if (!call.reconcileAgain || call.ended) return;
+        call.reconcileAgain = false;
+        reconcile();
+      });
   }
 
   // ── simulcast: each camera tile takes the layer that fits it, 800 ms after its size settles ──
@@ -687,20 +944,20 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     clearTimeout(layerTimers.get(track));
     layerTimers.set(
       track,
-      setTimeout(
-        () =>
-          void onSub(async () => {
+      setTimeout(() => {
+        const call = scope;
+        void call
+          .receive(async () => {
             const s = subscribed.get(track);
             const rid = layerWanted.get(track);
-            const gen = thisCall.signal;
             if (!joined || !sub || !s || !rid || s.rid === rid) return;
-            const answer = await signal({ layer: track, mid: s.mid, rid });
-            if (gen.aborted) return;
-            await answerOffer(sub, answer.sdp);
+            const answer = await signal({ layer: track, mid: s.mid, rid }, call);
+            call.signal.throwIfAborted();
+            await answerOffer(sub, answer.sdp, call);
             s.rid = rid;
-          }).catch(() => {}),
-        800,
-      ),
+          })
+          .catch(() => {});
+      }, 800),
     );
   }
 
@@ -726,85 +983,119 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   async function repair(which: "pub" | "sub") {
     if (repairs[which] || !joined) return;
-    const gen = thisCall.signal;
+    const call = scope;
     repairs[which] = true;
     const result = await repairLoop({
       // and while the browser is offline, until it is online again: a try with no network is wasted
       sleep: async (ms) => {
         await new Promise((resolve) => setTimeout(resolve, ms));
-        if (!navigator.onLine && !gen.aborted)
-          await new Promise((resolve) => addEventListener("online", resolve, { once: true }));
+        if (!navigator.onLine && !call.ended)
+          await new Promise((resolve) => {
+            addEventListener("online", resolve, { once: true, signal: call.signal });
+            call.signal.addEventListener("abort", resolve, { once: true });
+          });
       },
-      stale: () => gen.aborted || !joined,
+      stale: () => call.ended || !joined,
       healed: () => currentPc(which)?.connectionState === "connected",
       step: ({ attempt }) =>
         set({
           repair: `Your ${WHICH[which]} connection was lost. Repairing it: try ${attempt} of ${REPAIR.waitsMs.length}.`,
         }),
       attempt: async () => {
-        if (!relay.on) await getIce();
-        await (which === "pub" ? rebuildPub(gen) : rebuildSub(gen));
+        if (!relay.on) await getIce(call);
+        await (which === "pub" ? rebuildPub(call) : rebuildSub(call));
       },
     });
+    // a repair of a call that ended (also during its last try): the next call's state is not its
+    // own to clear
+    if (result.outcome === "stopped" || call.ended) return;
     delete repairs[which];
     set({ repair: "" });
     if (result.outcome === "succeeded") say(`Your ${WHICH[which]} connection is repaired.`);
-    if (result.outcome !== "gave-up" || rejoining || !joined) return;
-    say(
-      `Your ${WHICH[which]} connection could not be repaired (${result.reason}), so this page joins the call afresh.`,
-    );
+    // repaired, or well again by itself: the error its failure said is over
+    if (result.outcome !== "gave-up" && which === "sub" && ui.error === receiveError)
+      set({ error: "" });
+    if (result.outcome !== "gave-up" || call.rejoining || !joined) return;
+    await rejoinOnce(`Your ${WHICH[which]} connection could not be repaired (${result.reason})`);
+  }
+  /** The one automatic rejoin until the person presses Join again: a repair's, or the out-of-touch
+   *  one. The next one leaves the call and says why. */
+  async function rejoinOnce(why: string) {
+    if (rejoinSpent) {
+      fail(`${why}. Press Join to try again.`);
+      await leave();
+      return;
+    }
+    rejoinSpent = true;
+    say(`${why}, so this page joins the call afresh.`);
     await rejoin();
   }
   /** A new sending connection and session: the microphone, then the camera, the screen and the
    *  voice agent's voice, as they were. */
-  function rebuildPub(gen: AbortSignal) {
-    return onPub(async () => {
-      if (gen.aborted || !mic) throw new Error("the call ended");
+  function rebuildPub(call: CallScope) {
+    return call.send(async () => {
+      if (!mic) throw new Error("the call ended");
       const pc = new RTCPeerConnection(iceConfig());
+      const release = call.own(() => pc.close());
       guard(pc, "pub");
       try {
         const micTx = pc.addTransceiver(mic.getAudioTracks()[0]!, { direction: "sendonly" });
         await pc.setLocalDescription(await pc.createOffer());
         await gathered(pc);
+        // each step of this call's repair, only while it is the call: never into the next one
+        call.signal.throwIfAborted();
         // the call closes the old sending session and makes a new one at this publish
-        await signal({ reset: "pub" });
-        const answer = await signal({
-          publish: "mic",
-          mid: micTx.mid,
-          sdp: udpOnly(pc.localDescription!.sdp),
-        });
+        await signal({ reset: "pub" }, call);
+        call.signal.throwIfAborted();
+        const answer = await signal(
+          { publish: "mic", mid: micTx.mid, sdp: udpOnly(pc.localDescription!.sdp) },
+          call,
+        );
         await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
+        call.signal.throwIfAborted();
         pub?.pc.close();
         pub = { pc, micTx };
-        paths.pub = await connectedPath(pc, "Sending", () => relay.on, gen);
+        release();
+        paths.pub = await connectedPath(pc, "Sending", () => relay.on, call.signal);
         for (const kind of ["camera", "screen"] as const) {
           const source = local[kind];
-          if (source) source.tx = await publishTrack(source.track, kind);
+          call.signal.throwIfAborted();
+          if (source) source.tx = await publishTrack(source.track, kind, call);
         }
-        if (ai.track && ai.state !== "off") ai.tx = await publishTrack(ai.track, "ai");
+        // the voice agent's voice, while it is the same invite's: one sent away meanwhile is not
+        const invite = ai.invite;
+        const same = () => ai.invite === invite && ai.state !== "off";
+        call.signal.throwIfAborted();
+        if (ai.track && same()) {
+          const tx = await publishTrack(ai.track, "ai", call);
+          if (same()) ai.tx = tx;
+          else await unpublish("ai", tx, pub, call);
+        }
       } catch (error) {
+        release();
         pc.close();
         throw error;
       }
     });
   }
   /** A new receiving connection and session, and every subscription made again on it. */
-  function rebuildSub(gen: AbortSignal) {
-    return onSub(async () => {
-      if (gen.aborted) throw new Error("the call ended");
+  function rebuildSub(call: CallScope) {
+    return call.receive(async () => {
       sub?.pc.close();
       sub = null;
       dropSubs();
       // the call closes the old receiving session, and makes a new one at the next subscribe
-      await signal({ reset: "sub" });
-      ensureSub();
-      await syncSubs(gen);
+      call.signal.throwIfAborted();
+      await signal({ reset: "sub" }, call);
+      await syncSubs(call);
     });
   }
 
   // ── THE VOICE AGENT, when this tab hosts it ──
   const ai: {
     state: CallUi["ai"];
+    /** The invite under way or done: its work goes on only while it is this one. */
+    invite: object | null;
     claimed: boolean;
     pc: RTCPeerConnection | null;
     events: RTCDataChannel | null;
@@ -819,6 +1110,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     lastSpeechAt: number;
   } = {
     state: "off",
+    invite: null,
     claimed: false,
     pc: null,
     events: null,
@@ -854,12 +1146,19 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       ai.sources.set(mid, node);
     }
   }
-  /** Invite the voice agent, hosted by this tab (a member's: the call refuses anyone else). A
-   *  refusal the call answers as such (no key, a spent credit, another host) throws a
-   *  `VoiceRefusal` with the call's own words in `json`. */
+  /** Invite the voice agent, hosted by this tab (a member's: the call refuses anyone else). Why it
+   *  did not come is `ui.aiRefusal`: a refusal the call answers as such (no key, a spent credit,
+   *  another host) with the call's own words and marks. */
   async function aiInvite() {
-    if (ai.state !== "off" || !joined || !pub || !mic) return;
-    const gen = thisCall.signal;
+    const call = scope;
+    // a press while the microphone is still on its way to the call waits for it
+    await call.send.settled();
+    if (call.ended || ai.state !== "off" || !joined || !pub || !mic) return;
+    const invite = {};
+    const current = () => ai.invite === invite;
+    ai.invite = invite;
+    let refused: VoiceRefusal | null = null;
+    set({ aiRefusal: null });
     setAi("starting");
     ai.startedAt = ai.lastSpeechAt = Date.now();
     try {
@@ -877,6 +1176,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       pc.addTrack(mix.stream.getAudioTracks()[0]!, mix.stream);
       pc.addEventListener("track", (event) => {
+        if (!current()) return;
         // the agent's voice: played here once, and published into the call for everyone else
         const audio = Object.assign(new Audio(), {
           autoplay: true,
@@ -884,13 +1184,22 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         });
         ai.audio = audio;
         sinkOf(audio);
-        audio.play().catch(() => {});
+        play(audio);
         ai.track = event.track;
-        void onPub(async () => {
-          ai.tx = await publishTrack(event.track, "ai");
-        }).catch((error: unknown) =>
-          fail(`The voice agent's voice could not be sent to the call: ${messageOf(error)}`),
-        );
+        void call
+          .send(async () => {
+            // an agent that left before its turn on the queue is not sent (a stop ends its invite)
+            if (!current() || !pub) return;
+            const sending = pub;
+            const tx = await publishTrack(event.track, "ai", call);
+            // and one that left while its voice was offered goes out again on this turn
+            if (current()) ai.tx = tx;
+            else await unpublish("ai", tx, sending, call);
+          })
+          .catch((error: unknown) => {
+            if (!call.ended)
+              fail(`The voice agent's voice could not be sent to the call: ${messageOf(error)}`);
+          });
       });
       const events = (ai.events = pc.createDataChannel("oai-events"));
       events.addEventListener("message", ({ data }: MessageEvent) => {
@@ -906,40 +1215,52 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
+      // an invite that ended while it gathered (a stop, a leave, a new call) asks for no agent
+      if (!current() || call.ended) return;
       const answer = VoiceAnswer.parse(
-        await facet("voiceAgent", page, { start: pc.localDescription!.sdp }),
+        await facet("voiceAgent", page, { start: pc.localDescription!.sdp }, call.admission),
       );
       // a refusal that is expected (no key, a spent credit, another host) is an answer
-      if (answer.error) throw Object.assign(new Error(answer.error), { json: answer });
+      if (answer.error) {
+        refused = { message: answer.error, credit: answer.credit, noKey: answer.noKey };
+        throw new Error(answer.error);
+      }
+      if (!current()) return;
       // the call's agent is this tab's from here: its stop is this tab's to say
       ai.claimed = true;
       await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp || "" });
-      await connectedPath(pc, "The voice agent", () => relay.on, gen);
+      await connectedPath(pc, "The voice agent", () => relay.on, call.signal);
       // a stop while it connected (the host left) keeps it off
-      if (ui.ai === "starting") setAi("on");
+      if (current() && ui.ai === "starting") setAi("on");
     } catch (error) {
+      // an invite that ended (a stop, a leave) has nothing of its own to close: what it made was
+      // closed with it, and another invite may stand now
+      if (!current()) return;
       await aiStop("it could not join", { quiet: true });
-      // the call ended while the agent came: the page left, and there is nothing to say
-      if (gen.aborted) return;
-      throw error;
+      if (!call.ended) set({ aiRefusal: refused || { message: messageOf(error) } });
     }
   }
-  async function aiStop(why: string, { quiet = false } = {}) {
-    if (ai.state === "off") return;
-    setAi("off");
-    // end the session at OpenAI first: it bills while it runs
-    if (ai.events?.readyState === "open") ai.events.send(JSON.stringify({ type: "session.close" }));
-    ai.pc?.close();
-    ai.audio?.pause();
-    const tx = ai.tx;
-    if (tx && pub) {
-      await signal({ unpublish: "ai", mid: tx.mid }).catch(() => {});
-      await tx.sender.replaceTrack(null).catch(() => {});
+  /** Everything this tab holds for the voice agent, closed at once, its session at OpenAI first (it
+   *  bills while it runs). Answers what the call must still hear of: its published voice, and
+   *  whether the call's agent was this tab's. */
+  function aiClose() {
+    const was = { tx: ai.tx, claimed: ai.claimed };
+    try {
+      if (ai.events?.readyState === "open")
+        ai.events.send(JSON.stringify({ type: "session.close" }));
+    } catch {
+      // the channel broke: the connection's close below ends the session too
     }
+    ai.pc?.close();
+    // the mix's own output track, which the agent heard
+    for (const track of ai.mix?.stream.getTracks() ?? []) track.stop();
+    ai.audio?.pause();
     for (const node of ai.sources.values()) node.disconnect();
     ai.sources.clear();
-    await ai.context?.close().catch(() => {});
+    void ai.context?.close().catch(() => {});
     Object.assign(ai, {
+      invite: null,
+      claimed: false,
       pc: null,
       events: null,
       context: null,
@@ -949,34 +1270,86 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       track: null,
       tx: null,
     });
+    if (ai.state !== "off") setAi("off");
+    return was;
+  }
+  async function aiStop(why: string, { quiet = false } = {}) {
+    if (ai.state === "off") return;
+    const { tx, claimed } = aiClose();
+    // its voice leaves the call on the sending queue, behind an offer that may be under way
+    const sending = pub;
+    const call = scope;
+    if (tx && sending) void call.send(() => unpublish("ai", tx, sending, call)).catch(() => {});
     // a claim that failed was never this tab's: the call undid it, and another tab's agent stays
-    if (joined && ai.claimed) await facet("voiceAgent", page, { stop: why }).catch(() => {});
-    ai.claimed = false;
+    if (joined && claimed)
+      await facet("voiceAgent", page, { stop: why }, call.admission).catch(() => {});
     if (!quiet) say(`The voice agent left: ${why}.`);
   }
 
   // ── the call itself ──
-  /** Into the call. A person's own press joins unmuted; a rejoin (`muted` as it was) keeps the
-   *  mute, and the camera and the screen stay off until the person turns them on: capture starts
-   *  only by the person's own act. */
-  async function join({ muted = false } = {}) {
-    if (joined || ui.joining) return;
-    const gen = thisCall.signal;
-    set({ error: "", notice: "", joining: true });
+  /** Into the call. A person's own press joins unmuted. A rejoin hands over the microphone it had
+   *  (`kept`): from this function's first line the call owns it, so every path that does not take
+   *  it stops it, and its mute is the track's own at the hand-over. The camera and the screen stay
+   *  off until the person turns them on: capture starts only by the person's own act. */
+  async function join(kept?: MediaStream | null) {
+    const call = scope;
+    if (joined || ui.joining) {
+      stopTracks(kept);
+      return;
+    }
+    set({ error: "", notice: "", aiRefusal: null, joining: true });
     try {
+      // the microphone first: the call hears of this page once it can be heard, and a refused
+      // microphone tells nobody anything
+      const stream = kept || (await openMedia("mic", deviceId("mic"), call));
+      const release = call.own(() => stopTracks(stream));
+      call.signal.throwIfAborted();
+      mic = stream;
+      release();
+      const track = stream.getAudioTracks()[0]!;
+      if (!kept) watchMic();
+      // the chosen speaker, once the list says which it is, for the sound already playing too
+      void listDevices().then(async () => {
+        if (devices.sinkOk) await useSpeaker(deviceId("speaker"));
+      });
       // in the call, and the relay's credentials, in one call
-      const answer = JoinAnswer.parse(await facet("join", page));
-      gen.throwIfAborted();
+      call.joinSent = true;
+      const answer = JoinAnswer.parse(await facet("join", page, { admit: call.admission }));
+      if (call.ended) {
+        // a leave or a dispose came while the call took the page in: its leave may have come
+        // before this join, so this admission's leave again (a newer admission outlives it)
+        void facet("leave", page, call.admission).catch(() => {});
+        throw call.signal.reason;
+      }
       useIce(answer);
       if (!relay.on) say("No TURN relay: this page connects over UDP alone.");
       joined = true;
       joinedAt = Date.now();
-      set({ joined: true, muted });
-      await publish(muted, gen);
+      set({ joined: true, muted: !track.enabled });
+      // on the sending queue: a camera, a screen or a voice agent pressed meanwhile waits for it
+      await call.send(async () => {
+        let sent = mic!.getAudioTracks()[0]!;
+        // the kept microphone ended meanwhile (unplugged while the call took the page in): the
+        // default stands in, with the mute it had
+        if (sent.readyState === "ended") {
+          const fresh = await openMedia("mic", "", call);
+          const releaseFresh = call.own(() => stopTracks(fresh));
+          call.signal.throwIfAborted();
+          const next = fresh.getAudioTracks()[0]!;
+          next.enabled = !ui.muted;
+          stopTracks(mic);
+          mic = fresh;
+          releaseFresh();
+          watchMic();
+          say("Your microphone went away: the browser's default is used now.");
+          sent = next;
+        }
+        await publish(sent, call);
+      });
       reconcile();
     } catch (error) {
       // a leave or a dispose ended this call: it closed everything, and there is nothing to say
-      if (gen.aborted) return;
+      if (call.ended) return;
       fail(
         nameOf(error) === "NotAllowedError"
           ? "The browser did not give this page the microphone. Allow it for this site, then join again."
@@ -984,20 +1357,28 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       );
       await leave();
     } finally {
-      set({ joining: false });
+      // an ended call's join: teardown said it is over, and a newer join may be under way
+      if (!call.ended) set({ joining: false });
     }
   }
   /** Everything this page holds for the call, closed; the call is told nothing. */
   function teardown() {
     joined = false;
-    thisCall.abort(new Error("the call ended"));
-    thisCall = new AbortController();
+    epoch += 1;
+    switchingTo = null;
+    scope.end();
+    scope = callScope();
+    aiClose();
     if (relay.refresh) clearTimeout(relay.refresh);
+    for (const timer of layerTimers.values()) clearTimeout(timer);
+    layerTimers.clear();
+    removeEventListener("click", replay, { capture: true });
+    soundHeld = false;
     delete repairs.pub;
     delete repairs.sub;
     pub?.pc.close();
     sub?.pc.close();
-    for (const track of mic?.getTracks() ?? []) track.stop();
+    stopTracks(mic);
     for (const kind of ["camera", "screen"] as const) {
       local[kind]?.track.stop();
       delete local[kind];
@@ -1008,31 +1389,45 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     mic = null;
     paths.pub = null;
     paths.sub = null;
-    set({ joined: false, muted: false, net: "", repair: "" });
+    set({ joined: false, joining: false, muted: false, net: "", repair: "" });
   }
+  /** Out: everything here closes at once, the voice agent's session at OpenAI first; then the call
+   *  hears of it, the agent's stop first. */
   async function leave() {
-    await aiStop("its host left", { quiet: true });
+    const call = scope;
     // out before the call hears it: a live state that says "not in the call" while the leave is
     // on its way is the leave itself, never a reason to join again
-    const wasIn = joined;
     teardown();
-    if (wasIn) await facet("leave", page).catch(() => {});
+    // then the call hears it, at once: the leave of this call's admission, which a newer one
+    // outlives, and which ends the voice agent this page hosted (call/rules.ts `#remove`). One
+    // whose join is still on its way takes it out as soon as the facet takes it in.
+    if (call.joinSent) await facet("leave", page, call.admission).catch(() => {});
   }
   async function rejoin() {
-    const gen = thisCall.signal;
-    rejoining = true;
+    const call = scope;
+    call.rejoining = true;
     try {
-      const { muted, camera, screen } = ui;
+      const { camera, screen } = ui;
       await aiStop("its host joined again", { quiet: true });
+      // a leave or a dispose came while the agent stopped: nothing of this call reaches the next
+      if (call.ended) return;
       // the call closes this page's sending and receiving sessions, so the join below makes new
       // ones: a broken connection's session takes no new offer. A page the call took for out
       // has no sessions there, and the call refuses the reset: nothing to do.
-      for (const which of ["pub", "sub"] as const) await signal({ reset: which }).catch(() => {});
+      await Promise.all(
+        (["pub", "sub"] as const).map((which) => signal({ reset: which }, call).catch(() => {})),
+      );
       // a leave or a dispose came first: the page stays out
-      if (gen.aborted) return;
+      if (call.ended) return;
+      // the microphone goes to the next call, which owns it from here: a browser that asks each
+      // time does not ask in the middle of a call
+      const kept = mic;
+      mic = null;
       teardown();
-      await join({ muted });
-      if (joined && (camera || screen)) {
+      const next = scope;
+      await join(kept);
+      // the notice is the next call's own: a later call hears nothing of this rejoin
+      if (scope === next && joined && (camera || screen)) {
         const what =
           camera && screen ? "camera and screen are" : camera ? "camera is" : "screen is";
         say(
@@ -1040,7 +1435,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         );
       }
     } finally {
-      rejoining = false;
+      call.rejoining = false;
     }
   }
 
@@ -1054,12 +1449,11 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       known &&
       joined &&
       !next.me.inCall &&
-      !rejoining &&
+      !scope.rejoining &&
       !ui.joining &&
       Date.now() - joinedAt > 5_000
     ) {
-      say("This page was out of touch, so it joins the call again.");
-      await rejoin();
+      await rejoinOnce("This page was out of touch with the call");
       return;
     }
     reconcile();
@@ -1070,19 +1464,18 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       void aiStop(`nobody spoke for ${AI_IDLE_MS / 60_000} minutes`);
     // the network line: which path each connection takes, and its round trip
     if (!joined) return;
-    const parts: string[] = [];
-    for (const which of ["pub", "sub"] as const) {
-      const connection = which === "pub" ? pub : sub;
-      if (!connection) continue;
-      const pair = await selectedPair(connection.pc).catch(() => null);
-      if (pair) paths[which] = pair;
-      const known = paths[which];
-      if (known)
-        parts.push(
-          `${WHICH[which]}: ${known.path ? PATH_TEXT[known.path] : "?"}${known.rttMs == null ? "" : `, ${known.rttMs} ms`}`,
-        );
-    }
-    const net = parts.join(" · ") || "Connecting…";
+    const parts = await Promise.all(
+      (["pub", "sub"] as const).map(async (which) => {
+        const connection = which === "pub" ? pub : sub;
+        if (!connection) return "";
+        const pair = await selectedPair(connection.pc).catch(() => null);
+        if (pair) paths[which] = pair;
+        const seen = paths[which];
+        if (!seen) return "";
+        return `${WHICH[which]}: ${seen.path ? PATH_TEXT[seen.path] : "?"}${seen.rttMs == null ? "" : `, ${seen.rttMs} ms`}`;
+      }),
+    );
+    const net = parts.filter(Boolean).join(" · ") || "Connecting…";
     if (net !== ui.net) set({ net });
   }
 
@@ -1095,31 +1488,51 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       return () => listeners.delete(listener);
     },
     sync,
-    join: () => join(),
+    /** The person's own Join: a repair may again join afresh once. */
+    join: () => {
+      rejoinSpent = false;
+      return join();
+    },
+    /** A number that changes at each teardown (a Leave, a dispose, a new call): a press that waited
+     *  for something (a Start's enable) joins only while it is the same. */
+    get epoch() {
+      return epoch;
+    },
     leave,
     toggleMute() {
       const track = mic?.getAudioTracks()[0];
       if (!track) return;
       track.enabled = !track.enabled;
+      // a microphone being switched in takes the same mute
+      if (switchingTo) switchingTo.enabled = track.enabled;
       set({ muted: !track.enabled });
     },
-    toggleCamera: () => (local.camera ? videoOff("camera") : videoOn("camera")),
-    toggleScreen: () => (local.screen ? videoOff("screen") : videoOn("screen")),
+    // a press while the kind's picker is open is an Off: the picture it chooses is not sent
+    toggleCamera: () =>
+      local.camera || scope.capturing.camera ? videoOff("camera") : videoOn("camera"),
+    toggleScreen: () =>
+      local.screen || scope.capturing.screen ? videoOff("screen") : videoOn("screen"),
     chooseDevice,
     listDevices,
     tileWidth,
     aiInvite,
     /** Send the voice agent away: this tab's own, or another tab's (the call tells its host). */
     aiDismiss: () =>
-      ai.state === "off" ? facet("voiceAgent", page, { stop: "sent away" }) : aiStop("sent away"),
-    dismiss: () => set({ error: "", notice: "" }),
+      ai.state === "off"
+        ? facet("voiceAgent", page, { stop: "sent away" }, scope.admission).then(() => {}, fail)
+        : aiStop("sent away"),
+    /** A notice in the call's words (`ui.notice`), from the page that holds the call. */
+    say,
+    /** An error in the call's words (`ui.error`), from the page that holds the call: a start
+     *  that failed. */
+    fail,
+    dismiss: () => set({ error: "", notice: "", aiRefusal: null }),
     /** This page's row is gone, or the page closes: everything the call held here closes (the
      *  voice agent's session at OpenAI first, as it bills). Joining again is the person's press. */
-    dispose() {
-      if (ai.events?.readyState === "open")
-        ai.events.send(JSON.stringify({ type: "session.close" }));
-      ai.pc?.close();
+    dispose: () => {
+      const call = scope;
       teardown();
+      if (call.joinSent) void facet("leave", page, call.admission).catch(() => {});
     },
   };
 }
@@ -1139,8 +1552,9 @@ export type CallContext = { invoke(expression: unknown, ...args: unknown[]): Pro
  * `page` is this page's own subscription row on it (`useIterateContext(…).subscription`), which the
  * call knows the page by; `liveValue` is the call facet's live state as it comes. A new row (the
  * page's socket came back) is a new page to the call: the old engine closes, and joining again is
- * the person's own press. `call` is null until there is a context and a row; `live` is undefined
- * until the call's live state is there and parses.
+ * the person's own press, which the new engine's notice asks for when the old one was in the call.
+ * `call` is null until there is a context and a row; `live` is undefined until the call's live
+ * state is there and parses.
  */
 export function useCall(
   context: CallContext | undefined,
@@ -1162,7 +1576,20 @@ export function useCall(
         : null,
     [context, page],
   );
-  useEffect(() => () => call?.dispose(), [call]);
+  // the engine of the last row was in the call: the new one says how to come back
+  const wasIn = useRef(false);
+  useEffect(() => {
+    if (!call) return;
+    if (wasIn.current)
+      call.say(
+        "The connection to the mind came back as a new session, so this page left the call. Press Join to come back into it.",
+      );
+    wasIn.current = false;
+    return () => {
+      wasIn.current = call.ui.joined;
+      call.dispose();
+    };
+  }, [call]);
   // the page closes: the voice agent's session ends at OpenAI at once
   useEffect(() => {
     if (!call) return;
@@ -1170,8 +1597,12 @@ export function useCall(
     addEventListener("pagehide", closing);
     return () => removeEventListener("pagehide", closing);
   }, [call]);
+  const subscribe = useCallback(
+    (listener: (ui: CallUi) => void) => call?.subscribe(listener) ?? (() => {}),
+    [call],
+  );
   const ui = useSyncExternalStore(
-    (listener) => call?.subscribe(listener) ?? (() => {}),
+    subscribe,
     () => call?.ui || IDLE,
     () => IDLE,
   );

@@ -2,10 +2,12 @@
 // own first, and what the call says as it runs, in words: what the mind has not set up yet, the
 // voice agent and its host, a repair, a notice, and the path each connection takes. A click on a
 // tile makes it large, and small again; a remote camera then takes the simulcast layer that fits it.
+// A screen reader hears who comes into the call and who leaves it, from one polite region that is
+// always there.
 import { useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import type { CallEngine, CallUi, CallVideo } from "#/lib/call-engine.ts";
-import type { CallLive } from "#/lib/call-rules.ts";
+import { callChanges, joinable, type CallLive } from "#/lib/call-rules.ts";
 import { Button } from "#/components/ui/button.tsx";
 
 /** What the mind does not have yet, plainly: the rest works without it. A member is told which
@@ -22,7 +24,8 @@ function setupNote(setup: CallLive["setup"], member: boolean) {
 }
 
 /** `call`, `ui`, `live`: what `useCall` answers. `member`: the viewer is a member of the mind. Draws
- *  nothing when the call has nothing to show. */
+ *  nothing to see when the call has nothing to show; what the mind has not set up shows while a
+ *  call goes on, or when it keeps Join shut. Its region for a screen reader is always there. */
 export function CallTiles({
   call,
   ui,
@@ -36,8 +39,47 @@ export function CallTiles({
   member: boolean;
   className?: string;
 }) {
-  const setup = setupNote(live?.setup || null, member);
-  const agent = live?.voiceAgent;
+  const going = ui.joined || Object.keys(live?.inCall || {}).length > 0;
+  const setup = going || !joinable(live) ? setupNote(live?.setup || null, member) : "";
+  const agent = live?.voiceAgent || null;
+  // a node that mounts with its words is often not read: the words go into one that stays. They
+  // compare two live states the page knows: a read that did not come says nothing of who is here
+  const said = useRef<HTMLParagraphElement>(null);
+  const known = useRef(live);
+  useEffect(() => {
+    if (!live) return;
+    const before = known.current;
+    known.current = live;
+    const lines = before ? callChanges(before, live) : [];
+    if (lines.length && said.current) said.current.textContent = lines.join(" ");
+  }, [live]);
+  const something = Boolean(
+    ui.videos.length || setup || agent || ui.repair || ui.notice || ui.joined,
+  );
+  return (
+    <>
+      <p ref={said} aria-live="polite" className="sr-only" />
+      {call && something ? (
+        <Tiles call={call} ui={ui} setup={setup} agent={agent} className={className} />
+      ) : null}
+    </>
+  );
+}
+
+/** What there is to see: the notes, the notice, the tiles and the path. */
+function Tiles({
+  call,
+  ui,
+  setup,
+  agent,
+  className,
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  setup: string;
+  agent: CallLive["voiceAgent"];
+  className: string | undefined;
+}) {
   const until = agent
     ? new Date(agent.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
@@ -48,7 +90,6 @@ export function CallTiles({
       : "",
     ui.repair,
   ].filter(Boolean);
-  if (!call || (!ui.videos.length && !notes.length && !ui.notice && !ui.joined)) return null;
   return (
     <section data-slot="call-tiles" className={cn("flex flex-col gap-2", className)}>
       {notes.map((note) => (
@@ -72,9 +113,10 @@ export function CallTiles({
         </div>
       ) : null}
       {ui.joined ? (
+        // one line whatever its length: the feed under it does not move as the round trips change
         <p
-          className="text-xs text-muted-foreground"
-          title="The path each connection takes to Cloudflare"
+          className="truncate text-xs text-muted-foreground"
+          title={`The path each connection takes to Cloudflare: ${ui.net || "Connecting…"}`}
         >
           {ui.net || "Connecting…"}
         </p>
@@ -108,12 +150,10 @@ function Tile({ call, video }: { call: CallEngine; video: CallVideo }) {
       <button
         type="button"
         className="block w-full"
-        aria-label={
-          big
-            ? `Make ${video.name}'s ${video.kind} small`
-            : `Make ${video.name}'s ${video.kind} large`
-        }
-        onClick={() => setBig(!big)}
+        aria-label={`${video.name}'s ${video.kind}, large`}
+        aria-pressed={big}
+        title={big ? "Make it small" : "Make it large"}
+        onClick={() => setBig((was) => !was)}
       >
         <video
           ref={element}

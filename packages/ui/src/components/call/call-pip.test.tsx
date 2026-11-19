@@ -35,6 +35,41 @@ test("Pop out moves the tiles to the floating window; Back to the tab brings the
   expect(pressed(page.host)).toEqual(["Pop out", "false", "Pop out"]);
 });
 
+test("the window closes by itself when nothing shows, and the browser may still open it later", async () => {
+  const floating = document.implementation.createHTMLDocument("pip");
+  // a window that says `pagehide` as it closes, as Chrome's does
+  const events = new EventTarget();
+  const close = vi.fn(() => events.dispatchEvent(new Event("pagehide")));
+  const window = {
+    document: floating,
+    close,
+    addEventListener: events.addEventListener.bind(events),
+  };
+  using _api = documentPip({ requestWindow: vi.fn(async () => window) });
+  using page = await mount({ videos: [CAMERA] } as CallUi);
+  await act(async () => page.host.querySelector("button")!.click());
+  await page.render({ videos: [] as CallVideo[] } as CallUi);
+  expect(close).toHaveBeenCalledOnce();
+  expect(page.host.querySelector("#tiles")).not.toBeNull();
+  // still on: the browser opens it by itself when something shows and the tab is hidden
+  expect(page.host.querySelector("button")?.getAttribute("aria-pressed")).toBe("true");
+});
+
+test("a window that comes after the last picture went is closed, and the tiles stay home", async () => {
+  const floating = document.implementation.createHTMLDocument("pip");
+  const close = vi.fn();
+  const window = { document: floating, close, addEventListener: () => {} };
+  let answer = (_window: object) => {};
+  const asked = new Promise<object>((resolve) => (answer = resolve));
+  using _api = documentPip({ requestWindow: vi.fn(() => asked) });
+  using page = await mount({ videos: [CAMERA] } as CallUi);
+  await act(async () => void page.host.querySelector("button")!.click());
+  await page.render({ videos: [] as CallVideo[] } as CallUi);
+  await act(async () => answer(window));
+  expect(close).toHaveBeenCalledOnce();
+  expect(page.host.querySelector("#tiles")).not.toBeNull();
+});
+
 /** The button's fixed name, whether it is on, and what a press does (its title's first words). */
 function pressed(host: HTMLElement) {
   const button = host.querySelector("button")!;
@@ -62,9 +97,11 @@ function Page({ ui }: { ui: CallUi }) {
 async function mount(ui: CallUi) {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
-  await act(async () => root.render(<Page ui={ui} />));
+  const render = (next: CallUi) => act(async () => root.render(<Page ui={next} />));
+  await render(ui);
   return {
     host,
+    render,
     [Symbol.dispose]: () => {
       act(() => root.unmount());
       host.remove();

@@ -10,12 +10,18 @@
 // - BEFORE A CALL: "Start a call", once the table is read and has no `call` row. Its press turns the
 //   call on (`DashCall.enable`, with the config's spec) and joins.
 // - THE HEADER draws the call as this page knows it: while its own start runs and the page is not
-//   in the call yet, "Starting…" alone; else the call's live state, or, once the call is on (its
-//   row) or this page is in it, a call whose live state has not come yet. So a start goes Start →
+//   in the call yet, "Starting…" alone (`starting`, held here, so a bar drawn again keeps it); in
+//   the call, the joined bar, with or without the live state; else the call's live state, or, once
+//   the call is on (its row), a call whose live state has not come yet. So a start goes Start →
 //   Starting… → the joined bar, with no Join between and no empty header, whichever comes first:
-//   the live state or the join's end. Mute and Leave show as soon as the microphone is live.
+//   the live state or the join's end. Mute and Leave show as soon as the page is in the call.
 // - ON A PHONE the bar is behind one button in the header, so the path and the tabs keep the row.
-import { useState, useSyncExternalStore } from "react";
+//   The button says when the page is in the call, and marks an error the closed bar holds.
+// - THE TILES are always there over the feed: they draw what the call has to show, and their
+//   region for a screen reader stays, so it hears the first arrival and the last departure.
+// - A START belongs to the engine it began with: one whose engine changed (a new row) or whose
+//   page went away does not join.
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { PhoneIcon } from "lucide-react";
 import { CallBar } from "#/components/call/call-bar.tsx";
@@ -50,33 +56,46 @@ export function AgentCall({
   // this page's own start, in flight: the header shows it alone, never a Join beside it, until the
   // page is in the call. From then the bar's own buttons stand, also after a Leave that comes
   // before the join has ended.
-  const [starting, setStarting] = useState(false);
+  // which engine's call, and which of its calls (`epoch`): a dispose (pagehide), a Leave or a new
+  // row ends the start, and a new row shows no "Starting…" of an old one
+  const [startedIn, setStartedIn] = useState<{ call: CallEngine; epoch: number } | null>(null);
+  const starting = Boolean(call && startedIn?.call === call && startedIn.epoch === call.epoch);
   // this page turned the call on: Join from now on, even when its join failed before the table or
   // the live state said so; a second start would turn on a call that is on
   const [enabled, setEnabled] = useState(false);
   const facetOn = context.processors.rows.some((row) => row.hostedFacet?.name === "call");
-  const barLive = starting
-    ? undefined
-    : live || (facetOn || enabled || ui.joined ? NOT_READ_YET : undefined);
+  const barLive = live || (facetOn || enabled ? NOT_READ_YET : undefined);
+  // the engine this page holds now; none once the page went away
+  const heldCall = useRef(call);
+  useEffect(() => {
+    heldCall.current = call;
+    return () => {
+      heldCall.current = null;
+    };
+  }, [call]);
   // nothing before the table is read: an agent with a call shows Join, never a start first
   const start =
     call && !barLive && context.processors.loaded
       ? async () => {
-          setStarting(true);
+          const token = { call, epoch: call.epoch };
+          setStartedIn(token);
+          const done = () => setStartedIn((now) => (now === token ? null : now));
           const inTheCall = call.subscribe((ui) => {
-            if (ui.joined) setStarting(false);
+            if (ui.joined) done();
           });
           try {
             await enable();
             setEnabled(true);
+            // the page went away, or its call was closed (a pagehide, a Leave), while the call was
+            // turned on: joining is the person's next press
+            if (heldCall.current !== call || call.epoch !== token.epoch) return;
             await call.join();
           } finally {
             inTheCall();
-            setStarting(false);
+            done();
           }
         }
       : undefined;
-  const callIsLive = ui.joined || Object.keys(live?.inCall || {}).length > 0;
   return (
     <>
       {barIn
@@ -86,23 +105,22 @@ export function AgentCall({
               ui={ui}
               live={barLive}
               start={start}
+              starting={starting}
               voiceAppHref={voiceAppHref}
             />,
             barIn,
           )
         : null}
-      {callIsLive ? (
-        // over the feed, which gives up the room: the composer stays where it is
-        <div data-slot="agent-call-tiles" className="max-h-[40dvh] shrink-0 overflow-y-auto">
-          <CallTiles
-            call={call}
-            ui={ui}
-            live={live}
-            member
-            className="mx-auto w-full max-w-3xl px-4 pt-2 md:px-6"
-          />
-        </div>
-      ) : null}
+      {/* over the feed, which gives up the room: the composer stays where it is */}
+      <div data-slot="agent-call-tiles" className="max-h-[40dvh] shrink-0 overflow-y-auto">
+        <CallTiles
+          call={call}
+          ui={ui}
+          live={live}
+          member
+          className="mx-auto w-full max-w-3xl px-4 pt-2 md:px-6"
+        />
+      </div>
     </>
   );
 }
@@ -120,7 +138,7 @@ const NOT_READ_YET: CallLive = {
 /** The bar says what went wrong under its buttons. In the header's row, of one height, those words
  *  stand over the page below it, so the row does not grow. */
 const WORDS_OVER_THE_PAGE =
-  "relative items-end *:data-[slot=alert]:absolute *:data-[slot=alert]:top-full *:data-[slot=alert]:right-0 *:data-[slot=alert]:z-20 *:data-[slot=alert]:mt-1 *:data-[slot=alert]:w-80 *:data-[slot=alert]:shadow-md";
+  "relative items-end *:data-[slot=call-bar-words]:absolute *:data-[slot=call-bar-words]:top-full *:data-[slot=call-bar-words]:right-0 *:data-[slot=call-bar-words]:z-20 *:data-[slot=call-bar-words]:mt-1 *:data-[slot=call-bar-words]:w-80 *:data-[slot=call-bar-words]:*:shadow-md";
 
 /** Below `md` the header has no room for the bar beside the tabs. */
 const NARROW = "(max-width: 47.99rem)";
@@ -136,12 +154,14 @@ function CallControls({
   ui,
   live,
   start,
+  starting,
   voiceAppHref,
 }: {
   call: CallEngine | null;
   ui: CallUi;
   live: CallLive | undefined;
   start: (() => Promise<unknown>) | undefined;
+  starting: boolean;
   voiceAppHref: string | undefined;
 }) {
   const narrow = useSyncExternalStore(
@@ -149,17 +169,35 @@ function CallControls({
     () => matchMedia(NARROW).matches,
     () => false,
   );
-  const bar = { call, ui, live, start, voiceAppHref, member: true };
+  const bar = { call, ui, live, start, starting, voiceAppHref, member: true };
   if (!narrow) return <CallBar {...bar} className={WORDS_OVER_THE_PAGE} />;
-  if (!live && !start) return null;
+  if (!call || (!ui.joined && !starting && !start && !live)) return null;
+  const wrong = Boolean(ui.error || ui.aiRefusal);
   return (
     <Popover>
       <PopoverTrigger
         nativeButton
         data-joined={ui.joined}
-        render={<Button size="icon-sm" variant={ui.joined ? "secondary" : "ghost"} title="Call" />}
+        render={
+          <Button
+            size="icon-sm"
+            variant={ui.joined ? "secondary" : "ghost"}
+            title="Call"
+            aria-label={
+              ui.joined
+                ? `Call: you are in it${wrong ? ", and an error" : ""}`
+                : wrong
+                  ? "Call: an error"
+                  : "Call"
+            }
+            className="relative"
+          />
+        }
       >
         <PhoneIcon />
+        {wrong ? (
+          <span className="absolute top-0.5 right-0.5 size-2 rounded-full bg-destructive" />
+        ) : null}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-auto max-w-[calc(100vw-2rem)]">
         <CallBar {...bar} />

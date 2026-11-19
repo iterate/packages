@@ -13,6 +13,8 @@ import { z } from "zod";
 export const JoinAnswer = z.object({
   iceServers: z.array(z.unknown()).optional(),
   ttlS: z.number().optional(),
+  /** The page's admission, as the call took it in. */
+  admission: z.string().optional(),
 });
 /** `signal`: the SFU's description and, for a subscribe, each track's mid. */
 export const SignalAnswer = z.object({
@@ -68,6 +70,29 @@ export type CallLive = z.infer<typeof CallLive>;
  *  join would fill; the join itself says so in words when the SFU is missing. */
 export const joinable = (live: CallLive | undefined) => live?.setup?.sfu !== false;
 
+/** A person's name as the call shows it: a guest is marked. */
+const nameOf = (who: CallWho) => (who.kind ? `${who.name} (guest)` : who.name);
+
+/** Who came into the call and who left it from one known live state to the next, the voice agent
+ *  too, in words for a screen reader; nothing when either state is not known. */
+export function callChanges(before: CallLive | undefined, after: CallLive | undefined) {
+  // a state not read yet says nothing of who came or went
+  if (!before || !after) return [];
+  const was = before.inCall;
+  const now = after.inCall;
+  const lines = [
+    ...Object.entries(now)
+      .filter(([page]) => !Object.hasOwn(was, page))
+      .map(([, { who }]) => `${nameOf(who)} joined the call.`),
+    ...Object.entries(was)
+      .filter(([page]) => !Object.hasOwn(now, page))
+      .map(([, { who }]) => `${nameOf(who)} left the call.`),
+  ];
+  if (!before.voiceAgent && after.voiceAgent) lines.push("The voice agent joined the call.");
+  if (before.voiceAgent && !after.voiceAgent) lines.push("The voice agent left the call.");
+  return lines;
+}
+
 /** The call as the engine follows it: the pages in the call by row, each with its tracks' numbers,
  *  and the voice agent's host page. `page` is this page's row. */
 export function viewOf(live: CallLive | undefined, page: string) {
@@ -77,7 +102,7 @@ export function viewOf(live: CallLive | undefined, page: string) {
     me: { inCall: Object.hasOwn(inCall, page) },
     call: Object.entries(inCall).map(([peer, { who, tracks }]) => ({
       peer,
-      name: who.kind ? `${who.name} (guest)` : who.name,
+      name: nameOf(who),
       tracks,
     })),
     hostPage: live?.voiceAgent?.page || null,

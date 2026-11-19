@@ -42,7 +42,17 @@ export function useCallPip(ui: CallUi) {
   const [automatic, setAutomatic] = useState(false);
   const [error, setError] = useState("");
   const held = useRef<Floating | null>(null);
+  // the window this page closed because nothing shows: its `pagehide` is not the person's close
+  const closedByPage = useRef<Window | null>(null);
   const showing = ui.videos.length > 0;
+  // something shows while the hook is mounted: a window that comes after that ended is closed
+  const wanted = useRef(showing);
+  useEffect(() => {
+    wanted.current = showing;
+    return () => {
+      wanted.current = false;
+    };
+  }, [showing]);
 
   const close = useCallback(() => {
     const was = held.current;
@@ -54,16 +64,24 @@ export function useCallPip(ui: CallUi) {
     if (held.current) return true;
     try {
       const window = await documentPip()!.requestWindow({ width: 480, height: 300 });
+      if (!wanted.current) {
+        window.close();
+        return false;
+      }
       dress(window);
       const made = { window, automatic: byBrowser };
       held.current = made;
-      // the person closed the window: the browser opens it no more by itself either
-      window.addEventListener("pagehide", () => {
-        if (held.current !== made) return;
-        held.current = null;
-        setFloating(null);
-        setAutomatic(false);
-      });
+      // the window closed: the person's close means the browser opens it no more by itself either
+      window.addEventListener(
+        "pagehide",
+        () => {
+          if (held.current !== made) return;
+          held.current = null;
+          setFloating(null);
+          if (closedByPage.current !== window) setAutomatic(false);
+        },
+        { once: true },
+      );
       setFloating(made);
       setError("");
       return true;
@@ -82,10 +100,12 @@ export function useCallPip(ui: CallUi) {
     } else if (await open(false)) setAutomatic(true);
   }, [automatic, close, open]);
 
-  // nothing to show: the window goes
+  // nothing to show: the window goes, and its `pagehide` forgets it
   useEffect(() => {
-    if (!showing) close();
-  }, [showing, close]);
+    if (showing || !held.current) return;
+    closedByPage.current = held.current.window;
+    held.current.window.close();
+  }, [showing]);
   // the browser's own open, when the tab is hidden and something shows
   useEffect(() => {
     if (!automatic || !showing) return;
@@ -110,7 +130,8 @@ export function useCallPip(ui: CallUi) {
   }, [close]);
   useEffect(() => close, [close]);
 
-  return { supported, floating, automatic, showing, error, toggle };
+  // a window that is closing because nothing shows holds nothing
+  return { supported, floating: showing ? floating : null, automatic, showing, error, toggle };
 }
 export type CallPip = ReturnType<typeof useCallPip>;
 

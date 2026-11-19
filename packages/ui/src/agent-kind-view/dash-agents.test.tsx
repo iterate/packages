@@ -14,7 +14,7 @@ import { AgentCall } from "./dash-call.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import type { DashPage, DashPageProps } from "#/components/dash/dash.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
-import { createCall } from "#/lib/call-engine.ts";
+import { createCall, useCall, type CallContext } from "#/lib/call-engine.ts";
 import { CallLive, viewOf } from "#/lib/call-rules.ts";
 import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
@@ -119,18 +119,24 @@ test("the agent view takes any path, has no button to its raw view, and says the
   });
   expect(page.host.textContent).toContain("/agents/onboarding");
   expect(page.host.textContent).not.toContain("Raw view");
-  expect(appended).toEqual([
-    {
-      path: "/agents/onboarding",
-      events: [
+  // the opener goes once the whole log is read, which may end after the page drew: the wait is
+  // outside act, which would hold the render that appends it until the wait ends
+  await vi.waitFor(
+    () =>
+      expect(appended).toEqual([
         {
-          type: "events.iterate.com/agent/context-added",
-          idempotencyKey: "opener:/agents/onboarding",
-          payload: { role: "developer", content: "Begin with step 1." },
+          path: "/agents/onboarding",
+          events: [
+            {
+              type: "events.iterate.com/agent/context-added",
+              idempotencyKey: "opener:/agents/onboarding",
+              payload: { role: "developer", content: "Begin with step 1." },
+            },
+          ],
         },
-      ],
-    },
-  ]);
+      ]),
+    { timeout: 5_000 },
+  );
   // a path that is no agent's draws as well, and an opener for another path says nothing
   history.replaceState(null, "", "/?agent=/secrets/slack");
   await using other = await draw(DashAgents, itx, { waiting: 0, openers: {} });
@@ -661,6 +667,7 @@ test("with the Agents page's `call` off, an agent page has no call: no place, no
 
 test("with `call` on and no call on the agent: one Start a call, whose press turns the call on once, then joins", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
   history.replaceState(null, "", "/?agent=/agents/onboarding");
   const { itx, invoked, steps } = mind({ row: "a-page" });
   const enable = vi.fn(async () => void steps.push("enable"));
@@ -880,7 +887,10 @@ test("a dispose while the page joins again keeps it out: no join, no connection,
     const resetting = facet.hold("signal");
     vi.setSystemTime(Date.now() + 6_000);
     const syncing = call.sync(viewOf(CallLive.parse(callLive({})), "a-page"));
-    await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal", "signal"] }));
+    // the publish, then both resets
+    await vi.waitFor(() =>
+      expect(facet).toMatchObject({ steps: ["join", "signal", "signal", "signal"] }),
+    );
     call.dispose();
     resetting.release();
     await syncing;
@@ -915,6 +925,1069 @@ test("a Leave while the receiving connection connects frees the receive queue at
   call.dispose();
 });
 
+test("a microphone the browser refuses tells the call nothing: no join, no leave", async () => {
+  using _media = browserMedia({ refuse: "NotAllowedError" });
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  expect({ steps: facet.steps, joined: call.ui.joined, error: call.ui.error }).toEqual({
+    steps: [],
+    joined: false,
+    error:
+      "The browser did not give this page the microphone. Allow it for this site, then join again.",
+  });
+});
+
+test("a dispose while the call takes the page in tells the call to let go of it", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const taking = facet.hold("join");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join"] }));
+  call.dispose();
+  taking.release();
+  await joining;
+  // the leave at once, and again when the join answers, as the facet may take the join in after
+  // the first: both are this admission's, so the second removes nothing newer
+  await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "leave", "leave"] }));
+  expect({ joined: call.ui.joined, mic: media.mic.readyState }).toEqual({
+    joined: false,
+    mic: "ended",
+  });
+});
+
+test("a page that joins again keeps its microphone: the browser is not asked for it again", async () => {
+  using media = browserMedia();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    vi.setSystemTime(Date.now() + 6_000);
+    // the call's live state says this page is not in it: the page joins again
+    await call.sync(viewOf(CallLive.parse(callLive({})), "a-page"));
+    expect({
+      joins: facet.steps.filter((step) => step === "join"),
+      joined: call.ui.joined,
+      opened: media.opened.map((track) => track.readyState),
+    }).toEqual({ joins: ["join", "join"], joined: true, opened: ["live"] });
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a change of the call while its subscriptions are made is followed once they are", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const subscribing = facet.hold("signal");
+  void call.sync(
+    viewOf(CallLive.parse(callLive({ "a-page": ["mic"], "b-page": ["mic"] })), "a-page"),
+  );
+  await vi.waitFor(() => expect(facet.signals).toContain("subscribe"));
+  // the other page turns its camera on while the first subscribe runs
+  const camera = callLive({ "a-page": ["mic"], "b-page": ["mic", "camera"] });
+  void call.sync(viewOf(CallLive.parse(camera), "a-page"));
+  subscribing.release();
+  await vi.waitFor(() =>
+    expect(facet.signals.filter((step) => step === "subscribe")).toHaveLength(2),
+  );
+  call.dispose();
+});
+
+test("a receiving connection that never connects is made anew, as one that broke", async () => {
+  using _media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(12_000 + 1_000);
+    expect(facet.signals).toContain("reset");
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a camera pressed while the microphone is still on its way comes on once it is there", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal"] }));
+  const camera = call.toggleCamera();
+  publishing.release();
+  await joining;
+  await camera;
+  expect({ camera: call.ui.camera, published: facet.published }).toEqual({
+    camera: true,
+    published: ["mic", "camera"],
+  });
+  call.dispose();
+});
+
+test("a camera turned off stops its sender: later offers do not carry it", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.toggleCamera();
+  await call.toggleCamera();
+  expect(media.connections[0]!.transceivers.map((one) => one.stopped)).toEqual([false, true]);
+  call.dispose();
+});
+
+test("a microphone the sender refuses is closed again, and the old one goes on", async () => {
+  using media = browserMedia({ replaceFails: true });
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.chooseDevice("mic", "another-mic");
+  expect({
+    opened: media.opened.map((track) => track.readyState),
+    notice: call.ui.notice,
+  }).toEqual({
+    opened: ["live", "ended"],
+    notice: "The new microphone could not be used (the sender refused the track).",
+  });
+  call.dispose();
+});
+
+test("sound the browser held back plays at the person's next click on the page", async () => {
+  using media = browserMedia();
+  media.play.mockRejectedValueOnce(Object.assign(new Error("no"), { name: "NotAllowedError" }));
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+  await vi.waitFor(() => expect(facet.signals).toContain("renegotiate"));
+  media.connections[1]!.fire("track", {
+    transceiver: { mid: "m-b-page:mic" },
+    track: { kind: "audio" },
+  });
+  await vi.waitFor(() =>
+    expect(call.ui).toMatchObject({
+      notice: "The browser held back the sound: click anywhere on the page.",
+    }),
+  );
+  document.body.click();
+  expect(media.play).toHaveBeenCalledTimes(2);
+  call.dispose();
+});
+
+test("a track under a mid this page did not subscribe to has no tile", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+  await vi.waitFor(() => expect(facet.signals).toContain("renegotiate"));
+  media.connections[1]!.fire("track", {
+    transceiver: { mid: "m-other" },
+    track: { kind: "video" },
+  });
+  expect(call.ui).toMatchObject({ videos: [] });
+  call.dispose();
+});
+
+test("a voice agent that left before its voice was sent is not sent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.aiInvite();
+  expect(call.ui).toMatchObject({ ai: "on" });
+  const voice = media.connections.at(-1)!;
+  await call.aiDismiss();
+  voice.fire("track", { track: { kind: "audio" } });
+  // a camera switch is a job on the sending queue: it ends after the voice's turn
+  await call.chooseDevice("camera", "");
+  expect({ published: facet.published, error: call.ui.error }).toEqual({
+    published: ["mic"],
+    error: "",
+  });
+  call.dispose();
+});
+
+test("a dispose closes the voice agent at once: its session at OpenAI and its audio", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.aiInvite();
+  call.dispose();
+  expect({
+    ai: call.ui.ai,
+    sent: media.connections.at(-1)!.channels[0]!.sent,
+    audio: media.contexts.map((context) => context.closed),
+  }).toEqual({ ai: "off", sent: ['{"type":"session.close"}'], audio: [true] });
+});
+
+test("a refusal of another tab's voice agent says why, and throws nothing", async () => {
+  using _media = browserMedia();
+  const call = engineOn(callFacet({ voiceAgent: new Error("only a member can send it away") }));
+  await call.join();
+  await call.aiDismiss();
+  expect(call.ui).toMatchObject({ error: "only a member can send it away" });
+  call.dispose();
+});
+
+test("a page whose row is new after a reconnect is out of the call, and is told how to come back", async () => {
+  using _media = browserMedia();
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  const held: { call?: ReturnType<typeof useCall>["call"] } = {};
+  function Page({ stub, page }: { stub: CallContext; page: string }) {
+    const { call, ui } = useCall(stub, page, undefined);
+    held.call = call;
+    return <p>{ui.notice}</p>;
+  }
+  try {
+    await act(async () => root.render(<Page stub={callFacet()} page="a-page" />));
+    await act(async () => held.call!.join());
+    await act(async () => root.render(<Page stub={callFacet()} page="a-page-2" />));
+    expect(host).toMatchObject({
+      textContent:
+        "The connection to the mind came back as a new session, so this page left the call. Press Join to come back into it.",
+    });
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("a Mute pressed while the page joins again holds for the next call", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const resetting = facet.hold("signal", "reset");
+  const rejoining = outOfTouch(call);
+  await vi.waitFor(() => expect(facet.signals).toContain("reset"));
+  call.toggleMute();
+  resetting.release();
+  await rejoining;
+  expect({
+    joins: facet.steps.filter((step) => step === "join").length,
+    muted: call.ui.muted,
+    sending: media.mic.enabled,
+  }).toEqual({ joins: 2, muted: true, sending: false });
+  call.dispose();
+});
+
+test("a Mute pressed while a new microphone takes the old one's place holds for the new one", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  const replacing = media.hold("replaceTrack");
+  const switching = call.chooseDevice("mic", "another-mic");
+  await vi.waitFor(() => expect(media.opened).toHaveLength(2));
+  call.toggleMute();
+  replacing.release();
+  await switching;
+  expect({ muted: call.ui.muted, sending: media.opened[1]!.enabled }).toEqual({
+    muted: true,
+    sending: false,
+  });
+  call.dispose();
+});
+
+test("a microphone switch that a rejoin overtakes stops its own new microphone, never the kept one", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const opening = media.hold("open");
+  const switching = call.chooseDevice("mic", "another-mic");
+  const rejoining = outOfTouch(call);
+  await vi.waitFor(() => expect(facet.steps.filter((step) => step === "join")).toHaveLength(2));
+  opening.release();
+  await switching;
+  await rejoining;
+  // its caller settled at the call's end; the switch's own cleanup still stops what it opened
+  await vi.waitFor(() => expect(media.opened[1]!).toMatchObject({ readyState: "ended" }));
+  const sending = media.connections.filter((one) => !one.closed)[0]!;
+  expect({
+    joined: call.ui.joined,
+    opened: media.opened.map((track) => track.readyState),
+    sent: sending.transceivers[0]!.track === media.opened[0],
+  }).toEqual({ joined: true, opened: ["live", "ended"], sent: true });
+  call.dispose();
+});
+
+test("a repair that joins afresh while the first microphone publish waits still joins, and a dispose then stops everything", async () => {
+  using media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    const publishing = facet.hold("signal", "publish");
+    const joining = call.join();
+    await vi.advanceTimersByTimeAsync(0);
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    // the receiving connection never connects: five repairs, then the page joins afresh
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(call.ui).toMatchObject({ joined: true });
+    call.dispose();
+    publishing.release();
+    await joining;
+    expect({
+      opened: media.opened.filter((track) => track.readyState === "live").length,
+      connections: media.connections.filter((one) => !one.closed).length,
+    }).toEqual({ opened: 0, connections: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a camera's prompt left open does not hold up the next call's microphone", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const prompt = media.hold("open");
+  const camera = call.toggleCamera();
+  await call.leave();
+  await call.join();
+  expect({ joined: call.ui.joined, published: facet.published }).toEqual({
+    joined: true,
+    published: ["mic", "mic"],
+  });
+  prompt.release();
+  await camera;
+  // the camera came after its call ended: it is closed, and not on in the new one
+  await vi.waitFor(() => expect(media.opened).toHaveLength(3));
+  await vi.waitFor(() => expect(media.opened.at(-1)).toMatchObject({ readyState: "ended" }));
+  expect({ camera: call.ui.camera, track: media.opened.at(-1)!.readyState }).toEqual({
+    camera: false,
+    track: "ended",
+  });
+  call.dispose();
+});
+
+test("a Leave while the first microphone publish waits lets a new Join start at once", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const first = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  await call.leave();
+  await call.join();
+  expect(call.ui).toMatchObject({ joined: true, joining: false });
+  publishing.release();
+  await first;
+  // the first join's end does not touch the call that came after it
+  expect(call.ui).toMatchObject({ joined: true, joining: false });
+  call.dispose();
+});
+
+test("a dispose while a new camera takes the old one's place stops the new camera too", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.toggleCamera();
+  const scaling = media.hold("setParameters");
+  const switching = call.chooseDevice("camera", "another-camera");
+  await vi.waitFor(() => expect(media.opened).toHaveLength(3));
+  call.dispose();
+  scaling.release();
+  await switching;
+  expect(media.opened.map((track) => track.readyState)).toEqual(["ended", "ended", "ended"]);
+});
+
+test("a dispose while a camera waits for its first publish stops the camera", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const publishing = facet.hold("signal", "publish");
+  const camera = call.toggleCamera();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic", "camera"] }));
+  call.dispose();
+  publishing.release();
+  await camera;
+  expect({ camera: call.ui.camera, track: media.opened[1]!.readyState }).toEqual({
+    camera: false,
+    track: "ended",
+  });
+});
+
+test("a dispose while the microphone waits for the call's answer closes its connection at once", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  call.dispose();
+  expect(media.connections.map((one) => one.closed)).toEqual([true]);
+  publishing.release();
+  await joining;
+});
+
+test("a receiving connection that never connects: one rejoin, then the page leaves and says so, and nothing loops", async () => {
+  using _media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    const steps = facet.steps.length;
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect({
+      more: facet.steps.length - steps,
+      leaves: facet.steps.filter((step) => step === "leave").length,
+      resets: facet.signals.filter((step) => step === "reset").length,
+      joined: call.ui.joined,
+      error: call.ui.error,
+    }).toEqual({
+      more: 0,
+      leaves: 1,
+      // five repairs in each of the two calls, and the rejoin's two
+      resets: 12,
+      joined: false,
+      error: expect.stringMatching(/^Your receiving connection could not be repaired .*Press Join/),
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a dispose while a repair resets the receiving session leaves no connection open", async () => {
+  using media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    const resetting = facet.hold("signal", "reset");
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(12_000 + 1_000);
+    expect(facet.signals).toContain("reset");
+    call.dispose();
+    resetting.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(media.connections.filter((one) => !one.closed)).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an invite's late answer after a leave and a new invite leaves the new voice agent alone", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const answering = facet.hold("voiceAgent");
+  const first = call.aiInvite();
+  await vi.waitFor(() => expect(facet.steps).toContain("voiceAgent"));
+  await call.leave();
+  await call.join();
+  await call.aiInvite();
+  answering.release();
+  await first;
+  expect({
+    ai: call.ui.ai,
+    closed: media.connections.at(-1)!.channels[0]!.sent,
+  }).toEqual({ ai: "on", closed: [] });
+  call.dispose();
+});
+
+test("a Leave while hosting the voice agent closes the microphone at once, and the call hears one leave, which ends the agent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.aiInvite();
+  const leaving = call.leave();
+  expect({
+    mic: media.mic.readyState,
+    open: media.connections.filter((one) => !one.closed).length,
+  }).toEqual({ mic: "ended", open: 0 });
+  await leaving;
+  expect(facet.steps.slice(-2)).toEqual(["voiceAgent", "leave"]);
+});
+
+test("a Leave whose voice agent's channel throws still closes the microphone and the camera", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.toggleCamera();
+  await call.aiInvite();
+  Object.assign(media.connections.at(-1)!.channels[0]!, {
+    send: () => {
+      throw Object.assign(new Error("the channel is closing"), { name: "OperationError" });
+    },
+  });
+  await call.leave();
+  expect({
+    tracks: media.opened.map((track) => track.readyState),
+    open: media.connections.filter((one) => !one.closed).length,
+  }).toEqual({ tracks: ["ended", "ended"], open: 0 });
+});
+
+test("a Join right after a Leave of a voice agent's host: the old leave never comes after the new join", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.aiInvite();
+  const stopping = facet.hold("voiceAgent");
+  const leaving = call.leave();
+  await call.join();
+  stopping.release();
+  await leaving;
+  expect({
+    joined: call.ui.joined,
+    afterJoin: facet.steps.slice(facet.steps.lastIndexOf("join")).includes("leave"),
+  }).toEqual({ joined: true, afterJoin: false });
+  call.dispose();
+});
+
+test("a join the call took in after its Leave, behind a newer join: the next Leave is still sent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const admitting = facet.hold("join");
+  const first = call.join();
+  await vi.waitFor(() => expect(facet.steps).toContain("join"));
+  await call.leave();
+  const opening = media.hold("open");
+  const second = call.join();
+  admitting.release();
+  await first;
+  await call.leave();
+  opening.release();
+  await second;
+  // the first Leave's, at once and again at the late answer: both the first admission's
+  expect(facet.steps.filter((step) => step === "leave")).toEqual(["leave", "leave"]);
+});
+
+test("an old sending repair whose reset answers after a Leave and a Join offers the new call nothing", async () => {
+  using media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    const sending = media.connections[0]!;
+    sending.fire("connectionstatechange", {});
+    sending.connectionState = "failed";
+    const resetting = facet.hold("signal", "reset");
+    sending.fire("connectionstatechange", {});
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(facet.signals).toContain("reset");
+    await call.leave();
+    await call.join();
+    const offers = facet.published.length;
+    resetting.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(facet.published.length).toBe(offers);
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a second Share press while the screen's picker is open turns it off: the chosen screen is not sent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const choosing = media.hold("display");
+  const first = call.toggleScreen();
+  const second = call.toggleScreen();
+  choosing.release();
+  await first;
+  await second;
+  expect({
+    screen: call.ui.screen,
+    published: facet.published,
+    pickers: media.displays,
+    picture: media.opened.at(-1)!.readyState,
+  }).toEqual({ screen: false, published: ["mic"], pickers: 1, picture: "ended" });
+  call.dispose();
+});
+
+test("a screen whose share the browser stopped while it waited for the microphone is not sent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  const screen = call.toggleScreen();
+  await vi.waitFor(() => expect(media.opened).toHaveLength(2));
+  // the browser's own "Stop sharing"
+  media.opened[1]!.readyState = "ended";
+  publishing.release();
+  await joining;
+  await screen;
+  expect({ screen: call.ui.screen, published: facet.published }).toEqual({
+    screen: false,
+    published: ["mic"],
+  });
+  call.dispose();
+});
+
+test("device changes behind an unanswered microphone prompt settle at a Leave, and put no error on the next call", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  await call.toggleCamera();
+  const opening = media.hold("open");
+  const switchingMic = call.chooseDevice("mic", "another-mic");
+  const switchingCamera = call.chooseDevice("camera", "another-camera");
+  // the microphone's prompt is open, and the camera's switch waits behind it
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await call.leave();
+  await switchingMic;
+  await switchingCamera;
+  await call.join();
+  opening.release();
+  await vi.waitFor(() => expect(media.opened.at(-1)?.readyState).toBe("ended"));
+  expect(call.ui).toMatchObject({ joined: true, error: "" });
+  call.dispose();
+});
+
+test("a new call subscribes while the old call's subscribe is still unanswered", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const subscribing = facet.hold("signal", "subscribe");
+  const others = viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page");
+  void call.sync(others);
+  await vi.waitFor(() => expect(facet.signals).toContain("subscribe"));
+  await call.leave();
+  await call.join();
+  void call.sync(others);
+  await vi.waitFor(() =>
+    expect(facet.signals.filter((step) => step === "subscribe")).toHaveLength(2),
+  );
+  subscribing.release();
+  call.dispose();
+});
+
+test("a live state that keeps saying 'not in the call' makes one rejoin, then the page leaves and says so", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  for (const _ of [1, 2, 3]) await outOfTouch(call);
+  expect({
+    joins: facet.steps.filter((step) => step === "join").length,
+    joined: call.ui.joined,
+    error: call.ui.error,
+  }).toEqual({
+    joins: 2,
+    joined: false,
+    error: "This page was out of touch with the call. Press Join to try again.",
+  });
+});
+
+test("a kept microphone unplugged while the call takes the page in again: the default is sent, with its mute", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  call.toggleMute();
+  const admitting = facet.hold("join");
+  const rejoining = outOfTouch(call);
+  await vi.waitFor(() => expect(facet.steps.filter((step) => step === "join")).toHaveLength(2));
+  media.mic.stop();
+  admitting.release();
+  await rejoining;
+  const sending = media.connections.filter((one) => !one.closed)[0]!;
+  expect({
+    sent: sending.transceivers[0]!.track.readyState,
+    muted: !sending.transceivers[0]!.track.enabled,
+    ui: call.ui.muted,
+  }).toEqual({ sent: "live", muted: true, ui: true });
+  call.dispose();
+});
+
+test("an invite still making its offer after a Leave and a Join asks the new call for no agent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const offering = media.hold("offer");
+  const inviting = call.aiInvite();
+  await vi.waitFor(() => expect(media.contexts).toHaveLength(1));
+  await call.leave();
+  await call.join();
+  offering.release();
+  await inviting;
+  expect({ ai: call.ui.ai, asked: facet.steps.filter((step) => step === "voiceAgent") }).toEqual({
+    ai: "off",
+    asked: [],
+  });
+  call.dispose();
+});
+
+test("an old rejoin whose agent stop answers after a Leave and a Join resets nothing of the new call", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.aiInvite();
+  const stopping = facet.hold("voiceAgent");
+  const rejoining = outOfTouch(call);
+  await vi.waitFor(() => expect(facet.steps.at(-1)).toBe("voiceAgent"));
+  await call.leave();
+  await call.join();
+  const resets = facet.signals.filter((step) => step === "reset").length;
+  stopping.release();
+  await rejoining;
+  expect({
+    joined: call.ui.joined,
+    resets: facet.signals.filter((step) => step === "reset").length,
+  }).toEqual({ joined: true, resets });
+  call.dispose();
+});
+
+test("a receiving connection that comes back by itself before its first try takes its error with it", async () => {
+  using media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const call = engineOn(callFacet());
+    await call.join();
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(call.ui.error).toMatch(/^Receiving: no connection to Cloudflare in 12 s/);
+    media.connections.at(-1)!.connectionState = "connected";
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(call.ui).toMatchObject({ error: "" });
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("admission order 1: an old engine's owed Leave carries its own admission, never the new engine's", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const old = engineOn(facet);
+  const taking = facet.hold("join");
+  const joining = old.join();
+  await vi.waitFor(() => expect(facet.steps).toContain("join"));
+  // the context object changed, the row stayed: a new engine on the same row
+  old.dispose();
+  const fresh = engineOn(facet);
+  await fresh.join();
+  taking.release();
+  await joining;
+  const [oldAdmission, newAdmission] = admissionsOf(facet, "join");
+  expect(newAdmission).not.toBe(oldAdmission);
+  expect(new Set(admissionsOf(facet, "leave"))).toEqual(new Set([oldAdmission]));
+  fresh.dispose();
+});
+
+test("admission order 3: an old camera offer still gathering after a Leave and a Join is never sent", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  const offering = media.hold("offer");
+  const camera = call.toggleCamera();
+  await vi.waitFor(() => expect(media.opened).toHaveLength(2));
+  await call.leave();
+  await call.join();
+  offering.release();
+  await camera;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(facet).toMatchObject({ published: ["mic", "mic"] });
+  call.dispose();
+});
+
+test("admission order 4: an old switch's late microphone never takes the newer switch's Mute", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  const opening = media.hold("open");
+  const oldSwitch = call.chooseDevice("mic", "mic-old");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await call.leave();
+  await call.join();
+  const replacing = media.hold("replaceTrack");
+  const newSwitch = call.chooseDevice("mic", "mic-new");
+  await vi.waitFor(() => expect(media.opened).toHaveLength(3));
+  opening.release();
+  await oldSwitch;
+  // the old switch's capture comes back while the new one replaces its track: then Mute
+  await vi.waitFor(() => expect(media.opened).toHaveLength(4));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  call.toggleMute();
+  // the new microphone is silent from the press, also while its track is being put in place
+  expect(media.opened[2]).toMatchObject({ enabled: false });
+  replacing.release();
+  await newSwitch;
+  // opened: the first mic, the second call's, the new switch's, then the old switch's late one
+  const [, , switched, late] = media.opened;
+  expect({
+    muted: call.ui.muted,
+    sending: switched!.enabled,
+    live: switched!.readyState,
+    late: late!.readyState,
+  }).toEqual({ muted: true, sending: false, live: "live", late: "ended" });
+  call.dispose();
+});
+
+test("admission order 4: a chosen device that fails after a Leave opens no default device", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  await call.join();
+  const opening = media.hold("open");
+  media.refuseNext("NotFoundError");
+  const switching = call.chooseDevice("mic", "gone-mic");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await call.leave();
+  opening.release();
+  await switching;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(media.opened.map((track) => track.readyState)).toEqual(["ended"]);
+});
+
+test("admission order 5: a TURN refresh carries its admission, and one that answers after a Leave sets no new refresh", async () => {
+  using _media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    const refreshing = facet.hold("join");
+    await vi.advanceTimersByTimeAsync(60 * 750);
+    expect(facet.calls.filter((one) => one.method === "join").map(({ args }) => args)).toEqual([
+      [{ admit: admissionsOf(facet, "join")[0] }],
+      [{ admission: admissionsOf(facet, "join")[0] }],
+    ]);
+    await call.leave();
+    refreshing.release();
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(facet.steps.filter((step) => step === "join")).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("admission order 6: a join whose answer failed after the call may have taken the page in still sends its leave", async () => {
+  using _media = browserMedia();
+  const facet = callFacet({ join: new Error("the call's setup failed") });
+  const call = engineOn(facet);
+  await call.join();
+  expect({ joined: call.ui.joined, leaves: admissionsOf(facet, "leave") }).toEqual({
+    joined: false,
+    leaves: admissionsOf(facet, "join"),
+  });
+});
+
+test("admission order 6: a dispose of a page in the call sends its admission's leave", async () => {
+  using _media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  call.dispose();
+  await vi.waitFor(() => expect(admissionsOf(facet, "leave")).toEqual(admissionsOf(facet, "join")));
+});
+
+test("admission order 7: a dispose while the microphone's prompt is open settles the Join at once", async () => {
+  using media = browserMedia();
+  const call = engineOn(callFacet());
+  media.hold("open");
+  const joining = call.join();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  call.dispose();
+  await joining;
+  expect(call.ui).toMatchObject({ joined: false, joining: false });
+});
+
+test("admission order 7: a screen chosen after its press was turned off closes at once, not at its turn", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  const choosing = media.hold("display");
+  const first = call.toggleScreen();
+  const off = call.toggleScreen();
+  choosing.release();
+  await first;
+  expect(media.opened.at(-1)).toMatchObject({ kind: "video", readyState: "ended" });
+  publishing.release();
+  await joining;
+  await off;
+  call.dispose();
+});
+
+test("a voice agent sent away while a sending repair offers its voice again: that voice goes out of the call", async () => {
+  using media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    await call.aiInvite();
+    media.connections.at(-1)!.fire("track", { track: { kind: "audio" } });
+    await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic", "ai"] }));
+    const sending = media.connections[0]!;
+    sending.fire("connectionstatechange", {});
+    sending.connectionState = "failed";
+    const resetting = facet.hold("signal", "reset");
+    sending.fire("connectionstatechange", {});
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(facet.signals).toContain("reset");
+    // the rebuilt connection's next offer is the voice's
+    const offering = media.hold("offer");
+    resetting.release();
+    await vi.advanceTimersByTimeAsync(0);
+    const rebuilt = media.connections.at(-1)!;
+    await vi.waitFor(() => expect(rebuilt.transceivers).toHaveLength(2));
+    await call.aiDismiss();
+    offering.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rebuilt.transceivers.map((one) => one.stopped)).toEqual([false, true]);
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a voice agent sent away while its voice is offered: the voice goes out of the call again", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join();
+  await call.aiInvite();
+  const offering = facet.hold("signal", "publish");
+  media.connections.at(-1)!.fire("track", { track: { kind: "audio" } });
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic", "ai"] }));
+  await call.aiDismiss();
+  offering.release();
+  await vi.waitFor(() => expect(facet.signals).toContain("unpublish"));
+  expect(media.connections[0]!.transceivers.map((one) => one.stopped)).toEqual([false, true]);
+  call.dispose();
+});
+
+test("the screen's picker opens from the press itself, while the microphone is still on its way", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal", "publish");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  const screen = call.toggleScreen();
+  expect(media).toMatchObject({ displays: 1 });
+  publishing.release();
+  await joining;
+  await screen;
+  expect({ screen: call.ui.screen, published: facet.published }).toEqual({
+    screen: true,
+    published: ["mic", "screen"],
+  });
+  // a screen chosen after its call ended is closed
+  await call.toggleScreen();
+  const choosing = media.hold("display");
+  const late = call.toggleScreen();
+  await call.leave();
+  choosing.release();
+  await late;
+  expect(media.opened.at(-1)).toMatchObject({ kind: "video", readyState: "ended" });
+});
+
+test("a receiving connection's error goes once its repair worked", async () => {
+  using media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const call = engineOn(callFacet());
+    await call.join();
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(call.ui.error).toMatch(/^Receiving: no connection to Cloudflare in 12 s/);
+    media.receives = true;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(call.ui).toMatchObject({
+      error: "",
+      notice: "Your receiving connection is repaired.",
+    });
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("why the voice agent did not come is gone when the next call starts", async () => {
+  using _media = browserMedia();
+  const call = engineOn(callFacet({ voiceAgent: new Error("no key") }));
+  await call.join();
+  await call.aiInvite();
+  expect(call.ui).toMatchObject({ aiRefusal: { message: "no key" } });
+  await call.leave();
+  await call.join();
+  expect(call.ui).toMatchObject({ aiRefusal: null });
+  call.dispose();
+});
+
+test("a Start whose page went into the back-forward cache while the call came on joins nothing on its return", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using media = browserMedia();
+  const facet = callFacet();
+  let enabled = () => {};
+  await using page = await drawCall(
+    facet,
+    () => new Promise<void>((resolve) => (enabled = resolve)),
+  );
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(async () => {
+    dispatchEvent(new Event("pagehide"));
+    dispatchEvent(new Event("pageshow"));
+  });
+  await act(async () => enabled());
+  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
+  expect(buttonsOf(page.place)).not.toContain("Starting…");
+});
+
+test("a Start whose page went away while the call came on joins nothing and opens no microphone", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using media = browserMedia();
+  const facet = callFacet();
+  let enabled = () => {};
+  const page = await drawCall(facet, () => new Promise<void>((resolve) => (enabled = resolve)));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await page[Symbol.asyncDispose]();
+  enabled();
+  await act(async () => {});
+  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
+});
+
+test("someone watching an empty call hears the first arrival, and a page alone sees its notice", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet();
+  await using page = await drawCall(facet, async () => {});
+  await act(async () => page.update({ facetOn: true, live: callLive({}) }));
+  await act(async () => page.update({ facetOn: true, live: callLive({ "b-page": ["mic"] }) }));
+  const tiles = () => document.querySelector("[data-slot=agent-call-tiles]");
+  expect(tiles()?.querySelector("[aria-live=polite]")?.textContent).toBe(
+    "b@example.com joined the call.",
+  );
+  // this page alone in the call, then a new row after a reconnect: the notice says how to come back
+  await act(async () => page.update({ facetOn: true, live: callLive({}) }));
+  await act(async () => buttonOf(page.place, "Join the call").click());
+  await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
+  await act(async () => page.update({ facetOn: true, live: callLive({}), row: "a-page-2" }));
+  expect(tiles()?.querySelector("[data-slot=call-tiles]")?.textContent).toContain(
+    "Press Join to come back into it.",
+  );
+});
+
 test("a start whose microphone is open while it publishes: Mute and Leave show, not Starting… alone", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
@@ -932,6 +2005,69 @@ test("a start whose microphone is open while it publishes: Mute and Leave show, 
   expect(buttonOf(page.place, "Join the call")).toBeTruthy();
   expect(page.place.textContent).not.toContain("Starting…");
   await act(async () => publishing.release());
+});
+
+test("on a phone, a start outlives the bar's popover, and the call's button says when the page is in the call", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet();
+  let enabled = () => {};
+  await using page = await drawCall(
+    facet,
+    () => new Promise<void>((resolve) => (enabled = resolve)),
+    { narrow: true },
+  );
+  const trigger = page.place.querySelector("button")!;
+  await act(async () => trigger.click());
+  await act(async () => buttonOf(document.body, "Start a call").click());
+  // the popover closes, and opens again while the start runs
+  await act(async () => trigger.click());
+  await act(async () => trigger.click());
+  expect(buttonOf(document.body, "Starting…")).toBeTruthy();
+  expect(buttonsOf(document.body)).not.toContain("Start a call");
+  await act(async () => {
+    page.update({ facetOn: true });
+    enabled();
+  });
+  await act(() =>
+    vi.waitFor(() => expect(trigger.getAttribute("aria-label")).toBe("Call: you are in it")),
+  );
+});
+
+test("on a phone, a page in the call with an error: the call's button says both", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet({ voiceAgent: new Error("no key") });
+  await using page = await drawCall(facet, async () => {}, { narrow: true });
+  await act(async () => page.update({ facetOn: true, live: callLive({}) }));
+  const trigger = page.place.querySelector("button")!;
+  await act(async () => trigger.click());
+  await act(async () => buttonOf(document.body, "Join the call").click());
+  await act(() => vi.waitFor(() => buttonOf(document.body, "Add a voice agent")));
+  await act(async () => buttonOf(document.body, "Add a voice agent").click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(trigger.getAttribute("aria-label")).toBe("Call: you are in it, and an error"),
+    ),
+  );
+});
+
+test("a mind with no SFU app: the tiles over the feed say why Join cannot be pressed", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const facet = callFacet();
+  await using page = await drawCall(facet, async () => {});
+  await act(async () =>
+    page.update({
+      facetOn: true,
+      live: { ...callLive({}), setup: { sfu: false, turn: false, voice: false } },
+    }),
+  );
+  expect(buttonOf(page.place, "This mind has no call service yet")).toMatchObject({
+    disabled: true,
+  });
+  expect(document.querySelector("[data-slot=agent-call-tiles]")?.textContent).toContain(
+    "This mind has no Cloudflare Realtime SFU app yet",
+  );
 });
 
 test("a start whose call came on but whose join failed: the call's words, and Join to press again", async () => {
@@ -1143,92 +2279,255 @@ function callLive(inCall: Record<string, string[]>) {
   };
 }
 
-/** A browser with a microphone and WebRTC, as far as the call's engine uses them: jsdom has
- *  neither. Each connection is connected at once, over UDP straight to the SFU; with `receives`
- *  false, a receiving connection never connects. `connections` holds every connection made, and
- *  `mic` the microphone's track. Disposing takes the microphone back. */
-function browserMedia({ receives = true } = {}) {
-  const connections: { closed: boolean }[] = [];
-  const track = {
-    kind: "audio",
-    enabled: true,
-    readyState: "live",
-    getSettings: () => ({ deviceId: "default" }),
-    addEventListener() {},
-    stop() {
-      track.readyState = "ended";
-    },
+/** A browser with a microphone, a camera, a screen, WebRTC and Web Audio, as far as the call's
+ *  engine uses them: jsdom has none. Each connection is connected at once, over UDP straight to
+ *  the SFU; while `receives` is false, a receiving connection never connects. `refuse`: the name
+ *  of the error each open of a device throws. `replaceFails`: each sender refuses a new track.
+ *  `hold(step)` keeps the next of these steps unanswered until `release()`: "open" (a device),
+ *  "display" (the screen's picker), "replaceTrack", "setParameters", "offer" (any connection's).
+ *  `refuseNext(name)`: the next open of a device throws an error of that name. `connections` holds every
+ *  connection made (`fire(type, event)` gives it an event; each transceiver keeps its `track`),
+ *  `opened` every track the browser opened, `mic` the first microphone's, `displays` how often the
+ *  screen's picker was asked for, `contexts` every AudioContext, `play` the media elements'
+ *  `play`. Disposing takes the devices back. */
+function browserMedia({
+  receives = true,
+  refuse,
+  replaceFails = false,
+}: { receives?: boolean; refuse?: string; replaceFails?: boolean } = {}) {
+  type Track = ReturnType<typeof trackOf>;
+  const connections: FakeConnection[] = [];
+  const opened: Track[] = [];
+  const contexts: { closed: boolean }[] = [];
+  const state = { receives, displays: 0, refuseNext: "" };
+  const gates = new Map<string, Promise<void>>();
+  /** The next `step` waits while it is held. */
+  const gate = async (step: string) => {
+    const held = gates.get(step);
+    gates.delete(step);
+    await held;
   };
-  const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
+  const trackOf = (kind: "audio" | "video") => {
+    const track = {
+      kind,
+      enabled: true,
+      readyState: "live",
+      getSettings: () => ({ deviceId: "default", width: 1280 }),
+      addEventListener() {},
+      removeEventListener() {},
+      stop() {
+        track.readyState = "ended";
+      },
+    };
+    return track;
+  };
+  const streamOf = (tracks: Track[]) => ({
+    getAudioTracks: () => tracks.filter((one) => one.kind === "audio"),
+    getVideoTracks: () => tracks.filter((one) => one.kind === "video"),
+    getTracks: () => tracks,
+  });
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
-    value: { getUserMedia: async () => stream, enumerateDevices: async () => [] },
+    value: {
+      getUserMedia: async (constraints: { audio?: object }) => {
+        await gate("open");
+        const once = state.refuseNext;
+        state.refuseNext = "";
+        if (once) throw Object.assign(new Error("refused"), { name: once });
+        if (refuse) throw Object.assign(new Error("refused"), { name: refuse });
+        const track = trackOf(constraints.audio ? "audio" : "video");
+        opened.push(track);
+        return streamOf([track]);
+      },
+      getDisplayMedia: async () => {
+        state.displays += 1;
+        await gate("display");
+        const track = trackOf("video");
+        opened.push(track);
+        return streamOf([track]);
+      },
+      enumerateDevices: async () => [],
+    },
   });
+  class FakeConnection {
+    closed = false;
+    connectionState = "connected";
+    iceGatheringState = "complete";
+    localDescription: { type: string; sdp: string } | null = null;
+    transceivers: { mid: string; stopped: boolean; track: Track }[] = [];
+    channels: { sent: string[] }[] = [];
+    listeners = new Map<string, ((event: object) => void)[]>();
+    constructor() {
+      connections.push(this);
+    }
+    addEventListener(type: string, listener: (event: object) => void) {
+      this.listeners.set(type, [...(this.listeners.get(type) || []), listener]);
+    }
+    fire(type: string, event: object) {
+      for (const listener of this.listeners.get(type) || []) listener(event);
+    }
+    addTransceiver = (track: Track) => {
+      const transceiver = {
+        mid: String(this.transceivers.length),
+        stopped: false,
+        track,
+        sender: {
+          replaceTrack: async () => {
+            await gate("replaceTrack");
+            if (replaceFails) throw new Error("the sender refused the track");
+          },
+          getParameters: () => ({ encodings: [] }),
+          setParameters: async () => gate("setParameters"),
+        },
+        stop: () => void (transceiver.stopped = true),
+      };
+      this.transceivers.push(transceiver);
+      return transceiver;
+    };
+    addTrack() {}
+    createDataChannel = () => {
+      const channel = { readyState: "open", sent: [] as string[], addEventListener() {} };
+      this.channels.push(channel);
+      return Object.assign(channel, { send: (message: string) => channel.sent.push(message) });
+    };
+    createOffer = async () => {
+      await gate("offer");
+      return { type: "offer", sdp: "v=0" };
+    };
+    createAnswer = async () => {
+      if (!state.receives) this.connectionState = "new";
+      return { type: "answer", sdp: "v=0" };
+    };
+    setLocalDescription = async (description: { type: string; sdp: string }) => {
+      this.localDescription = description;
+    };
+    setRemoteDescription = async () => {};
+    getConfiguration = () => ({});
+    setConfiguration() {}
+    close() {
+      this.closed = true;
+    }
+    getStats = async () =>
+      new Map<string, object>([
+        ["t", { type: "transport", selectedCandidatePairId: "p" }],
+        ["p", { localCandidateId: "l", currentRoundTripTime: 0.02 }],
+        ["l", { candidateType: "host", protocol: "udp" }],
+      ]);
+  }
+  vi.stubGlobal("RTCPeerConnection", FakeConnection);
   vi.stubGlobal(
-    "RTCPeerConnection",
+    "MediaStream",
+    class {
+      tracks: Track[];
+      constructor(tracks: Track[] = []) {
+        this.tracks = tracks;
+      }
+      getTracks = () => this.tracks;
+      getAudioTracks = () => this.tracks.filter((one) => one.kind === "audio");
+    },
+  );
+  vi.stubGlobal(
+    "AudioContext",
     class {
       closed = false;
       constructor() {
-        connections.push(this);
+        contexts.push(this);
       }
-      connectionState = "connected";
-      iceGatheringState = "complete";
-      localDescription: { type: string; sdp: string } | null = null;
-      addEventListener() {}
-      addTransceiver = () => ({ mid: "0", sender: { replaceTrack: async () => {} } });
-      createOffer = async () => ({ type: "offer", sdp: "v=0" });
-      createAnswer = async () => {
-        if (!receives) this.connectionState = "new";
-        return { type: "answer", sdp: "v=0" };
-      };
-      setLocalDescription = async (description: { type: string; sdp: string }) => {
-        this.localDescription = description;
-      };
-      setRemoteDescription = async () => {};
-      getConfiguration = () => ({});
-      setConfiguration() {}
-      close() {
-        this.closed = true;
-      }
-      getStats = async () =>
-        new Map<string, object>([
-          ["t", { type: "transport", selectedCandidatePairId: "p" }],
-          ["p", { localCandidateId: "l", currentRoundTripTime: 0.02 }],
-          ["l", { candidateType: "host", protocol: "udp" }],
-        ]);
+      resume = async () => {};
+      createMediaStreamDestination = () => ({ stream: streamOf([trackOf("audio")]) });
+      createMediaStreamSource = () => ({ connect() {}, disconnect() {} });
+      close = async () => void (this.closed = true);
     },
   );
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   return {
     connections,
-    mic: track,
+    opened,
+    contexts,
+    play,
+    get mic() {
+      return opened.find((one) => one.kind === "audio")!;
+    },
+    get displays() {
+      return state.displays;
+    },
+    set receives(on: boolean) {
+      state.receives = on;
+    },
+    /** The next open of a device throws an error of this name. */
+    refuseNext(name: string) {
+      state.refuseNext = name;
+    },
+    hold(step: "open" | "display" | "replaceTrack" | "setParameters" | "offer") {
+      let release = () => {};
+      gates.set(step, new Promise((resolve) => (release = resolve)));
+      return { release: () => release() };
+    },
     [Symbol.dispose]: () => void Reflect.deleteProperty(navigator, "mediaDevices"),
   };
 }
 
+/** The admission each call of `method` carried: a join's `{ admit }`, a refresh's `{ admission }`,
+ *  or the last argument of a leave, a signal or a voice agent call. */
+function admissionsOf(facet: ReturnType<typeof callFacet>, method: string) {
+  return facet.calls
+    .filter((one) => one.method === method)
+    .map(({ args }) => {
+      const last = args.at(-1) as { admit?: string; admission?: string } | string | undefined;
+      return typeof last === "object" ? last.admit || last.admission : last;
+    });
+}
+
 /** An agent's call facet, as a page's context holds it: each method called, in `steps`, answers at
- *  once, or throws what `fails` names for it. `hold(method)` keeps that method's next call
- *  unanswered until `release()`. Each signalling step is in `signals`, by its first key. */
+ *  once, or throws what `fails` names for it; `calls` holds each with its arguments after the page. `hold(method)` keeps that method's next call
+ *  unanswered until `release()`; `hold("signal", step)` the next signalling step of that kind
+ *  ("publish", "reset", …). Each signalling step is in `signals`, by its first key, and the
+ *  kind of each publish in `published`. A subscribe's answer puts each track under the mid
+ *  `m-<track>`. */
 function callFacet(fails: Record<string, Error> = {}) {
   const steps: string[] = [];
+  /** Each method called, with its arguments after the page. */
+  const calls: { method: string; args: unknown[] }[] = [];
   const signals: string[] = [];
+  const published: string[] = [];
   const held = new Map<string, Promise<void>>();
   return {
     steps,
+    calls,
     signals,
-    hold(method: string) {
+    published,
+    hold(method: string, step?: string) {
       let release = () => {};
-      held.set(method, new Promise((resolve) => (release = resolve)));
+      held.set(step ? `${method}:${step}` : method, new Promise((resolve) => (release = resolve)));
       return { release: () => release() };
     },
     async invoke(call: unknown) {
       const method = Array.isArray(call) ? String(call[3][0]) : "";
       steps.push(method);
-      if (method === "signal" && Array.isArray(call)) signals.push(Object.keys(call[3][2])[0]!);
-      await held.get(method);
+      if (Array.isArray(call)) calls.push({ method, args: call[3].slice(2) });
+      const step = method === "signal" && Array.isArray(call) ? call[3][2] : {};
+      if (method === "signal") signals.push(Object.keys(step)[0]!);
+      if (step.publish) published.push(step.publish);
+      for (const key of [method, `${method}:${Object.keys(step)[0]}`]) {
+        const gate = held.get(key);
+        held.delete(key);
+        await gate;
+      }
       if (fails[method]) throw fails[method];
-      return method === "signal" ? { sdp: "v=0", tracks: [] } : {};
+      // each track subscribed to comes under the mid `m-<track>`
+      const tracks = (step.subscribe || []).map((track: string) => ({ track, mid: `m-${track}` }));
+      return method === "signal" ? { sdp: "v=0", tracks } : {};
     },
   };
+}
+
+/** The call's live state says this page is not in it, 6 s after its join: the page joins again.
+ *  Answers the sync. */
+function outOfTouch(call: ReturnType<typeof engineOn>) {
+  const later = Date.now() + 6_000;
+  vi.spyOn(Date, "now").mockReturnValue(later);
+  return call.sync(viewOf(CallLive.parse(callLive({})), "a-page"));
 }
 
 /** The call's engine for the page `a-page`, on `facet`. */
@@ -1239,13 +2538,17 @@ function engineOn(facet: ReturnType<typeof callFacet>) {
   });
 }
 
-/** One agent page's call, on a wide screen, as `a-page`, with no call on the agent: `enable` is
- *  what a start turns the call on with. `update` gives the page what the context says next: the
- *  call's row, its live state. `place` is the header's place for the controls, and `seen` the
+/** One agent page's call, on a wide screen (`narrow`: a phone's), as `a-page`, with no call on the
+ *  agent: `enable` is what a start turns the call on with. `update` gives the page what the context
+ *  says next: the call's row, its live state, the page's own row (a new one after a reconnect). `place` is the header's place for the controls, and `seen` the
  *  buttons it had at each moment after the first. */
-async function drawCall(facet: ReturnType<typeof callFacet>, enable: () => Promise<unknown>) {
+async function drawCall(
+  facet: ReturnType<typeof callFacet>,
+  enable: () => Promise<unknown>,
+  { narrow = false } = {},
+) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: false,
+    matches: narrow,
     media: query,
     addEventListener() {},
     removeEventListener() {},
@@ -1260,12 +2563,20 @@ async function drawCall(facet: ReturnType<typeof callFacet>, enable: () => Promi
     characterData: true,
   });
   const root = createRoot(host.appendChild(document.createElement("div")));
-  const update = ({ facetOn = false, live }: { facetOn?: boolean; live?: object }) =>
+  const update = ({
+    facetOn = false,
+    live,
+    row = "a-page",
+  }: {
+    facetOn?: boolean;
+    live?: object;
+    row?: string;
+  }) =>
     root.render(
       <AgentCall
         stub={facet}
         context={{
-          subscription: "a-page",
+          subscription: row,
           processors: {
             rows: facetOn ? [{ hostedFacet: { name: "call" } }] : [],
             loaded: true,

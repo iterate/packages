@@ -1,10 +1,11 @@
-// call-bar.tsx — THE CALL'S CONTROLS, compact enough for an agent's header: join, leave, mute, the
-// camera, the screen, the devices, and the voice agent (a member's alone). Each is an icon button
-// with its name in words for a screen reader and a pointer. What goes wrong is said in words under
-// the buttons: a start that failed, a join that failed, a voice agent that did not come. What the
+// call-bar.tsx — THE CALL'S CONTROLS, compact enough for an agent's header, in one row that does not
+// wrap: join, leave, mute, the camera, the screen, the devices, and the voice agent (a member's
+// alone). Each switch is an icon button with its name in words for a screen reader and a pointer.
+// What goes wrong is said in words under the buttons, from the engine's state, so a bar drawn again
+// still says it: a start that failed, a join that failed, a voice agent that did not come. What the
 // call says as it runs (its path, a repair, the mind's setup) is the tiles' (call-tiles.tsx), beside
 // the chat.
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   BotIcon,
   BotOffIcon,
@@ -27,14 +28,15 @@ import { Button } from "#/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 /**
- * `call`, `ui`, `live`: what `useCall` answers. `member`: the viewer is a member of the mind (a
- * guest gets no voice agent). `start`: turns the call on for this agent, for a member whose agent
- * has no call yet (`live` is undefined): the bar then shows "Start a call", and says in words why a
- * start failed. `voiceAppHref`: where a member sets up voice, named when the voice agent cannot
- * come for want of a key or credit.
+ * `call`, `ui`, `live`: what `useCall` answers; in the call, the bar draws before `live` has come.
+ * `member`: the viewer is a member of the mind (a guest gets no voice agent). `start`: turns the call
+ * on for this agent, for a member whose agent has no call yet (`live` is undefined): the bar then
+ * shows "Start a call", and a start that fails says why in the call's words (`call.fail`).
+ * `starting`: the host's start is under way; the host holds it, so it outlives this bar (a popover
+ * that closes). `voiceAppHref`: where a member sets up voice, named when the voice agent cannot
+ * come for want of a key or credit. What goes wrong is said in one element under the buttons,
+ * `data-slot="call-bar-words"`, which a host may place.
  */
 export function CallBar({
   call,
@@ -42,6 +44,7 @@ export function CallBar({
   live,
   member,
   start,
+  starting = false,
   voiceAppHref,
   className,
 }: {
@@ -50,134 +53,188 @@ export function CallBar({
   live: CallLive | undefined;
   member: boolean;
   start?: () => Promise<unknown>;
+  starting?: boolean;
   voiceAppHref?: string;
   className?: string;
 }) {
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState("");
-  const [aiError, setAiError] = useState<VoiceRefusal | null>(null);
-  const begin = () => {
-    if (!start) return;
-    setStarting(true);
-    setStartError("");
-    start()
-      .catch((error: unknown) => setStartError(`The call could not start: ${messageOf(error)}`))
-      .finally(() => setStarting(false));
-  };
-  const inviteAi = () => {
-    setAiError(null);
-    // `aiInvite` throws an Error, with the call's own words in `json` when the call refused
-    call
-      ?.aiInvite()
-      .catch((error: unknown) =>
-        setAiError(error instanceof Error ? error : new Error(String(error))),
-      );
-  };
-  const words =
-    startError || ui.error ? (
-      <Said
-        text={startError || ui.error}
-        onClose={() => {
-          setStartError("");
-          call?.dismiss();
-        }}
-      />
-    ) : null;
-
-  if (!live || !call) {
-    if (!start && !startError) return null;
-    return (
-      <div data-slot="call-bar" className={cn("flex flex-col gap-2", className)}>
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="outline" disabled={starting} onClick={begin}>
-            <PhoneIcon data-icon="inline-start" />
-            {starting ? "Starting…" : "Start a call"}
-          </Button>
-        </div>
-        {words}
-      </div>
-    );
-  }
-
+  if (!call || (!ui.joined && !starting && !start && !live)) return null;
   return (
     <div
       data-slot="call-bar"
       data-joined={ui.joined}
       className={cn("flex flex-col gap-2", className)}
     >
-      <div className="flex flex-wrap items-center gap-1">
-        {ui.joined ? (
-          <>
-            <Toggle
-              on={!ui.muted}
-              label="Microphone"
-              title={ui.muted ? "Unmute" : "Mute"}
-              icon={ui.muted ? <MicOffIcon /> : <MicIcon />}
-              onPress={() => call.toggleMute()}
-            />
-            <Toggle
-              on={ui.camera}
-              label="Camera"
-              title={ui.camera ? "Turn the camera off" : "Share video"}
-              icon={ui.camera ? <VideoIcon /> : <VideoOffIcon />}
-              onPress={() => void call.toggleCamera()}
-            />
-            <Toggle
-              on={ui.screen}
-              label="Share screen"
-              title={ui.screen ? "Stop sharing the screen" : "Share the screen"}
-              icon={ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
-              onPress={() => void call.toggleScreen()}
-            />
-            <Devices call={call} ui={ui} />
-            {member ? (
-              live.voiceAgent ? (
-                <Toggle
-                  on
-                  label="Voice agent"
-                  title="Send the voice agent away"
-                  icon={<BotOffIcon />}
-                  disabled={ui.ai === "starting"}
-                  onPress={() => void call.aiDismiss()}
-                />
-              ) : (
-                <Toggle
-                  on={false}
-                  label="Voice agent"
-                  title={ui.ai === "starting" ? "The voice agent is coming…" : "Add a voice agent"}
-                  icon={<BotIcon />}
-                  disabled={ui.ai !== "off"}
-                  onPress={inviteAi}
-                />
-              )
-            ) : null}
-            <Button
-              size="sm"
-              variant="destructive"
-              title="Leave the call"
-              onClick={() => void call.leave()}
-            >
-              <PhoneOffIcon data-icon="inline-start" />
-              Leave
-            </Button>
-          </>
-        ) : (
-          <Button
-            size="sm"
-            disabled={ui.joining || !joinable(live)}
-            title={joinable(live) ? "Join the call" : "This mind has no call service yet"}
-            onClick={() => void call.join()}
-          >
-            <PhoneIcon data-icon="inline-start" />
-            {ui.joining ? "Joining…" : "Join"}
-          </Button>
-        )}
+      <div className="flex items-center gap-1">
+        {ui.joined ? <JoinedControls call={call} ui={ui} live={live} member={member} /> : null}
+        <MainButton call={call} ui={ui} live={live} start={start} starting={starting} />
       </div>
+      <Words call={call} ui={ui} voiceAppHref={voiceAppHref} />
+    </div>
+  );
+}
+
+/** The switches of a page in the call: the microphone, the camera, the screen, the devices, and the
+ *  voice agent (a member's alone). */
+function JoinedControls({
+  call,
+  ui,
+  live,
+  member,
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  live: CallLive | undefined;
+  member: boolean;
+}) {
+  return (
+    <>
+      <Toggle
+        on={!ui.muted}
+        label="Microphone"
+        title={ui.muted ? "Unmute" : "Mute"}
+        icon={ui.muted ? <MicOffIcon /> : <MicIcon />}
+        onPress={() => call.toggleMute()}
+      />
+      <Toggle
+        on={ui.camera}
+        label="Camera"
+        title={ui.camera ? "Turn the camera off" : "Share video"}
+        icon={ui.camera ? <VideoIcon /> : <VideoOffIcon />}
+        onPress={() => void call.toggleCamera()}
+      />
+      <Toggle
+        on={ui.screen}
+        label="Share screen"
+        title={ui.screen ? "Stop sharing the screen" : "Share the screen"}
+        icon={ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
+        onPress={() => void call.toggleScreen()}
+      />
+      <Devices call={call} ui={ui} />
+      {member ? <VoiceAgentToggle call={call} ui={ui} live={live} /> : null}
+    </>
+  );
+}
+
+/** The voice agent: invited into the call, or sent away when it is there. */
+function VoiceAgentToggle({
+  call,
+  ui,
+  live,
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  live: CallLive | undefined;
+}) {
+  if (live?.voiceAgent)
+    return (
+      <Toggle
+        on
+        label="Voice agent"
+        title="Send the voice agent away"
+        icon={<BotOffIcon />}
+        disabled={ui.ai === "starting"}
+        onPress={() => void call.aiDismiss()}
+      />
+    );
+  return (
+    <Toggle
+      on={false}
+      label="Voice agent"
+      title={ui.ai === "starting" ? "The voice agent is coming…" : "Add a voice agent"}
+      icon={<BotIcon />}
+      disabled={ui.ai !== "off"}
+      onPress={() => void call.aiInvite()}
+    />
+  );
+}
+
+/** What the main button does and says in each state of the page: its words, its title for a
+ *  pointer, and its look. "starting" and "joining" take no press. */
+const MAIN = {
+  leave: { words: "Leave", title: "Leave the call", variant: "destructive" },
+  starting: { words: "Starting…", title: undefined, variant: "outline" },
+  start: { words: "Start a call", title: undefined, variant: "outline" },
+  joining: { words: "Joining…", title: "Join the call", variant: "default" },
+  join: { words: "Join", title: "Join the call", variant: "default" },
+} as const;
+
+/** THE CALL'S ONE MAIN BUTTON: Start a call, Join, or Leave. It is one element in one place
+ *  whatever the state, so keyboard focus stays on it from Join to Leave and back. While a start or
+ *  a join runs it says so and takes no press, by `aria-disabled`: a disabled button drops focus. */
+function MainButton({
+  call,
+  ui,
+  live,
+  start,
+  starting,
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  live: CallLive | undefined;
+  start: (() => Promise<unknown>) | undefined;
+  starting: boolean;
+}) {
+  const state: keyof typeof MAIN = ui.joined
+    ? "leave"
+    : starting
+      ? "starting"
+      : start
+        ? "start"
+        : ui.joining
+          ? "joining"
+          : "join";
+  const { words, title, variant } = MAIN[state];
+  const shut = state === "join" && !joinable(live);
+  const press = () => {
+    if (state === "leave") void call.leave();
+    if (state === "join") void call.join();
+    if (state === "start" && start)
+      start().catch((error: unknown) =>
+        call.fail(
+          `The call could not start: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+  };
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      title={shut ? "This mind has no call service yet" : title}
+      disabled={shut}
+      aria-disabled={state === "starting" || state === "joining" || undefined}
+      // one width for each of its words: the header's path does not move as they change
+      className="min-w-28 aria-disabled:opacity-50"
+      onClick={press}
+    >
+      {state === "leave" ? (
+        <PhoneOffIcon data-icon="inline-start" />
+      ) : (
+        <PhoneIcon data-icon="inline-start" />
+      )}
       {words}
-      {aiError ? (
+    </Button>
+  );
+}
+
+/** What went wrong, in words, in one element a host may place: the call's error (a start or a
+ *  join that failed), and why the voice agent did not come. */
+function Words({
+  call,
+  ui,
+  voiceAppHref,
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  voiceAppHref: string | undefined;
+}) {
+  if (!ui.error && !ui.aiRefusal) return null;
+  return (
+    <div data-slot="call-bar-words" className="flex flex-col gap-1">
+      {ui.error ? <Said text={ui.error} onClose={() => call.dismiss()} /> : null}
+      {ui.aiRefusal ? (
         <Said
-          text={<VoiceRefusalText error={aiError} voiceAppHref={voiceAppHref} />}
-          onClose={() => setAiError(null)}
+          text={<VoiceRefusalText refusal={ui.aiRefusal} voiceAppHref={voiceAppHref} />}
+          onClose={() => call.dismiss()}
         />
       ) : null}
     </div>
@@ -232,9 +289,15 @@ function Said({ text, onClose }: { text: ReactNode; onClose: () => void }) {
 
 /** Why the voice agent did not come, and what a member can do about it: a spent credit or no key
  *  has two ways out, in the call's own marks; anything else is the call's own words. */
-function VoiceRefusalText({ error, voiceAppHref }: { error: VoiceRefusal; voiceAppHref?: string }) {
+function VoiceRefusalText({
+  refusal,
+  voiceAppHref,
+}: {
+  refusal: VoiceRefusal;
+  voiceAppHref: string | undefined;
+}) {
   const voiceApp = voiceAppHref ? <a href={voiceAppHref}>Voice app</a> : "Voice app";
-  if (error.json?.credit)
+  if (refusal.credit)
     return (
       <>
         The mind&apos;s voice credit at iterate Cloud is spent. Two ways to pay: connect your
@@ -242,14 +305,14 @@ function VoiceRefusalText({ error, voiceAppHref }: { error: VoiceRefusal; voiceA
         {voiceApp} asks for it once voice is on.
       </>
     );
-  if (error.json?.noKey)
+  if (refusal.noKey)
     return (
       <>
         This mind has no OpenAI key for the voice agent yet. iterate Cloud gives one with its
         credit, or save your own as /secrets/openai. The {voiceApp} asks for it once voice is on.
       </>
     );
-  return <>{messageOf(error)}</>;
+  return <>{refusal.message}</>;
 }
 
 const PICKERS: [DeviceKind, string][] = [

@@ -3,6 +3,7 @@
 import { expect, test } from "vitest";
 import {
   CallLive,
+  callChanges,
   cameraLayers,
   iceServersOf,
   joinable,
@@ -25,6 +26,23 @@ test("Join can be pressed on a fresh call, whose setup is not read yet, and not 
   expect(joinable(noSfu)).toBe(false);
   const ready = CallLive.parse({ ...FRESH, setup: { sfu: true, turn: false, voice: false } });
   expect(joinable(ready)).toBe(true);
+});
+
+test("who came and who left, a guest marked, and the voice agent, in words", () => {
+  const ana = { who: { actor: "/members/a", name: "Ana" }, tracks: { mic: 1 } };
+  const bo = { who: { actor: "/guests/b", name: "Bo", kind: "guest" }, tracks: { mic: 1 } };
+  const agent = { host: ana.who, page: "a", since: 1, until: 2 };
+  const before = CallLive.parse({ ...FRESH, inCall: { a: ana } });
+  const after = CallLive.parse({ ...FRESH, inCall: { b: bo }, voiceAgent: agent });
+  expect(callChanges(before, after)).toEqual([
+    "Bo (guest) joined the call.",
+    "Ana left the call.",
+    "The voice agent joined the call.",
+  ]);
+  expect(callChanges(after, after)).toEqual([]);
+  // a state not read yet says nothing
+  expect(callChanges(after, undefined)).toEqual([]);
+  expect(callChanges(undefined, after)).toEqual([]);
 });
 
 test("the view: this page in the call or not, every page by its row, a guest marked, and the voice agent's host page", () => {
