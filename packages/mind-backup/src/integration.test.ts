@@ -2,6 +2,7 @@
 // trip through it, and the card its install hook registers. The page's browser script is not run
 // here, and which routing slug reaches it is the worker's dispatch.
 import { Script } from "node:vm";
+import { principalStampOf } from "iterate/principal";
 import { expect, test } from "vitest";
 import { readBackup, writeBackup } from "./archive.ts";
 import { exportMind } from "./export.ts";
@@ -13,6 +14,12 @@ test.for([
     name: "a visitor who is not a member is asked to sign in",
     path: "/",
     member: false,
+    status: 401,
+  },
+  {
+    name: "another mind, which is no member, is asked to sign in",
+    path: "/",
+    member: "mind" as const,
     status: 401,
   },
   { name: "the page", path: "/", status: 200 },
@@ -213,7 +220,7 @@ test("the install hook registers the card on /integrations, keyed by the publica
 function request(
   path: string,
   input: {
-    member?: boolean;
+    member?: boolean | "mind";
     method?: string;
     body?: Uint8Array | false;
     length?: string;
@@ -222,7 +229,12 @@ function request(
   } = {},
 ) {
   const headers = new Headers();
-  if (input.member !== false) headers.set("x-itx-principal", '{"actor":"user_test"}');
+  if (input.member === "mind")
+    headers.set(
+      "x-itx-mind",
+      JSON.stringify({ actor: "ab".repeat(32), kind: "mind", hostname: "iterate.peer.example" }),
+    );
+  else if (input.member !== false) headers.set("x-itx-principal", '{"actor":"user_test"}');
   if (input.key) headers.set("x-secrets-key", input.key);
   // the length an upload arrives with at the edge, which a Request built here does not carry
   if (input.body) headers.set("content-length", input.length || String(input.body.length));
@@ -239,10 +251,13 @@ function fetchPage(mind: ReturnType<typeof fakeMind>, incoming: Request) {
   return mindBackup().fetch!(incoming, {
     // the fake has no scope to release; the worker's getItx answers the real one
     getItx: () => Object.assign(mind.itx, { [Symbol.dispose]: () => {} }) as never,
-    // the backup's pages ask for a member alone (`require`), never for a person
+    // the backup's pages ask for a member alone (`require`), never for a person; a member as the
+    // real guard reads one, so another mind is refused
     auth: {
       require: (request: Request) =>
-        request.headers.get("x-itx-principal") ? null : new Response("Sign in\n", { status: 401 }),
+        principalStampOf(request.headers).principal
+          ? null
+          : new Response("Sign in\n", { status: 401 }),
     } as never,
   });
 }
