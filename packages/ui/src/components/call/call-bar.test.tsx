@@ -55,7 +55,7 @@ test("what went wrong is the engine's, in one element under the buttons", async 
   expect(words).toHaveLength(1);
   expect([...words[0]!.querySelectorAll('[role="alert"]')].map((one) => one.textContent)).toEqual([
     "Receiving: no path to Cloudflare.",
-    "This mind has no OpenAI key for the voice agent yet. iterate Cloud gives one with its credit, or save your own as /secrets/openai. The Voice app asks for it once voice is on.",
+    "This mind has no OpenAI key for the voice agent yet. iterate Cloud gives one with its credit, or save your own as /secrets/openai on the Dash's Secrets page.",
   ]);
 });
 

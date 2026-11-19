@@ -38,7 +38,6 @@ export function AgentCall({
   stub,
   context,
   enable,
-  voiceAppHref,
   barIn,
 }: {
   stub: CallContext | undefined;
@@ -49,7 +48,6 @@ export function AgentCall({
   };
   /** Turns the call on for this agent. */
   enable: () => Promise<unknown>;
-  voiceAppHref: string | undefined;
   barIn: HTMLElement | null;
 }) {
   const { call, ui, live } = useCall(stub, context.subscription, context.liveState.call?.value);
@@ -100,14 +98,7 @@ export function AgentCall({
     <>
       {barIn
         ? createPortal(
-            <CallControls
-              call={call}
-              ui={ui}
-              live={barLive}
-              start={start}
-              starting={starting}
-              voiceAppHref={voiceAppHref}
-            />,
+            <CallControls call={call} ui={ui} live={barLive} start={start} starting={starting} />,
             barIn,
           )
         : null}
@@ -155,21 +146,19 @@ function CallControls({
   live,
   start,
   starting,
-  voiceAppHref,
 }: {
   call: CallEngine | null;
   ui: CallUi;
   live: CallLive | undefined;
   start: (() => Promise<unknown>) | undefined;
   starting: boolean;
-  voiceAppHref: string | undefined;
 }) {
   const narrow = useSyncExternalStore(
     watchNarrow,
     () => matchMedia(NARROW).matches,
     () => false,
   );
-  const bar = { call, ui, live, start, starting, voiceAppHref, member: true };
+  const bar = { call, ui, live, start, starting, member: true };
   if (!narrow) return <CallBar {...bar} className={WORDS_OVER_THE_PAGE} />;
   if (!call || (!ui.joined && !starting && !start && !live)) return null;
   const wrong = Boolean(ui.error || ui.aiRefusal);

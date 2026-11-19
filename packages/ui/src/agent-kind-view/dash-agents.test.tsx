@@ -2584,7 +2584,6 @@ async function drawCall(
           liveState: live ? { call: { value: live } } : {},
         }}
         enable={enable}
-        voiceAppHref={undefined}
         barIn={place}
       />,
     );

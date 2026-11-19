@@ -34,8 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover
  * on for this agent, for a member whose agent has no call yet (`live` is undefined): the bar then
  * shows "Start a call", and a start that fails says why in the call's words (`call.fail`).
  * `starting`: the host's start is under way; the host holds it, so it outlives this bar (a popover
- * that closes). `voiceAppHref`: where a member sets up voice, named when the voice agent cannot
- * come for want of a key or credit. What goes wrong is said in one element under the buttons,
+ * that closes). What goes wrong is said in one element under the buttons,
  * `data-slot="call-bar-words"`, which a host may place.
  */
 export function CallBar({
@@ -45,7 +44,6 @@ export function CallBar({
   member,
   start,
   starting = false,
-  voiceAppHref,
   className,
 }: {
   call: CallEngine | null;
@@ -54,7 +52,6 @@ export function CallBar({
   member: boolean;
   start?: () => Promise<unknown>;
   starting?: boolean;
-  voiceAppHref?: string;
   className?: string;
 }) {
   if (!call || (!ui.joined && !starting && !start && !live)) return null;
@@ -68,7 +65,7 @@ export function CallBar({
         {ui.joined ? <JoinedControls call={call} ui={ui} live={live} member={member} /> : null}
         <MainButton call={call} ui={ui} live={live} start={start} starting={starting} />
       </div>
-      <Words call={call} ui={ui} voiceAppHref={voiceAppHref} />
+      <Words call={call} ui={ui} />
     </div>
   );
 }
@@ -218,24 +215,13 @@ function MainButton({
 
 /** What went wrong, in words, in one element a host may place: the call's error (a start or a
  *  join that failed), and why the voice agent did not come. */
-function Words({
-  call,
-  ui,
-  voiceAppHref,
-}: {
-  call: CallEngine;
-  ui: CallUi;
-  voiceAppHref: string | undefined;
-}) {
+function Words({ call, ui }: { call: CallEngine; ui: CallUi }) {
   if (!ui.error && !ui.aiRefusal) return null;
   return (
     <div data-slot="call-bar-words" className="flex flex-col gap-1">
       {ui.error ? <Said text={ui.error} onClose={() => call.dismiss()} /> : null}
       {ui.aiRefusal ? (
-        <Said
-          text={<VoiceRefusalText refusal={ui.aiRefusal} voiceAppHref={voiceAppHref} />}
-          onClose={() => call.dismiss()}
-        />
+        <Said text={<VoiceRefusalText refusal={ui.aiRefusal} />} onClose={() => call.dismiss()} />
       ) : null}
     </div>
   );
@@ -289,27 +275,20 @@ function Said({ text, onClose }: { text: ReactNode; onClose: () => void }) {
 
 /** Why the voice agent did not come, and what a member can do about it: a spent credit or no key
  *  has two ways out, in the call's own marks; anything else is the call's own words. */
-function VoiceRefusalText({
-  refusal,
-  voiceAppHref,
-}: {
-  refusal: VoiceRefusal;
-  voiceAppHref: string | undefined;
-}) {
-  const voiceApp = voiceAppHref ? <a href={voiceAppHref}>Voice app</a> : "Voice app";
+function VoiceRefusalText({ refusal }: { refusal: VoiceRefusal }) {
   if (refusal.credit)
     return (
       <>
         The mind&apos;s voice credit at iterate Cloud is spent. Two ways to pay: connect your
-        ChatGPT plan in iterate Cloud, or save your own OpenAI key as /secrets/openai. The{" "}
-        {voiceApp} asks for it once voice is on.
+        ChatGPT plan in iterate Cloud, or save your own OpenAI key as /secrets/openai on the
+        Dash&apos;s Secrets page.
       </>
     );
   if (refusal.noKey)
     return (
       <>
         This mind has no OpenAI key for the voice agent yet. iterate Cloud gives one with its
-        credit, or save your own as /secrets/openai. The {voiceApp} asks for it once voice is on.
+        credit, or save your own as /secrets/openai on the Dash&apos;s Secrets page.
       </>
     );
   return <>{refusal.message}</>;

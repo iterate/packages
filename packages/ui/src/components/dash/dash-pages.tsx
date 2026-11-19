@@ -72,11 +72,9 @@ export type DashPage = {
 /** A CALL ON AN AGENT, as a Dash page turns it on. The facet's spec is the mind's config's, which
  *  the kit does not know: `enable` turns the call on for the agent at `path`, at the first press
  *  of "Start a call", and the page then joins it:
- *  `enable: (itx, path) => itx.cd(path).processors.enable("call", { …the config's CALL_FACET })`.
- *  `voiceAppHref`: where a member sets up voice, named when the voice agent cannot come. */
+ *  `enable: (itx, path) => itx.cd(path).processors.enable("call", { …the config's CALL_FACET })`. */
 export type DashCall = {
   enable: (itx: Itx, path: string) => Promise<unknown>;
-  voiceAppHref?: string;
 };
 
 /** A row that leaves the Dash: another app of the mind, or a page of the stack. `count:

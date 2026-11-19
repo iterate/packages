@@ -831,7 +831,6 @@ function IterateChat({
           stub={stub}
           context={context}
           enable={() => call.enable(itx, path)}
-          voiceAppHref={call.voiceAppHref}
           barIn={callIn}
         />
       ) : null}
