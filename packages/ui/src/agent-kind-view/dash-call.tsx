@@ -123,6 +123,7 @@ const NOT_READ_YET: CallLive = {
   inCall: {},
   voiceAgent: null,
   setup: null,
+  delegation: null,
   links: [],
 };
 

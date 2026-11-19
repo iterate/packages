@@ -89,6 +89,8 @@ function Tiles({
       ? `The voice agent is in the call, ${ui.ai === "off" ? `hosted by ${agent.host.name}` : "hosted by this tab: it leaves when you leave"}. Everyone hears it, and it hears everyone. It leaves by ${until} at the latest.`
       : "",
     ui.repair,
+    // the captions, when they are not working: off for a reason, or failing
+    ui.captions.status === "error" || ui.captions.status === "off" ? ui.captions.text : "",
   ].filter(Boolean);
   return (
     <section data-slot="call-tiles" className={cn("flex flex-col gap-2", className)}>

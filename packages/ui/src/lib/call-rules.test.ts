@@ -9,8 +9,11 @@ import {
   joinable,
   layerFor,
   pathOf,
+  pcm16Base64,
   pickDevice,
   repairLoop,
+  rmsOf,
+  TurnDetector,
   udpOnly,
   viewOf,
 } from "./call-rules.ts";
@@ -45,7 +48,7 @@ test("who came and who left, a guest marked, and the voice agent, in words", () 
   expect(callChanges(undefined, after)).toEqual([]);
 });
 
-test("the view: this page in the call or not, every page by its row, a guest marked, and the voice agent's host page", () => {
+test("the view: this page in the call or not, every page by its row, a guest marked, the voice agent's host page and its last request", () => {
   const live = CallLive.parse({
     ...FRESH,
     since: 1,
@@ -54,6 +57,7 @@ test("the view: this page in the call or not, every page by its row, a guest mar
       "page-b": { who: { actor: "guest:bo", name: "Bo", kind: "guest" }, tracks: { mic: 1 } },
     },
     voiceAgent: { host: { actor: "member:ana", name: "Ana" }, page: "page-a", since: 1, until: 2 },
+    delegation: { id: "del_1", status: "answered", answer: "At three." },
   });
   expect(viewOf(live, "page-b")).toEqual({
     me: { inCall: true },
@@ -62,8 +66,14 @@ test("the view: this page in the call or not, every page by its row, a guest mar
       { peer: "page-b", name: "Bo (guest)", tracks: { mic: 1 } },
     ],
     hostPage: "page-a",
+    delegation: { id: "del_1", status: "answered", answer: "At three." },
   });
-  expect(viewOf(undefined, "page-c")).toEqual({ me: { inCall: false }, call: [], hostPage: null });
+  expect(viewOf(undefined, "page-c")).toEqual({
+    me: { inCall: false },
+    call: [],
+    hostPage: null,
+    delegation: null,
+  });
   // a page named as a prototype's key is not in the call
   for (const page of ["constructor", "__proto__", "toString"])
     expect(viewOf(live, page)).toMatchObject({ me: { inCall: false } });
@@ -139,4 +149,50 @@ test("simulcast: three layers for a wide camera, fewer for a narrow one, and eac
   expect(layerFor(200)).toBe("q");
   expect(layerFor(400)).toBe("h");
   expect(layerFor(400, 2)).toBe("f");
+});
+
+test("captions send speech alone: a turn opens on two loud frames with what came before, and ends after 700 ms of quiet", () => {
+  const detector = new TurnDetector<string>();
+  const frame = (data: string, rms: number) => ({ rms, ms: 100, data });
+  const quiet = ["q1", "q2", "q3", "q4"].flatMap((data) => detector.push(frame(data, 0)));
+  expect(quiet).toEqual([]);
+  expect(detector.push(frame("l1", 0.1))).toEqual([]);
+  // the 300 ms before the voice go with it
+  expect(detector.push(frame("l2", 0.1))).toEqual([
+    { type: "start" },
+    {
+      type: "send",
+      frames: ["q2", "q3", "q4", "l1", "l2"].map((data) =>
+        frame(data, data.startsWith("l") ? 0.1 : 0),
+      ),
+    },
+  ]);
+  const tail = ["t1", "t2", "t3", "t4", "t5", "t6", "t7"].map((data) =>
+    detector.push(frame(data, 0)),
+  );
+  expect(tail.slice(0, 6).every((actions) => actions.length === 1)).toBe(true);
+  expect(tail[6]).toEqual([{ type: "send", frames: [frame("t7", 0)] }, { type: "commit" }]);
+  // a muted microphone is a level of 0: no new turn
+  expect(detector.push(frame("m", 0))).toEqual([]);
+});
+
+test("a turn is committed at 40 s flat, and the next begins at once", () => {
+  const detector = new TurnDetector<number>();
+  const actions = Array.from({ length: 402 }, (_, at) =>
+    detector.push({ rms: 0.1, ms: 100, data: at }),
+  ).flat();
+  expect(actions.filter((action) => action.type !== "send")).toEqual([
+    { type: "start" },
+    { type: "commit" },
+    { type: "start" },
+  ]);
+});
+
+test("the level and the audio as the model takes it", () => {
+  expect(rmsOf(new Float32Array([0.5, -0.5]))).toBe(0.5);
+  expect(rmsOf(new Float32Array(0))).toBe(0);
+  // -1, 0 and 1 as little-endian PCM16
+  expect(pcm16Base64(new Float32Array([-1, 0, 1]))).toBe(
+    btoa(String.fromCharCode(0x00, 0x80, 0, 0, 0xff, 0x7f)),
+  );
 });

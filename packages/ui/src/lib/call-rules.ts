@@ -29,6 +29,21 @@ export const VoiceAnswer = z.object({
   noKey: z.literal(true).optional(),
 });
 
+/** `delegate`: the delegation's id, or a refusal in words. */
+export const DelegateAnswer = z.object({
+  delegation: z.string().optional(),
+  error: z.string().optional(),
+});
+/** `transcription`: a short-lived key and the socket's URL, or a refusal the call expects. */
+export const TranscriptionAnswer = z.object({
+  key: z.string().optional(),
+  url: z.string().optional(),
+  error: z.string().optional(),
+  noKey: z.literal(true).optional(),
+  credit: z.literal(true).optional(),
+});
+export type TranscriptionAnswer = z.infer<typeof TranscriptionAnswer>;
+
 // ── THE CALL'S LIVE STATE ──
 const CallWho = z.object({
   actor: z.string(),
@@ -41,7 +56,7 @@ export type CallWho = z.infer<typeof CallWho>;
 /** THE CALL'S LIVE STATE, parsed: who is in the call, keyed by each page's subscription row, with
  *  a number for each track the page sends (it changes when the track is published anew); the
  *  voice agent and its host page; which secrets the mind has (null until the facet's first read);
- *  and the share links that let guests in. */
+ *  the voice agent's last request to the agent; and the share links that let guests in. */
 export const CallLive = z.object({
   since: z.number().nullable(),
   inCall: z.record(
@@ -52,6 +67,16 @@ export const CallLive = z.object({
     .object({ host: CallWho, page: z.string(), since: z.number(), until: z.number() })
     .nullable(),
   setup: z.object({ sfu: z.boolean(), turn: z.boolean(), voice: z.boolean() }).nullable(),
+  /** The voice agent's last request to the agent of the context, and its answer. */
+  delegation: z
+    .object({
+      id: z.string(),
+      status: z.enum(["waiting", "answered", "failed"]),
+      answer: z.string().optional(),
+      reason: z.string().optional(),
+    })
+    .nullable()
+    .default(null),
   links: z
     .array(
       z.object({
@@ -106,6 +131,7 @@ export function viewOf(live: CallLive | undefined, page: string) {
       tracks,
     })),
     hostPage: live?.voiceAgent?.page || null,
+    delegation: live?.delegation || null,
   };
 }
 export type CallView = ReturnType<typeof viewOf>;
@@ -323,3 +349,108 @@ const SPEECH = new Set([
  *  after five minutes with none. Any other event with text in `delta` counts too. */
 export const heardSpeech = (event: { type?: unknown; delta?: unknown } | null | undefined) =>
   SPEECH.has(String(event?.type)) || typeof event?.delta === "string";
+
+// ── CAPTIONS: which of the microphone's audio goes to the transcription model ──
+// The model (OpenAI's gpt-live-transcribe) bills each minute of audio SENT, and its session has no
+// voice detection, so the page decides what is speech:
+// - A TURN STARTS when the level passes the threshold for two frames in a row; the 300 ms before
+//   the first loud frame go too, so a word's start is not cut off.
+// - A TURN ENDS after 700 ms below the threshold: that audio is sent, then committed.
+// - A long turn is committed at its first dip of 250 ms after 25 s, or at 40 s flat, and the next
+//   turn starts at once.
+// - Nothing is sent while no turn is open. A muted microphone is a level of 0: an open turn ends,
+//   and no new one starts.
+export const TURN = {
+  threshold: 0.012,
+  startFrames: 2,
+  prerollMs: 300,
+  endMs: 700,
+  longMs: 25_000,
+  dipMs: 250,
+  maxMs: 40_000,
+};
+/** One frame of the microphone: its level, its length, and what is sent of it. */
+export type Frame<T> = { rms: number; ms: number; data: T };
+export type TurnAction<T> =
+  | { type: "start" }
+  | { type: "send"; frames: Frame<T>[] }
+  | { type: "commit" };
+const lengthOf = (frames: readonly Frame<unknown>[]) =>
+  frames.reduce((total, frame) => total + frame.ms, 0);
+
+/** The voice detection, one frame at a time: `push(frame)` answers what to do, in order. A commit
+ *  always follows at least one send of its own turn. */
+export class TurnDetector<T> {
+  #ring: Frame<T>[] = [];
+  #loud: Frame<T>[] = [];
+  #open = false;
+  #turnMs = 0;
+  #quietMs = 0;
+
+  push(frame: Frame<T>): TurnAction<T>[] {
+    const loud = frame.rms >= TURN.threshold;
+    if (!this.#open) {
+      if (!loud) {
+        this.#ring.push(...this.#loud, frame);
+        this.#loud = [];
+        while (this.#ring.length && lengthOf(this.#ring) - this.#ring[0]!.ms >= TURN.prerollMs)
+          this.#ring.shift();
+        return [];
+      }
+      this.#loud.push(frame);
+      if (this.#loud.length < TURN.startFrames) return [];
+      const frames = [...this.#ring, ...this.#loud];
+      this.#ring = [];
+      this.#loud = [];
+      this.#open = true;
+      this.#turnMs = lengthOf(frames);
+      this.#quietMs = 0;
+      return [{ type: "start" }, { type: "send", frames }];
+    }
+    this.#turnMs += frame.ms;
+    this.#quietMs = loud ? 0 : this.#quietMs + frame.ms;
+    const out: TurnAction<T>[] = [{ type: "send", frames: [frame] }];
+    if (
+      this.#quietMs >= TURN.endMs ||
+      (this.#turnMs >= TURN.longMs && this.#quietMs >= TURN.dipMs)
+    ) {
+      this.#open = false;
+      out.push({ type: "commit" });
+    } else if (this.#turnMs >= TURN.maxMs) {
+      this.#turnMs = 0;
+      this.#quietMs = 0;
+      out.push({ type: "commit" }, { type: "start" });
+    }
+    return out;
+  }
+
+  /** Forget everything, an open turn too: after a leave or a lost socket. */
+  reset() {
+    this.#ring = [];
+    this.#loud = [];
+    this.#open = false;
+    this.#turnMs = 0;
+    this.#quietMs = 0;
+  }
+}
+
+/** The root mean square of samples: the level the detection reads. */
+export function rmsOf(samples: Float32Array) {
+  let total = 0;
+  for (const sample of samples) total += sample * sample;
+  return samples.length ? Math.sqrt(total / samples.length) : 0;
+}
+
+/** Float samples (-1 to 1) as the model takes them: mono PCM16, little-endian, in base64. */
+export function pcm16Base64(samples: Float32Array) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  samples.forEach((sample, at) => {
+    const s = Math.max(-1, Math.min(1, sample));
+    view.setInt16(at * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  });
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
+}

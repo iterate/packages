@@ -18,6 +18,14 @@
 // - SIMULCAST: the camera goes up in three layers; each tile takes the layer that fits its size.
 // - CAPTURE STARTS ONLY BY THE PERSON'S OWN PRESS: a page that joins again by itself keeps the mute,
 //   and its camera and screen stay off until the person turns them on.
+// - CAPTIONS: this page transcribes its own microphone (OpenAI's gpt-live-transcribe, a socket with
+//   a one-minute key that the call's `transcription` makes) and hands each finished line to the
+//   call's `said`, which tells the agent. It runs only while this page is in the call and not
+//   muted (a mute closes the session), and only speech is sent (call-rules.ts `TurnDetector`).
+//   Each method carries the call's admission.
+// - THE DELEGATION: the voice model's one way out is the agent of the context. Its host tab carries
+//   the model's request to the call's `delegate`, and the answer, from the call's live state, back
+//   to the model to say.
 // - THE VOICE AGENT: the member who invites it hosts it in their tab, which opens GPT-Live over
 //   WebRTC with a session the call made. It hears a mix of the host's microphone and everyone the
 //   host hears, and its voice is published into the call as the host's track `ai`.
@@ -26,6 +34,7 @@ import {
   CallLive,
   cameraLayers,
   type CallView,
+  DelegateAnswer,
   type DeviceKind,
   deviceOptions,
   FIRST_LAYER,
@@ -39,19 +48,37 @@ import {
   pathOf,
   pickDevice,
   REPAIR,
+  pcm16Base64,
   repairLoop,
   repairNeed,
   ridOf,
+  rmsOf,
   type Rid,
   scaleFor,
   SignalAnswer,
+  TranscriptionAnswer,
   STUN,
+  TurnDetector,
   udpOnly,
   viewOf,
   VoiceAnswer,
 } from "#/lib/call-rules.ts";
 
 const CONNECT_TIMEOUT_MS = 12_000;
+/** THE MICROPHONE'S SAMPLES for the captions: an AudioWorklet that posts each block of mono
+ *  samples (the channels averaged) to the page. A module of its own, loaded from a Blob. */
+const TAP = `class CallTap extends AudioWorkletProcessor {
+  process(inputs) {
+    const channels = inputs[0];
+    if (channels && channels.length) {
+      const block = new Float32Array(channels[0].length);
+      for (const channel of channels) for (let i = 0; i < block.length; i++) block[i] += channel[i] / channels.length;
+      this.port.postMessage(block, [block.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("call-tap", CallTap);`;
 const MIC = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 // the camera at 1280×720 when it can: the full layer of its simulcast
 const CAMERA = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 } };
@@ -96,6 +123,8 @@ export type CallUi = {
     speakerSupported: boolean;
   };
   videos: CallVideo[];
+  /** This page's captions: its microphone transcribed, each finished line to the call. */
+  captions: { status: "off" | "connecting" | "listening" | "error"; text: string };
 };
 /** Why the voice agent did not come: a refusal the call answers as such (no key, a spent credit,
  *  another host) has its marks; any other failure is its message alone. */
@@ -121,6 +150,7 @@ const IDLE: CallUi = {
     speakerSupported: true,
   },
   videos: [],
+  captions: { status: "off", text: "" },
 };
 
 /** Wait for the page's candidates before an offer or answer goes out: until gathering is complete,
@@ -380,6 +410,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   // the error a receiving connection's failure said, cleared when its repair works
   let receiveError = "";
   let joinedAt = 0;
+  /** The join under way: a camera or a screen pressed during it waits for it. */
+  let joining: Promise<void> | null = null;
   const paths: Record<"pub" | "sub", Pair | null> = { pub: null, sub: null };
 
   const videosChanged = () => {
@@ -560,6 +592,11 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       track.enabled = !ui.muted;
       mic = stream;
       watchMic();
+      // the captions hear the new microphone, when they are on
+      if (cap.audio) {
+        stopAudio();
+        void startAudio();
+      }
       for (const old of before.getTracks()) old.stop();
       // the voice agent hears the new microphone, when this tab hosts it
       if (ai.context && ai.micNode && ai.mix) {
@@ -699,7 +736,13 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  then sent on the call's sending queue, behind a publish that may be under way. */
   async function videoOn(kind: "camera" | "screen") {
     const call = scope;
-    if (!joined || local[kind] || call.capturing[kind]) return;
+    if (local[kind] || call.capturing[kind]) return;
+    // a press during the join waits on the sending queue behind the join's own publish; a press
+    // with no call says why, and asks the browser for nothing
+    if (!joined && !ui.joining) {
+      fail(`No ${kind}: this page's connection to the call is not up. Join the call first.`);
+      return;
+    }
     // this press's picture: a second press while its picker is open is an Off, which ends it
     const press: { track?: MediaStreamTrack } = {};
     call.capturing[kind] = press;
@@ -731,10 +774,15 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       };
       track.addEventListener("ended", onEnded);
       const ended = () => track.readyState === "ended";
+      // a press during the join: its publish goes first
+      if (joining) await call.until(joining, () => {});
       await call
         .send(async () => {
           // an Off, a second press, or a picture that ended while it waited: nothing is sent
-          if (!mine() || !pub || local[kind] || ended()) return track.stop();
+          if (!mine() || local[kind] || ended()) return track.stop();
+          // the join failed, or its publish did not come: the press says why
+          if (!pub)
+            throw new Error("this page's connection to the call is not up. Join the call first.");
           const sending = pub;
           const tx = await publishTrack(track, kind, call);
           call.signal.throwIfAborted();
@@ -1117,6 +1165,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     tx: RTCRtpTransceiver | null;
     startedAt: number;
     lastSpeechAt: number;
+    /** What the voice model heard and said, line by line: the voice agent's own lines go to the
+     *  call once finished, and the last of both go with a delegation. */
+    lines: { id: string; who: "heard" | "agent"; text: string; at: number; posted: boolean }[];
   } = {
     state: "off",
     invite: null,
@@ -1132,6 +1183,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     tx: null,
     startedAt: 0,
     lastSpeechAt: 0,
+    lines: [],
   };
   const setAi = (state: CallUi["ai"]) => {
     ai.state = state;
@@ -1219,13 +1271,27 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       const events = (ai.events = pc.createDataChannel("oai-events"));
       events.addEventListener("message", ({ data }: MessageEvent) => {
-        let event: { type?: string; delta?: unknown; error?: { message?: string } } = {};
+        let event: {
+          type?: string;
+          delta?: unknown;
+          error?: { message?: string };
+          delegation?: { id?: unknown; target?: unknown };
+        } = {};
         try {
           event = JSON.parse(String(data));
         } catch {
           // not JSON: nothing to read
         }
         if (heardSpeech(event)) ai.lastSpeechAt = Date.now();
+        // THE MODEL DELEGATES: its one way out, which this tab carries to the call and back
+        if (event.type === "session.delegation.created" && event.delegation?.target === "client")
+          void delegate(String(event.delegation.id || ""));
+        if (
+          (event.type === "session.input_transcript.delta" ||
+            event.type === "session.output_transcript.delta") &&
+          typeof event.delta === "string"
+        )
+          heard(event.type.includes("output") ? "agent" : "heard", event.delta);
         if (event.type === "error")
           say(`OpenAI reported: ${String(event.error?.message || "an error").slice(0, 160)}`);
       });
@@ -1267,11 +1333,84 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       if (!call.ended) set({ aiRefusal: refused || { message: messageOf(error) } });
     }
   }
+  /** The open delegations of this tab, each waiting for its answer in the call's live state. */
+  const answers = new Map<
+    string,
+    (done: { status: string; answer?: string; reason?: string }) => void
+  >();
+  /** A delegation of the model: the call puts the request on the agent's log, with what the model
+   *  heard and said lately, and the answer comes back in the live state (`sync`), 90 s at most.
+   *  The model gets the answer to say, or plain words that none came. */
+  async function delegate(id: string) {
+    const call = scope;
+    if (!id || answers.has(id) || call.ended) return;
+    const tell = (content: string) => {
+      if (ai.events?.readyState === "open")
+        ai.events.send(
+          JSON.stringify({
+            type: "session.commentary.append",
+            event_id: crypto.randomUUID(),
+            delegation_id: id,
+            content,
+          }),
+        );
+    };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settled = new Promise<{ status: string; answer?: string; reason?: string }>((resolve) => {
+      answers.set(id, resolve);
+      timer = setTimeout(() => resolve({ status: "failed", reason: "no answer in 90 s" }), 90_000);
+    });
+    const transcript = ai.lines
+      .map((line) => `${line.who === "agent" ? "voice agent" : "room"}: ${line.text.trim()}`)
+      .join("\n")
+      .slice(-4_000);
+    try {
+      const asked = DelegateAnswer.parse(
+        await facet("delegate", page, { delegation: id, transcript }, call.admission),
+      );
+      if (asked.error)
+        return tell(`The agent could not be asked (${asked.error}). Say that plainly.`);
+      const done = await settled;
+      if (done.status === "answered" && done.answer) tell(done.answer);
+      else
+        tell(`The agent gave no answer (${done.reason || "it took too long"}). Say that plainly.`);
+    } catch (error) {
+      tell(`The agent could not be reached (${messageOf(error)}). Say that plainly.`);
+    } finally {
+      if (timer) clearTimeout(timer);
+      answers.delete(id);
+    }
+  }
+  /** Words of the voice model: a line goes on while its speaker goes on, within 4 s. */
+  function heard(who: "heard" | "agent", words: string) {
+    const last = ai.lines.at(-1);
+    if (last?.who === who && Date.now() - last.at < 4_000) {
+      last.text += words;
+      last.at = Date.now();
+    } else
+      ai.lines.push({ id: crypto.randomUUID(), who, text: words, at: Date.now(), posted: false });
+    postAiLines();
+    if (ai.lines.length > 60) ai.lines.shift();
+  }
+  /** What the voice agent said goes to the call from its host alone, each line once it is done: a
+   *  newer line began, no word came for 4 s, or (`all`) it stops. What it heard is never posted:
+   *  each person's own page posts their words. */
+  function postAiLines(all = false) {
+    ai.lines.forEach((line, at) => {
+      const done = all || at < ai.lines.length - 1 || Date.now() - line.at >= 4_000;
+      if (line.who !== "agent" || line.posted || !done || !line.text.trim()) return;
+      line.posted = true;
+      said({ id: line.id, text: line.text.trim(), ai: true });
+    });
+  }
   /** Everything this tab holds for the voice agent, closed at once, its session at OpenAI first (it
    *  bills while it runs). Answers what the call must still hear of: its published voice, and
    *  whether the call's agent was this tab's. */
   function aiClose() {
     const was = { tx: ai.tx, claimed: ai.claimed };
+    ai.lines = [];
+    for (const resolve of answers.values())
+      resolve({ status: "failed", reason: "the voice agent left" });
     try {
       if (ai.events?.readyState === "open")
         ai.events.send(JSON.stringify({ type: "session.close" }));
@@ -1305,6 +1444,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // a start under way may have claimed the agent already: its stop goes too
     const starting = ai.state === "starting";
     const invite = ai.invite?.id;
+    // what the voice agent said last goes to the call before its lines are dropped
+    if (ai.claimed) postAiLines(true);
     const { tx, claimed } = aiClose();
     // its voice leaves the call on the sending queue, behind an offer that may be under way
     const sending = pub;
@@ -1314,10 +1455,252 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // its stop claims nothing (call/rules.ts). A claimed one says `stop` too, which a call from
     // before `withdraw` reads as the plain stop of its (this tab's) agent; an unclaimed one does
     // not, so such a call sends away nobody's agent.
+    // the voice agent's last lines reach the call before its stop, while this page still hosts it
+    await saidQueue;
     const stop = claimed ? { stop: why, withdraw: invite } : { withdraw: invite, why };
     if (joined && invite && (claimed || starting))
       await facet("voiceAgent", page, stop, call.admission).catch(() => {});
     if (!quiet) say(`The voice agent left: ${why}.`);
+  }
+
+  // ── CAPTIONS: this page's own microphone, transcribed; each finished line to the call ──
+  const FRAME_SAMPLES = 2_400; // 100 ms at 24,000 Hz
+  const STT_WAITS_MS = [1_000, 2_000, 4_000, 8_000];
+  /** Tries in a row before the page stops and says so: joining again starts afresh. */
+  const STT_TRIES = 8;
+  type Turn = { id: string; appended: boolean; itemId: string | null };
+  const cap: {
+    audio: AudioContext | null;
+    samples: Float32Array[];
+    count: number;
+    detector: TurnDetector<Float32Array>;
+    ws: WebSocket | null;
+    on: boolean;
+    fails: number;
+    retry: ReturnType<typeof setTimeout> | null;
+    turn: Turn | null;
+    committed: Turn[];
+    items: Map<string, Turn>;
+  } = {
+    audio: null,
+    samples: [],
+    count: 0,
+    detector: new TurnDetector(),
+    ws: null,
+    on: false,
+    fails: 0,
+    retry: null,
+    turn: null,
+    committed: [],
+    items: new Map(),
+  };
+  const captions = (status: CallUi["captions"]["status"], text: string) => {
+    if (ui.captions.status !== status || ui.captions.text !== text)
+      set({ captions: { status, text } });
+  };
+  /** The microphone's samples at 24,000 Hz, through a worklet, in frames of 100 ms. A browser with
+   *  no AudioWorklet transcribes nothing, and says so. */
+  async function startAudio() {
+    if (cap.audio || !mic) return;
+    if (!("AudioWorkletNode" in globalThis))
+      return captions("off", "This browser cannot capture audio for transcription.");
+    const stream = mic;
+    const context = (cap.audio = new AudioContext({ sampleRate: 24_000 }));
+    const module = URL.createObjectURL(new Blob([TAP], { type: "text/javascript" }));
+    try {
+      await context.audioWorklet.addModule(module);
+      if (cap.audio !== context) return; // left meanwhile
+      const tap = new AudioWorkletNode(context, "call-tap");
+      // the worklet runs only when it leads somewhere: a silent sink
+      const sink = context.createGain();
+      sink.gain.value = 0;
+      context
+        .createMediaStreamSource(stream)
+        .connect(tap)
+        .connect(sink)
+        .connect(context.destination);
+      tap.port.onmessage = ({ data }: MessageEvent<Float32Array>) => onSamples(data);
+      await context.resume().catch(() => {});
+    } catch (error) {
+      if (cap.audio === context) stopAudio();
+      captions(
+        "error",
+        `The microphone could not be read for transcription (${messageOf(error)}).`,
+      );
+    } finally {
+      URL.revokeObjectURL(module);
+    }
+  }
+  function stopAudio() {
+    void cap.audio?.close().catch(() => {});
+    cap.audio = null;
+    cap.samples = [];
+    cap.count = 0;
+  }
+  /** A block from the worklet, gathered into a frame of 100 ms, through the voice detection. */
+  function onSamples(block: Float32Array) {
+    cap.samples.push(block);
+    cap.count += block.length;
+    if (cap.count < FRAME_SAMPLES || !joined) return;
+    const data = new Float32Array(cap.count);
+    let at = 0;
+    for (const part of cap.samples) {
+      data.set(part, at);
+      at += part.length;
+    }
+    cap.samples = [];
+    cap.count = 0;
+    const rms = mic?.getAudioTracks()[0]?.enabled ? rmsOf(data) : 0;
+    for (const action of cap.detector.push({ rms, ms: data.length / 24, data })) {
+      if (action.type === "start")
+        cap.turn = { id: crypto.randomUUID(), appended: false, itemId: null };
+      else if (action.type === "send") for (const frame of action.frames) append(frame.data);
+      else commitTurn();
+    }
+  }
+  const sttOpen = () => cap.ws?.readyState === WebSocket.OPEN && cap.on;
+  function append(samples: Float32Array) {
+    if (!cap.turn || !sttOpen()) return;
+    cap.ws!.send(
+      JSON.stringify({ type: "input_audio_buffer.append", audio: pcm16Base64(samples) }),
+    );
+    cap.turn.appended = true;
+  }
+  /** The turn is over: what was sent of it is committed (never an empty buffer, which the model
+   *  calls an error), and its line comes later. */
+  function commitTurn() {
+    const turn = cap.turn;
+    cap.turn = null;
+    if (!turn?.appended || !sttOpen()) return;
+    cap.ws!.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    if (!turn.itemId) cap.committed.push(turn);
+  }
+  /** Which turn an event of the model is about: an item, once seen, keeps its turn. */
+  function turnOf(itemId: unknown, committed = false) {
+    if (typeof itemId !== "string" || !itemId) return null;
+    let turn: Turn | null = cap.items.get(itemId) || null;
+    if (!turn) {
+      turn = cap.committed.shift() || (committed ? null : cap.turn);
+      if (!turn) return null;
+      turn.itemId = itemId;
+      cap.items.set(itemId, turn);
+    } else if (committed) cap.committed = cap.committed.filter((one) => one !== turn);
+    return turn;
+  }
+  function onSttMessage(event: {
+    type?: string;
+    item_id?: unknown;
+    transcript?: unknown;
+    error?: { code?: string; message?: string };
+  }) {
+    if (event.type === "session.created") {
+      cap.on = true;
+      cap.fails = 0;
+      captions("listening", "What you say is transcribed for the agent.");
+    } else if (event.type === "input_audio_buffer.committed") turnOf(event.item_id, true);
+    else if (event.type === "conversation.item.input_audio_transcription.completed") {
+      const turn = turnOf(event.item_id, true);
+      if (!turn) return;
+      cap.items.delete(turn.itemId!);
+      const text = String(event.transcript || "").trim();
+      if (text) said({ id: turn.id, text });
+    } else if (event.type === "error")
+      captions(
+        "error",
+        `The transcription service reported an error (${String(event.error?.code || event.error?.message || "unknown").slice(0, 60)}).`,
+      );
+  }
+  /** A transcription session: a new key from the call for each connection. */
+  async function startStt() {
+    if (cap.retry) clearTimeout(cap.retry);
+    cap.retry = null;
+    const call = scope;
+    if (!joined || cap.ws || !cap.audio || ui.muted) return;
+    if (ui.captions.status !== "error") captions("connecting", "Connecting the transcription.");
+    const answer: TranscriptionAnswer = await facet("transcription", page, call.admission)
+      .then((value) => TranscriptionAnswer.parse(value))
+      .catch((error: unknown) => ({ error: messageOf(error) }));
+    // the call ended, the microphone was muted, or another session opened meanwhile
+    if (call.ended || !joined || cap.ws || !cap.audio || ui.muted) return;
+    // no key, or a spent credit: nothing a retry mends
+    if (answer.noKey || answer.credit)
+      return captions("off", `${answer.error} What you say is not transcribed.`);
+    if (!answer.key || !answer.url) {
+      captions("error", `The transcription could not start (${answer.error || "no key"}).`);
+      return retryStt();
+    }
+    const ws = (cap.ws = new WebSocket(answer.url, [
+      "realtime",
+      `openai-insecure-api-key.${answer.key}`,
+    ]));
+    ws.onmessage = ({ data }: MessageEvent) => {
+      if (cap.ws !== ws) return;
+      try {
+        onSttMessage(JSON.parse(String(data)));
+      } catch {
+        // not JSON: nothing to read
+      }
+    };
+    ws.onclose = () => {
+      if (cap.ws !== ws) return;
+      endSession();
+      if (!joined) return;
+      captions("connecting", "The transcription lost its connection. Connecting again.");
+      retryStt();
+    };
+  }
+  function retryStt() {
+    if (cap.fails >= STT_TRIES)
+      return captions(
+        "error",
+        `The transcription failed ${STT_TRIES} times in a row, so it stopped. Join the call again to try again.`,
+      );
+    cap.retry = setTimeout(
+      () => void startStt(),
+      STT_WAITS_MS[Math.min(cap.fails, STT_WAITS_MS.length - 1)],
+    );
+    cap.fails += 1;
+  }
+  /** The session is gone: a turn open or waiting for its line is lost with it. */
+  function endSession() {
+    cap.turn = null;
+    cap.detector.reset();
+    cap.committed = [];
+    cap.items.clear();
+    cap.ws = null;
+    cap.on = false;
+  }
+  function stopCaptions() {
+    if (cap.retry) clearTimeout(cap.retry);
+    cap.retry = null;
+    const ws = cap.ws;
+    if (ws) {
+      ws.onclose = ws.onmessage = null;
+      ws.close();
+    }
+    endSession();
+    stopAudio();
+    cap.fails = 0;
+    captions("off", "");
+  }
+  /** The captions follow the microphone: on while this page is in the call and not muted, off
+   *  otherwise. */
+  function captionsOn() {
+    if (joined && !ui.muted) void startAudio().then(startStt);
+    else stopCaptions();
+  }
+  /** Lines go to the call one at a time, in order. A line the call did not take is said once. */
+  let saidQueue: Promise<unknown> = Promise.resolve();
+  function said(line: { id: string; text: string; ai?: true }) {
+    // under the admission of the call that heard it: a line queued just before a stop or a leave
+    // is still sent, before that stop or leave, and the facet refuses one of an earlier admission
+    const call = scope;
+    saidQueue = saidQueue
+      .then(() => facet("said", page, line, call.admission))
+      .catch((error: unknown) => {
+        if (!call.ended)
+          say(`A line of the transcript did not reach the agent: ${messageOf(error)}`);
+      });
   }
 
   // ── the call itself ──
@@ -1332,6 +1715,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       return;
     }
     set({ error: "", notice: "", aiRefusal: null, joining: true });
+    let joinSettled!: () => void;
+    const wait = (joining = new Promise<void>((resolve) => (joinSettled = resolve)));
     try {
       // the microphone first: the call hears of this page once it can be heard, and a refused
       // microphone tells nobody anything
@@ -1384,6 +1769,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         await publish(sent, call);
       });
       reconcile();
+      captionsOn();
     } catch (error) {
       // a leave or a dispose ended this call: it closed everything, and there is nothing to say
       if (call.ended) return;
@@ -1394,6 +1780,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       );
       await leave();
     } finally {
+      joinSettled();
+      if (joining === wait) joining = null;
       // an ended call's join: teardown said it is over, and a newer join may be under way
       if (!call.ended) set({ joining: false });
     }
@@ -1406,6 +1794,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     scope.end();
     scope = callScope();
     aiClose();
+    stopCaptions();
     if (relay.refresh) clearTimeout(relay.refresh);
     for (const timer of layerTimers.values()) clearTimeout(timer);
     layerTimers.clear();
@@ -1434,7 +1823,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     const call = scope;
     // out before the call hears it: a live state that says "not in the call" while the leave is
     // on its way is the leave itself, never a reason to join again
+    if (ai.claimed) postAiLines(true);
     teardown();
+    // the voice agent's last lines (queued above) reach the call before the leave that ends it
+    await saidQueue;
     // then the call hears it, at once: the leave of this call's admission, which a newer one
     // outlives, and which ends the voice agent this page hosted (call/rules.ts `#remove`). One
     // whose join is still on its way takes it out as soon as the facet takes it in.
@@ -1498,6 +1890,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     }
     reconcile();
     aiMix();
+    if (ai.state === "on") postAiLines();
+    // the answer to this tab's delegation, once the call has it
+    const delegation = next.delegation;
+    if (delegation && delegation.status !== "waiting") answers.get(delegation.id)?.(delegation);
     if (known && ai.state === "on" && next.hostPage !== page && Date.now() - ai.startedAt > 8_000)
       void aiStop("it was sent away");
     else if (ai.state === "on" && Date.now() - ai.lastSpeechAt > AI_IDLE_MS)
@@ -1546,6 +1942,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       // a microphone being switched in takes the same mute
       if (switchingTo) switchingTo.enabled = track.enabled;
       set({ muted: !track.enabled });
+      // transcription only while the microphone is on: a mute closes the session, which bills
+      captionsOn();
     },
     // a press while the kind's picker is open is an Off: the picture it chooses is not sent
     toggleCamera: () =>
@@ -1571,8 +1969,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
      *  voice agent's session at OpenAI first, as it bills). Joining again is the person's press. */
     dispose: () => {
       const call = scope;
+      // the voice agent's last lines, queued before everything closes, reach the call before the
+      // leave, as at a Leave (a page that closes may not live to send them)
+      if (ai.claimed) postAiLines(true);
       teardown();
-      if (call.joinSent) void facet("leave", page, call.admission).catch(() => {});
+      if (call.joinSent)
+        void saidQueue.then(() => facet("leave", page, call.admission)).catch(() => {});
     },
   };
 }

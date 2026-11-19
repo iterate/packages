@@ -164,6 +164,7 @@ const IDLE: CallUi = {
     speakerSupported: true,
   },
   videos: [],
+  captions: { status: "off", text: "" },
 };
 // the cast: the bar calls only these of the engine's methods
 const engine = () =>

@@ -14,7 +14,11 @@ const FRESH = { since: 1, inCall: {}, voiceAgent: null, setup: null };
 const ANA = { who: { actor: "/members/a", name: "Ana" }, tracks: { mic: 1 } };
 
 test("who comes into the call and who leaves it is said in one polite region that stays", async () => {
-  const ui = { joined: true, videos: [] as CallVideo[] } as CallUi;
+  const ui = {
+    joined: true,
+    videos: [] as CallVideo[],
+    captions: { status: "off", text: "" },
+  } as CallUi;
   const draw = (live: object) => (
     <CallTiles call={engine()} ui={ui} live={CallLive.parse(live)} member />
   );
@@ -28,7 +32,11 @@ test("who comes into the call and who leaves it is said in one polite region tha
 });
 
 test("a live state that did not come says nothing: nobody left, and nobody joins again", async () => {
-  const ui = { joined: true, videos: [] as CallVideo[] } as CallUi;
+  const ui = {
+    joined: true,
+    videos: [] as CallVideo[],
+    captions: { status: "off", text: "" },
+  } as CallUi;
   const draw = (live: object | undefined) => (
     <CallTiles call={engine()} ui={ui} live={live && CallLive.parse(live)} member />
   );
@@ -42,7 +50,7 @@ test("a tile's button keeps one name, and says by aria-pressed whether it is lar
   // jsdom plays no media
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   const video = { key: "k", name: "Ana", kind: "camera", local: true } as CallVideo;
-  const ui = { joined: true, videos: [video] } as CallUi;
+  const ui = { joined: true, videos: [video], captions: { status: "off", text: "" } } as CallUi;
   using page = await mount(<CallTiles call={engine()} ui={ui} live={undefined} member />);
   const tile = page.host.querySelector("figure button")!;
   const state = () => [tile.getAttribute("aria-label"), tile.getAttribute("aria-pressed")];
