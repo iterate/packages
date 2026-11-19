@@ -118,16 +118,16 @@ export type CallPip = ReturnType<typeof useCallPip>;
 export function CallPipButton({ pip }: { pip: CallPip }) {
   if (!pip.supported) return null;
   const on = Boolean(pip.floating) || pip.automatic;
-  const label = pip.floating ? "Back to the tab" : pip.automatic ? "Stop pop-out" : "Pop out";
+  const action = pip.floating ? "Back to the tab" : pip.automatic ? "Stop pop-out" : "Pop out";
   const title = pip.showing
-    ? `${label}: cameras and screens in a window over your other apps. After a pop-out, the browser can open it by itself when you switch tabs.`
+    ? `${action}: cameras and screens in a window over your other apps. After a pop-out, the browser can open it by itself when you switch tabs.`
     : "Nobody has a camera or a screen on yet, so there is nothing to pop out.";
   return (
     <span className="inline-flex items-center gap-1">
       <Button
         size="icon-sm"
         variant={on ? "outline" : "secondary"}
-        aria-label={label}
+        aria-label="Pop out"
         aria-pressed={on}
         title={title}
         disabled={!on && !pip.showing}

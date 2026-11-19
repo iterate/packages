@@ -110,19 +110,22 @@ export function CallBar({
           <>
             <Toggle
               on={!ui.muted}
-              label={ui.muted ? "Unmute" : "Mute"}
+              label="Microphone"
+              title={ui.muted ? "Unmute" : "Mute"}
               icon={ui.muted ? <MicOffIcon /> : <MicIcon />}
               onPress={() => call.toggleMute()}
             />
             <Toggle
               on={ui.camera}
-              label={ui.camera ? "Turn the camera off" : "Share video"}
+              label="Camera"
+              title={ui.camera ? "Turn the camera off" : "Share video"}
               icon={ui.camera ? <VideoIcon /> : <VideoOffIcon />}
               onPress={() => void call.toggleCamera()}
             />
             <Toggle
               on={ui.screen}
-              label={ui.screen ? "Stop sharing the screen" : "Share the screen"}
+              label="Share screen"
+              title={ui.screen ? "Stop sharing the screen" : "Share the screen"}
               icon={ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
               onPress={() => void call.toggleScreen()}
             />
@@ -131,7 +134,8 @@ export function CallBar({
               live.voiceAgent ? (
                 <Toggle
                   on
-                  label="Send the voice agent away"
+                  label="Voice agent"
+                  title="Send the voice agent away"
                   icon={<BotOffIcon />}
                   disabled={ui.ai === "starting"}
                   onPress={() => void call.aiDismiss()}
@@ -139,7 +143,8 @@ export function CallBar({
               ) : (
                 <Toggle
                   on={false}
-                  label={ui.ai === "starting" ? "The voice agent is coming…" : "Add a voice agent"}
+                  label="Voice agent"
+                  title={ui.ai === "starting" ? "The voice agent is coming…" : "Add a voice agent"}
                   icon={<BotIcon />}
                   disabled={ui.ai !== "off"}
                   onPress={inviteAi}
@@ -179,17 +184,19 @@ export function CallBar({
   );
 }
 
-/** One of the call's switches: an icon, its name in words for a screen reader and a pointer, and
- *  whether it is on. */
+/** One of the call's switches: an icon, a fixed name for a screen reader, what a press does for a
+ *  pointer, and whether it is on. The name never changes with the state: `aria-pressed` says it. */
 function Toggle({
   on,
   label,
+  title,
   icon,
   disabled,
   onPress,
 }: {
   on: boolean;
   label: string;
+  title: string;
   icon: ReactNode;
   disabled?: boolean;
   onPress: () => void;
@@ -200,7 +207,7 @@ function Toggle({
       variant={on ? "outline" : "secondary"}
       aria-label={label}
       aria-pressed={on}
-      title={label}
+      title={title}
       disabled={disabled}
       onClick={onPress}
     >

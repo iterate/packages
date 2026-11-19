@@ -14,6 +14,8 @@ import { AgentCall } from "./dash-call.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import type { DashPage, DashPageProps } from "#/components/dash/dash.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
+import { createCall } from "#/lib/call-engine.ts";
+import { CallLive, viewOf } from "#/lib/call-rules.ts";
 import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 // jsdom lays nothing out; the composer's CodeMirror measures text ranges after each change
@@ -850,6 +852,88 @@ test("no live state says nothing of who is in the call: a joined page does not j
   expect(buttonOf(page.place, "Leave the call")).toBeTruthy();
 });
 
+test("a Leave while the microphone is published stops the publish: no connection and no microphone stay open", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const publishing = facet.hold("signal");
+  const joining = call.join();
+  await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal"] }));
+  await call.leave();
+  publishing.release();
+  await joining;
+  expect({
+    joined: call.ui.joined,
+    open: media.connections.filter((one) => !one.closed).length,
+    mic: media.mic.readyState,
+    steps: facet.steps,
+  }).toEqual({ joined: false, open: 0, mic: "ended", steps: ["join", "signal", "leave"] });
+});
+
+test("a dispose while the page joins again keeps it out: no join, no connection, no microphone", async () => {
+  using media = browserMedia();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    const resetting = facet.hold("signal");
+    vi.setSystemTime(Date.now() + 6_000);
+    const syncing = call.sync(viewOf(CallLive.parse(callLive({})), "a-page"));
+    await vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal", "signal"] }));
+    call.dispose();
+    resetting.release();
+    await syncing;
+    expect({
+      joined: call.ui.joined,
+      open: media.connections.filter((one) => !one.closed).length,
+      mic: media.mic.readyState,
+      joins: facet.steps.filter((step) => step === "join"),
+    }).toEqual({ joined: false, open: 0, mic: "ended", joins: ["join"] });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a Leave while the receiving connection connects frees the receive queue at once, and says nothing", async () => {
+  using _media = browserMedia({ receives: false });
+  const facet = callFacet();
+  const call = engineOn(facet);
+  const view = viewOf(CallLive.parse(callLive({ "a-page": ["mic"], "b-page": ["mic"] })), "a-page");
+  // as the page's 5-s tick does: a sync while the join's own reconcile runs subscribes nothing
+  const synced = (check: () => void) =>
+    vi.waitFor(async () => {
+      await call.sync(view);
+      check();
+    });
+  await call.join();
+  await synced(() => expect(facet.signals).toContain("renegotiate"));
+  await call.leave();
+  await call.join();
+  await synced(() => expect(facet.signals.filter((step) => step === "subscribe")).toHaveLength(2));
+  expect(call.ui).toMatchObject({ error: "" });
+  call.dispose();
+});
+
+test("a start whose microphone is open while it publishes: Mute and Leave show, not Starting… alone", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _media = browserMedia();
+  const facet = callFacet();
+  const publishing = facet.hold("signal");
+  await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
+  await act(async () => buttonOf(page.place, "Start a call").click());
+  await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal"] })));
+  expect([buttonOf(page.place, "Mute"), buttonOf(page.place, "Leave the call")]).toMatchObject([
+    { disabled: false },
+    { disabled: false },
+  ]);
+  // a Leave before the join has ended: Join stands, not a Starting… that nothing ends
+  await act(async () => buttonOf(page.place, "Leave the call").click());
+  expect(buttonOf(page.place, "Join the call")).toBeTruthy();
+  expect(page.place.textContent).not.toContain("Starting…");
+  await act(async () => publishing.release());
+});
+
 test("a start whose call came on but whose join failed: the call's words, and Join to press again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
@@ -1060,16 +1144,20 @@ function callLive(inCall: Record<string, string[]>) {
 }
 
 /** A browser with a microphone and WebRTC, as far as the call's engine uses them: jsdom has
- *  neither. Each connection is connected at once, over UDP straight to the SFU. Disposing takes
- *  the microphone back. */
-function browserMedia() {
+ *  neither. Each connection is connected at once, over UDP straight to the SFU; with `receives`
+ *  false, a receiving connection never connects. `connections` holds every connection made, and
+ *  `mic` the microphone's track. Disposing takes the microphone back. */
+function browserMedia({ receives = true } = {}) {
+  const connections: { closed: boolean }[] = [];
   const track = {
     kind: "audio",
     enabled: true,
     readyState: "live",
     getSettings: () => ({ deviceId: "default" }),
     addEventListener() {},
-    stop() {},
+    stop() {
+      track.readyState = "ended";
+    },
   };
   const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
   Object.defineProperty(navigator, "mediaDevices", {
@@ -1079,20 +1167,29 @@ function browserMedia() {
   vi.stubGlobal(
     "RTCPeerConnection",
     class {
+      closed = false;
+      constructor() {
+        connections.push(this);
+      }
       connectionState = "connected";
       iceGatheringState = "complete";
       localDescription: { type: string; sdp: string } | null = null;
       addEventListener() {}
       addTransceiver = () => ({ mid: "0", sender: { replaceTrack: async () => {} } });
       createOffer = async () => ({ type: "offer", sdp: "v=0" });
-      createAnswer = async () => ({ type: "answer", sdp: "v=0" });
+      createAnswer = async () => {
+        if (!receives) this.connectionState = "new";
+        return { type: "answer", sdp: "v=0" };
+      };
       setLocalDescription = async (description: { type: string; sdp: string }) => {
         this.localDescription = description;
       };
       setRemoteDescription = async () => {};
       getConfiguration = () => ({});
       setConfiguration() {}
-      close() {}
+      close() {
+        this.closed = true;
+      }
       getStats = async () =>
         new Map<string, object>([
           ["t", { type: "transport", selectedCandidatePairId: "p" }],
@@ -1101,17 +1198,23 @@ function browserMedia() {
         ]);
     },
   );
-  return { [Symbol.dispose]: () => void Reflect.deleteProperty(navigator, "mediaDevices") };
+  return {
+    connections,
+    mic: track,
+    [Symbol.dispose]: () => void Reflect.deleteProperty(navigator, "mediaDevices"),
+  };
 }
 
 /** An agent's call facet, as a page's context holds it: each method called, in `steps`, answers at
  *  once, or throws what `fails` names for it. `hold(method)` keeps that method's next call
- *  unanswered until `release()`. */
+ *  unanswered until `release()`. Each signalling step is in `signals`, by its first key. */
 function callFacet(fails: Record<string, Error> = {}) {
   const steps: string[] = [];
+  const signals: string[] = [];
   const held = new Map<string, Promise<void>>();
   return {
     steps,
+    signals,
     hold(method: string) {
       let release = () => {};
       held.set(method, new Promise((resolve) => (release = resolve)));
@@ -1120,11 +1223,20 @@ function callFacet(fails: Record<string, Error> = {}) {
     async invoke(call: unknown) {
       const method = Array.isArray(call) ? String(call[3][0]) : "";
       steps.push(method);
+      if (method === "signal" && Array.isArray(call)) signals.push(Object.keys(call[3][2])[0]!);
       await held.get(method);
       if (fails[method]) throw fails[method];
       return method === "signal" ? { sdp: "v=0", tracks: [] } : {};
     },
   };
+}
+
+/** The call's engine for the page `a-page`, on `facet`. */
+function engineOn(facet: ReturnType<typeof callFacet>) {
+  return createCall({
+    facet: (method, ...args) => facet.invoke(["itx", "facets", ["get", "call"], [method, ...args]]),
+    page: "a-page",
+  });
 }
 
 /** One agent page's call, on a wide screen, as `a-page`, with no call on the agent: `enable` is

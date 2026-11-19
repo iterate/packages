@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // The call's bar: a start that fails says why in words, Join waits on nothing on a fresh call, a
-// mind with no SFU app cannot be joined, and only a member can add a voice agent.
+// mind with no SFU app cannot be joined, only a member can add a voice agent, and each switch keeps
+// one name while aria-pressed says its state.
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -62,6 +63,35 @@ test("in the call, a member can add a voice agent and a guest cannot", async () 
     using bar = await mount(<CallBar call={engine()} ui={ui} live={FRESH} member={false} />);
     expect(labels(bar.element)).not.toContain("Add a voice agent");
   }
+});
+
+test("each switch keeps one name, and says whether it is on by aria-pressed alone", async () => {
+  const switches = async (ui: CallUi, live: CallLive) => {
+    using bar = await mount(<CallBar call={engine()} ui={ui} live={live} member />);
+    return [...bar.element.querySelectorAll("button[aria-pressed]")].map((one) => [
+      one.getAttribute("aria-label"),
+      one.getAttribute("aria-pressed"),
+    ]);
+  };
+  const joined = { ...IDLE, joined: true };
+  expect(await switches(joined, FRESH)).toEqual([
+    ["Microphone", "true"],
+    ["Camera", "false"],
+    ["Share screen", "false"],
+    ["Voice agent", "false"],
+  ]);
+  const agent = { host: { actor: "/members/a", name: "Ana" }, page: "a-page", since: 1, until: 2 };
+  expect(
+    await switches(
+      { ...joined, muted: true, camera: true, screen: true },
+      CallLive.parse({ ...FRESH, voiceAgent: agent }),
+    ),
+  ).toEqual([
+    ["Microphone", "false"],
+    ["Camera", "true"],
+    ["Share screen", "true"],
+    ["Voice agent", "true"],
+  ]);
 });
 
 const IDLE: CallUi = {

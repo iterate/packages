@@ -9,10 +9,11 @@
 // - THE PAGE is its own row on the context (`context.subscription`), which the call knows it by.
 // - BEFORE A CALL: "Start a call", once the table is read and has no `call` row. Its press turns the
 //   call on (`DashCall.enable`, with the config's spec) and joins.
-// - THE HEADER draws the call as this page knows it: while its own start runs, "Starting…" alone;
-//   else the call's live state, or, once the call is on (its row) or this page is in it, a call
-//   whose live state has not come yet. So a start goes Start → Starting… → the joined bar, with no
-//   Join between and no empty header, whichever comes first: the live state or the join's end.
+// - THE HEADER draws the call as this page knows it: while its own start runs and the page is not
+//   in the call yet, "Starting…" alone; else the call's live state, or, once the call is on (its
+//   row) or this page is in it, a call whose live state has not come yet. So a start goes Start →
+//   Starting… → the joined bar, with no Join between and no empty header, whichever comes first:
+//   the live state or the join's end. Mute and Leave show as soon as the microphone is live.
 // - ON A PHONE the bar is behind one button in the header, so the path and the tabs keep the row.
 import { useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -46,7 +47,9 @@ export function AgentCall({
   barIn: HTMLElement | null;
 }) {
   const { call, ui, live } = useCall(stub, context.subscription, context.liveState.call?.value);
-  // this page's own start, in flight: the header shows it alone, never a Join beside it
+  // this page's own start, in flight: the header shows it alone, never a Join beside it, until the
+  // page is in the call. From then the bar's own buttons stand, also after a Leave that comes
+  // before the join has ended.
   const [starting, setStarting] = useState(false);
   // this page turned the call on: Join from now on, even when its join failed before the table or
   // the live state said so; a second start would turn on a call that is on
@@ -60,11 +63,15 @@ export function AgentCall({
     call && !barLive && context.processors.loaded
       ? async () => {
           setStarting(true);
+          const inTheCall = call.subscribe((ui) => {
+            if (ui.joined) setStarting(false);
+          });
           try {
             await enable();
             setEnabled(true);
             await call.join();
           } finally {
+            inTheCall();
             setStarting(false);
           }
         }

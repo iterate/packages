@@ -152,8 +152,16 @@ async function selectedPair(pc: RTCPeerConnection): Promise<Pair | null> {
   };
 }
 
-/** Resolves once `pc` is connected on a path this page uses; throws a plain reason otherwise. */
-async function connectedPath(pc: RTCPeerConnection, name: string, hasRelay: () => boolean) {
+/** Resolves once `pc` is connected on a path this page uses; throws a plain reason otherwise, and
+ *  at once when the call `gen` ends: `close()` fires no state change, so a closed connection would
+ *  hold the wait for its whole timeout. */
+async function connectedPath(
+  pc: RTCPeerConnection,
+  name: string,
+  hasRelay: () => boolean,
+  gen: AbortSignal,
+) {
+  gen.throwIfAborted();
   const tried = hasRelay()
     ? "neither over UDP nor through Cloudflare's TURN relay"
     : "over UDP, and this page has no TURN relay";
@@ -167,6 +175,14 @@ async function connectedPath(pc: RTCPeerConnection, name: string, hasRelay: () =
             ),
           ),
         CONNECT_TIMEOUT_MS,
+      );
+      gen.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(gen.reason);
+        },
+        { once: true },
       );
       pc.addEventListener("connectionstatechange", () => {
         if (pc.connectionState === "connected") {
@@ -244,7 +260,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     return run;
   };
   let reconciling = false;
-  let callGen = 0; // one number per call: a repair of an earlier call stops
+  // one per call: teardown aborts it, and the work of that call (a join, a publish, a rejoin, a
+  // repair) stops at its next step
+  let thisCall = new AbortController();
   let rejoining = false;
   let joinedAt = 0;
   const paths: Record<"pub" | "sub", Pair | null> = { pub: null, sub: null };
@@ -459,9 +477,15 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
 
   // ── sending ──
-  /** The microphone, sent: muted from its first frame when `muted` (a rejoin keeps the mute). */
-  async function publish(muted: boolean) {
-    mic = await openMedia("mic", deviceId("mic"));
+  /** The microphone, sent: muted from its first frame when `muted` (a rejoin keeps the mute). Stops
+   *  when the call `gen` ends, and closes what it opened that teardown cannot reach. */
+  async function publish(muted: boolean, gen: AbortSignal) {
+    const stream = await openMedia("mic", deviceId("mic"));
+    if (gen.aborted) {
+      for (const track of stream.getTracks()) track.stop();
+      throw gen.reason;
+    }
+    mic = stream;
     mic.getAudioTracks()[0]!.enabled = !muted;
     watchMic();
     void listDevices().then(() => {
@@ -470,17 +494,24 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     });
     const pc = new RTCPeerConnection(iceConfig());
     guard(pc, "pub");
-    const micTx = pc.addTransceiver(mic.getAudioTracks()[0]!, { direction: "sendonly" });
-    await pc.setLocalDescription(await pc.createOffer());
-    await gathered(pc);
-    const answer = await signal({
-      publish: "mic",
-      mid: micTx.mid,
-      sdp: udpOnly(pc.localDescription!.sdp),
-    });
-    await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
-    pub = { pc, micTx };
-    paths.pub = await connectedPath(pc, "Sending", () => relay.on);
+    try {
+      const micTx = pc.addTransceiver(mic.getAudioTracks()[0]!, { direction: "sendonly" });
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc);
+      gen.throwIfAborted();
+      const answer = await signal({
+        publish: "mic",
+        mid: micTx.mid,
+        sdp: udpOnly(pc.localDescription!.sdp),
+      });
+      await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
+      gen.throwIfAborted();
+      pub = { pc, micTx };
+    } catch (error) {
+      pc.close();
+      throw error;
+    }
+    paths.pub = await connectedPath(pc, "Sending", () => relay.on, gen);
   }
   /** One more track on the sending connection: its own sender, an offer, the SFU's answer. */
   async function publishTrack(track: MediaStreamTrack, kind: "camera" | "screen" | "ai") {
@@ -602,12 +633,15 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     }
     return want;
   }
-  async function syncSubs() {
+  /** Stops when the call `gen` ends: its answers must not reach the next call's subscriptions. */
+  async function syncSubs(gen: AbortSignal) {
+    gen.throwIfAborted();
     if (!joined) return;
     const want = wanted();
     const gone = [...subscribed].filter(([track, s]) => want.get(track) !== s.key);
     if (gone.length && sub) {
       await signal({ close: gone.map(([, s]) => s.mid) }).catch(() => {});
+      gen.throwIfAborted();
       for (const [track, s] of gone) {
         subscribed.delete(track);
         dropPlayer(s.mid);
@@ -623,19 +657,24 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         .map(([track]) => [track, layerWanted.get(track) ?? FIRST_LAYER]),
     );
     const answer = await signal({ subscribe: fresh.map(([track]) => track), layers });
+    gen.throwIfAborted();
     for (const { track, mid } of answer.tracks || [])
       if (mid) subscribed.set(track, { mid, key: want.get(track), rid: layers[track] });
     await answerOffer(s, answer.sdp);
-    s.connected ||= connectedPath(s.pc, "Receiving", () => relay.on).then(
+    s.connected ||= connectedPath(s.pc, "Receiving", () => relay.on, gen).then(
       (pair) => (paths.sub = pair),
     );
     await s.connected;
   }
   function reconcile() {
     if (!joined || reconciling || repairs.sub) return;
+    const gen = thisCall.signal;
     reconciling = true;
-    void onSub(syncSubs)
-      .catch(fail)
+    void onSub(() => syncSubs(gen))
+      // an error of a call that ended is no news
+      .catch((error: unknown) => {
+        if (!gen.aborted) fail(error);
+      })
       .finally(() => (reconciling = false));
   }
 
@@ -653,8 +692,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
           void onSub(async () => {
             const s = subscribed.get(track);
             const rid = layerWanted.get(track);
+            const gen = thisCall.signal;
             if (!joined || !sub || !s || !rid || s.rid === rid) return;
             const answer = await signal({ layer: track, mid: s.mid, rid });
+            if (gen.aborted) return;
             await answerOffer(sub, answer.sdp);
             s.rid = rid;
           }).catch(() => {}),
@@ -685,16 +726,16 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   async function repair(which: "pub" | "sub") {
     if (repairs[which] || !joined) return;
-    const gen = callGen;
+    const gen = thisCall.signal;
     repairs[which] = true;
     const result = await repairLoop({
       // and while the browser is offline, until it is online again: a try with no network is wasted
       sleep: async (ms) => {
         await new Promise((resolve) => setTimeout(resolve, ms));
-        if (!navigator.onLine && gen === callGen)
+        if (!navigator.onLine && !gen.aborted)
           await new Promise((resolve) => addEventListener("online", resolve, { once: true }));
       },
-      stale: () => gen !== callGen || !joined,
+      stale: () => gen.aborted || !joined,
       healed: () => currentPc(which)?.connectionState === "connected",
       step: ({ attempt }) =>
         set({
@@ -716,9 +757,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   /** A new sending connection and session: the microphone, then the camera, the screen and the
    *  voice agent's voice, as they were. */
-  function rebuildPub(gen: number) {
+  function rebuildPub(gen: AbortSignal) {
     return onPub(async () => {
-      if (gen !== callGen || !mic) throw new Error("the call ended");
+      if (gen.aborted || !mic) throw new Error("the call ended");
       const pc = new RTCPeerConnection(iceConfig());
       guard(pc, "pub");
       try {
@@ -735,7 +776,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
         pub?.pc.close();
         pub = { pc, micTx };
-        paths.pub = await connectedPath(pc, "Sending", () => relay.on);
+        paths.pub = await connectedPath(pc, "Sending", () => relay.on, gen);
         for (const kind of ["camera", "screen"] as const) {
           const source = local[kind];
           if (source) source.tx = await publishTrack(source.track, kind);
@@ -748,16 +789,16 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     });
   }
   /** A new receiving connection and session, and every subscription made again on it. */
-  function rebuildSub(gen: number) {
+  function rebuildSub(gen: AbortSignal) {
     return onSub(async () => {
-      if (gen !== callGen) throw new Error("the call ended");
+      if (gen.aborted) throw new Error("the call ended");
       sub?.pc.close();
       sub = null;
       dropSubs();
       // the call closes the old receiving session, and makes a new one at the next subscribe
       await signal({ reset: "sub" });
       ensureSub();
-      await syncSubs();
+      await syncSubs(gen);
     });
   }
 
@@ -818,6 +859,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  `VoiceRefusal` with the call's own words in `json`. */
   async function aiInvite() {
     if (ai.state !== "off" || !joined || !pub || !mic) return;
+    const gen = thisCall.signal;
     setAi("starting");
     ai.startedAt = ai.lastSpeechAt = Date.now();
     try {
@@ -872,11 +914,13 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       // the call's agent is this tab's from here: its stop is this tab's to say
       ai.claimed = true;
       await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp || "" });
-      await connectedPath(pc, "The voice agent", () => relay.on);
+      await connectedPath(pc, "The voice agent", () => relay.on, gen);
       // a stop while it connected (the host left) keeps it off
       if (ui.ai === "starting") setAi("on");
     } catch (error) {
       await aiStop("it could not join", { quiet: true });
+      // the call ended while the agent came: the page left, and there is nothing to say
+      if (gen.aborted) return;
       throw error;
     }
   }
@@ -917,18 +961,22 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  only by the person's own act. */
   async function join({ muted = false } = {}) {
     if (joined || ui.joining) return;
+    const gen = thisCall.signal;
     set({ error: "", notice: "", joining: true });
     try {
       // in the call, and the relay's credentials, in one call
-      useIce(JoinAnswer.parse(await facet("join", page)));
+      const answer = JoinAnswer.parse(await facet("join", page));
+      gen.throwIfAborted();
+      useIce(answer);
       if (!relay.on) say("No TURN relay: this page connects over UDP alone.");
       joined = true;
       joinedAt = Date.now();
-      callGen += 1;
       set({ joined: true, muted });
-      await publish(muted);
+      await publish(muted, gen);
       reconcile();
     } catch (error) {
+      // a leave or a dispose ended this call: it closed everything, and there is nothing to say
+      if (gen.aborted) return;
       fail(
         nameOf(error) === "NotAllowedError"
           ? "The browser did not give this page the microphone. Allow it for this site, then join again."
@@ -942,7 +990,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   /** Everything this page holds for the call, closed; the call is told nothing. */
   function teardown() {
     joined = false;
-    callGen += 1;
+    thisCall.abort(new Error("the call ended"));
+    thisCall = new AbortController();
     if (relay.refresh) clearTimeout(relay.refresh);
     delete repairs.pub;
     delete repairs.sub;
@@ -966,28 +1015,33 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // out before the call hears it: a live state that says "not in the call" while the leave is
     // on its way is the leave itself, never a reason to join again
     const wasIn = joined;
-    joined = false;
-    callGen += 1;
-    if (wasIn) await facet("leave", page).catch(() => {});
     teardown();
+    if (wasIn) await facet("leave", page).catch(() => {});
   }
   async function rejoin() {
+    const gen = thisCall.signal;
     rejoining = true;
-    const { muted, camera, screen } = ui;
-    await aiStop("its host joined again", { quiet: true });
-    // the call closes this page's sending and receiving sessions, so the join below makes new
-    // ones: a broken connection's session takes no new offer. A page the call took for out
-    // has no sessions there, and the call refuses the reset: nothing to do.
-    for (const which of ["pub", "sub"] as const) await signal({ reset: which }).catch(() => {});
-    teardown();
-    await join({ muted });
-    if (camera || screen) {
-      const what = camera && screen ? "camera and screen are" : camera ? "camera is" : "screen is";
-      say(
-        `This page joined the call again. Your ${what} off until you turn ${camera && screen ? "them" : "it"} on.`,
-      );
+    try {
+      const { muted, camera, screen } = ui;
+      await aiStop("its host joined again", { quiet: true });
+      // the call closes this page's sending and receiving sessions, so the join below makes new
+      // ones: a broken connection's session takes no new offer. A page the call took for out
+      // has no sessions there, and the call refuses the reset: nothing to do.
+      for (const which of ["pub", "sub"] as const) await signal({ reset: which }).catch(() => {});
+      // a leave or a dispose came first: the page stays out
+      if (gen.aborted) return;
+      teardown();
+      await join({ muted });
+      if (joined && (camera || screen)) {
+        const what =
+          camera && screen ? "camera and screen are" : camera ? "camera is" : "screen is";
+        say(
+          `This page joined the call again. Your ${what} off until you turn ${camera && screen ? "them" : "it"} on.`,
+        );
+      }
+    } finally {
+      rejoining = false;
     }
-    rejoining = false;
   }
 
   /** Each live state of the call: the subscriptions follow it, a host that was sent away closes

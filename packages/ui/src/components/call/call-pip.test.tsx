@@ -28,12 +28,22 @@ test("Pop out moves the tiles to the floating window; Back to the tab brings the
   await act(async () => page.host.querySelector("button")!.click());
   expect(floating.body.querySelector("#tiles")).not.toBeNull();
   expect(page.host.querySelector("#tiles")).toBeNull();
-  expect(page.host.querySelector("button")?.getAttribute("aria-label")).toBe("Back to the tab");
+  expect(pressed(page.host)).toEqual(["Pop out", "true", "Back to the tab"]);
   await act(async () => page.host.querySelector("button")!.click());
   expect(close).toHaveBeenCalledOnce();
   expect(page.host.querySelector("#tiles")).not.toBeNull();
-  expect(page.host.querySelector("button")?.getAttribute("aria-label")).toBe("Pop out");
+  expect(pressed(page.host)).toEqual(["Pop out", "false", "Pop out"]);
 });
+
+/** The button's fixed name, whether it is on, and what a press does (its title's first words). */
+function pressed(host: HTMLElement) {
+  const button = host.querySelector("button")!;
+  return [
+    button.getAttribute("aria-label"),
+    button.getAttribute("aria-pressed"),
+    button.title.split(":")[0],
+  ];
+}
 
 const CAMERA = { key: "a:camera", name: "Ada", kind: "camera", local: false } as CallVideo;
 
