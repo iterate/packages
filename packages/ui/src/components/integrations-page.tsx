@@ -1,6 +1,6 @@
 // THE INTEGRATIONS PAGE OF A DASH: what the mind's packages registered (iterate/integrations), live:
 // a card for each integration with its connections beneath it, and each button a link that the page
-// composes. Above them it says how anything gets here: a person asks their agent. Cards that name a
+// composes, or a change that asks first and is sent from the page (`ConfirmedPost`). Above them it says how anything gets here: a person asks their agent. Cards that name a
 // section stand under its heading (a mark, a title, a few sentences), the sections first. It reads ONE thing: the `integration` facet's live state on `/integrations`, through
 // one subscription. It asks nothing on a timer and nothing of the vault.
 //
@@ -8,7 +8,7 @@
 //
 //   <IntegrationsPage openRegistry={() => itx.cd("/integrations")} deps={[itx]} />
 import { ArrowUpRight, ChevronRight } from "lucide-react";
-import { useSyncExternalStore, type DependencyList } from "react";
+import { useState, useSyncExternalStore, type DependencyList } from "react";
 import { z } from "zod";
 import { cn } from "cn";
 import {
@@ -18,7 +18,18 @@ import {
   type IntegrationStatus,
 } from "iterate/integrations";
 import { useFacetView } from "../lib/facet-view.ts";
-import { buttonVariants } from "#/components/ui/button.tsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog.tsx";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 
 /** The registry's state (iterate/integrations `IntegrationRegistryState`), each card and row left
@@ -352,7 +363,8 @@ const subscribeToNothing = () => () => {};
 /** A card's or a row's buttons, each a link to its URL:
  *  a URL on another origin than the page's opens beside it, one of this origin in its place. Each is filled, with an arrow that says which of
  *  the two it does: the only filled things on a card are the things to press. Two buttons alike — the same label to the same place
- *  — are one. */
+ *  — are one. A button with a `confirm` question is a change, not a link (`ConfirmedPost`): only one
+ *  on the page's own origin is drawn. */
 function TargetLinks({
   actions,
   first = "secondary",
@@ -370,32 +382,96 @@ function TargetLinks({
     () => window.location.origin,
     () => "",
   );
-  const links = new Map<string, { label: string; href: string; beside: boolean }>();
+  const links = new Map<
+    string,
+    { label: string; href: string; beside: boolean; confirm: string | undefined }
+  >();
   for (const action of actions) {
+    const beside = new URL(action.url).origin !== origin;
+    // a change sent to another site would carry this page's sign-in nowhere it means
+    if (action.confirm && beside) continue;
     links.set(`${action.label}\n${action.url}`, {
       label: action.label,
       href: action.url,
-      beside: new URL(action.url).origin !== origin,
+      beside,
+      confirm: action.confirm,
     });
   }
   if (links.size === 0) return null;
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      {[...links].map(([key, { label, href, beside }], index) => (
-        <a
-          key={key}
-          href={href}
-          {...(beside && { target: "_blank", rel: "noreferrer" })}
-          className={buttonVariants({ variant: index === 0 ? first : "secondary", size: "sm" })}
-        >
-          {label}
-          {beside ? (
-            <ArrowUpRight data-icon="inline-end" />
-          ) : (
-            <ChevronRight data-icon="inline-end" />
-          )}
-        </a>
-      ))}
+      {[...links].map(([key, { label, href, beside, confirm }], index) =>
+        confirm ? (
+          <ConfirmedPost key={key} label={label} url={href} question={confirm} />
+        ) : (
+          <a
+            key={key}
+            href={href}
+            {...(beside && { target: "_blank", rel: "noreferrer" })}
+            className={buttonVariants({ variant: index === 0 ? first : "secondary", size: "sm" })}
+          >
+            {label}
+            {beside ? (
+              <ArrowUpRight data-icon="inline-end" />
+            ) : (
+              <ChevronRight data-icon="inline-end" />
+            )}
+          </a>
+        ),
+      )}
+    </div>
+  );
+}
+
+/** A BUTTON THAT CHANGES SOMETHING (Remove): the kit's dialog asks the package's question, as the
+ *  Secrets page's Delete does, and a yes sends a POST to the button's URL on this page's origin.
+ *  What changed comes back through the registry, live: a removed row goes by itself. A refusal
+ *  shows its own words under the button. */
+function ConfirmedPost({ label, url, question }: { label: string; url: string; question: string }) {
+  // a question's first sentence is the dialog's title ("Remove @ada?"), and the rest says what
+  // happens; one sentence alone is said under the button's own label
+  const end = question.indexOf("? ");
+  const title = end > 0 ? question.slice(0, end + 1) : `${label}?`;
+  const description = end > 0 ? question.slice(end + 2) : question;
+  const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = async () => {
+    // the dialog's action is a plain button: the yes closes it here
+    setOpen(false);
+    setSending(true);
+    setError(null);
+    try {
+      const answer = await fetch(url, { method: "POST" });
+      if (!answer.ok) setError((await answer.text()) || `${label} failed (${answer.status}).`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogTrigger render={<Button variant="secondary" size="sm" />} disabled={sending}>
+          {sending ? `${label}…` : label}
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{title}</AlertDialogTitle>
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void send()}>{label}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {error ? (
+        <p role="alert" data-type="error" className="max-w-xs text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
