@@ -248,7 +248,8 @@
         "iterate/packages/agents-nav",
         "iterate/packages/context-catalog",
         "iterate/packages/context-path-text",
-        "iterate/packages/list-row-text"
+        "iterate/packages/list-row-text",
+        "iterate/packages/px-per-rem"
       ],
       "cssVars": {
         "theme": {
@@ -716,6 +717,7 @@
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
         "iterate/packages/list-row-text",
+        "iterate/packages/px-per-rem",
         "popover",
         "textarea"
       ],
@@ -1193,7 +1195,8 @@
         "cn"
       ],
       "registryDependencies": [
-        "iterate/packages/context-path-text"
+        "iterate/packages/context-path-text",
+        "iterate/packages/px-per-rem"
       ],
       "cssVars": {
         "theme": {
@@ -1205,6 +1208,17 @@
         {
           "path": "src/components/list-row-text.tsx",
           "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "px-per-rem",
+      "type": "registry:lib",
+      "description": "The page's root font size in px, for a virtual list that positions rows of a height in rem.",
+      "files": [
+        {
+          "path": "src/lib/px-per-rem.ts",
+          "type": "registry:lib"
         }
       ]
     },

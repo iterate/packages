@@ -18,7 +18,8 @@ import {
 } from "./context-catalog-rows.ts";
 import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
 import { PathLink, type ContextPathLinks } from "#/components/context-view/context-path.tsx";
-import { ListRowText, pxPerRem } from "#/components/list-row-text.tsx";
+import { ListRowText } from "#/components/list-row-text.tsx";
+import { pxPerRem } from "#/lib/px-per-rem.ts";
 import { Input } from "#/components/ui/input.tsx";
 
 export function ContextCatalog({

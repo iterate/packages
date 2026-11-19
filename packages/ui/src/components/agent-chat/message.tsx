@@ -149,6 +149,7 @@ function isSameOrigin(href: string): boolean {
   try {
     const url = new URL(href, window.location.href);
     if (url.origin === window.location.origin) return true;
+    // react-doctor-disable-next-line react-doctor/url-prefilled-privileged-action -- `next` only decides whether a link opens in this tab or a new one; nothing acts on it
     const next = url.searchParams.get("next");
     return Boolean(next) && new URL(next!, url).origin === window.location.origin;
   } catch {

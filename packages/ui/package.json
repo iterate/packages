@@ -153,6 +153,7 @@
       "./lib/page-url": "./dist/lib/page-url.mjs",
       "./lib/plain-left-click": "./dist/lib/plain-left-click.mjs",
       "./lib/presence": "./dist/lib/presence.mjs",
+      "./lib/px-per-rem": "./dist/lib/px-per-rem.mjs",
       "./lib/saved-context": "./dist/lib/saved-context.mjs",
       "./lib/saved-log-tail": "./dist/lib/saved-log-tail.mjs",
       "./lib/source-editor": "./dist/lib/source-editor.mjs",

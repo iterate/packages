@@ -17,7 +17,8 @@ import { AgentLink, StatusDot, type AgentHref, type OpenAgent } from "#/componen
 import { kindIcon } from "#/components/agent-look.ts";
 import { timeAgo } from "#/components/context-catalog/context-catalog-rows.ts";
 import { ContextPathText } from "#/components/context-path-text.tsx";
-import { ListRowText, pxPerRem } from "#/components/list-row-text.tsx";
+import { ListRowText } from "#/components/list-row-text.tsx";
+import { pxPerRem } from "#/lib/px-per-rem.ts";
 import { Card, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import {
   agentDoing,

@@ -87,6 +87,7 @@ async function inTurns<T>(items: T[], work: (item: T) => Promise<void>) {
   const queue = [...items];
   const results = await Promise.allSettled(
     Array.from({ length: Math.min(pace.logsAtOnce, queue.length) }, async () => {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- one item at a time per worker, by design: it caps the reads at `pace.logsAtOnce`
       for (let item = queue.shift(); item !== undefined; item = queue.shift()) await work(item);
     }),
   );
