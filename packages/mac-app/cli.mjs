@@ -5,7 +5,11 @@
 //   npx @iterate-com/mac-app                     set up, or update what is set up (asks what it needs)
 //   npx @iterate-com/mac-app --mind iterate.com --name jonas.mac --login
 //   npx @iterate-com/mac-app update              the same with the saved answers, asking nothing
-//   npx @iterate-com/mac-app uninstall           quit the app and remove it, its key and its state
+//   npx @iterate-com/mac-app list                the minds this Mac knows, the one it lends to marked
+//   npx @iterate-com/mac-app add --mind example.com --name jane.mac   a new key for one more mind
+//   npx @iterate-com/mac-app use example.com     lend to that mind (one at a time); the app switches
+//   npx @iterate-com/mac-app remove example.com  forget that mind and delete its key
+//   npx @iterate-com/mac-app uninstall           quit the app and remove it, its keys and its state
 //
 // What setup does: builds the Swift app from the source in this package (Apple's Command Line
 // Tools; once per version), installs it as /Applications/iterate.app, installs the iterate CLI at a
@@ -41,14 +45,27 @@ const paths = {
   source: join(home, "source"),
   built: join(home, "built-from"),
   runtime: join(home, "runtime"),
-  key: join(home, "mind.key"),
+  /** one key per mind: `keys/<mind>.key` */
+  keys: join(home, "keys"),
   app: "/Applications/iterate.app",
 };
 const appExecutable = join(paths.app, "Contents/MacOS/iterate");
 /** The files of this package that build and run the app. */
-const PARTS = ["Package.swift", "Sources", "Tests", "Support", "bridge", "run-on-mac.sh"];
+const PARTS = [
+  "Package.swift",
+  "Sources",
+  "Tests",
+  "Support",
+  "bridge",
+  "run-on-mac.sh",
+  // the app runs this file's commands (list, add, use, remove) from its installed copy
+  "cli.mjs",
+  "package.json",
+];
 /** The rule of `iterate provide` for a name: letters and digits, dotted segments. */
 const NAME = /^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*$/;
+/** A mind's address, as a host name: it is also the name of its key file. */
+const MIND = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
 const say = (line) => console.error(line);
 
@@ -69,6 +86,75 @@ async function ask(question, fallback) {
   prompt.close();
   return answer || fallback;
 }
+
+/** The app's state: what setup wrote (node, the iterate CLI, the bridge, `login`, …), the minds
+ *  this Mac knows (`{ mind, name, keyFile }` each) and `active`, the one it lends to. A config of
+ *  the versions before several minds (`mind`, `name`, `keyFile` and `mind.key`) becomes one entry,
+ *  active, at its first read. */
+function readState() {
+  if (!existsSync(paths.config)) return { minds: [], active: null };
+  const { mind, name, keyFile, ...state } = JSON.parse(readFileSync(paths.config, "utf8"));
+  if (state.minds) return state;
+  if (!mind) return { ...state, minds: [], active: null };
+  mkdirSync(paths.keys, { recursive: true });
+  const moved = keyFileOf(mind);
+  if (keyFile && existsSync(keyFile)) renameSync(keyFile, moved);
+  const migrated = { ...state, minds: [{ mind, name, keyFile: moved }], active: mind };
+  writeState(migrated);
+  say(`Moved this Mac's one mind, ${mind}, into the list of minds; its key is now ${moved}.`);
+  return migrated;
+}
+
+/** Written atomically: the app watches the folder and reads the file again at each change. */
+function writeState(state) {
+  mkdirSync(home, { recursive: true });
+  writeFileSync(`${paths.config}.new`, `${JSON.stringify(state, null, 2)}\n`);
+  renameSync(`${paths.config}.new`, paths.config);
+}
+
+const keyFileOf = (mind) => join(paths.keys, `${mind}.key`);
+
+/** The minds of the iterate CLI's profiles (`iterate login`), offered when a mind is added. */
+function profileMinds() {
+  const folder = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  try {
+    const { configs = {} } = JSON.parse(readFileSync(join(folder, "iterate/minds.json"), "utf8"));
+    return [...new Set(Object.values(configs).flatMap((profile) => profile.mind || []))];
+  } catch {
+    return [];
+  }
+}
+
+/** Asks for a mind, offering the CLI's profiles that this Mac does not have yet by number. */
+async function askMind(state) {
+  const offered = profileMinds().filter((mind) => !state.minds.some((m) => m.mind === mind));
+  if (offered.length)
+    say(
+      `The iterate CLI knows these minds:\n${offered.map((mind, i) => `  ${i + 1}. ${mind}`).join("\n")}`,
+    );
+  const answer = await ask(
+    offered.length
+      ? "The mind's address, or a number above:"
+      : "Your mind's address (for example iterate.com):",
+  );
+  return offered[Number(answer) - 1] || answer;
+}
+
+/** A mind's address in lower case, as the panel sends it: host names ignore case, and the address
+ *  names the key file. */
+function checkMind(text) {
+  const mind = (text || "").trim().toLowerCase();
+  if (!MIND.test(mind))
+    throw new Error(`"${text}" is not a mind's address: a host name such as example.com.`);
+  return mind;
+}
+
+function checkName(name) {
+  if (!NAME.test(name))
+    throw new Error(`"${name}" is not a name: letters and digits, dotted segments (jonas.mac).`);
+}
+
+const suggestedName = () => `${userInfo().username.replace(/[^a-zA-Z0-9]/g, "")}.mac`;
 
 /** Apple's Command Line Tools build the app. When they are missing, macOS's own installer opens. */
 async function commandLineTools() {
@@ -128,14 +214,16 @@ function buildApp() {
   if (wanted === built && existsSync(appExecutable)) return false;
   say(`Building the app (version ${version})… the first build takes a minute or two.`);
   mkdirSync(paths.source, { recursive: true });
-  for (const part of PARTS) {
-    rmSync(join(paths.source, part), { recursive: true, force: true });
-    if (existsSync(join(here, part)))
-      cpSync(join(here, part), join(paths.source, part), {
-        recursive: true,
-        filter: (path) => !path.includes("/.build"),
-      });
-  }
+  // run from the installed copy itself (`node source/cli.mjs setup`): its parts are in place
+  if (here !== paths.source)
+    for (const part of PARTS) {
+      rmSync(join(paths.source, part), { recursive: true, force: true });
+      if (existsSync(join(here, part)))
+        cpSync(join(here, part), join(paths.source, part), {
+          recursive: true,
+          filter: (path) => !path.includes("/.build"),
+        });
+    }
   const log = join(home, "build.log");
   const result = spawnSync("/bin/sh", [join(paths.source, "run-on-mac.sh"), "--install"], {
     cwd: paths.source,
@@ -185,10 +273,12 @@ function installIterateCli(config) {
   return { iterateVersion: wanted, iterateBin: bin };
 }
 
-/** The key of this Mac, allowed by a member once: the CLI prints a link, the browser opens it, the
- *  member presses Allow with their passkey. A key that is allowed already connects at once. */
-async function allowKey(config) {
-  say(`Connecting this Mac to ${config.mind} as itx.${config.name}…`);
+/** The key of this Mac for one mind, allowed by a member once: the CLI prints a link, the browser
+ *  opens it, the member presses Allow with their passkey. A key that is allowed already connects
+ *  at once. A key is allowed for one name: a new name gets a new key. */
+async function allowKey(config, entry) {
+  mkdirSync(paths.keys, { recursive: true });
+  say(`Connecting this Mac to ${entry.mind} as itx.${entry.name}…`);
   const lend = spawn(
     config.node,
     [
@@ -196,11 +286,11 @@ async function allowKey(config) {
       "provide",
       config.bridge,
       "--key",
-      paths.key,
+      entry.keyFile,
       "--name",
-      config.name,
+      entry.name,
       "--mind",
-      config.mind,
+      entry.mind,
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
@@ -227,26 +317,106 @@ async function allowKey(config) {
   });
   lend.kill("SIGTERM");
   if (!live) throw new Error(`The key was not allowed. Run this again to get a new link.`);
-  say(`Allowed. The key is ${paths.key}; remove it on iterate.${config.mind}/keys to end it.`);
+  say(`Allowed. The key is ${entry.keyFile}; remove it on the mind's /keys page to end it.`);
+}
+
+/** Makes or checks the key of one mind, then saves the mind and makes it the active one. */
+async function addMind(state, entry) {
+  checkMind(entry.mind);
+  checkName(entry.name);
+  const known = state.minds.find((m) => m.mind === entry.mind);
+  // a key is allowed for one name only
+  if (known && known.name !== entry.name && existsSync(entry.keyFile)) rmSync(entry.keyFile);
+  await allowKey(state, entry);
+  return {
+    ...state,
+    minds: [...state.minds.filter((m) => m.mind !== entry.mind), entry],
+    active: entry.mind,
+  };
+}
+
+/** The setup must have run: `add` needs its node, its iterate CLI and its bridge. */
+function setUpState() {
+  const state = readState();
+  if (!state.iterateBin)
+    throw new Error(`This Mac is not set up yet: run \`npx ${PACKAGE}\` in a terminal.`);
+  return state;
+}
+
+function list({ values }) {
+  const state = readState();
+  if (values.json) {
+    console.log(JSON.stringify({ ...state, profiles: profileMinds() }, null, 2));
+    return;
+  }
+  if (!state.minds.length) return say(`No mind yet: npx ${PACKAGE} add --mind <address>`);
+  for (const { mind, name } of state.minds)
+    console.log(`${mind === state.active ? "*" : " "} ${mind}  itx.${name}`);
+  if (!state.active) say(`None is lent to now: npx ${PACKAGE} use <mind>`);
+}
+
+async function add({ values }, { interactive }) {
+  const state = setUpState();
+  const asked = values.mind || (interactive ? await askMind(state) : undefined);
+  if (!asked) throw new Error("Which mind? Pass --mind <address>.");
+  const mind = checkMind(asked);
+  const known = state.minds.find((m) => m.mind === mind);
+  const name =
+    values.name ||
+    known?.name ||
+    (interactive
+      ? await ask("The name to lend this Mac under, as itx.<name>:", suggestedName())
+      : undefined);
+  if (!name) throw new Error("Which name? Pass --name <x.mac>.");
+  writeState(await addMind(state, { mind, name, keyFile: keyFileOf(mind) }));
+  say(`Added ${mind}; the app lends this Mac to it now, as itx.${name}.`);
+}
+
+function use({ positionals }) {
+  const state = readState();
+  const mind = positionals[1]?.toLowerCase();
+  if (!state.minds.some((m) => m.mind === mind))
+    throw new Error(
+      `No mind "${mind ?? ""}" on this Mac. Its minds: ${state.minds.map((m) => m.mind).join(", ") || "none"}.`,
+    );
+  writeState({ ...state, active: mind });
+  say(`The app lends this Mac to ${mind} now.`);
+}
+
+function remove({ positionals }) {
+  const state = readState();
+  const mind = positionals[1]?.toLowerCase();
+  const entry = state.minds.find((m) => m.mind === mind);
+  if (!entry) throw new Error(`No mind "${mind ?? ""}" on this Mac.`);
+  rmSync(entry.keyFile, { force: true });
+  const minds = state.minds.filter((m) => m !== entry);
+  const active = state.active === mind ? null : state.active;
+  writeState({ ...state, minds, active });
+  say(
+    `Removed ${mind} and deleted its key. The key stays listed on the mind's /keys page until you remove it there; it can do nothing now.` +
+      (active ? "" : `\nNo mind is lent to now: npx ${PACKAGE} use <mind>`),
+  );
 }
 
 async function setup({ values }, { interactive }) {
   if (process.platform !== "darwin") throw new Error("This app runs on a Mac only.");
-  const saved = existsSync(paths.config) ? JSON.parse(readFileSync(paths.config, "utf8")) : {};
-  const mind =
+  const saved = readState();
+  const active = saved.minds.find((m) => m.mind === saved.active);
+  // `update` asks nothing and keeps the minds; setup adds or updates the mind it is given
+  const asked =
     values.mind ||
-    saved.mind ||
-    (interactive ? await ask("Your mind's address (for example iterate.com):") : undefined);
-  if (!mind) throw new Error("Which mind? Pass --mind <address>.");
-  const suggested = `${userInfo().username.replace(/[^a-zA-Z0-9]/g, "")}.mac`;
+    (interactive ? (active?.mind ?? (await askMind(saved))) : undefined) ||
+    active?.mind;
+  if (!asked && !saved.minds.length) throw new Error("Which mind? Pass --mind <address>.");
+  const mind = asked && checkMind(asked);
+  const known = saved.minds.find((m) => m.mind === mind);
   const name =
     values.name ||
-    saved.name ||
+    known?.name ||
     (interactive
-      ? await ask(`The name to lend this Mac under, as itx.<name>:`, suggested)
-      : suggested);
-  if (!NAME.test(name))
-    throw new Error(`"${name}" is not a name: letters and digits, dotted segments (jonas.mac).`);
+      ? await ask(`The name to lend this Mac under, as itx.<name>:`, suggestedName())
+      : suggestedName());
+  checkName(name);
   const loginAnswer =
     values.login ??
     saved.login ??
@@ -255,38 +425,38 @@ async function setup({ values }, { interactive }) {
   await commandLineTools();
   mkdirSync(home, { recursive: true });
   const rebuilt = buildApp();
-  const config = {
+  let state = {
     ...saved,
-    mind,
-    name,
     login: loginAnswer,
     spec: saved.spec && !interactive ? saved.spec : specOfThisRun(),
     node: process.execPath,
     bridge: join(paths.source, "bridge/mac-endpoint.ts"),
-    keyFile: paths.key,
+    cli: join(paths.source, "cli.mjs"),
     ...installIterateCli(saved),
     version,
   };
   // The app must run for the key's first connection: the bridge asks it on its socket.
   if (appProcesses().length === 0) spawnSync("/usr/bin/open", [paths.app]);
-  const keyIsNew = !existsSync(paths.key) || saved.mind !== mind || saved.name !== name;
-  if (keyIsNew) {
+  const entry = mind && { mind, name, keyFile: keyFileOf(mind) };
+  if (entry && (!known || known.name !== name || !existsSync(entry.keyFile))) {
     if (!interactive)
       throw new Error(
-        "This Mac has no allowed key yet: run `npx @iterate-com/mac-app` in a terminal.",
+        `This Mac has no allowed key for ${mind} yet: run \`npx ${PACKAGE}\` in a terminal.`,
       );
-    if (existsSync(paths.key)) rmSync(paths.key);
-    await allowKey(config);
-  }
-  // Written last and atomically: the app reads it at its start.
-  writeFileSync(`${paths.config}.new`, `${JSON.stringify(config, null, 2)}\n`);
-  renameSync(`${paths.config}.new`, paths.config);
+    state = await addMind(state, entry);
+  } else if (entry) state = { ...state, active: mind };
+  // Written last: the app reads it at its start.
+  writeState(state);
   // The app starts again with the new config (and the new build): it starts the lend itself.
   await quitApp();
   spawnSync("/usr/bin/open", [paths.app]);
   say(
     `Done${rebuilt ? ` (built ${version})` : ""}. Look for 𝑖 in the menu bar: everything there is Off until you choose.` +
-      `\nLent to ${mind} as itx.${name}; ${loginAnswer ? "starts at login" : "does not start at login"}. Updates come by themselves.` +
+      (state.active
+        ? `\nLent to ${state.active} as itx.${state.minds.find((m) => m.mind === state.active)?.name}`
+        : "\nLent to no mind") +
+      `; ${loginAnswer ? "starts at login" : "does not start at login"}. Updates come by themselves.` +
+      `\nMore minds: npx ${PACKAGE} add · list · use <mind> · remove <mind>` +
       `\nRemove it all: npx ${PACKAGE} uninstall`,
   );
 }
@@ -296,7 +466,7 @@ async function uninstall() {
   rmSync(paths.app, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });
   say(
-    `Removed ${paths.app} and ${home}. The key stays listed on your mind's /keys page until you remove it there; it can do nothing now.`,
+    `Removed ${paths.app} and ${home}. Each key stays listed on its mind's /keys page until you remove it there; it can do nothing now.`,
   );
 }
 
@@ -307,6 +477,7 @@ const parsed = parseArgs({
     name: { type: "string" },
     login: { type: "boolean" },
     "no-login": { type: "boolean" },
+    json: { type: "boolean" },
   },
 });
 if (parsed.values["no-login"]) parsed.values.login = false;
@@ -314,10 +485,14 @@ const command = parsed.positionals[0] || "setup";
 try {
   if (command === "setup") await setup(parsed, { interactive: process.stdin.isTTY });
   else if (command === "update") await setup(parsed, { interactive: false });
+  else if (command === "list") list(parsed);
+  else if (command === "add") await add(parsed, { interactive: process.stdin.isTTY });
+  else if (command === "use") use(parsed);
+  else if (command === "remove") remove(parsed);
   else if (command === "uninstall") await uninstall();
   else
     throw new Error(
-      `No command "${command}". The commands are: setup (the default), update, uninstall.`,
+      `No command "${command}". The commands are: setup (the default), update, list, add, use, remove, uninstall.`,
     );
 } catch (error) {
   say(error instanceof Error ? error.message : String(error));

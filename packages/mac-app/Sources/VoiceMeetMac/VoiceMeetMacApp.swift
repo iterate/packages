@@ -10,7 +10,20 @@ enum VoiceMeetMacApp {
         }
         // A copy started only to draw the panel to a PNG file, for a look at it with no click.
         if let flag = CommandLine.arguments.firstIndex(of: "--render-panel"), CommandLine.arguments.indices.contains(flag + 1) {
-            exit(Panel.render(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
+            // an optional third word draws the lend in that phase: live, reconnecting, stopped, not-allowed
+            let phase = CommandLine.arguments.indices.contains(flag + 2) ? CommandLine.arguments[flag + 2] : nil
+            exit(Panel.render(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1]), phase: phase) ? 0 : 1)
+        }
+        // The same for the forms of the mind menu: Add a Mind, and Remove.
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-add-mind"), CommandLine.arguments.indices.contains(flag + 1) {
+            // an optional third word is the name in the field, to see its check
+            let name = CommandLine.arguments.indices.contains(flag + 2) ? CommandLine.arguments[flag + 2] : "jane.mac"
+            let form = AddMindForm(profiles: ["example.com", "example.org"], name: name, add: { _, _ in }, cancel: {})
+            exit(FormWindow.render(form, to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
+        }
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-remove-mind"), CommandLine.arguments.indices.contains(flag + 1) {
+            let form = RemoveMindForm(mind: "example.com", isActive: true, remove: {}, cancel: {})
+            exit(FormWindow.render(form, to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
         }
         // AVFoundation reports some mistakes as Objective-C exceptions. The log gets the reason.
         NSSetUncaughtExceptionHandler { exception in

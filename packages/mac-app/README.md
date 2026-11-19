@@ -29,8 +29,32 @@ unless the microphone or a camera is in use.
 ```sh
 npx @iterate-com/mac-app --mind example.com --name jane.mac --login   # no questions
 npx @iterate-com/mac-app update                                       # update now, with the saved answers
-npx @iterate-com/mac-app uninstall                                    # quit and remove the app, its key and its state
+npx @iterate-com/mac-app uninstall                                    # quit and remove the app, its keys and its state
 ```
+
+### Several minds, one lent at a time
+
+This Mac can know several minds, each with its own key (`keys/<mind>.key`). The app lends it to
+one of them, the active one. The panel's mind menu does the same as these commands:
+
+```sh
+npx @iterate-com/mac-app list                                      # the minds; * marks the active one
+npx @iterate-com/mac-app add --mind example.org --name jane.mac    # a new key; a member allows it; then it is active
+npx @iterate-com/mac-app use example.org                           # lend to that mind; the app switches at once
+npx @iterate-com/mac-app remove example.org                        # forget it and delete its key
+```
+
+`add` offers the minds of the iterate CLI's profiles (`iterate login`). `remove` deletes the key on
+this Mac only: it stays listed on the mind's /keys page until a member removes it there.
+
+### The lend's state
+
+The panel says what the lend does, with its reason and time: **Connecting**, **Live** since when,
+**Reconnecting** (the attempt, the next try, the last failure in the CLI's words), **Stopped** (the
+lend process ended; when it starts again) or **Not allowed** (no member allowed the key, or it was
+removed: the link to allow it). **Reconnect Now** ends a wait or an attempt and starts at once; the
+app does the same when the Mac wakes from sleep, and when the network comes back to a lend that is
+not live. Every change of state is one line in the app's log.
 
 Needs macOS 14 or later and Node 22.18 or later.
 
@@ -91,4 +115,5 @@ npx .                         # the installer from this folder
 ```
 
 `.build/release/VoiceMeetMac --render-panel panel.png` draws the panel to a file without opening
-anything.
+anything. A third word draws the lend in one phase: `live`, `reconnecting`, `stopped` or
+`not-allowed`.

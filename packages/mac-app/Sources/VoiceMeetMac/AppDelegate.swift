@@ -33,7 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             model: model,
             changed: { [weak self] in self?.choiceChanged() },
             allow: { [weak self] permission in self?.guide(permission) },
-            copyPrompt: { [weak self] in self?.copyPrompt() }
+            copyPrompt: { [weak self] in self?.copyPrompt() },
+            lendActions: LendActions(
+                reconnect: { [weak self] in self?.lend.reconnectNow() },
+                use: { [weak self] mind in self?.lend.use(mind) },
+                add: { [weak self] in self?.addMind() },
+                remove: { [weak self] mind in self?.removeMind(mind) },
+                open: { link in if let url = URL(string: link) { NSWorkspace.shared.open(url) } }
+            )
         )
         let host = NSHostingController(rootView: panel)
         // The panel is as tall as its rows need.
@@ -99,15 +106,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    private func lendLine() -> String {
-        guard let config = lend.config else { return "Not connected to a mind: npx @iterate-com/mac-app" }
-        let name = "itx.\(config.name) on \(config.mind)"
-        switch lend.phase {
-        case .notSetUp: return "Not connected to a mind"
-        case .connecting: return "Connecting as \(name)…"
-        case .live: return "Connected as \(name)"
-        case .waiting(let seconds, let reason): return seconds > 0 ? "Not connected: \(reason); again in \(seconds) s" : "Not connected: \(reason)"
+    /// The lend's state for the panel.
+    private func showLend() {
+        var view = LendView()
+        view.isSetUp = lend.config != nil
+        view.minds = lend.config?.minds.map { LendView.Mind(mind: $0.mind, name: $0.name) } ?? []
+        view.active = lend.config?.activeMind?.mind
+        view.status = lend.state.statusLine(now: Date(), clock: Lend.clock)
+        view.phase = lend.state.phase.name
+        view.link = lend.state.phase.link ?? lend.commandLink
+        view.commandLine = lend.commandLine
+        view.isCommandRunning = lend.isCommandRunning
+        if view != panelState.lend { panelState.lend = view }
+    }
+
+    /// "Add a Mind…": its address (the iterate CLI's profiles are offered) and the name this Mac
+    /// is available under. The CLI's `add` makes the key and opens the link where a member allows it.
+    private func addMind() {
+        popover.performClose(nil)
+        lend.profiles { [weak self] profiles in
+            guard let self else { return }
+            let known = Set(self.lend.config?.minds.map(\.mind) ?? [])
+            let name = self.lend.activeMind?.name ?? "\(NSUserName().filter { $0.isLetter || $0.isNumber }).mac"
+            FormWindow.show(
+                title: "Add a Mind",
+                AddMindForm(
+                    profiles: profiles.filter { !known.contains($0) },
+                    name: name,
+                    add: { [weak self] mind, name in
+                        FormWindow.close()
+                        self?.log.info("the person adds \(mind) as itx.\(name)")
+                        self?.lend.add(mind: mind, name: name)
+                    },
+                    cancel: { FormWindow.close() }
+                )
+            )
         }
+    }
+
+    private func removeMind(_ mind: String) {
+        popover.performClose(nil)
+        FormWindow.show(
+            title: "Remove \(mind)?",
+            RemoveMindForm(
+                mind: mind,
+                isActive: mind == lend.activeMind?.mind,
+                remove: { [weak self] in
+                    FormWindow.close()
+                    self?.log.info("the person removes \(mind)")
+                    self?.lend.remove(mind)
+                },
+                cancel: { FormWindow.close() }
+            )
+        )
     }
 
     /// The first lines of each run: which build ran, on what, and with which choices.
@@ -132,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateStatusButton()
         panelState.things = Shareable.all
         panelState.revision += 1
-        panelState.lendLine = lendLine()
+        showLend()
     }
 
     /// The iterate mark: red for 3 seconds at each use by a mind, orange while the microphone or

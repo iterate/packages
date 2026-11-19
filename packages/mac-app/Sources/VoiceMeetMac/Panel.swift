@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VoiceMeetCore
 
 /// What the panel shows that is not in the settings: which things exist now, and the newest small
 /// picture of each display. `revision` goes up whenever a choice, a permission or a use changed.
@@ -9,8 +10,38 @@ final class PanelState: ObservableObject {
     @Published var revision = 0
     @Published var displayPictures: [String: CGImage] = [:]
     @Published var didCopy = false
-    /// The lend's state, as one line (AppDelegate `lendLine`).
-    @Published var lendLine = ""
+    /// The lend (AppDelegate `showLend`): the minds, the active one, the state in words.
+    @Published var lend = LendView()
+}
+
+/// What the panel shows of the lend.
+struct LendView: Equatable {
+    struct Mind: Equatable, Identifiable {
+        let mind: String
+        let name: String
+        var id: String { mind }
+    }
+
+    var minds: [Mind] = []
+    var active: String?
+    var isSetUp = false
+    /// The phase in words: `LendState.statusLine`.
+    var status = ""
+    var phase = "idle"
+    /// Where a member allows the key, when the CLI printed one.
+    var link: String?
+    /// The last words of a command the panel ran (add, use, remove).
+    var commandLine: String?
+    var isCommandRunning = false
+}
+
+/// What the panel's lend section does.
+struct LendActions {
+    var reconnect: () -> Void = {}
+    var use: (String) -> Void = { _ in }
+    var add: () -> Void = {}
+    var remove: (String) -> Void = { _ in }
+    var open: (String) -> Void = { _ in }
 }
 
 /// The app's one piece of interface: a panel under the mark in the menu bar. Each thing on this
@@ -23,9 +54,14 @@ struct Panel: View {
     /// The person wants to give a permission of macOS: the guide starts.
     let allow: (Permission) -> Void
     let copyPrompt: () -> Void
+    var lendActions = LendActions()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            lendSection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            Divider()
             VStack(alignment: .leading, spacing: 16) {
                 section("Displays", of: .screen)
                 section("Cameras", of: .camera)
@@ -40,7 +76,6 @@ struct Panel: View {
                     .controlSize(.large)
                     .help("Copies how an agent uses this Mac, to paste into a chat with it")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.lendLine).font(.caption).lineLimit(1)
                     if let lastUse = model.lastUse {
                         Text("Last use: \(lastUse.thing.title), \(lastUse.at.formatted(date: .omitted, time: .standard))")
                             .font(.caption)
@@ -59,6 +94,78 @@ struct Panel: View {
             .padding(.vertical, 12)
         }
         .frame(width: 430)
+    }
+
+    /// The mind this Mac is lent to, a menu of the others, and the lend's state in words.
+    private var lendSection: some View {
+        let lend = state.lend
+        let active = lend.minds.first { $0.mind == lend.active }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                // a spinner while it connects or reconnects, a dot otherwise
+                if lend.phase == "connecting" || lend.phase == "reconnecting" {
+                    ProgressView().controlSize(.mini).frame(width: 9, height: 9)
+                } else {
+                    Circle()
+                        .fill(Self.color(of: lend.phase))
+                        .frame(width: 9, height: 9)
+                }
+                Menu {
+                    ForEach(lend.minds) { mind in
+                        Button {
+                            lendActions.use(mind.mind)
+                        } label: {
+                            if mind.mind == lend.active {
+                                Label("\(mind.mind) · itx.\(mind.name)", systemImage: "checkmark")
+                            } else {
+                                Text("\(mind.mind) · itx.\(mind.name)")
+                            }
+                        }
+                        .disabled(mind.mind == lend.active)
+                    }
+                    if !lend.minds.isEmpty { Divider() }
+                    Button("Add a Mind…", action: lendActions.add).disabled(!lend.isSetUp || lend.isCommandRunning)
+                    if !lend.minds.isEmpty {
+                        Menu("Remove") {
+                            ForEach(lend.minds) { mind in Button("\(mind.mind)…") { lendActions.remove(mind.mind) } }
+                        }
+                    }
+                } label: {
+                    Text(active.map { "\($0.mind) · itx.\($0.name)" } ?? (lend.minds.isEmpty ? "No mind yet" : "Lent to no mind"))
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("The mind this Mac is lent to: one at a time")
+                Spacer(minLength: 8)
+                Button("Reconnect Now", action: lendActions.reconnect)
+                    .controlSize(.small)
+                    .disabled(active == nil)
+                    .help("Ends the wait or the attempt, and starts the lend at once")
+            }
+            Text(lend.isSetUp ? lend.status : "Not set up: run npx @iterate-com/mac-app in a terminal")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let link = lend.link {
+                Button("Open the Link to Allow This Mac") { lendActions.open(link) }.controlSize(.small)
+            }
+            if let line = lend.commandLine {
+                HStack(spacing: 6) {
+                    if lend.isCommandRunning { ProgressView().controlSize(.mini) }
+                    Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private static func color(of phase: String) -> Color {
+        switch phase {
+        case "live": return .green
+        case "connecting", "reconnecting": return .orange
+        case "idle": return .secondary
+        default: return .red
+        }
     }
 
     /// One group of rows under a small title. No background: the popover's own is enough.
@@ -172,10 +279,11 @@ extension Panel {
     /// Draws the panel, with the choices as they are stored, to a PNG file. It opens nothing on
     /// screen and starts no capture: a way to look at the interface from a script.
     @MainActor
-    static func render(to file: URL) -> Bool {
+    static func render(to file: URL, phase: String? = nil) -> Bool {
         _ = NSApplication.shared
         let state = PanelState()
         state.things = Shareable.all
+        state.lend = sampleLend(phase)
         let panel = Panel(state: state, model: AppModel(), changed: {}, allow: { _ in }, copyPrompt: {})
         // The panel has no background of its own (a popover gives it one); the file needs one.
         let view = NSHostingView(rootView: panel.background(Color(nsColor: .windowBackgroundColor)))
@@ -186,6 +294,39 @@ extension Panel {
         view.cacheDisplay(in: view.bounds, to: picture)
         guard let png = picture.representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: file)) != nil
+    }
+}
+
+extension Panel {
+    /// The minds as config.json lists them, with a phase of the lend made from the CLI's own lines:
+    /// a copy that only draws the panel starts no lend. `phase` is live, reconnecting, stopped,
+    /// not-allowed or connecting (the default).
+    @MainActor
+    static func sampleLend(_ phase: String?) -> LendView {
+        let file = Lend.folder.appendingPathComponent("config.json")
+        let config = try? JSONDecoder().decode(Lend.Config.self, from: Data(contentsOf: file))
+        let name = config?.activeMind?.name ?? "jane.mac"
+        let mind = config?.activeMind?.mind ?? "example.com"
+        var lend = LendState()
+        let start = Date().addingTimeInterval(-40)
+        _ = lend.handle(.started, now: start)
+        let lines: [String] =
+            switch phase {
+            case "live": ["itx.\(name) is live for \(mind). Press Ctrl-C to stop."]
+            case "reconnecting": ["itx.\(name) is live for \(mind).", "itx.\(name) disconnected (1006: connection closed). Reconnecting...", "Could not reconnect: fetch failed"]
+            case "not-allowed": ["This bridge's key is not allowed on \(mind) yet. A member of the mind opens this link and signs with a passkey:", "https://\(mind)/keys/enrol?provide=\(name)"]
+            default: []
+            }
+        for line in lines { _ = lend.handle(.line(line), now: start.addingTimeInterval(10)) }
+        if phase == "stopped" { _ = lend.handle(.processEnded(status: 1, ranFor: 3), now: Date().addingTimeInterval(-1)) }
+        var view = LendView()
+        view.isSetUp = config != nil || phase != nil
+        view.minds = config?.minds.map { LendView.Mind(mind: $0.mind, name: $0.name) } ?? [.init(mind: mind, name: name)]
+        view.active = config?.active ?? mind
+        view.status = lend.statusLine(now: Date(), clock: Lend.clock)
+        view.phase = lend.phase.name
+        view.link = lend.phase.link
+        return view
     }
 }
 
