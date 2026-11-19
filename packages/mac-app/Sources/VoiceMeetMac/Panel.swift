@@ -298,9 +298,9 @@ extension Panel {
 }
 
 extension Panel {
-    /// The minds as config.json lists them, with a phase of the lend made from the CLI's own lines:
+    /// The minds as config.json lists them, with a phase of the lend made from the CLI's own states:
     /// a copy that only draws the panel starts no lend. `phase` is live, reconnecting, stopped,
-    /// not-allowed or connecting (the default).
+    /// not-allowed, incompatible or connecting (the default).
     @MainActor
     static func sampleLend(_ phase: String?) -> LendView {
         let file = Lend.folder.appendingPathComponent("config.json")
@@ -310,14 +310,17 @@ extension Panel {
         var lend = LendState()
         let start = Date().addingTimeInterval(-40)
         _ = lend.handle(.started, now: start)
+        let live = #"{"state":"live","mind":"\#(mind)","name":"itx.\#(name)","again":false}"#
         let lines: [String] =
             switch phase {
-            case "live": ["itx.\(name) is live for \(mind). Press Ctrl-C to stop."]
-            case "reconnecting": ["itx.\(name) is live for \(mind).", "itx.\(name) disconnected (1006: connection closed). Reconnecting...", "Could not reconnect: fetch failed"]
-            case "not-allowed": ["This bridge's key is not allowed on \(mind) yet. A member of the mind opens this link and signs with a passkey:", "https://\(mind)/keys/enrol?provide=\(name)"]
+            case "live": [live]
+            case "reconnecting": [live, #"{"state":"reconnecting","attempt":2,"of":14,"inMs":60000,"lastFailure":"fetch failed"}"#]
+            case "not-allowed": [#"{"state":"notAllowed","why":"No member has allowed this key yet.","link":"https://\#(mind)/keys/enrol?provide=\#(name)","waiting":true}"#]
+            case "incompatible": [#"{"state":"incompatible","why":"the statement is for another mind: this iterate CLI and the mind do not agree on the protocol"}"#]
+            case "stopped": [#"{"state":"stopped","why":"\#(mind) could not be reached. Check the address."}"#]
             default: []
             }
-        for line in lines { _ = lend.handle(.line(line), now: start.addingTimeInterval(10)) }
+        for line in lines { _ = lend.handle(.stateLine(line), now: start.addingTimeInterval(10)) }
         if phase == "stopped" { _ = lend.handle(.processEnded(status: 1, ranFor: 3), now: Date().addingTimeInterval(-1)) }
         var view = LendView()
         view.isSetUp = config != nil || phase != nil

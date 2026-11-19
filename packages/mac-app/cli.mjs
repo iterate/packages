@@ -240,12 +240,16 @@ function buildApp() {
 }
 
 /** The iterate CLI at one pinned version, in the app's own folder: npm's cache may be cleared, and
- *  `latest` moves with every release. A new version of this package pins the newest again. */
+ *  `latest` moves with every release. A new version of this package pins the newest again: the one
+ *  `main` names. Main's publish (scripts/ci/npm-publish.ts) publishes every package under `main`
+ *  before it moves any `latest`, so when this package's `latest` is new, `iterate@main` is the CLI
+ *  from the same commit or a newer one. `iterate@latest` may still be the one before: the app reads
+ *  `iterate provide --json`, which that one may not have. */
 function installIterateCli(config) {
   const wanted =
     config.iterateVersion && config.version === version
       ? config.iterateVersion
-      : execFileSync("npm", ["view", "iterate", "version"], { encoding: "utf8" }).trim();
+      : execFileSync("npm", ["view", "iterate@main", "version"], { encoding: "utf8" }).trim();
   const bin = join(paths.runtime, "node_modules/iterate/bin/iterate.js");
   const installed = existsSync(join(paths.runtime, "node_modules/iterate/package.json"))
     ? JSON.parse(readFileSync(join(paths.runtime, "node_modules/iterate/package.json"), "utf8"))
@@ -291,32 +295,54 @@ async function allowKey(config, entry) {
       entry.name,
       "--mind",
       entry.mind,
+      "--json",
     ],
     {
+      // stdout: one state per line (iterate's core/lib/src/cli/provide-state.ts); stderr: the
+      // lines for a person, whose last is the reason when no state says one
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, ITERATE_MAC_APP_SUPERVISED: "1" },
     },
   );
-  let opened = false;
-  const live = await new Promise((resolve) => {
-    const read = (chunk) => {
-      const text = String(chunk);
-      const link = /https:\/\/\S+\/keys\/enrol\S*/.exec(text)?.[0];
-      if (link && !opened) {
-        opened = true;
-        say(`Allow this Mac in your browser (a passkey asks): ${link}`);
-        spawnSync("/usr/bin/open", [link]);
-        say("Waiting for Allow…");
-      }
-      if (/is live for/.test(text)) resolve(true);
-    };
-    lend.stdout.on("data", read);
-    lend.stderr.on("data", read);
-    lend.on("exit", () => resolve(false));
-    setTimeout(() => resolve(false), 16 * 60_000);
+  /** why it did not go live: the last state that ended it */
+  let why = "";
+  /** the message of the last error line on stderr ("Error: …", "Error [ERR_…]: …",
+   *  "ProvideRefusal [Error]: …"): not the stack's frames or the error's fields that Node prints
+   *  after it */
+  let lastError = "";
+  createInterface({ input: lend.stderr }).on("line", (line) => {
+    const error = /^(?:\w+ \[\w*Error\]|\w*Error(?: \[[\w.-]+\])?): (.+)$/.exec(line.trim());
+    if (error) lastError = error[1];
   });
+  let timer;
+  const live = await new Promise((resolve) => {
+    createInterface({ input: lend.stdout }).on("line", (line) => {
+      let state;
+      try {
+        state = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (state.state === "live") resolve(true);
+      else if (state.state === "notAllowed" && state.waiting) {
+        say(`Allow this Mac in your browser (a passkey asks): ${state.link}`);
+        spawnSync("/usr/bin/open", [state.link]);
+        say("Waiting for Allow…");
+      } else if (state.state === "incompatible")
+        why = `${state.why}. Update the iterate CLI: run \`npx ${PACKAGE} update\`.`;
+      else if (state.state === "notAllowed" || state.state === "stopped") why = state.why;
+    });
+    // `close`, not `exit`: both pipes have ended, so the last state is read
+    lend.on("close", () => resolve(false));
+    timer = setTimeout(() => resolve(false), 16 * 60_000);
+  });
+  clearTimeout(timer);
   lend.kill("SIGTERM");
-  if (!live) throw new Error(`The key was not allowed. Run this again to get a new link.`);
+  why ||= lastError;
+  if (!live)
+    throw new Error(
+      `The key was not allowed${why ? `: ${why}` : ""}. Run this again to get a new link.`,
+    );
   say(`Allowed. The key is ${entry.keyFile}; remove it on the mind's /keys page to end it.`);
 }
 

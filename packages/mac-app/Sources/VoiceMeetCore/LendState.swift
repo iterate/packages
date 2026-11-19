@@ -1,24 +1,72 @@
 import Foundation
 
-/// The lend of this Mac to one mind: the app runs `iterate provide <bridge> --key …` and reads the
-/// lines it prints (core/lib/src/cli/provide.ts and bridge-key.ts), as they are. The CLI keeps a
-/// connection and reconnects by itself after it closes; the app starts the process again when it
-/// ends. This machine turns the CLI's lines and the process's end into one phase that the panel
-/// says in words.
+/// The lend of this Mac to one mind: the app runs `iterate provide <bridge> --key … --json` and
+/// reads the states it prints on stdout, one JSON object per line (core/lib/src/cli/provide-state.ts).
+/// Its human lines on stderr go to the log, and the last one is the reason when the process ends
+/// with no state. The CLI keeps a connection and reconnects by itself after it closes; the app
+/// starts the process again when it ends. This machine turns the CLI's states and the process's end
+/// into one phase that the panel says in words.
 public enum LendPhase: Equatable, Sendable {
     /// No mind to lend to: none is set up, or none is active.
     case idle
-    /// The lend process runs and has not said "is live" yet.
+    /// The lend process runs and is not live yet.
     case connecting(since: Date)
     case live(since: Date)
-    /// The connection closed; the CLI tries again by itself. `nextTryAt` is when, by its schedule
-    /// (`reconnectDelaysSeconds`); nil after its last try, when it gives up and ends.
-    case reconnecting(attempt: Int, nextTryAt: Date?, lastFailure: String)
+    /// The connection closed; the CLI tries again by itself at `nextTryAt` (its attempt `attempt`
+    /// of `of`).
+    case reconnecting(attempt: Int, of: Int, nextTryAt: Date, lastFailure: String)
     /// The lend process ended; the app starts it again at `nextStartAt`.
     case stopped(reason: String, nextStartAt: Date)
     /// The mind gave the key no token: a member has not allowed it yet, or removed it. `link` is
     /// where a member allows it. `nextStartAt` is set when the process ended and starts again then.
     case notAllowed(reason: String, link: String?, nextStartAt: Date?)
+    /// This iterate CLI and the mind do not agree on the protocol: one of them is too old.
+    case incompatible(reason: String, nextStartAt: Date?)
+}
+
+/// One line of `iterate provide --json` (core/lib/src/cli/provide-state.ts), as it prints it.
+public enum ProvideState: Equatable, Sendable, Decodable {
+    case connecting(mind: String, name: String)
+    case live(mind: String, name: String, again: Bool)
+    case reconnecting(attempt: Int, of: Int, inMs: Int, lastFailure: String)
+    case notAllowed(why: String, link: String?, waiting: Bool)
+    case incompatible(why: String)
+    case stopped(why: String)
+
+    private enum Keys: String, CodingKey {
+        case state, mind, name, again, attempt, of, inMs, lastFailure, why, link, waiting
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: Keys.self)
+        switch try values.decode(String.self, forKey: .state) {
+        case "connecting":
+            self = .connecting(mind: try values.decode(String.self, forKey: .mind), name: try values.decode(String.self, forKey: .name))
+        case "live":
+            self = .live(
+                mind: try values.decode(String.self, forKey: .mind), name: try values.decode(String.self, forKey: .name),
+                again: try values.decode(Bool.self, forKey: .again))
+        case "reconnecting":
+            self = .reconnecting(
+                attempt: try values.decode(Int.self, forKey: .attempt), of: try values.decode(Int.self, forKey: .of),
+                inMs: try values.decode(Int.self, forKey: .inMs), lastFailure: try values.decode(String.self, forKey: .lastFailure))
+        case "notAllowed":
+            self = .notAllowed(
+                why: try values.decode(String.self, forKey: .why), link: try values.decodeIfPresent(String.self, forKey: .link),
+                waiting: try values.decode(Bool.self, forKey: .waiting))
+        case "incompatible":
+            self = .incompatible(why: try values.decode(String.self, forKey: .why))
+        case "stopped":
+            self = .stopped(why: try values.decode(String.self, forKey: .why))
+        case let other:
+            throw DecodingError.dataCorruptedError(forKey: .state, in: values, debugDescription: "no state \(other)")
+        }
+    }
+
+    /// One line of stdout, or nil when it is not one of the states.
+    public static func of(line: String) -> ProvideState? {
+        try? JSONDecoder().decode(ProvideState.self, from: Data(line.utf8))
+    }
 }
 
 public enum LendEvent: Equatable, Sendable {
@@ -26,8 +74,10 @@ public enum LendEvent: Equatable, Sendable {
     case started
     /// No mind is active any more.
     case stopRequested
-    /// One line the CLI printed, on stdout or stderr.
-    case line(String)
+    /// One line the CLI printed on stdout: a state, in JSON.
+    case stateLine(String)
+    /// One line the CLI printed on stderr, for a person.
+    case humanLine(String)
     /// The lend process ended by itself, after it ran for `ranFor` seconds.
     case processEnded(status: Int32, ranFor: TimeInterval)
     /// The wait before the next start is over.
@@ -49,15 +99,17 @@ public enum LendEffect: Equatable, Sendable {
 }
 
 public struct LendState: Equatable, Sendable {
-    /// The CLI's schedule (provide.ts `RECONNECT_DELAYS_MS`), in seconds: the wait before each try
-    /// to reconnect. The CLI does not print it, so the app keeps a copy to say "next try in".
-    public static let reconnectDelaysSeconds: [Int] = [1, 2, 4, 8, 15] + Array(repeating: 30, count: 9)
-    /// After the key was refused, the next start waits this long: a member allows it in between.
-    public static let notAllowedWaitSeconds = 300
+    /// After the key was refused, or the CLI and the mind did not agree, the next start waits this
+    /// long: a member allows the key, or an update comes, in between.
+    public static let refusedWaitSeconds = 300
+    /// The panel's words for an incompatible CLI.
+    public static let updateTheCLI = "Update the iterate CLI: run `npx @iterate-com/mac-app update`."
 
     public private(set) var phase: LendPhase = .idle
-    /// The last line the CLI printed that was not a link or blank: the reason when it ends.
+    /// The last human line that was no stack frame: the reason when the process ends with no state.
     public private(set) var lastLine = ""
+    /// The `stopped` state's reason: it wins over `lastLine`, which stderr may print after it.
+    public private(set) var stoppedWhy: String?
     /// Starts that ended quickly, one after the other: each waits longer (`backOff`).
     public private(set) var quickFailures = 0
 
@@ -82,11 +134,11 @@ public struct LendState: Equatable, Sendable {
             return [.stopProcess]
         case (_, .started), (_, .reconnectNow):
             if case .idle = phase, case .reconnectNow = event { return [] }
-            // a new or switched mind starts its back-off from the first wait
             // a new or switched mind, or a person's or a wake's start, waits from the first wait again
             quickFailures = 0
             phase = .connecting(since: now)
             lastLine = ""
+            stoppedWhy = nil
             return [.startProcess]
         case (.idle, _), (.live, .networkCameBack):
             return []
@@ -95,80 +147,68 @@ public struct LendState: Equatable, Sendable {
             quickFailures = 0
             phase = .connecting(since: now)
             lastLine = ""
+            stoppedWhy = nil
             return [.startProcess]
         case (_, .timerFired):
             switch phase {
-            case .stopped, .notAllowed(_, _, .some):
+            case .stopped, .notAllowed(_, _, .some), .incompatible(_, .some):
                 phase = .connecting(since: now)
                 lastLine = ""
+                stoppedWhy = nil
                 return [.startProcess]
             default:
                 return []
             }
-        case (_, .line(let text)):
-            return read(text, now: now)
+        case (_, .stateLine(let text)):
+            if let state = ProvideState.of(line: text) { read(state, now: now) }
+            return []
+        case (_, .humanLine(let raw)):
+            let text = raw.trimmingCharacters(in: .whitespaces)
+            // a stack trace's frames ("at …") follow the error's own line; the error is the reason
+            if !text.isEmpty, !text.hasPrefix("at "), text != "^" { lastLine = text }
+            return []
         case (_, .processEnded(let status, let ranFor)):
             quickFailures = ranFor > 60 ? 0 : quickFailures + 1
+            let refusedUntil = now.addingTimeInterval(TimeInterval(Self.refusedWaitSeconds))
             if case .notAllowed(let reason, let link, _) = phase {
-                let wait = Self.notAllowedWaitSeconds
-                phase = .notAllowed(reason: reason, link: link, nextStartAt: now.addingTimeInterval(TimeInterval(wait)))
-                return [.startProcessAfter(seconds: wait)]
+                phase = .notAllowed(reason: reason, link: link, nextStartAt: refusedUntil)
+                return [.startProcessAfter(seconds: Self.refusedWaitSeconds)]
+            }
+            if case .incompatible(let reason, _) = phase {
+                phase = .incompatible(reason: reason, nextStartAt: refusedUntil)
+                return [.startProcessAfter(seconds: Self.refusedWaitSeconds)]
             }
             let wait = Self.backOff(quickFailures: quickFailures)
-            let said = lastLine.isEmpty ? "it printed nothing" : Self.withoutPrefix(lastLine)
+            let said = stoppedWhy ?? (lastLine.isEmpty ? "it printed nothing" : Self.withoutPrefix(lastLine))
             phase = .stopped(reason: "the lend process ended (exit \(status)): \(said)", nextStartAt: now.addingTimeInterval(TimeInterval(wait)))
             return [.startProcessAfter(seconds: wait)]
         }
     }
 
-    /// One line of the CLI. Lines it does not know change nothing but `lastLine`.
-    private mutating func read(_ raw: String, now: Date) -> [LendEffect] {
-        let text = raw.trimmingCharacters(in: .whitespaces)
-        // a stack trace's frames ("at …") follow the error's own line; the error is the reason
-        guard !text.isEmpty, !text.hasPrefix("at "), text != "^" else { return [] }
-        if text.hasPrefix("https://"), text.contains("/keys/enrol") {
-            // the link alone on its line, after "is not allowed on … yet"
-            if case .notAllowed(let reason, _, let next) = phase { phase = .notAllowed(reason: reason, link: text, nextStartAt: next) }
-            return []
-        }
-        lastLine = text
-        let link = text.range(of: #"https://\S+/keys/enrol\S*"#, options: .regularExpression).map { String(text[$0]) }
-        if text.contains(" is live for ") || text.contains(" is live again") {
+    /// One state of the CLI.
+    private mutating func read(_ state: ProvideState, now: Date) {
+        switch state {
+        case .connecting:
+            if case .connecting = phase { return }
+            phase = .connecting(since: now)
+        case .live:
             phase = .live(since: now)
             quickFailures = 0
-        } else if text.contains("is not allowed on") && text.hasSuffix("yet. A member of the mind opens this link and signs with a passkey:") {
-            phase = .notAllowed(reason: "No member has allowed this Mac's key yet.", link: link, nextStartAt: nil)
-        } else if text.contains("is not allowed on") || text.contains("gave this bridge's key no token")
-            || text.contains("Nobody allowed this bridge's key in time") || text.contains("This key was allowed to lend")
-        {
-            phase = .notAllowed(reason: Self.withoutLink(Self.withoutPrefix(text)), link: link ?? phase.link, nextStartAt: nil)
-        } else if text.contains(" disconnected (") && text.hasSuffix("Reconnecting...") {
-            let reason = text.range(of: #"\((.*)\)"#, options: .regularExpression).map { String(text[$0].dropFirst().dropLast()) } ?? text
-            phase = .reconnecting(attempt: 1, nextTryAt: Self.nextTry(attempt: 1, now: now), lastFailure: reason)
-        } else if text.hasPrefix("Could not reconnect: ") || (text.hasPrefix("Could not lend ") && text.contains(" again: ")) {
-            let attempt = (phase.attempt ?? 0) + 1
-            phase = .reconnecting(attempt: attempt, nextTryAt: Self.nextTry(attempt: attempt, now: now), lastFailure: Self.withoutPrefix(text))
+        case .reconnecting(let attempt, let of, let inMs, let lastFailure):
+            phase = .reconnecting(attempt: attempt, of: of, nextTryAt: now.addingTimeInterval(TimeInterval(inMs) / 1000), lastFailure: lastFailure)
+        case .notAllowed(let why, let link, _):
+            phase = .notAllowed(reason: why, link: link, nextStartAt: nil)
+        case .incompatible(let why):
+            phase = .incompatible(reason: why, nextStartAt: nil)
+        case .stopped(let why):
+            // the process ends right after it: its end says this
+            stoppedWhy = why
         }
-        return []
     }
 
-    /// The CLI's n-th try comes `reconnectDelaysSeconds[n - 1]` after the one before; after the
-    /// last it gives up.
-    private static func nextTry(attempt: Int, now: Date) -> Date? {
-        guard attempt >= 1, attempt <= reconnectDelaysSeconds.count else { return nil }
-        return now.addingTimeInterval(TimeInterval(reconnectDelaysSeconds[attempt - 1]))
-    }
-
-    /// "Could not reconnect: X" → "X".
+    /// "Error: X" → "X".
     private static func withoutPrefix(_ text: String) -> String {
-        for prefix in ["Could not reconnect: ", "Error: "] where text.hasPrefix(prefix) { return String(text.dropFirst(prefix.count)) }
-        if text.hasPrefix("Could not lend "), let range = text.range(of: " again: ") { return String(text[range.upperBound...]) }
-        return text
-    }
-
-    private static func withoutLink(_ text: String) -> String {
-        guard let range = text.range(of: " A member allows it at ") else { return text }
-        return String(text[..<range.lowerBound])
+        text.hasPrefix("Error: ") ? String(text.dropFirst("Error: ".count)) : text
     }
 
     /// The phase in words, with its reason and time. `clock` writes a time of day.
@@ -181,9 +221,9 @@ public struct LendState: Equatable, Sendable {
             return "Connecting… (since \(clock(since)))"
         case .live(let since):
             return "Live since \(clock(since))"
-        case .reconnecting(let attempt, let next, let failure):
-            let when = next.map { inSeconds($0) > 0 ? "next try in \(inSeconds($0)) s" : "trying now" } ?? "the CLI gave up; it starts again"
-            return "Reconnecting: attempt \(attempt), \(when). Last failure: \(failure)"
+        case .reconnecting(let attempt, let of, let next, let failure):
+            let when = inSeconds(next) > 0 ? "next try in \(inSeconds(next)) s" : "trying now"
+            return "Reconnecting: attempt \(attempt) of \(of), \(when). Last failure: \(failure)"
         case .stopped(let reason, let next):
             let when = inSeconds(next) > 0 ? "Next start in \(inSeconds(next)) s" : "Starting again now"
             return "Stopped: \(reason)\(reason.hasSuffix(".") ? "" : ".") \(when)"
@@ -193,6 +233,9 @@ public struct LendState: Equatable, Sendable {
                 : "A member opens the link and allows it with a passkey."
             let again = next.map { " Next try in \(inSeconds($0)) s." } ?? ""
             return "Not allowed: \(reason) \(fix)\(again)"
+        case .incompatible(let reason, let next):
+            let again = next.map { " Next try in \(inSeconds($0)) s." } ?? ""
+            return "Incompatible: \(reason). \(Self.updateTheCLI)\(again)"
         }
     }
 }
@@ -200,7 +243,7 @@ public struct LendState: Equatable, Sendable {
 extension LendPhase {
     /// The try the CLI is on, while it reconnects.
     public var attempt: Int? {
-        if case .reconnecting(let attempt, _, _) = self { return attempt }
+        if case .reconnecting(let attempt, _, _, _) = self { return attempt }
         return nil
     }
 
@@ -219,6 +262,7 @@ extension LendPhase {
         case .reconnecting: return "reconnecting"
         case .stopped: return "stopped"
         case .notAllowed: return "not allowed"
+        case .incompatible: return "incompatible"
         }
     }
 }

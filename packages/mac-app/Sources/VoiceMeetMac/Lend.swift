@@ -4,8 +4,8 @@ import Network
 import VoiceMeetCore
 
 /// The lend of this Mac to one mind, kept by the app: it runs `iterate provide` of the bridge file
-/// with the active mind's key, as `npx @iterate-com/mac-app` set it up. `LendState` turns the CLI's
-/// lines and the process's end into a phase and says what to do: start the process now, end it, or
+/// with the active mind's key and `--json`, as `npx @iterate-com/mac-app` set it up. `LendState`
+/// turns the CLI's states (stdout) and the process's end into a phase and says what to do: start the process now, end it, or
 /// start it after a wait. The app starts again at once when the Mac wakes and when the network
 /// comes back. It watches its folder: a change that `list`, `add`, `use` or `remove` of the CLI
 /// makes switches the lend. Once an hour it asks npm for a newer version and runs its `update`.
@@ -76,7 +76,9 @@ final class Lend {
     /// Goes up with each process: the end or a line of an older one changes nothing.
     private var generation = 0
     private var startedAt = Date()
-    private var pending = ""
+    /// What each pipe printed after its last whole line.
+    private var pending: [Stream: String] = [:]
+    private enum Stream { case states, human }
     private var wait: DispatchWorkItem?
     private var updateTimer: Timer?
     private var ticker: Timer?
@@ -106,7 +108,7 @@ final class Lend {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch self.state.phase {
-                case .reconnecting, .stopped, .notAllowed: self.onChange?()
+                case .reconnecting, .stopped, .notAllowed, .incompatible: self.onChange?()
                 default: break
                 }
             }
@@ -167,7 +169,7 @@ final class Lend {
     private func endProcess() {
         cancelWait()
         generation += 1
-        pending = ""
+        pending = [:]
         if let process, process.isRunning {
             log.info("ends the lend process \(process.processIdentifier)")
             process.terminate()
@@ -178,24 +180,28 @@ final class Lend {
     private func run() {
         guard let config, let mind = config.activeMind else { return send(.stopRequested) }
         guard FileManager.default.isExecutableFile(atPath: config.node) else {
-            send(.line("Node is gone from \(config.node): run npx @iterate-com/mac-app again"))
+            send(.humanLine("Node is gone from \(config.node): run npx @iterate-com/mac-app again"))
             return send(.processEnded(status: -1, ranFor: 0))
         }
         let child = Process()
         child.executableURL = URL(fileURLWithPath: config.node)
-        child.arguments = [config.iterateBin, "provide", config.bridge, "--key", mind.keyFile, "--name", mind.name, "--mind", mind.mind]
+        child.arguments = [config.iterateBin, "provide", config.bridge, "--key", mind.keyFile, "--name", mind.name, "--mind", mind.mind, "--json"]
         var environment = ProcessInfo.processInfo.environment
         environment["ITERATE_MAC_APP_SUPERVISED"] = "1"
         child.environment = environment
-        let output = Pipe()
-        child.standardOutput = output
-        child.standardError = output
+        // stdout carries the states, one JSON object per line; stderr the lines for a person
+        let states = Pipe()
+        let human = Pipe()
+        child.standardOutput = states
+        child.standardError = human
         let generation = generation
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return handle.readabilityHandler = nil }
-            let text = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.read(text, of: generation) }
+        for (pipe, stream) in [(states, Stream.states), (human, Stream.human)] {
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return handle.readabilityHandler = nil }
+                let text = String(decoding: data, as: UTF8.self)
+                Task { @MainActor in self?.read(text, from: stream, of: generation) }
+            }
         }
         child.terminationHandler = { [weak self] ended in
             let status = ended.terminationStatus
@@ -203,7 +209,8 @@ final class Lend {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 MainActor.assumeIsolated {
                     guard let self, generation == self.generation else { return }
-                    self.read("\n", of: generation)
+                    self.read("\n", from: .states, of: generation)
+                    self.read("\n", from: .human, of: generation)
                     self.process = nil
                     self.log.info("the lend process ended (exit \(status))")
                     self.send(.processEnded(status: status, ranFor: Date().timeIntervalSince(self.startedAt)))
@@ -216,20 +223,20 @@ final class Lend {
             startedAt = Date()
             log.info("lends to \(mind.mind) as itx.\(mind.name): process \(child.processIdentifier)")
         } catch {
-            send(.line("the lend did not start: \(AppLog.describe(error))"))
+            send(.humanLine("the lend did not start: \(AppLog.describe(error))"))
             send(.processEnded(status: -1, ranFor: 0))
         }
     }
 
-    /// Whole lines only: a chunk of the pipe can end in the middle of one.
-    private func read(_ text: String, of generation: Int) {
+    /// Whole lines only: a chunk of the pipe can end in the middle of one. Both streams go to the
+    /// log; the human lines stay there as the CLI wrote them.
+    private func read(_ text: String, from stream: Stream, of generation: Int) {
         guard generation == self.generation else { return }
-        pending += text
-        var lines = pending.components(separatedBy: "\n")
-        pending = lines.removeLast()
+        var lines = ((pending[stream] ?? "") + text).components(separatedBy: "\n")
+        pending[stream] = lines.removeLast()
         for line in lines {
-            if !line.isEmpty { log.info("provide: \(line.prefix(400))") }
-            send(.line(line))
+            if !line.isEmpty { log.info("provide\(stream == .states ? " state" : ""): \(line.prefix(400))") }
+            send(stream == .states ? .stateLine(line) : .humanLine(line))
         }
     }
 
@@ -390,7 +397,8 @@ final class Lend {
         switch event {
         case .started: return "started"
         case .stopRequested: return "stop"
-        case .line(let text): return "line \"\(text.prefix(120))\""
+        case .stateLine(let text): return "state \(text.prefix(160))"
+        case .humanLine(let text): return "line \"\(text.prefix(120))\""
         case .processEnded(let status, let ranFor): return "process ended (exit \(status), ran \(Int(ranFor)) s)"
         case .timerFired: return "wait over"
         case .reconnectNow(let why): return "reconnect now (\(why))"
