@@ -207,7 +207,7 @@ function NotInstalled({ mind }: { mind: string }) {
         <EmptyDescription>
           A mind&apos;s config repo installs its agents: <code>installAgents(itx)</code> in its init
           case, as the default template does.{" "}
-          <a href={`https://dash.${mind}/?page=repo`} className="underline underline-offset-2">
+          <a href={`https://dash.${mind}/repos`} className="underline underline-offset-2">
             Open the config repo
           </a>
         </EmptyDescription>
