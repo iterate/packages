@@ -11,6 +11,13 @@
 //   npx @iterate-com/mac-app remove example.com  forget that mind and delete its key
 //   npx @iterate-com/mac-app uninstall           quit the app and remove it, its keys and its state
 //
+// Or own the source: copy it, change it, build it from there (an app built from a copy does not
+// update itself; it runs what was built).
+//   npx @iterate-com/mac-app init [folder]       copy the source to a folder (~/src/iterate-mac-app),
+//                                                make it a git repository, build, install and lend
+//   npx @iterate-com/mac-app diff [--files]      in a copy: what upstream changed since its version
+//   npx @iterate-com/mac-app update              in a copy: apply upstream's changes on top of yours
+//
 // What setup does: builds the Swift app from the source in this package (Apple's Command Line
 // Tools; once per version), installs it as /Applications/iterate.app, installs the iterate CLI at a
 // pinned version, and makes a key that may lend this Mac to the mind under one name. A member allows
@@ -23,6 +30,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -30,8 +38,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, userInfo } from "node:os";
-import { join, relative } from "node:path";
+import { homedir, tmpdir, userInfo } from "node:os";
+import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 
@@ -62,6 +70,11 @@ const PARTS = [
   "cli.mjs",
   "package.json",
 ];
+/** What `init` copies: the parts and the README, as npm's tarball has them. */
+const COPIED = [...PARTS, "README.md"];
+/** In a copy: the upstream version it holds (`init`, `update`). Its presence makes a folder a copy. */
+const RECORD = ".iterate-mac-app.json";
+const GITIGNORE = ".build/\n";
 /** The rule of `iterate provide` for a name: letters and digits, dotted segments. */
 const NAME = /^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*$/;
 /** A mind's address, as a host name: it is also the name of its key file. */
@@ -451,10 +464,13 @@ async function setup({ values }, { interactive }) {
   await commandLineTools();
   mkdirSync(home, { recursive: true });
   const rebuilt = buildApp();
+  // run from an owner's copy: the app runs what was built and does not update itself (Lend.swift)
+  const copy = readRecord(here) ? here : undefined;
   let state = {
     ...saved,
     login: loginAnswer,
-    spec: saved.spec && !interactive ? saved.spec : specOfThisRun(),
+    spec: copy ?? (saved.spec && !interactive && !saved.copy ? saved.spec : specOfThisRun()),
+    copy,
     node: process.execPath,
     bridge: join(paths.source, "bridge/mac-endpoint.ts"),
     cli: join(paths.source, "cli.mjs"),
@@ -481,10 +497,240 @@ async function setup({ values }, { interactive }) {
       (state.active
         ? `\nLent to ${state.active} as itx.${state.minds.find((m) => m.mind === state.active)?.name}`
         : "\nLent to no mind") +
-      `; ${loginAnswer ? "starts at login" : "does not start at login"}. Updates come by themselves.` +
+      `; ${loginAnswer ? "starts at login" : "does not start at login"}.` +
+      (copy
+        ? ` Built from ${copy}: it changes when you run ./run-on-mac.sh there.`
+        : " Updates come by themselves.") +
       `\nMore minds: npx ${PACKAGE} add · list · use <mind> · remove <mind>` +
       `\nRemove it all: npx ${PACKAGE} uninstall`,
   );
+}
+
+/** The record of a copy (`RECORD`), or null when the folder is not one. */
+function readRecord(folder) {
+  try {
+    return JSON.parse(readFileSync(join(folder, RECORD), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+const recordText = (upstream) =>
+  `${JSON.stringify({ package: PACKAGE, version: upstream, date: new Date().toISOString().slice(0, 10) }, null, 2)}\n`;
+
+/** The copy a command acts on: `--folder`, else this cli.mjs's own folder or the current one when
+ *  it is a copy. */
+function copyFolder({ values }) {
+  if (values.folder) {
+    const folder = resolve(values.folder);
+    if (!readRecord(folder)) throw new Error(`${folder} is not a copy: it has no ${RECORD}.`);
+    return folder;
+  }
+  return [here, process.cwd()].find((folder) => readRecord(folder)) ?? null;
+}
+
+/** git in a folder. A commit needs a name: when git has none, the account's name stands in. */
+function git(folder, args, { env = {}, cwd = folder } = {}) {
+  const named = spawnSync("git", ["config", "user.email"], { cwd: folder }).status === 0;
+  const who = userInfo().username;
+  const identity = named
+    ? {}
+    : {
+        GIT_AUTHOR_NAME: who,
+        GIT_AUTHOR_EMAIL: `${who}@localhost`,
+        GIT_COMMITTER_NAME: who,
+        GIT_COMMITTER_EMAIL: `${who}@localhost`,
+      };
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...identity, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/** `init`: copies this package's source to a folder of the owner's, makes it a git repository with
+ *  one first commit that names the upstream version, then builds, installs and lends from there
+ *  (`setup` of the copy's own cli.mjs). `--no-install` stops after the commit. */
+async function init({ values, positionals }) {
+  const folder = resolve(positionals[1] || join(homedir(), "src/iterate-mac-app"));
+  if (existsSync(folder) && readdirSync(folder).length)
+    throw new Error(
+      `${folder} exists and is not empty. Name a new folder: npx ${PACKAGE} init <folder>`,
+    );
+  await commandLineTools();
+  mkdirSync(folder, { recursive: true });
+  for (const part of COPIED)
+    if (existsSync(join(here, part)))
+      cpSync(join(here, part), join(folder, part), {
+        recursive: true,
+        filter: (path) => !path.includes("/.build"),
+      });
+  writeFileSync(join(folder, RECORD), recordText(version));
+  writeFileSync(join(folder, ".gitignore"), GITIGNORE);
+  git(folder, ["init", "-q", "-b", "main"]);
+  git(folder, ["add", "-A"]);
+  git(folder, [
+    "commit",
+    "-q",
+    "-m",
+    `Copy ${PACKAGE}@${version}`,
+    "-m",
+    `The source of iterate's Mac app at upstream version ${version}, to change as you like. ${RECORD} records the version; \`npx ${PACKAGE} update\` here applies upstream's later changes on top of yours.`,
+  ]);
+  say(`Copied ${PACKAGE}@${version} to ${folder}, a git repository with one commit.`);
+  if (values["no-install"])
+    return say(
+      `Not installed (--no-install). Build and install it: cd ${folder} && ./run-on-mac.sh`,
+    );
+  const passed = [
+    ...(values.mind ? ["--mind", values.mind] : []),
+    ...(values.name ? ["--name", values.name] : []),
+    ...(values.login === undefined ? [] : [values.login ? "--login" : "--no-login"]),
+  ];
+  const result = spawnSync(process.execPath, [join(folder, "cli.mjs"), "setup", ...passed], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0)
+    throw new Error(
+      `The copy is in ${folder}, but its setup failed. Run ./run-on-mac.sh there again.`,
+    );
+  say(
+    `Change the source in ${folder}, then run ./run-on-mac.sh there: it builds and installs it again.`,
+  );
+}
+
+/** One version of the package from npm, unpacked in `into/<version>`, with the files a copy has
+ *  beside it: the record and the .gitignore. The tarballs are what upstream changed, not a guess. */
+function upstreamSource(spec, into, record) {
+  const [{ filename, version: upstream }] = JSON.parse(
+    execFileSync("npm", ["pack", spec, "--pack-destination", into, "--json", "--loglevel=error"], {
+      cwd: into,
+      encoding: "utf8",
+    }),
+  );
+  const folder = join(into, upstream);
+  mkdirSync(folder);
+  execFileSync("tar", ["-xzf", join(into, filename), "-C", folder, "--strip-components=1"]);
+  writeFileSync(join(folder, RECORD), record ?? recordText(upstream));
+  writeFileSync(join(folder, ".gitignore"), GITIGNORE);
+  return { folder, upstream };
+}
+
+/** The two versions as commits in the copy's repository, not on any branch: the recorded version
+ *  (with the record as the copy committed it) and the new one, whose parent it is. */
+function upstreamCommits(folder, to) {
+  // the committed record: in the middle of an update the file on disk already names the next
+  const recorded = git(folder, ["show", `HEAD:${RECORD}`]);
+  const record = JSON.parse(recorded);
+  const work = mkdtempSync(join(tmpdir(), "iterate-mac-app-"));
+  try {
+    const next = upstreamSource(`${PACKAGE}@${to}`, work);
+    if (next.upstream === record.version) return { record, next: next.upstream };
+    const base = upstreamSource(`${PACKAGE}@${record.version}`, work, recorded);
+    const tree = (source, name) => {
+      const env = { GIT_INDEX_FILE: join(work, `index-${name}`) };
+      git(
+        folder,
+        ["--git-dir", join(folder, ".git"), "--work-tree", source, "add", "-A", "-f", "."],
+        {
+          env,
+          cwd: source,
+        },
+      );
+      return git(folder, ["write-tree"], { env }).trim();
+    };
+    const baseCommit = git(folder, [
+      "commit-tree",
+      tree(base.folder, "base"),
+      "-m",
+      `Upstream ${PACKAGE}@${record.version}`,
+    ]).trim();
+    const nextCommit = git(folder, [
+      "commit-tree",
+      tree(next.folder, "next"),
+      "-p",
+      baseCommit,
+      "-m",
+      `Upstream ${PACKAGE} ${record.version} → ${next.upstream}`,
+      "-m",
+      `Applied by \`npx ${PACKAGE} update\`: upstream's changes since ${record.version}, on top of this copy's.`,
+    ]).trim();
+    return { record, next: next.upstream, baseCommit, nextCommit };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+function needCopy(parsed) {
+  const folder = copyFolder(parsed);
+  if (!folder)
+    throw new Error(
+      `Not in a copy (no ${RECORD} here). Run this in a copy that \`npx ${PACKAGE} init\` made, or pass --folder <copy>.`,
+    );
+  return folder;
+}
+
+/** `diff`: what upstream changed since the copy's recorded version, up to `--to` (npm's latest by
+ *  default): the files and the changes, or only the files with `--files`. */
+function diff(parsed) {
+  const folder = needCopy(parsed);
+  const { record, next, baseCommit, nextCommit } = upstreamCommits(
+    folder,
+    parsed.values.to || "latest",
+  );
+  if (!nextCommit) return say(`This copy is at ${next} already: upstream changed nothing since.`);
+  say(`Upstream's changes from ${record.version} (this copy's) to ${next}:`);
+  const result = spawnSync(
+    "git",
+    [
+      "diff",
+      parsed.values.files ? "--name-status" : "--stat",
+      ...(parsed.values.files ? [] : ["--patch"]),
+      baseCommit,
+      nextCommit,
+      "--",
+      ".",
+      `:(exclude)${RECORD}`,
+    ],
+    { cwd: folder, stdio: "inherit" },
+  );
+  if (result.status !== 0) throw new Error("git diff failed.");
+  say(`Apply them on top of your changes: npx ${PACKAGE} update`);
+}
+
+/** `update` in a copy: upstream's changes since the recorded version, applied on top of the owner's
+ *  with a three-way merge (a cherry-pick of the upstream commit whose parent is the recorded
+ *  version). The record moves with it. Conflicts stay in the files for the owner. */
+function updateCopy(parsed) {
+  const folder = needCopy(parsed);
+  if (git(folder, ["status", "--porcelain"]).trim())
+    throw new Error(
+      `${folder} has changes that are not committed. Commit them (or put them aside), then run this again.`,
+    );
+  const { record, next, nextCommit } = upstreamCommits(folder, parsed.values.to || "latest");
+  if (!nextCommit) return say(`This copy is at ${next} already: nothing to apply.`);
+  const pick = spawnSync("git", ["cherry-pick", nextCommit], { cwd: folder, encoding: "utf8" });
+  if (pick.status === 0) {
+    say(
+      `Applied upstream's changes from ${record.version} to ${next} on top of yours, as one commit. The copy records ${next} now.` +
+        `\nBuild and install it: ./run-on-mac.sh`,
+    );
+    return;
+  }
+  const conflicts = git(folder, ["diff", "--name-only", "--diff-filter=U"]).trim();
+  if (!conflicts) throw new Error(`git cherry-pick failed:\n${pick.stderr}`);
+  say(
+    `Upstream's changes from ${record.version} to ${next} conflict with yours in these files:\n` +
+      conflicts
+        .split("\n")
+        .map((file) => `  ${file}`)
+        .join("\n") +
+      `\nEach has both versions between <<<<<<< and >>>>>>> lines (or one side deleted it). The other files are applied.` +
+      `\nFix each file and \`git add\` it, then \`git cherry-pick --continue\`: the copy then records ${next}.` +
+      `\nTo go back to how it was: \`git cherry-pick --abort\`.`,
+  );
+  process.exitCode = 1;
 }
 
 async function uninstall() {
@@ -504,13 +750,20 @@ const parsed = parseArgs({
     login: { type: "boolean" },
     "no-login": { type: "boolean" },
     json: { type: "boolean" },
+    folder: { type: "string" },
+    to: { type: "string" },
+    files: { type: "boolean" },
+    "no-install": { type: "boolean" },
   },
 });
 if (parsed.values["no-login"]) parsed.values.login = false;
 const command = parsed.positionals[0] || "setup";
 try {
   if (command === "setup") await setup(parsed, { interactive: process.stdin.isTTY });
+  else if (command === "update" && copyFolder(parsed)) updateCopy(parsed);
   else if (command === "update") await setup(parsed, { interactive: false });
+  else if (command === "init") await init(parsed);
+  else if (command === "diff") diff(parsed);
   else if (command === "list") list(parsed);
   else if (command === "add") await add(parsed, { interactive: process.stdin.isTTY });
   else if (command === "use") use(parsed);
@@ -518,7 +771,7 @@ try {
   else if (command === "uninstall") await uninstall();
   else
     throw new Error(
-      `No command "${command}". The commands are: setup (the default), update, list, add, use, remove, uninstall.`,
+      `No command "${command}". The commands are: setup (the default), update, list, add, use, remove, uninstall; for a copy of your own: init, diff, update.`,
     );
 } catch (error) {
   say(error instanceof Error ? error.message : String(error));

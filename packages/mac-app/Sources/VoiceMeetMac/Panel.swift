@@ -35,6 +35,9 @@ struct LendView: Equatable {
     /// The last words of a command the panel ran (add, use, remove).
     var commandLine: String?
     var isCommandRunning = false
+    /// Where the app came from: its version and whether it updates itself, or the owner's copy it
+    /// was built from (`UpdateSource.line`).
+    var source: String?
 }
 
 /// What the panel's lend section does.
@@ -91,6 +94,13 @@ struct Panel: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                    }
+                    if let source = state.lend.source {
+                        Text(source)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
                 Spacer()
@@ -374,6 +384,7 @@ extension Panel {
         view.status = lend.statusLine(now: Date(), clock: Lend.clock)
         view.phase = lend.phase.name
         view.link = lend.phase.link
+        view.source = config.map { $0.source.line(home: NSHomeDirectory()) }
         return view
     }
 }

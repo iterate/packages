@@ -4,7 +4,8 @@
 # then starts by itself at each login (it registers itself as a login item; System Settings ›
 # General › Login Items shows it and can turn it off).
 #
-#   ./run-on-mac.sh               build, sign, install in /Applications, open (also: update)
+#   ./run-on-mac.sh               build, sign, install in /Applications, open (also: update); in a
+#                                 copy that `init` made, `node cli.mjs setup` (it runs --install)
 #   ./run-on-mac.sh --install     build, sign, install; open nothing, follow no log (cli.mjs runs this)
 #   ./run-on-mac.sh --build-only  build and sign .build/iterate.app; install and open nothing
 #
@@ -198,6 +199,17 @@ case "${1:-}" in
   exit 0
   ;;
 esac
+
+# In a copy that `npx @iterate-com/mac-app init` made, a plain run goes through the copy's own
+# cli.mjs: it builds and installs as below (with --install), and also puts the copy's bridge and
+# cli.mjs where the app runs them, and starts the app again with its lend.
+if [ -z "${1:-}" ] && [ -f .iterate-mac-app.json ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js 22.18 or later is needed: https://nodejs.org" >&2
+    exit 1
+  fi
+  exec node cli.mjs setup
+fi
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "This script runs on a Mac only. On Linux, only VoiceMeetCore builds: swift test" >&2

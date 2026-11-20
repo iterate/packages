@@ -1,10 +1,52 @@
 # @iterate-com/mac-app
 
+**The primitive is the iterate CLI.** `iterate provide <file> --json` lends a file's functions to
+a mind as `itx.<name>` and prints the lend's state on stdout, one JSON line at each change:
+`connecting`, `live`, `reconnecting` (the attempt and the wait), `notAllowed` (with the link where
+a member allows the key), `incompatible` and `stopped`, each with its reason. A program that keeps
+a lend reads those lines; the lines for a person go to stderr. See
+[`provide`](https://github.com/iterate/core/blob/main/core/lib/src/cli/README.md#provide) and
+[its states](https://github.com/iterate/core/blob/main/core/lib/src/cli/provide-state.ts).
+
+**This app is one thing built on it, and a starting point.** Copy it, change it, build it from
+your copy: see [Two ways in](#two-ways-in) and [Make your own thing](#make-your-own-thing).
+
 A Mac's menu-bar app for an [iterate](https://iterate.com) mind. It makes this Mac an endpoint
 device of the mind, which a person is often near. Its inputs are the screen, the camera, the
 microphone and the window in front as text; its outputs, the speakers and banners on the screen
 (a call's among them); its compute, commands (AppleScript, Swift, shell). You choose for each thing: **Off**, **Ask** (you
 approve each use with Touch ID) or **Shared**. Everything starts at Off.
+
+## Two ways in
+
+### Own it: copy the source
+
+```sh
+npx @iterate-com/mac-app init                 # into ~/src/iterate-mac-app
+npx @iterate-com/mac-app init ~/src/my-mac    # or a folder you name (new or empty)
+```
+
+`init` copies the source (Swift sources, tests, the bridge, `run-on-mac.sh`, this README) into the
+folder, makes it a git repository with one commit that names the upstream version, and records
+that version in `.iterate-mac-app.json`. Then it builds, installs and lends from that folder, as
+the plain install below does. Change anything there, then build and install it again:
+
+```sh
+./run-on-mac.sh                      # in the copy: build, install, start the app and its lend again
+npx @iterate-com/mac-app diff        # in the copy: what upstream changed since your version
+npx @iterate-com/mac-app diff --files                # only the files
+npx @iterate-com/mac-app update      # in the copy: upstream's changes on top of yours
+```
+
+An app built from a copy runs what was built: **it does not update itself**, and the panel says
+"Built from ~/src/iterate-mac-app". `update` takes the two versions from npm (the recorded one and
+the newest; `--to <version>` names another) and applies upstream's changes on top of your commits
+with a three-way merge, as one commit; the record moves with it. Where your change and upstream's
+touch the same lines, the file keeps both between `<<<<<<<` and `>>>>>>>`: fix it, `git add` it,
+and `git cherry-pick --continue` (or `--abort` to go back). Commit your own work first: `update`
+refuses a work tree with changes. `--folder <copy>` runs `diff` or `update` from elsewhere.
+
+### Just use it
 
 ```sh
 npx @iterate-com/mac-app
@@ -65,6 +107,29 @@ incompatible). Green, red and orange (a banner, a use, a capture) show over it w
 `--render-icons <folder>` draws each mark on a light and a dark bar.
 
 Needs macOS 14 or later and Node 22.18 or later.
+
+## Make your own thing
+
+Three parts are what a thing lent to a mind from a Mac needs; keep them:
+
+- **The lend's state machine**: `Sources/VoiceMeetCore/LendState.swift` (pure, with its tests)
+  reads the CLI's JSON lines and the process's end, and says what to do: start now, wait, or stop.
+  `Sources/VoiceMeetMac/Lend.swift` runs `iterate provide` and does what it says.
+- **The local socket and the bridge**: `LocalEndpoint.swift` answers one line of JSON per call on
+  a Unix socket that only you can read; `AppModel.swift` routes each method. `bridge/mac-endpoint.ts`
+  is the file that `iterate provide` lends: each of its methods is one request on that socket.
+  **The bridge is the contract with the mind.** Its methods are what agents call, and its
+  `description` is the line they read next to the name: keep it under 500 characters, or the mind
+  refuses the lend and it never goes live.
+- **The switches**: `Permissions.swift` (Off, Ask, Shared for each thing, and macOS's permissions)
+  and `Approval.swift` (Touch ID for Ask). The panel (`Panel.swift`) shows them.
+
+For a minimal app, delete the things it shares and their methods in `AppModel.swift` and the
+bridge: `Camera.swift` and `CameraState.swift`, `AudioOwner.swift`, `AudioDevices.swift` and
+`MicrophoneState.swift`, `Speaker.swift`, `Banner.swift` and `BannerState.swift`, `Powers.swift`
+(screen, window text, commands), `Presence.swift`, and their tests; `swift build` then names what
+still refers to them, in the panel and the app's delegate. Then add your own method: a
+case in `AppModel.swift`, a function in the bridge, a line in its description.
 
 ## In the mind
 
@@ -164,7 +229,7 @@ an agent can pass on. Each use turns the 𝑖 red for 3 seconds.
   can read.
 - **The bridge** (`bridge/mac-endpoint.ts`) is the file that `iterate provide` lends to the mind.
   It turns each call into one request on that socket.
-- **The installer** (`cli.mjs`) builds and updates. Its state is in
+- **The installer** (`cli.mjs`) builds and updates, and makes and updates a copy. Its state is in
   `~/Library/Application Support/iterate-mac-app/`; the app's log is in
   `~/Library/Logs/voice-meet-mac/app.log`.
 - **The signature is local.** The build signs the app with a self-signed certificate that it makes
@@ -189,6 +254,7 @@ Notes from the first runs (macOS 15.7.4, a MacBook Pro):
 ./run-on-mac.sh --logs        # follow the app's log
 swift test                    # the state machines' tests (needs Xcode): microphone, camera, lend, banner
 npx .                         # the installer from this folder
+npx . init /tmp/mac --no-install   # a copy, without building or installing it
 ```
 
 `.build/release/VoiceMeetMac --render-panel panel.png` draws the panel to a file without opening

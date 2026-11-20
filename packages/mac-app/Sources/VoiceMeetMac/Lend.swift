@@ -8,7 +8,8 @@ import VoiceMeetCore
 /// turns the CLI's states (stdout) and the process's end into a phase and says what to do: start the process now, end it, or
 /// start it after a wait. The app starts again at once when the Mac wakes and when the network
 /// comes back. It watches its folder: a change that `list`, `add`, `use` or `remove` of the CLI
-/// makes switches the lend. Once an hour it asks npm for a newer version and runs its `update`.
+/// makes switches the lend. Once an hour it asks npm for a newer version and runs its `update`,
+/// unless it was built from an owner's copy (`UpdateSource`).
 @MainActor
 final class Lend {
     /// One mind this Mac knows, with its own key.
@@ -28,11 +29,13 @@ final class Lend {
         let version: String
         /// The installed copy of cli.mjs: the panel runs its commands.
         let cli: String
+        /// The owner's copy the app was built from (`init`), when it was: see `UpdateSource`.
+        let copy: String?
         let minds: [Mind]
         let active: String?
 
         private enum Keys: String, CodingKey {
-            case login, spec, node, iterateBin, bridge, version, cli, minds, active, mind, name, keyFile
+            case login, spec, node, iterateBin, bridge, version, cli, copy, minds, active, mind, name, keyFile
         }
 
         init(from decoder: Decoder) throws {
@@ -44,6 +47,7 @@ final class Lend {
             bridge = try values.decode(String.self, forKey: .bridge)
             version = try values.decode(String.self, forKey: .version)
             cli = try values.decodeIfPresent(String.self, forKey: .cli) ?? Lend.folder.appendingPathComponent("source/cli.mjs").path
+            copy = try values.decodeIfPresent(String.self, forKey: .copy)
             if let minds = try values.decodeIfPresent([Mind].self, forKey: .minds) {
                 self.minds = minds
                 active = try values.decodeIfPresent(String.self, forKey: .active)
@@ -56,6 +60,8 @@ final class Lend {
         }
 
         var activeMind: Mind? { minds.first { $0.mind == active } }
+
+        var source: UpdateSource { .of(spec: spec, copy: copy, version: version) }
     }
 
     nonisolated static let folder = FileManager.default.homeDirectoryForCurrentUser
@@ -413,9 +419,9 @@ final class Lend {
     }
 
     /// Asks npm for the newest version. Only for the registry: a pkg.pr.new link or a folder is a
-    /// trial, updated by hand.
+    /// trial, updated by hand, and an app built from an owner's copy runs what was built.
     private func checkForUpdate() {
-        guard let config, config.spec.hasPrefix("@iterate-com/mac-app") else { return }
+        guard let config, config.source.updatesItself else { return }
         guard let url = URL(string: "https://registry.npmjs.org/@iterate-com/mac-app/latest") else { return }
         Task { @MainActor in
             guard let (data, _) = try? await URLSession.shared.data(from: url),

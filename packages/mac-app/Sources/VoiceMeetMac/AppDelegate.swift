@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         view.link = lend.state.phase.link ?? lend.commandLink
         view.commandLine = lend.commandLine
         view.isCommandRunning = lend.isCommandRunning
+        view.source = lend.config.map { $0.source.line(home: NSHomeDirectory()) }
         if view != panelState.lend { panelState.lend = view }
     }
 
