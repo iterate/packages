@@ -65,6 +65,8 @@ function once<T>(load: () => Promise<T>) {
 
 const homePart = once(() => import("#/components/agents-home.tsx"));
 const chatPart = once(() => import("#/components/agent-chat/agent-chat.tsx"));
+// only where the Agents page's row turns the page's tools on
+const toolsPart = once(() => import("#/components/page-tools.tsx"));
 // only where the Agents page's row turns calls on: the call's view, and who is in it
 const callPart = once(async () => {
   // the two modules load at once
@@ -492,32 +494,65 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
   // when `saved` is known, so its memory holds the view.
   const remembered = saved && tails && tails !== "pending" ? tails.peek(path)?.view : undefined;
   return (
-    <Suspense
-      fallback={
-        <AgentPageReading
+    <>
+      <Suspense
+        fallback={
+          <AgentPageReading
+            path={path}
+            agents={agents}
+            quiet={quiet}
+            presence={Boolean(page.presence)}
+            call={Boolean(page.call)}
+          />
+        }
+      >
+        <AgentViewOfKind
+          itx={itx}
           path={path}
           agents={agents}
-          quiet={quiet}
+          opener={page.openers?.[path]}
           presence={Boolean(page.presence)}
-          call={Boolean(page.call)}
+          call={page.call}
+          me={principal?.actor}
+          tails={tails}
+          quiet={quiet}
+          remembered={remembered}
         />
-      }
-    >
-      <AgentViewOfKind
-        itx={itx}
-        path={path}
-        agents={agents}
-        opener={page.openers?.[path]}
-        presence={Boolean(page.presence)}
-        call={page.call}
-        me={principal?.actor}
-        tails={tails}
-        quiet={quiet}
-        remembered={remembered}
-      />
-    </Suspense>
+      </Suspense>
+      {page.pageTools && principal ? (
+        <AgentPageTools
+          itx={itx}
+          path={path}
+          me={principal}
+          agent={
+            agents?.find((row) => row.path === path)?.title ||
+            path.split("/").findLast(Boolean) ||
+            path
+          }
+          tools={page.pageTools === true ? undefined : page.pageTools.tools}
+        />
+      ) : null}
+    </>
   );
 }
+
+/** The tools this page lends the agent it shows (the Agents page's `pageTools`). They load beside
+ *  the chat and never hold it up: their part is asked for after the page has drawn, and a part
+ *  that does not load lends nothing and says so in the console. `open(path)` changes the Dash's
+ *  page in place. */
+function AgentPageTools(props: Omit<ComponentProps<PageToolsPart["PageTools"]>, "onOpen">) {
+  const [part, setPart] = useState<PageToolsPart>();
+  useEffect(() => {
+    toolsPart().then(setPart, (error: unknown) =>
+      console.error({
+        event: "page-tools.load-failed",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }, []);
+  return part ? <part.PageTools {...props} onOpen={go} /> : null;
+}
+type PageToolsPart = Awaited<ReturnType<typeof toolsPart>>;
 
 /** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
  *  cut at its end where it does not fit, and Chat | Events at the right, which never wrap. With no

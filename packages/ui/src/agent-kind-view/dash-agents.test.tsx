@@ -201,6 +201,21 @@ test("an agent page's header shows the stack of who is here, which opens who can
   expect({ sent, appended }).toEqual({ sent: [], appended: [] });
 });
 
+test("an agent page lends the agent tools only where the mind's config turned `pageTools` on, under the member's name", async () => {
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  {
+    // the default: nothing is lent
+    const { itx, lent } = mind({});
+    await using _page = await draw(DashAgents, itx, { waiting: 0 });
+    expect(lent).toEqual([]);
+  }
+  const { itx, lent } = mind({});
+  await using _page = await draw(DashAgents, itx, { waiting: 0, pageTools: true });
+  expect(lent).toEqual([
+    { path: "/agents/onboarding", match: expect.stringMatching(/^itx\.page\.jo\.[a-z2-7]{12}$/) },
+  ]);
+});
+
 test("the header's count of held events leaves out a page's presence status", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
@@ -2464,6 +2479,8 @@ function mind({
   const sent: { path: string; type: string }[] = [];
   /** the path of each file whose URL the page asked the mind to sign */
   const signed: string[] = [];
+  /** each name a page lent a live stub under, and the context it lent it at */
+  const lent: { path: string; match: string }[] = [];
   /** the path of each agent the page started */
   const born: string[] = [];
   let reads = 0;
@@ -2501,6 +2518,16 @@ function mind({
       ],
     },
     rpcStubs: { list: async () => (pages[path] || []).map(({ name }) => `subscription:${name}`) },
+    rewriteRules: {
+      list: async () => [
+        { match: "itx.run", target: "itx.builtins.run" },
+        { match: "itx.cd", target: "itx.builtins.cd" },
+      ],
+    },
+    provide: async (match: string) => {
+      lent.push({ path, match });
+      return { [Symbol.dispose]() {} };
+    },
     invoke: async (call: unknown) => {
       invoked.push({ path, call });
       // a facet's method, as an expression: `["itx", "facets", ["get", name], [method, ...args]]`
@@ -2564,6 +2591,7 @@ function mind({
     appended,
     sent,
     signed,
+    lent,
     born,
     reads: () => reads,
     asked: () => asked,
@@ -3029,6 +3057,7 @@ async function draw(
     openers,
     presence,
     call,
+    pageTools,
     agents: first = agents,
     account = true,
     actor = "/members/a",
@@ -3044,6 +3073,8 @@ async function draw(
     presence?: boolean;
     /** The Agents page's `call`. */
     call?: DashPage["call"];
+    /** The Agents page's `pageTools`. */
+    pageTools?: DashPage["pageTools"];
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
     agents?: typeof agents | "unread";
   },
@@ -3066,7 +3097,7 @@ async function draw(
   const row = (id: string): DashPage => ({ id, name: id, icon: BotIcon, component: () => null });
   const pages = [
     row("home"),
-    { ...row("agents"), openers, presence, call },
+    { ...row("agents"), openers, presence, call, pageTools },
     row("contexts"),
     row("integrations"),
   ];

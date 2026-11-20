@@ -962,6 +962,7 @@
         "iterate/packages/dash-paths",
         "iterate/packages/integrations-page",
         "iterate/packages/itx-session",
+        "iterate/packages/page-tools",
         "iterate/packages/page-url",
         "iterate/packages/reconnecting-mark",
         "iterate/packages/repo-ide",
@@ -1968,6 +1969,31 @@
         {
           "path": "src/components/reconnecting-mark.tsx",
           "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "page-tools",
+      "type": "registry:component",
+      "description": "Tools that an agent runs in the page that shows it, lent while a signed-in person has the page open: a banner with buttons, and Playwright's locators (fill, click, press, highlight, read) inside the part of the page that the host marks. The person sees a label with a Stop button while a call runs, and no call runs in a background tab; a jailed agent gets nothing.",
+      "dependencies": [
+        "capnweb",
+        "ivya",
+        "lucide-react",
+        "zod"
+      ],
+      "registryDependencies": [
+        "button",
+        "iterate/packages/itx-session"
+      ],
+      "files": [
+        {
+          "path": "src/components/page-tools.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/lib/page-tools.ts",
+          "type": "registry:lib"
         }
       ]
     }

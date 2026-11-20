@@ -99,6 +99,10 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   `/<id>/<rest>` (the pure codec is `components/dash/dash-paths.ts`, registered by
   `components/dash/dash-href.ts`). Every part reads `usePageParam` and builds `pageHref`,
   `agentViewHref` or `rawViewHref`: never read `location` or write a `?page=` link by hand.
+- `components/page-tools` lends the agent that a page shows tools that run in that page (a
+  banner, Playwright's locators). `lib/page-tools.ts` says how a call travels, who may call and
+  what each refusal is worth: read its header before you add a tool or loosen a rule. The Dash
+  turns it on with the Agents row's `pageTools`.
 - The Agents app's parts (`components/agents-nav`, `components/agents-home`, `lib/agent-summary`)
   serve the hosted app; the Dash takes `StatusDot` and `lib/agent-summary`. None imports a router. They take
   `agentHref(path)` and `onOpen(path)`, so that a page with a client router can make a plain click

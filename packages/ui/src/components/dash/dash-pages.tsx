@@ -28,6 +28,7 @@ import type { ContextListing } from "#/components/context-catalog/context-catalo
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { LoadingWait } from "#/components/virtual-log/read-progress.tsx";
 import type { AgentRow } from "#/lib/agent-summary.ts";
+import type { OwnPageTool } from "#/lib/page-tools.ts";
 import { itxSessionOf, kept } from "#/lib/itx-session.ts";
 import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 import type { TailsOfMember } from "#/lib/saved-context.ts";
@@ -64,6 +65,12 @@ export type DashPage = {
    *  cameras and screens stand over the feed while a call is live. Absent: no call, and no call
    *  code is loaded. */
   call?: DashCall;
+  /** The Agents page's: each member's open agent page lends that agent tools that run in the page
+   *  (#/components/page-tools.tsx): a banner, and, inside what the page marks with
+   *  `data-page-tools="scope"`, Playwright's locators. `tools` adds functions of the page's own.
+   *  What the agent then does in a member's tab carries that member's stamp in the log, with an
+   *  audit row beside it. Absent: nothing is lent, and no tool code is loaded. */
+  pageTools?: true | { tools: Readonly<Record<string, OwnPageTool>> };
   /** `staysOverReconnect`, a property of the component itself (`Notes.staysOverReconnect =
    *  true`): the page opens again what it holds when the session's epoch grows
    *  (`itxSessionOf(itx)`: the epoch in its hooks' deps, or `useHeldContext`), so the Dash keeps

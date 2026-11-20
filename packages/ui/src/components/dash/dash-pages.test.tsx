@@ -10,8 +10,10 @@ import {
   DashIntegrations,
   DashRepo,
   DashSecrets,
+  DashSettings,
   type DashPageProps,
 } from "./dash-pages.tsx";
+import { refusalOf } from "#/lib/page-tools.ts";
 import { savedLogTails } from "#/lib/saved-log-tail.ts";
 
 test("a mind with no vault: the secrets page says so and lists nothing", async () => {
@@ -158,6 +160,29 @@ test("the repo page pushes a history entry when commit or file changes, and repl
 });
 
 /** A mind that serves the roots `serves` names, with a vault that lists by `secrets`. */
+test("the Settings page draws its links to the mind's own pages as plain links to another origin, which an agent's tools refuse to click; a page of the Dash is taken", async () => {
+  const stack = "https://iterate.example.com";
+  const access = ["secrets/approvals", "keys", "sessions", "members", "minds"].map((path) => ({
+    name: path,
+    href: `${stack}/${path}`,
+    icon: () => null,
+  }));
+  const hidden = { id: "analytics", name: "Analytics", icon: () => null, component: () => null };
+  const { itx } = mind([], async () => []);
+  await using page = await draw(DashSettings, itx, null, {
+    links: [{ title: "Access", rows: access }],
+    pages: [{ ...hidden, row: false }],
+  });
+  const links = [...page.host.querySelectorAll("a")];
+  expect(links.map((link) => [link.getAttribute("href"), refusalOf(link.href)])).toEqual([
+    ["/analytics", null],
+    ...access.map((row) => [
+      row.href,
+      "it leads to another site: say where it is, and the person presses it",
+    ]),
+  ]);
+});
+
 function mind(serves: string[], secrets: () => Promise<{ path: string }[]>) {
   let lists = 0;
   const itx = {
@@ -180,6 +205,10 @@ async function draw(
   itx: DashPageProps["itx"],
   /** "unknown": the Dash has not heard yet who is signed in */
   principal: DashPageProps["principal"] | "unknown" = null,
+  {
+    links = [],
+    pages = [],
+  }: { links?: DashPageProps["links"]; pages?: DashPageProps["pages"] } = {},
 ) {
   const row = { id: "secrets", name: "Secrets", icon: () => null, component: () => null };
   const host = document.body.appendChild(document.createElement("div"));
@@ -192,8 +221,8 @@ async function draw(
           mind="example.com"
           principal={principal === "unknown" ? undefined : principal}
           page={row}
-          pages={[row]}
-          links={[]}
+          pages={[row, ...pages]}
+          links={links}
           agents={undefined}
           waiting={0}
           catalog={undefined}
