@@ -748,69 +748,6 @@ test("`call=join` never opens the microphone: the page joins a call that is on m
   expect(capturedNothing(media)).toEqual({ opened: ["audio"], tracksSent: ["a track"] });
 });
 
-test("`call=join&ring=<code>`: a code the call takes opens the microphone as the page loads; both keys leave the address", async () => {
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  using media = browserMedia();
-  history.replaceState(null, "", "/agents/agents/onboarding?call=join&ring=rung");
-  const { itx, steps, invoked } = mind({
-    row: "a-page",
-    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
-    facets: { "/agents/onboarding": { call: callLive({ "b-page": ["mic"] }) } },
-  });
-  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
-  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
-  // a facet's method, as an expression: `["itx", "facets", ["get", "call"], [method, ...args]]`
-  const joins = invoked.flatMap(({ call }) =>
-    Array.isArray(call) && call[3][0] === "join" ? [call[3]] : [],
-  );
-  expect(joins).toMatchObject([["join", "a-page", { ring: "rung" }]]);
-  expect(new URLSearchParams(location.search).get("call")).toBe(null);
-  expect(new URLSearchParams(location.search).get("ring")).toBe(null);
-  const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
-  expect(capturedNothing(media)).toEqual({ opened: ["audio"], tracksSent: ["a track"] });
-  await act(() =>
-    vi.waitFor(() =>
-      expect(page.host.querySelector("[data-slot=agent-call-tiles]")?.textContent).toContain(
-        "You accepted the ring on your Mac: your microphone is on.",
-      ),
-    ),
-  );
-});
-
-test("`call=join` with a code the call does not take joins muted, as with none", async () => {
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  using media = browserMedia();
-  history.replaceState(null, "", "/agents/agents/onboarding?call=join&ring=guessed");
-  const { itx, steps } = mind({
-    row: "a-page",
-    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
-    facets: { "/agents/onboarding": { call: callLive({ "b-page": ["mic"] }) } },
-  });
-  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
-  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
-  const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
-  expect(new URLSearchParams(location.search).get("ring")).toBe(null);
-  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
-});
-
-test("a ring the call took, which asked for the voice agent: the engine opens the microphone and invites it", async () => {
-  using media = browserMedia();
-  const facet = callFacet();
-  const call = engineOn(facet);
-  facet.answerNext("join", { ring: { voiceAgent: true } });
-  await call.join({ listenOnly: true, ring: "rung" });
-  expect(facet.calls[0]).toEqual({
-    method: "join",
-    args: [{ admit: expect.any(String), seq: expect.any(Number), ring: "rung" }],
-  });
-  expect(call.ui).toMatchObject({ muted: false });
-  expect(capturedNothing(media)).toEqual({ opened: ["audio"], tracksSent: ["a track"] });
-  await vi.waitFor(() => expect(facet.steps).toContain("voiceAgent"));
-  call.dispose();
-});
-
 test("a start that fails says why in words, and Start a call can be pressed again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
@@ -2597,9 +2534,6 @@ function mind({
       if (Array.isArray(call)) {
         const method = String(call[3][0]);
         steps.push(method);
-        // the call takes the ring's code "rung" alone
-        const rung = method === "join" && call[3][2]?.ring === "rung";
-        if (rung) return { ring: { voiceAgent: false } };
         return method === "signal" ? { sdp: "v=0", tracks: [] } : {};
       }
       const facet = /facets\.get\('([^']+)'\)\.liveSnapshot/.exec(String(call))?.[1];
@@ -2916,15 +2850,10 @@ function callFacet(fails: Record<string, Error> = {}) {
   const published: string[] = [];
   const held = new Map<string, Promise<void>>();
   const once = new Map<string, Error>();
-  const answers = new Map<string, object>();
   const failingSteps = new Map<string, Error>();
   return {
     steps,
     calls,
-    /** The next call of `method` answers `answer` (a join's `ring`, say). */
-    answerNext(method: string, answer: object) {
-      answers.set(method, answer);
-    },
     /** The next call of `method` throws `error`. */
     failNext(method: string, error: Error) {
       once.set(method, error);
@@ -2958,9 +2887,6 @@ function callFacet(fails: Record<string, Error> = {}) {
       const stepFailing = method === "signal" && failingSteps.get(Object.keys(step)[0]!);
       if (stepFailing) throw stepFailing;
       if (fails[method]) throw fails[method];
-      const answer = answers.get(method);
-      answers.delete(method);
-      if (answer) return answer;
       // each track subscribed to comes under the mid `m-<track>`
       const tracks = (step.subscribe || []).map((track: string) => ({ track, mid: `m-${track}` }));
       return method === "signal" ? { sdp: "v=0", tracks } : {};

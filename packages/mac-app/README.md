@@ -156,15 +156,6 @@ await mac.banner.show({
   ],
 }); // { pressed: "Join" }, or { pressed: null, why: "no answer" | "dismissed" | "replaced" | "off", words }
 await mac.call.ring({ agent: "/agents/lunch", from: "Lunch planner", reason: "Friday's table" });
-// with the call's one-time code, the page joins with the microphone on (see Banners)
-await itx.config.startMeeting({ path: "/agents/lunch" });
-const { code } = await itx.cd("/agents/lunch").facets.get("call").ring({ voiceAgent: true });
-await mac.call.ring({
-  agent: "/agents/lunch",
-  from: "Lunch planner",
-  reason: "Friday's table",
-  code,
-});
 // { accepted: true }, or { accepted: false, why: "declined" | "no answer" | "replaced" | "off", words }
 ```
 
@@ -208,12 +199,7 @@ plain banner never replaces a call (it is refused). At most 6 begin in a minute.
 A page to open is checked before anything shows. For a call with no `url`, it is the agent's page
 in the mind's Dash, `https://dash.<zone>/agents<path>?call=join`, which joins the
 call as it loads, muted: anyone can send such a link, so the page opens no microphone and sends
-nothing until you press Unmute, and your camera and screen stay off. The one exception is a ring
-with `code`, a one-time code that the call itself made (its `ring()`, two minutes, one join): the
-app puts it on the page as `ring=<code>`, and when the call takes it, the page opens the
-microphone at once (and invites the voice agent, if the ring asked), as your Accept was the
-press. A code the call does not take changes nothing. The code is letters, digits, `-` and `_`;
-a page given as `url` gets no code. Any other page must be https, with no user or port, on the zone of the mind this Mac is
+nothing until you press Unmute, and your camera and screen stay off. Any other page must be https, with no user or port, on the zone of the mind this Mac is
 lent to or a subdomain of it: the app opens no other origin. The zone comes from the mind's
 address as the lend's CLI says it (`iterate.example.com`), without the leading `iterate.` when
 two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is refused.

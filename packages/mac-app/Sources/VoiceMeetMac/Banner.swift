@@ -69,7 +69,7 @@ final class Banners {
         }
         let agent = (parameters["agent"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let page: URL
-        switch BannerState.callPage(parameters["url"] as? String, agent: agent, mind: activeMind() ?? "", code: parameters["code"] as? String) {
+        switch BannerState.callPage(parameters["url"] as? String, agent: agent, mind: activeMind() ?? "") {
         case .success(let ready): page = ready
         case .failure(let refusal): throw EndpointRefusal(refusal.words)
         }

@@ -804,10 +804,8 @@ function IterateChat({
   // the header's place for the call's controls, once the header has drawn it
   const [callIn, setCallIn] = useState<HTMLElement | null>(null);
   const { view, patchView } = useView();
-  // `call=join`: the page was opened to join the call (a Mac's Accept opens it so), and `ring`: the
-  // ring's one-time code, which the call may take as the person's press
+  // `call=join`: the page was opened to join the call (a Mac's Accept opens it so)
   const joinOnArrival = usePageParam("call") === "join";
-  const ring = usePageParam("ring") || undefined;
   // the header's place for who is here and can use the conversation, once the header has drawn it
   const [aside, setAside] = useState<HTMLElement | null>(null);
   // held and read again at each new session: the rows of the last one, or of the last page load,
@@ -872,7 +870,6 @@ function IterateChat({
           enable={() => call.enable(itx, path)}
           barIn={callIn}
           joinOnArrival={joinOnArrival}
-          ring={joinOnArrival ? ring : undefined}
           arrived={leaveTheJoinKey}
         />
       ) : null}
@@ -898,9 +895,9 @@ function IterateChat({
 }
 
 /** How many of the held events are rows of the log: a page's presence status is no row. */
-/** The join on arrival began: `call=join` and the ring's code leave the address, in place. */
+/** The join on arrival began: `call=join` leaves the address, in place. */
 function leaveTheJoinKey() {
-  go(hrefOf({ call: undefined, ring: undefined }), true);
+  go(hrefOf({ call: undefined }), true);
 }
 
 function rowsOf(events: readonly { type: string }[]): number {

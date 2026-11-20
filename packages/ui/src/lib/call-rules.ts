@@ -15,9 +15,6 @@ export const JoinAnswer = z.object({
   ttlS: z.number().optional(),
   /** The page's admission, as the call took it in. */
   admission: z.string().optional(),
-  /** The join used a ring's one-time code up: the page opens the microphone (the person pressed
-   *  Accept on their device), and with `voiceAgent` invites the voice agent. */
-  ring: z.object({ voiceAgent: z.boolean() }).optional(),
 });
 /** `signal`: the SFU's description and, for a subscribe, each track's mid. */
 export const SignalAnswer = z.object({

@@ -29,11 +29,6 @@
 //   the call as muted, and the page says so. The person's own Unmute opens the microphone. They
 //   hear the call after the browser's first click (the engine says so). `arrived` then takes the
 //   key out of the address, so a reload does not join again.
-//   THE ONE EXCEPTION is a ring's code (`ring`, from the address the Mac's Accept opened): the page
-//   hands it to the join, and when the call answers that it used the code up (a code the mind made
-//   for this call, one use, two minutes), the microphone opens at once, and the voice agent comes
-//   if the ring asked: the person's Accept on their Mac was the press. Any other code changes
-//   nothing: muted, as above. Both keys leave the address after the one try.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { PhoneIcon } from "lucide-react";
@@ -53,7 +48,6 @@ export function AgentCall({
   enable,
   barIn,
   joinOnArrival = false,
-  ring,
   arrived,
 }: {
   stub: CallContext | undefined;
@@ -67,8 +61,6 @@ export function AgentCall({
   barIn: HTMLElement | null;
   /** The page was opened to join: it joins, or starts the call, once the table is read. */
   joinOnArrival?: boolean;
-  /** The ring's one-time code, for the join on arrival. */
-  ring?: string;
   /** The join on arrival began: the host takes its key out of the address. */
   arrived?: () => void;
 }) {
@@ -96,7 +88,7 @@ export function AgentCall({
   // nothing before the table is read: an agent with a call shows Join, never a start first
   const start =
     call && !barLive && context.processors.loaded
-      ? async (listenOnly = false, ring?: string) => {
+      ? async (listenOnly = false) => {
           const token = { call, epoch: call.epoch };
           setStartedIn(token);
           const done = () => setStartedIn((now) => (now === token ? null : now));
@@ -109,7 +101,7 @@ export function AgentCall({
             // the page went away, or its call was closed (a pagehide, a Leave), while the call was
             // turned on: joining is the person's next press
             if (heldCall.current !== call || call.epoch !== token.epoch) return;
-            await call.join({ listenOnly, ring });
+            await call.join({ listenOnly });
           } finally {
             inTheCall();
             done();
@@ -125,13 +117,11 @@ export function AgentCall({
       if (!call) return;
       arrived?.();
       if (ui.joined || ui.joining) return;
-      const joined = start ? start(true, ring) : call.join({ listenOnly: true, ring });
+      const joined = start ? start(true) : call.join({ listenOnly: true });
       joined.then(
         () => {
-          if (!call.ui.joined) return;
-          if (call.ui.muted)
+          if (call.ui.joined && call.ui.muted)
             call.say("You joined from a link, muted: no one hears you until you press Unmute.");
-          else if (ring) call.say("You accepted the ring on your Mac: your microphone is on.");
         },
         (error: unknown) =>
           call.fail(

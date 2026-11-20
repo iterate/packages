@@ -231,16 +231,10 @@ public struct BannerState: Equatable, Sendable {
     }
 
     /// The page of a call, for `call.ring`: the given one, checked, or, with none, the agent's page
-    /// in the mind's Dash, which joins the call on arrival, muted (`call=join`). `code`, the call's
-    /// one-time code of this ring (its facet's `ring`), goes on that page as `ring=<code>`: with it
-    /// the page joins with the microphone on. A given page gets no code.
-    public static func callPage(_ given: String?, agent: String, mind: String, code: String? = nil) -> Result<URL, BannerRefusal> {
+    /// in the mind's Dash, which joins the call on arrival, muted (`call=join`).
+    public static func callPage(_ given: String?, agent: String, mind: String) -> Result<URL, BannerRefusal> {
         guard agent.hasPrefix("/") else {
             return .failure(BannerRefusal("ring needs the agent's path, such as /agents/meet/…"))
-        }
-        let code = code ?? ""
-        guard code.count <= 64, code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else {
-            return .failure(BannerRefusal("A ring's code is letters, digits, - and _ (the call's ring() gives it)."))
         }
         if let given, !given.isEmpty { return page(given, mind: mind) }
         guard let zone = zone(of: mind) else { return .failure(noZone(mind)) }
@@ -250,7 +244,7 @@ public struct BannerState: Equatable, Sendable {
         page.scheme = "https"
         page.host = "dash.\(zone)"
         page.path = "/agents" + agent
-        page.queryItems = [URLQueryItem(name: "call", value: "join")] + (code.isEmpty ? [] : [URLQueryItem(name: "ring", value: code)])
+        page.queryItems = [URLQueryItem(name: "call", value: "join")]
         return page.url.map { .success($0) } ?? .failure(BannerRefusal("No page could be made for \(agent)."))
     }
 

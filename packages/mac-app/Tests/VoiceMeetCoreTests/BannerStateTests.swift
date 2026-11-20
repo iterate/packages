@@ -138,17 +138,6 @@ final class BannerStateTests: XCTestCase {
         XCTAssertNil(try? BannerState.callPage(nil, agent: "agents/a", mind: "example.com").get())
     }
 
-    func testARingsCodeGoesOnTheDefaultPageAlone() throws {
-        let url = try BannerState.callPage(nil, agent: "/agents/a", mind: "example.com", code: "Ab3_-x").get()
-        XCTAssertEqual(url.absoluteString, "https://dash.example.com/agents/agents/a?call=join&ring=Ab3_-x")
-        // a given page is checked as before, and gets no code
-        let given = try BannerState.callPage("https://meet.example.com/x", agent: "/agents/a", mind: "example.com", code: "Ab3").get()
-        XCTAssertEqual(given.absoluteString, "https://meet.example.com/x")
-        // a code that could change the address is refused
-        XCTAssertNil(try? BannerState.callPage(nil, agent: "/agents/a", mind: "example.com", code: "a&call=x").get())
-        XCTAssertNil(try? BannerState.callPage(nil, agent: "/agents/a", mind: "example.com", code: String(repeating: "a", count: 65)).get())
-    }
-
     func testAPageIsOnlyOneOfTheMindsZone() {
         func allowed(_ url: String, mind: String = "example.com") -> Bool {
             (try? BannerState.page(url, mind: mind).get()) != nil
