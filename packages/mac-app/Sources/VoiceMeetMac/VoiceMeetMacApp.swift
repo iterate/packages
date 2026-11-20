@@ -25,6 +25,10 @@ enum VoiceMeetMacApp {
             let form = RemoveMindForm(mind: "example.com", isActive: true, remove: {}, cancel: {})
             exit(FormWindow.render(form, to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
         }
+        // The menu-bar mark in each state of the lend: `--render-icons <folder>`.
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-icons"), CommandLine.arguments.indices.contains(flag + 1) {
+            exit(IterateIcon.render(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
+        }
         // A sample banner: `--render-banner <file> ring|request|notice [dark]`; `--render-ring <file> [dark]`
         // is the ring's.
         for flag in ["--render-banner", "--render-ring"] {

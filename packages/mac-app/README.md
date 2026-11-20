@@ -55,7 +55,14 @@ The panel says what the lend does, with its reason and time: **Connecting**, **L
 lend process ended; when it starts again) or **Not allowed** (no member allowed the key, or it was
 removed: the link to allow it). **Reconnect Now** ends a wait or an attempt and starts at once; the
 app does the same when the Mac wakes from sleep, and when the network comes back to a lend that is
-not live. Every change of state is one line in the app's log.
+not live. Opening the panel does it too, for a lend that waits for its next start (stopped,
+refused, or the CLI between its tries); one that is connecting or live is left alone. Every change
+of state is one line in the app's log.
+
+The 𝑖 in the menu bar shows the lend at a glance: plain while live, dimmed while it connects or
+reconnects, and dimmed with a slash through it while it is not lent (no mind, stopped, not allowed,
+incompatible). Green, red and orange (a banner, a use, a capture) show over it while they last.
+`--render-icons <folder>` draws each mark on a light and a dark bar.
 
 Needs macOS 14 or later and Node 22.18 or later.
 
@@ -66,7 +73,7 @@ use it. In short, with the name `jane.mac`:
 
 ```js
 const mac = itx.jane.mac;
-await mac.state(); // each display, camera and other thing, and its Off / Ask / Shared
+await mac.state(); // each display, camera and other thing, and its Off / Ask / Shared; presence
 await mac.screen.snapshot({ display: 0 }); // { jpeg, pixelWidth, pixelHeight }
 await mac.camera.snapshot(); // a still picture of a camera
 await mac.microphone.listen({ seconds: 5 }); // { wav }
@@ -84,8 +91,35 @@ await mac.banner.show({
   ],
 }); // { pressed: "Join" }, or { pressed: null, why: "no answer" | "dismissed" | "replaced" | "off", words }
 await mac.call.ring({ agent: "/agents/lunch", from: "Lunch planner", reason: "Friday's table" });
+// with the call's one-time code, the page joins with the microphone on (see Banners)
+await itx.config.startMeeting({ path: "/agents/lunch" });
+const { code } = await itx.cd("/agents/lunch").facets.get("call").ring({ voiceAgent: true });
+await mac.call.ring({
+  agent: "/agents/lunch",
+  from: "Lunch planner",
+  reason: "Friday's table",
+  code,
+});
 // { accepted: true }, or { accepted: false, why: "declined" | "no answer" | "replaced" | "off", words }
 ```
+
+### Presence
+
+`mac.state()` also says whether a person is likely at the Mac, read when asked and kept nowhere:
+
+```js
+(await mac.state()).presence; // { idleSeconds: 42, screenLocked: false, displayAsleep: false }
+```
+
+- `idleSeconds`: the seconds since the last key press, mouse move, click or scroll, in any app.
+- `screenLocked`: true while the screen is locked, or while another user's session is in front.
+- `displayAsleep`: true while every display sleeps (or none is on).
+
+Idle under a few minutes, not locked and a display awake is the sign that a person is likely
+there; an agent reads it before it shows a banner or rings. It says nothing of who is there. It
+has no switch of its own: it is part of `state()`, which any agent the Mac is lent to may read, and
+macOS asks no permission for any of the three (`CGEventSource.secondsSinceLastEventType`,
+`CGSessionCopyCurrentDictionary`, `CGDisplayIsAsleep`).
 
 ### Banners
 
@@ -109,7 +143,12 @@ plain banner never replaces a call (it is refused). At most 6 begin in a minute.
 A page to open is checked before anything shows. For a call with no `url`, it is the agent's page
 in the mind's Dash, `https://dash.<zone>/agents<path>?call=join`, which joins the
 call as it loads, muted: anyone can send such a link, so the page opens no microphone and sends
-nothing until you press Unmute, and your camera and screen stay off. Any other page must be https, with no user or port, on the zone of the mind this Mac is
+nothing until you press Unmute, and your camera and screen stay off. The one exception is a ring
+with `code`, a one-time code that the call itself made (its `ring()`, two minutes, one join): the
+app puts it on the page as `ring=<code>`, and when the call takes it, the page opens the
+microphone at once (and invites the voice agent, if the ring asked), as your Accept was the
+press. A code the call does not take changes nothing. The code is letters, digits, `-` and `_`;
+a page given as `url` gets no code. Any other page must be https, with no user or port, on the zone of the mind this Mac is
 lent to or a subdomain of it: the app opens no other origin. The zone comes from the mind's
 address as the lend's CLI says it (`iterate.example.com`), without the leading `iterate.` when
 two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is refused.

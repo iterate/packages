@@ -196,7 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     /// The iterate mark: green while a banner shows, red for 3 seconds at each use by a
-    /// mind, orange while the microphone or a camera is on.
+    /// mind, orange while the microphone or a camera is on. Else the lend at a glance: plain while
+    /// live, dimmed while it connects, dimmed and slashed while it is not lent.
     private func updateStatusButton() {
         guard let button = statusItem?.button else { return }
         let isInUse = model.lastUse.map { Date().timeIntervalSince($0.at) < 3 } ?? false
@@ -205,12 +206,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning
         let banner = model.banners.state.showing
-        let shown = banner != nil ? "green" : isInUse ? "red" : isCapturing ? "orange" : "plain"
+        let glance = lend.state.phase.glance
+        let shown = banner != nil ? "green" : isInUse ? "red" : isCapturing ? "orange" : glance.rawValue
         button.image =
-            banner != nil ? IterateIcon.green : isInUse ? IterateIcon.red : isCapturing ? IterateIcon.orange : IterateIcon.plain
+            banner != nil ? IterateIcon.green : isInUse ? IterateIcon.red : isCapturing ? IterateIcon.orange : IterateIcon.lend(glance)
+        let lendWords: String
+        switch glance {
+        case .live: lendWords = "iterate: lent"
+        case .connecting: lendWords = "iterate: connecting"
+        case .down: lendWords = "iterate: not lent"
+        }
         let label =
             banner.map { $0.isCall ? "iterate: \($0.title) calls" : "iterate: \($0.title)" }
-            ?? (isInUse ? "iterate: a mind uses this Mac now" : isCapturing ? "iterate: microphone or camera on" : "iterate")
+            ?? (isInUse ? "iterate: a mind uses this Mac now" : isCapturing ? "iterate: microphone or camera on" : lendWords)
         button.toolTip = label
         button.setAccessibilityLabel(label)
         if shown != shownStatusIcon {
@@ -224,6 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // a lend that waits for its next start starts now: the owner looks at it
+            lend.panelOpened()
             stateDidChange()
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

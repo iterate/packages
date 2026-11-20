@@ -128,6 +128,11 @@ final class Lend {
         network.cancel()
     }
 
+    /// The owner opened the panel: a lend that waits for its next start starts at once.
+    func panelOpened() {
+        send(.panelOpened)
+    }
+
     /// The panel's "Reconnect now".
     func reconnectNow() {
         send(.reconnectNow(why: "the person pressed Reconnect now"))
@@ -403,6 +408,7 @@ final class Lend {
         case .timerFired: return "wait over"
         case .reconnectNow(let why): return "reconnect now (\(why))"
         case .networkCameBack: return "network back"
+        case .panelOpened: return "the panel opened"
         }
     }
 

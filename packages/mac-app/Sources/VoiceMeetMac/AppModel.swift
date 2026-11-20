@@ -53,6 +53,21 @@ final class AppModel {
 
     // MARK: - The local endpoint
 
+    /// Whether a person is likely at this Mac now (VoiceMeetCore `Presence`): read at each
+    /// `state()`, from calls that need no permission of macOS.
+    private static func presence() -> Presence {
+        // every kind of input: a key, a mouse move, a click, a scroll
+        let anyInput = CGEventType(rawValue: ~0)!
+        var displays = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        if CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) != .success { count = 0 }
+        return Presence.read(
+            idle: CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput),
+            session: CGSessionCopyCurrentDictionary() as? [String: Any],
+            displaysAsleep: displays.prefix(Int(count)).map { CGDisplayIsAsleep($0) != 0 }
+        )
+    }
+
     /// A thing that is off, or whose permission macOS has not given, is a refusal with the reason.
     /// A thing on "Ask" waits for the person's approval. A caller can change no choice and can
     /// bring up no permission prompt: the person does both in the panel.
@@ -70,6 +85,7 @@ final class AppModel {
                     return row
                 },
                 "microphone": microphone.statusLine,
+                "presence": Self.presence().dictionary,
             ]
         case "screen.snapshot":
             let display = try Screen.resolve(parameters["display"] as? Int)

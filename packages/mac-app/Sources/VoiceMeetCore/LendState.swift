@@ -87,6 +87,10 @@ public enum LendEvent: Equatable, Sendable {
     case reconnectNow(why: String)
     /// The network came back after it was gone: start again at once, unless the lend is live.
     case networkCameBack
+    /// The owner opened the panel: a lend that waits for its next start (stopped, refused, or the
+    /// CLI between its tries) starts at once, with no wait for the back-off. One that is connecting
+    /// or live is left alone, and so is a CLI that waits for a member to allow its key.
+    case panelOpened
 }
 
 public enum LendEffect: Equatable, Sendable {
@@ -147,6 +151,17 @@ public struct LendState: Equatable, Sendable {
             return [.startProcess]
         case (.idle, _), (.live, .networkCameBack):
             return []
+        case (_, .panelOpened):
+            switch phase {
+            case .stopped, .reconnecting, .notAllowed(_, _, .some), .incompatible(_, .some):
+                // the owner's look is no new start: the back-off counts on from where it was
+                phase = .connecting(since: now)
+                lastLine = ""
+                stoppedWhy = nil
+                return [.startProcess]
+            default:
+                return []
+            }
         case (_, .networkCameBack):
             // the failures were the network's: the next ones wait from the first wait again
             quickFailures = 0
@@ -247,7 +262,25 @@ public struct LendState: Equatable, Sendable {
     }
 }
 
+/// The lend at a glance, as the menu-bar mark shows it.
+public enum LendGlance: String, Equatable, Sendable, CaseIterable {
+    /// Lent: the plain mark.
+    case live
+    /// On its way: connecting, or the CLI between its tries. The mark dimmed.
+    case connecting
+    /// Not lent: no mind, stopped, refused or incompatible. The mark dimmed with a slash.
+    case down
+}
+
 extension LendPhase {
+    public var glance: LendGlance {
+        switch self {
+        case .live: return .live
+        case .connecting, .reconnecting: return .connecting
+        case .idle, .stopped, .notAllowed, .incompatible: return .down
+        }
+    }
+
     /// The try the CLI is on, while it reconnects.
     public var attempt: Int? {
         if case .reconnecting(let attempt, _, _, _) = self { return attempt }

@@ -21,7 +21,7 @@ import { join } from "node:path";
  *  characters ("a rewrite rule's description is one line: a string of at most 500 chars"), and the
  *  lend then never goes live: keep this well under it. The detail is in `instructions` below. */
 export const description =
-  "A person's Mac as an endpoint device, through its iterate menu-bar app. Inputs: screen, camera, microphone, the front window as text. Outputs: speakers, and banners on the screen with buttons (banner.show; call.ring looks like a call). Compute: commands. A person is often near it. The owner sets each thing to off, ask or shared, and sees each use in the menu bar.";
+  "A person's Mac as an endpoint device, through its iterate menu-bar app. Inputs: screen, camera, microphone, the front window as text. Outputs: speakers, and banners on the screen with buttons (banner.show; call.ring looks like a call). Compute: commands. A person is often near it: state().presence says if one is likely there now. The owner sets each thing to off, ask or shared, and sees each use in the menu bar.";
 
 const socketPath = join(homedir(), "Library/Application Support/voice-meet-mac/endpoint.sock");
 
@@ -185,7 +185,11 @@ export default async function macEndpoint() {
   await ensureTheAppRuns();
   return {
     /** Every thing of the Mac (each display, each camera, the microphone, the speakers, the window
-     *  text, banners, commands) with its `sharing`: "shared", "ask" (the owner approves each use) or "off". */
+     *  text, banners, commands) with its `sharing`: "shared", "ask" (the owner approves each use) or "off".
+     *  `presence`: whether a person is likely at the Mac now. `idleSeconds` since the last key
+     *  press, mouse move or click in any app; `screenLocked` (or another user's session in front);
+     *  `displayAsleep` (every display). Idle under a few minutes, not locked and a display awake
+     *  is the sign that a person is likely there; it says nothing of who. */
     state: () => ask("state"),
     screen: {
       /** One still picture of a whole display, as JPEG bytes. `display` is the number
@@ -243,15 +247,22 @@ export default async function macEndpoint() {
     call: {
       /** A banner that looks like a call: `from` (who calls; the agent's path when none) and
        *  `reason`, Decline and Accept as round phone buttons, the ring sound, 30 s. Accept opens
-       *  `url`: by default the agent's page in the Dash, which joins its call on arrival. */
-      ring: (input: { agent: string; from?: string; reason?: string; url?: string }) =>
-        ask("call.ring", input).then(ringAnswerOf),
+       *  `url`: by default the agent's page in the Dash, which joins its call on arrival, muted.
+       *  `code`: the call's one-time code (`itx.cd(agent).facets.get("call").ring()`), put on that
+       *  page, which then joins with the microphone on: the Accept was the person's press. */
+      ring: (input: {
+        agent: string;
+        from?: string;
+        reason?: string;
+        url?: string;
+        code?: string;
+      }) => ask("call.ring", input).then(ringAnswerOf),
     },
     __describe() {
       return {
         instructions: `${description} Say what you looked at or did, and why.`,
         types:
-          "state(): Promise<{ things: { thing: string; kind: 'screen' | 'camera' | 'microphone' | 'speaker' | 'banners' | 'accessibility' | 'commands'; name: string; sharing: 'off' | 'ask' | 'shared'; permitted: boolean; uses: number; display?: number }[]; microphone: string }>; uses: Record<string, number>; microphone: string; displays: { display: number; name: string; checked: boolean }[]; cameras: { camera: string; checked: boolean; status: string }[] }>; screen.snapshot(input?: { display?: number; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; camera.snapshot(input?: { camera?: string; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; microphone.listen(input?: { seconds?: number }): Promise<{ wav: Uint8Array; seconds: number }>; speaker.play(sound: Uint8Array): Promise<{ seconds: number }>; speaker.say(words: string): Promise<{ characters: number }>; accessibility.frontWindow(input?: { maxDepth?: number; maxNodes?: number }): Promise<{ application: string; bundleIdentifier: string; window?: object; truncated: boolean }>; run(argv: string[], options?: { stdin?: string | Uint8Array; timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: Uint8Array; stderr: Uint8Array }>; appleScript(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; swift(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; banner.show(input: { title: string; body?: string; buttons?: { label: string; style?: 'accept' | 'decline' | 'plain'; symbol?: string; open?: string }[]; sound?: 'ring' | 'chime' | 'none'; seconds?: number }): Promise<{ pressed: string } | { pressed: null; why: 'no answer' | 'dismissed' | 'replaced' | 'off'; words: string }>; call.ring(input: { agent: string; from?: string; reason?: string; url?: string }): Promise<{ accepted: true } | { accepted: false; why: 'declined' | 'no answer' | 'replaced' | 'off'; words: string }>;",
+          "state(): Promise<{ things: { thing: string; kind: 'screen' | 'camera' | 'microphone' | 'speaker' | 'banners' | 'accessibility' | 'commands'; name: string; sharing: 'off' | 'ask' | 'shared'; permitted: boolean; uses: number; display?: number }[]; microphone: string; presence: { idleSeconds: number; screenLocked: boolean; displayAsleep: boolean } }>; screen.snapshot(input?: { display?: number; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; camera.snapshot(input?: { camera?: string; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; microphone.listen(input?: { seconds?: number }): Promise<{ wav: Uint8Array; seconds: number }>; speaker.play(sound: Uint8Array): Promise<{ seconds: number }>; speaker.say(words: string): Promise<{ characters: number }>; accessibility.frontWindow(input?: { maxDepth?: number; maxNodes?: number }): Promise<{ application: string; bundleIdentifier: string; window?: object; truncated: boolean }>; run(argv: string[], options?: { stdin?: string | Uint8Array; timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: Uint8Array; stderr: Uint8Array }>; appleScript(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; swift(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; banner.show(input: { title: string; body?: string; buttons?: { label: string; style?: 'accept' | 'decline' | 'plain'; symbol?: string; open?: string }[]; sound?: 'ring' | 'chime' | 'none'; seconds?: number }): Promise<{ pressed: string } | { pressed: null; why: 'no answer' | 'dismissed' | 'replaced' | 'off'; words: string }>; call.ring(input: { agent: string; from?: string; reason?: string; url?: string; code?: string }): Promise<{ accepted: true } | { accepted: false; why: 'declined' | 'no answer' | 'replaced' | 'off'; words: string }>;",
       };
     },
   };

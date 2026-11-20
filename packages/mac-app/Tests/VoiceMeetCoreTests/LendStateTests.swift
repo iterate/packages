@@ -150,6 +150,59 @@ final class LendStateTests: XCTestCase {
         XCTAssertEqual(reconnectingState.handle(.reconnectNow(why: "the Mac woke"), now: at(11)), [.startProcess])
     }
 
+    func testOpeningThePanelStartsAWaitingLendAtOnceAndKeepsItsBackOff() {
+        var state = LendState()
+        _ = state.handle(.started, now: at(0))
+        _ = state.handle(.processEnded(status: 1, ranFor: 1), now: at(1))
+        _ = state.handle(.timerFired, now: at(5))
+        _ = state.handle(.processEnded(status: 1, ranFor: 1), now: at(6))
+        XCTAssertEqual(state.phase, .stopped(reason: "the lend process ended (exit 1): it printed nothing", nextStartAt: at(14)))
+        XCTAssertEqual(state.handle(.panelOpened, now: at(7)), [.startProcess])
+        XCTAssertEqual(state.phase, .connecting(since: at(7)))
+        // the back-off counts on: the next quick end waits longer, not from the first wait again
+        XCTAssertEqual(state.handle(.processEnded(status: 1, ranFor: 1), now: at(8)), [.startProcessAfter(seconds: 16)])
+        // the old wait's timer starts nothing more than one start
+        XCTAssertEqual(state.handle(.panelOpened, now: at(9)), [.startProcess])
+        XCTAssertEqual(state.handle(.timerFired, now: at(14)), [])
+    }
+
+    func testOpeningThePanelLeavesALendThatIsConnectingLiveOrWaitingForAMember() {
+        var connectingState = LendState()
+        _ = connectingState.handle(.started, now: at(0))
+        XCTAssertEqual(connectingState.handle(.panelOpened, now: at(1)), [])
+        var liveState = livePhase()
+        XCTAssertEqual(liveState.handle(.panelOpened, now: at(3)), [])
+        XCTAssertTrue(liveState.isLive)
+        // the CLI waits for a member to allow its key: its process runs, and keeps waiting
+        var waiting = LendState()
+        _ = waiting.handle(.started, now: at(0))
+        _ = waiting.handle(.stateLine(#"{"state":"notAllowed","why":"no member has allowed this key yet.","waiting":true}"#), now: at(1))
+        XCTAssertEqual(waiting.handle(.panelOpened, now: at(2)), [])
+        // after that process ended, the refused lend waits 300 s: the owner's look starts it now
+        _ = waiting.handle(.processEnded(status: 1, ranFor: 2), now: at(3))
+        XCTAssertEqual(waiting.handle(.panelOpened, now: at(4)), [.startProcess])
+        var idle = LendState()
+        XCTAssertEqual(idle.handle(.panelOpened, now: at(0)), [])
+    }
+
+    func testOpeningThePanelWhileTheCLIWaitsBetweenItsTriesStartsAgainAtOnce() {
+        var state = livePhase()
+        _ = state.handle(.stateLine(reconnecting(3, inMs: 8000, "fetch failed")), now: at(10))
+        XCTAssertEqual(state.handle(.panelOpened, now: at(11)), [.startProcess])
+        XCTAssertEqual(state.phase, .connecting(since: at(11)))
+    }
+
+    func testTheMarkShowsTheLendAtAGlance() {
+        let now = at(0)
+        XCTAssertEqual(LendPhase.live(since: now).glance, .live)
+        XCTAssertEqual(LendPhase.connecting(since: now).glance, .connecting)
+        XCTAssertEqual(LendPhase.reconnecting(attempt: 1, of: 14, nextTryAt: now, lastFailure: "x").glance, .connecting)
+        XCTAssertEqual(LendPhase.stopped(reason: "x", nextStartAt: now).glance, .down)
+        XCTAssertEqual(LendPhase.notAllowed(reason: "x", link: nil, nextStartAt: nil).glance, .down)
+        XCTAssertEqual(LendPhase.incompatible(reason: "x", nextStartAt: nil).glance, .down)
+        XCTAssertEqual(LendPhase.idle.glance, .down)
+    }
+
     func testTheNetworkComingBackStartsALendThatIsNotLive() {
         var state = livePhase()
         XCTAssertEqual(state.handle(.networkCameBack, now: at(5)), [])

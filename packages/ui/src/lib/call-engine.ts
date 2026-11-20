@@ -1782,8 +1782,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *
    *  `listenOnly`: a join that no press of the person's made (a page opened with `call=join`). It
    *  opens no microphone and sends nothing: the page has no sending connection, and shows the call
-   *  as muted. The person's first Unmute opens the microphone and publishes it (`micOn`). */
-  async function join(kept?: MediaStream | null, listenOnly = false) {
+   *  as muted. The person's first Unmute opens the microphone and publishes it (`micOn`). With
+   *  `ring` (a ring's one-time code) that the call answers as used up, that happens at once, by
+   *  the same path: the person's Accept on their device was the press. */
+  async function join(kept?: MediaStream | null, listenOnly = false, ring?: string) {
     const call = scope;
     if (joined || ui.joining) {
       stopTracks(kept);
@@ -1808,7 +1810,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       // in the call, and the relay's credentials, in one call
       call.joinSent = true;
-      const asked = facet("join", page, { admit: call.admission, seq: call.seq });
+      const asked = facet("join", page, { admit: call.admission, seq: call.seq, ring });
       // whatever the join answers once a leave or a dispose ended the call, the facet may have
       // taken the page in after that leave: this admission's leave again (a newer one outlives it)
       const leaveIfEnded = () => {
@@ -1847,6 +1849,11 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
       reconcile();
       captionsOn();
+      // a ring's code, used up: the microphone now, and the voice agent when the ring asked
+      if (answer.ring && !mic) {
+        await micOn();
+        if (answer.ring.voiceAgent) void aiInvite();
+      }
     } catch (error) {
       // a leave or a dispose ended this call: it closed everything, and there is nothing to say
       if (call.ended) return;
@@ -2004,10 +2011,11 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     sync,
     /** The person's own Join: a repair may again join afresh once. `listenOnly`: a join the
      *  person did not press (a page opened with `call=join`): no microphone opens and no track is
-     *  sent until their Unmute. */
-    join: ({ listenOnly = false }: { listenOnly?: boolean } = {}) => {
+     *  sent until their Unmute. `ring`: a ring's one-time code from that page's address; when the
+     *  call takes it, the microphone opens at once (and the voice agent comes, if the ring asked). */
+    join: ({ listenOnly = false, ring }: { listenOnly?: boolean; ring?: string } = {}) => {
       rejoinSpent = false;
-      return join(null, listenOnly);
+      return join(null, listenOnly, ring);
     },
     /** A number that changes at each teardown (a Leave, a dispose, a new call): a press that waited
      *  for something (a Start's enable) joins only while it is the same. */

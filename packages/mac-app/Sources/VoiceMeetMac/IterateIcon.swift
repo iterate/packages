@@ -1,4 +1,5 @@
 import AppKit
+import VoiceMeetCore
 
 /// The iterate mark for the menu bar, drawn from the logo's own vector paths
 /// (`packages/ui/src/components/iterate-logo.svg`), so the package needs no image file for it.
@@ -13,8 +14,24 @@ enum IterateIcon {
     /// too little room above and below.
     private static let menuBarHeight: CGFloat = 13
 
+    /// Every mark is this wide, so the menu bar does not shift when the mark changes.
+    private static let menuBarWidth: CGFloat = 11
+
     /// A template image: the system draws it light or dark with the menu bar.
     static let plain = mark(height: menuBarHeight, color: nil)
+    /// The lend at a glance, as Apple's own items show a state: the plain mark while lent; dimmed
+    /// while it connects; dimmed with a slash through it while it is not lent (as `wifi.slash`
+    /// and `mic.slash` do). All are template images, readable in a light and a dark bar.
+    static let connecting = mark(height: menuBarHeight, color: nil, alpha: 0.4)
+    static let down = mark(height: menuBarHeight, color: nil, alpha: 0.4, slash: true)
+
+    static func lend(_ glance: LendGlance) -> NSImage {
+        switch glance {
+        case .live: return plain
+        case .connecting: return connecting
+        case .down: return down
+        }
+    }
     /// While the screen is shared.
     static let red = mark(height: menuBarHeight, color: .systemRed)
     /// While only the microphone is on.
@@ -22,21 +39,73 @@ enum IterateIcon {
     /// While a banner shows, a call's among them.
     static let green = mark(height: menuBarHeight, color: .systemGreen)
 
-    static func mark(height: CGFloat, color: NSColor?) -> NSImage {
+    static func mark(height: CGFloat, color: NSColor?, alpha: CGFloat = 1, slash: Bool = false) -> NSImage {
         let glyph = glyph()
         let bounds = glyph.bounds
         let scale = height / bounds.height
-        var transform = AffineTransform(scale: scale)
+        let width = max(menuBarWidth, ceil(bounds.width * scale))
+        var transform = AffineTransform(translationByX: (width - bounds.width * scale) / 2, byY: 0)
+        transform.scale(scale)
         transform.translate(x: -bounds.minX, y: -bounds.minY)
         glyph.transform(using: transform)
         // A flipped image has y down, as the logo has.
-        let image = NSImage(size: NSSize(width: ceil(bounds.width * scale), height: height), flipped: true) { _ in
-            (color ?? .black).setFill()
+        let image = NSImage(size: NSSize(width: width, height: height), flipped: true) { _ in
+            let ink = color ?? .black
+            ink.withAlphaComponent(alpha).setFill()
             glyph.fill()
+            if slash {
+                // from the top left to the bottom right, with a gap cut on each side of it
+                let line = NSBezierPath()
+                line.move(to: NSPoint(x: 1, y: 1.5))
+                line.line(to: NSPoint(x: width - 1, y: height - 1.5))
+                line.lineCapStyle = .round
+                NSGraphicsContext.current?.compositingOperation = .clear
+                line.lineWidth = 3.2
+                line.stroke()
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+                ink.setStroke()
+                line.lineWidth = 1.3
+                line.stroke()
+            }
             return true
         }
         image.isTemplate = color == nil
         return image
+    }
+
+    /// Each lend mark on a light and a dark menu bar, as the system tints a template image, 8 times
+    /// its size, one PNG each in `folder` (`--render-icons <folder>`), for a look with no Mac bar.
+    static func render(to folder: URL) -> Bool {
+        let zoom: CGFloat = 8
+        let bar = NSSize(width: 40, height: 24)
+        for glance in LendGlance.allCases {
+            for (look, background, ink) in [("light", NSColor(white: 0.93, alpha: 1), NSColor.black), ("dark", NSColor(white: 0.16, alpha: 1), NSColor.white)] {
+                let mark = lend(glance)
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(bar.width * zoom), pixelsHigh: Int(bar.height * zoom), bitsPerSample: 8,
+                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+                else { return false }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                background.setFill()
+                NSRect(x: 0, y: 0, width: bar.width * zoom, height: bar.height * zoom).fill()
+                // a template image: its alpha, in the bar's ink
+                let size = NSSize(width: mark.size.width * zoom, height: mark.size.height * zoom)
+                let place = NSRect(x: (bar.width * zoom - size.width) / 2, y: (bar.height * zoom - size.height) / 2, width: size.width, height: size.height)
+                let tinted = NSImage(size: size, flipped: false) { rect in
+                    mark.draw(in: rect)
+                    ink.setFill()
+                    rect.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(in: place)
+                NSGraphicsContext.restoreGraphicsState()
+                guard let png = bitmap.representation(using: .png, properties: [:]),
+                    (try? png.write(to: folder.appendingPathComponent("mark-\(glance.rawValue)-\(look).png"))) != nil
+                else { return false }
+            }
+        }
+        return true
     }
 
     static func glyph() -> NSBezierPath {
