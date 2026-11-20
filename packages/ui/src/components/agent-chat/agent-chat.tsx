@@ -252,7 +252,8 @@ export function AgentChat({
     context.caughtUp && !older.exhausted && feed.items.length === 0 && !feed.state.live;
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
-  const status = chatStatus(turn, feed.state);
+  // in a voice call the agent is spoken to, not idle: the strip says nothing then
+  const status = chatStatus(turn, feed.state, (inCall?.size ?? 0) > 0);
   const here = usePresence({
     enabled: presence,
     rows: context.processors.rows,
@@ -446,10 +447,12 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
 
 /** What the strip says the agent is doing. A script still running is the context's, read from the
  *  log: the feed's running code step. Before the agent's live state is known it says nothing: the
- *  feed's loading state is the one thing that speaks of the wait. */
+ *  feed's loading state is the one thing that speaks of the wait. `inCall`: someone is in the
+ *  agent's voice call, so an agent with no work says nothing, never "Idle". */
 function chatStatus(
   { facet, liveUnavailable, detail }: ReturnType<typeof agentTurnOf>,
   feedState: AgentUiState,
+  inCall = false,
 ): AgentShellStatus {
   if (!facet)
     return {
@@ -470,7 +473,7 @@ function chatStatus(
   if (facet.pendingLlmRequestTrigger) return { text: "About to think", tone: "live" as const };
   if (facet.awaitingRun) return { text: "About to run a script", tone: "live" as const };
   if (facet.unnotedRun) return { text: "Reading the script's result", tone: "live" as const };
-  return { text: "Idle", tone: "muted" as const };
+  return { text: inCall ? "" : "Idle", tone: "muted" as const };
 }
 
 /** The status as the feed's last row, for a chat with no strip: a pause, or work the live row does

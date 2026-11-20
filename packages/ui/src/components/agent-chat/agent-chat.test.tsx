@@ -511,6 +511,23 @@ test.for([
   },
 );
 
+test("in a voice call an agent with no work shows no status, never Idle", async () => {
+  using chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: {
+        agent: {
+          status: "live",
+          value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
+        },
+      },
+    },
+    { inCall: new Map([["usr_jonas", { camera: false, screen: false }]]) },
+  );
+  expect(chat.status()).toBeUndefined();
+  expect(document.body.textContent?.includes("Idle")).toBe(false);
+});
+
 test.for<{ name: string; me: string | undefined; lines: (readonly [string, string] | null)[] }>([
   {
     name: "the viewer by their actor",
