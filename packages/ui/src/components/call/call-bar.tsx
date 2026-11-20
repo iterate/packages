@@ -88,8 +88,9 @@ function JoinedControls({
       <Toggle
         on={!ui.muted}
         label="Microphone"
-        title={ui.muted ? "Unmute" : "Mute"}
+        title={ui.unmuting ? "Unmuting…" : ui.muted ? "Unmute" : "Mute"}
         icon={ui.muted ? <MicOffIcon /> : <MicIcon />}
+        disabled={ui.unmuting}
         onPress={() => call.toggleMute()}
       />
       <Toggle

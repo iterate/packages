@@ -440,6 +440,9 @@
       "name": "call-engine",
       "type": "registry:lib",
       "description": "A call in this tab over Cloudflare's SFU, signalled by the call facet on the agent's context, and the hook that holds it for a page.",
+      "dependencies": [
+        "iterate"
+      ],
       "registryDependencies": [
         "iterate/packages/call-rules"
       ],

@@ -30,6 +30,7 @@
 //   WebRTC with a session the call made. It hears a mix of the host's microphone and everyone the
 //   host hears, and its voice is published into the call as the host's track `ai`.
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { errorCode } from "iterate/lib";
 import {
   CallLive,
   cameraLayers,
@@ -89,6 +90,8 @@ const AI_IDLE_MS = 5 * 60_000;
 /** One of the call facet's methods, called over the session the page holds. */
 export type CallFacet = (method: string, ...args: unknown[]) => Promise<unknown>;
 type Pair = { path: Path | null; rttMs: number | null };
+/** What a page sends, each its own track at the call (call/rules.ts `KINDS`). */
+type SendKind = "mic" | "camera" | "screen" | "ai";
 /** A camera or screen tile: this page's own, or another page's, by its track ("<page>:<kind>"). */
 export type CallVideo = {
   key: string;
@@ -103,6 +106,8 @@ export type CallUi = {
   joined: boolean;
   joining: boolean;
   muted: boolean;
+  /** The first Unmute of a page that only listened is at work: the microphone opens and is sent. */
+  unmuting: boolean;
   camera: boolean;
   screen: boolean;
   /** Which path each connection takes, and its round trip. */
@@ -134,6 +139,7 @@ const IDLE: CallUi = {
   joined: false,
   joining: false,
   muted: false,
+  unmuting: false,
   camera: false,
   screen: false,
   net: "",
@@ -380,7 +386,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   let joined = false;
   let view: CallView | null = null;
   let mic: MediaStream | null = null;
-  let pub: { pc: RTCPeerConnection; micTx: RTCRtpTransceiver } | null = null;
+  // the sending connection, made with the first track this page sends: none while it only listens
+  let pub: { pc: RTCPeerConnection; micTx: RTCRtpTransceiver | null } | null = null;
   let sub: { pc: RTCPeerConnection; connected: Promise<unknown> | null } | null = null;
   // a track ("<page>:<kind>") -> its subscription's mid, the number it was published under, its layer
   const subscribed = new Map<string, { mid: string; key: string | undefined; rid?: Rid }>();
@@ -574,7 +581,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         call.signal.throwIfAborted();
         // only this call's own switch: an old one's never takes a newer call's Mute
         switchingTo = track;
-        await pub?.micTx.sender.replaceTrack(track);
+        await pub?.micTx?.sender.replaceTrack(track);
         call.signal.throwIfAborted();
       } catch (error) {
         // the call ended while the browser opened it (its end stopped it): the microphone it kept
@@ -684,46 +691,71 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
 
   // ── sending ──
-  /** The microphone's `track`, sent on a new connection, which is the call's until it is `pub`. With
-   *  no track (a page that only listens), the audio sender is empty until the first Unmute. */
-  async function publish(track: MediaStreamTrack | null, call: CallScope) {
+  /** How `kind` is sent: the camera's simulcast layers, the screen's bitrate, else the default. */
+  function sendEncodingsOf(track: MediaStreamTrack, kind: SendKind) {
+    if (kind === "camera") return cameraLayers(track.getSettings().width);
+    if (kind === "screen") return [{ maxBitrate: 1_500_000 }];
+    return undefined;
+  }
+  /** `track`, sent: on the sending connection, or on a new one when this page sends nothing yet. A
+   *  page sends a track only once it has one, so no page in the call holds an empty sender, which
+   *  another page could subscribe to and get no offer for. */
+  async function send(track: MediaStreamTrack, kind: SendKind, call: CallScope) {
+    if (!pub) return publish(track, kind, call);
+    const sending = pub;
+    const tx = await publishTrack(track, kind, call);
+    // a microphone after the camera or the screen: a switch of microphone replaces this sender's track
+    if (kind === "mic") sending.micTx = tx;
+    return tx;
+  }
+  /** The first track this page sends, on a new connection, which is the call's until it is `pub`. */
+  async function publish(track: MediaStreamTrack, kind: SendKind, call: CallScope) {
     const pc = new RTCPeerConnection(iceConfig());
     const release = call.own(() => pc.close());
     guard(pc, "pub");
+    let tx: RTCRtpTransceiver;
     try {
-      const micTx = pc.addTransceiver(track || "audio", { direction: "sendonly" });
+      tx = pc.addTransceiver(track, {
+        direction: "sendonly",
+        sendEncodings: sendEncodingsOf(track, kind),
+      });
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
       call.signal.throwIfAborted();
       const answer = await signal(
-        { publish: "mic", mid: micTx.mid, sdp: udpOnly(pc.localDescription!.sdp) },
+        { publish: kind, mid: tx.mid, sdp: udpOnly(pc.localDescription!.sdp) },
         call,
       );
       await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
       call.signal.throwIfAborted();
-      pub = { pc, micTx };
+      pub = { pc, micTx: kind === "mic" ? tx : null };
     } catch (error) {
       pc.close();
       throw error;
     } finally {
       release();
     }
-    paths.pub = await connectedPath(pc, "Sending", () => relay.on, call.signal);
+    try {
+      paths.pub = await connectedPath(pc, "Sending", () => relay.on, call.signal);
+    } catch (error) {
+      // a sending connection that never connects is out of the call again: the call forgets its
+      // tracks, so no other page subscribes to a track that carries nothing
+      if (pub?.pc === pc && !call.ended) {
+        pub = null;
+        pc.close();
+        await signal({ reset: "pub" }, call).catch(() => {});
+      }
+      throw error;
+    }
+    return tx;
   }
   /** One more track on the sending connection: its own sender, an offer, the SFU's answer. */
-  async function publishTrack(
-    track: MediaStreamTrack,
-    kind: "camera" | "screen" | "ai",
-    call: CallScope,
-  ) {
+  async function publishTrack(track: MediaStreamTrack, kind: SendKind, call: CallScope) {
     const sending = pub!;
-    const sendEncodings =
-      kind === "camera"
-        ? cameraLayers(track.getSettings().width)
-        : kind === "screen"
-          ? [{ maxBitrate: 1_500_000 }]
-          : undefined;
-    const tx = sending.pc.addTransceiver(track, { direction: "sendonly", sendEncodings });
+    const tx = sending.pc.addTransceiver(track, {
+      direction: "sendonly",
+      sendEncodings: sendEncodingsOf(track, kind),
+    });
     await sending.pc.setLocalDescription(await sending.pc.createOffer());
     await gathered(sending.pc);
     const answer = await signal(
@@ -781,11 +813,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         .send(async () => {
           // an Off, a second press, or a picture that ended while it waited: nothing is sent
           if (!mine() || local[kind] || ended()) return track.stop();
-          // the join failed, or its publish did not come: the press says why
-          if (!pub)
+          // the join failed meanwhile: the press says why
+          if (!joined)
             throw new Error("this page's connection to the call is not up. Join the call first.");
-          const sending = pub;
-          const tx = await publishTrack(track, kind, call);
+          // a page that only listens sends this picture as its first track
+          const tx = await send(track, kind, call);
+          const sending = pub!;
           call.signal.throwIfAborted();
           if (!mine() || ended()) {
             track.stop();
@@ -981,6 +1014,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       // an error of a call that ended is no news
       .catch((error: unknown) => {
         if (call.ended) return;
+        // the SFU ended this page's receiving session for good: the repair makes the connection and
+        // the session anew, in its bounded tries, then one rejoin, then the page leaves and says so
+        if (errorCode(error) === "CALL_SESSION_ENDED") return void repair("sub", true);
         receiveError = messageOf(error);
         fail(error);
       })
@@ -1038,7 +1074,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         }, REPAIR.disconnectedMs);
     });
   }
-  async function repair(which: "pub" | "sub") {
+  /** `sessionEnded`: the SFU ended the session (a 410), so a connection that still says it is
+   *  connected is not healed: the loop makes it anew. */
+  async function repair(which: "pub" | "sub", sessionEnded = false) {
     if (repairs[which] || !joined) return;
     const call = scope;
     repairs[which] = true;
@@ -1053,7 +1091,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
           });
       },
       stale: () => call.ended || !joined,
-      healed: () => currentPc(which)?.connectionState === "connected",
+      healed: () => !sessionEnded && currentPc(which)?.connectionState === "connected",
       step: ({ attempt }) =>
         set({
           repair: `Your ${WHICH[which]} connection was lost. Repairing it: try ${attempt} of ${REPAIR.waitsMs.length}.`,
@@ -1087,54 +1125,33 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     say(`${why}, so this page joins the call afresh.`);
     await rejoin();
   }
-  /** A new sending connection and session: the microphone, then the camera, the screen and the
-   *  voice agent's voice, as they were. */
+  /** A new sending connection and session: what this page sent, sent again on it (the microphone,
+   *  then the camera, the screen and the voice agent's voice, as they were). */
   function rebuildPub(call: CallScope) {
     return call.send(async () => {
       if (!joined) throw new Error("the call ended");
-      const pc = new RTCPeerConnection(iceConfig());
-      const release = call.own(() => pc.close());
-      guard(pc, "pub");
-      try {
-        // a page that only listens keeps its audio sender empty
-        const micTx = pc.addTransceiver(mic?.getAudioTracks()[0] || "audio", {
-          direction: "sendonly",
-        });
-        await pc.setLocalDescription(await pc.createOffer());
-        await gathered(pc);
-        // each step of this call's repair, only while it is the call: never into the next one
+      // each step of this call's repair, only while it is the call: never into the next one
+      call.signal.throwIfAborted();
+      // the call closes the old sending session, and makes a new one at the next publish
+      await signal({ reset: "pub" }, call);
+      call.signal.throwIfAborted();
+      pub?.pc.close();
+      pub = null;
+      const micTrack = mic?.getAudioTracks()[0];
+      if (micTrack) await send(micTrack, "mic", call);
+      for (const kind of ["camera", "screen"] as const) {
+        const source = local[kind];
         call.signal.throwIfAborted();
-        // the call closes the old sending session and makes a new one at this publish
-        await signal({ reset: "pub" }, call);
-        call.signal.throwIfAborted();
-        const answer = await signal(
-          { publish: "mic", mid: micTx.mid, sdp: udpOnly(pc.localDescription!.sdp) },
-          call,
-        );
-        await pc.setRemoteDescription({ type: "answer", sdp: udpOnly(answer.sdp || "") });
-        call.signal.throwIfAborted();
-        pub?.pc.close();
-        pub = { pc, micTx };
-        release();
-        paths.pub = await connectedPath(pc, "Sending", () => relay.on, call.signal);
-        for (const kind of ["camera", "screen"] as const) {
-          const source = local[kind];
-          call.signal.throwIfAborted();
-          if (source) source.tx = await publishTrack(source.track, kind, call);
-        }
-        // the voice agent's voice, while it is the same invite's: one sent away meanwhile is not
-        const invite = ai.invite;
-        const same = () => ai.invite === invite && ai.state !== "off";
-        call.signal.throwIfAborted();
-        if (ai.track && same()) {
-          const tx = await publishTrack(ai.track, "ai", call);
-          if (same()) ai.tx = tx;
-          else await unpublish("ai", tx, pub, call);
-        }
-      } catch (error) {
-        release();
-        pc.close();
-        throw error;
+        if (source) source.tx = await send(source.track, kind, call);
+      }
+      // the voice agent's voice, while it is the same invite's: one sent away meanwhile is not
+      const invite = ai.invite;
+      const same = () => ai.invite === invite && ai.state !== "off";
+      call.signal.throwIfAborted();
+      if (ai.track && same()) {
+        const tx = await send(ai.track, "ai", call);
+        if (same()) ai.tx = tx;
+        else await unpublish("ai", tx, pub!, call);
       }
     });
   }
@@ -1225,9 +1242,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // dismissed one's answer, so the call's list of withdrawn invites always holds the one
     // under way (call/rules.ts)
     if (aiStart?.call === call) await aiStart.answered;
-    if (call.ended || ai.state !== "off" || !joined || !pub) return;
+    if (call.ended || ai.state !== "off" || !joined) return;
     // a page that only listens has no microphone for the voice agent to hear
     if (!mic) return say("Unmute first: the voice agent hears your microphone.");
+    if (!pub) return;
     const invite = { id: crypto.randomUUID() };
     const current = () => ai.invite === invite;
     ai.invite = invite;
@@ -1710,43 +1728,50 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
 
   /** The first Unmute of a page that only listened: the microphone opens now, by the person's
-   *  press, and its track goes into the empty audio sender, as a switch of microphone does. */
+   *  press, and is published then, as the page's first track or beside its camera or screen. The
+   *  bar shows the press at work (`unmuting`); a microphone that cannot be opened or sent leaves the
+   *  page muted, and says why. */
   function micOn() {
     const call = scope;
-    if (!joined || mic) return;
-    return call.send(async () => {
-      if (!joined || mic || !pub) return;
-      let stream: MediaStream;
-      try {
-        stream = await openMedia("mic", deviceId("mic"), call);
-      } catch (error) {
-        say(
-          nameOf(error) === "NotAllowedError"
-            ? "The browser did not give this page the microphone. Allow it for this site, then press Unmute again."
-            : `No microphone could be opened (${messageOf(error)}).`,
-        );
-        return;
-      }
-      const release = call.own(() => stopTracks(stream));
-      try {
-        call.signal.throwIfAborted();
-        await pub.micTx.sender.replaceTrack(stream.getAudioTracks()[0]!);
-        call.signal.throwIfAborted();
-      } catch (error) {
-        if (!call.ended) {
-          stopTracks(stream);
-          say(`The microphone could not be sent (${messageOf(error)}).`);
+    if (!joined || mic || ui.unmuting) return;
+    set({ unmuting: true });
+    return call
+      .send(async () => {
+        if (!joined || mic) return;
+        let stream: MediaStream;
+        try {
+          stream = await openMedia("mic", deviceId("mic"), call);
+        } catch (error) {
+          say(
+            nameOf(error) === "NotAllowedError"
+              ? "The browser did not give this page the microphone. Allow it for this site, then press Unmute again."
+              : `No microphone could be opened (${messageOf(error)}).`,
+          );
+          return;
         }
-        return;
-      } finally {
-        release();
-      }
-      mic = stream;
-      watchMic();
-      set({ muted: false });
-      captionsOn();
-      renderDevices();
-    });
+        const release = call.own(() => stopTracks(stream));
+        try {
+          call.signal.throwIfAborted();
+          await send(stream.getAudioTracks()[0]!, "mic", call);
+          call.signal.throwIfAborted();
+        } catch (error) {
+          if (!call.ended) {
+            stopTracks(stream);
+            say(`The microphone could not be sent, so you are still muted (${messageOf(error)}).`);
+          }
+          return;
+        } finally {
+          release();
+        }
+        mic = stream;
+        watchMic();
+        set({ muted: false });
+        captionsOn();
+        renderDevices();
+      })
+      .finally(() => {
+        if (!call.ended) set({ unmuting: false });
+      });
   }
 
   // ── the call itself ──
@@ -1756,9 +1781,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  off until the person turns them on: capture starts only by the person's own act.
    *
    *  `listenOnly`: a join that no press of the person's made (a page opened with `call=join`). It
-   *  opens no microphone and sends no track: the sending connection has an empty audio sender, and
-   *  the page shows the call as muted. The person's first Unmute opens the microphone and puts its
-   *  track in that sender (`micOn`). */
+   *  opens no microphone and sends nothing: the page has no sending connection, and shows the call
+   *  as muted. The person's first Unmute opens the microphone and publishes it (`micOn`). */
   async function join(kept?: MediaStream | null, listenOnly = false) {
     const call = scope;
     if (joined || ui.joining) {
@@ -1801,8 +1825,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       set({ joined: true, muted: !track?.enabled });
       // on the sending queue: a camera, a screen or a voice agent pressed meanwhile waits for it
       await call.send(async () => {
-        // listening only: the sending connection with an empty audio sender, for the first Unmute
-        if (!mic) return publish(null, call);
+        // listening only: nothing to send until the person's first Unmute, camera or screen
+        if (!mic) return;
         let sent = mic.getAudioTracks()[0]!;
         // the kept microphone ended meanwhile (unplugged while the call took the page in): the
         // default stands in, with the mute it had
@@ -1819,7 +1843,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
           say("Your microphone went away: the browser's default is used now.");
           sent = next;
         }
-        await publish(sent, call);
+        await publish(sent, "mic", call);
       });
       reconcile();
       captionsOn();
@@ -1868,7 +1892,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     mic = null;
     paths.pub = null;
     paths.sub = null;
-    set({ joined: false, joining: false, muted: false, net: "", repair: "" });
+    set({ joined: false, joining: false, muted: false, unmuting: false, net: "", repair: "" });
   }
   /** Out: everything here closes at once, the voice agent's session at OpenAI first; then the call
    *  hears of it, the agent's stop first. */

@@ -9,6 +9,7 @@ import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon } from "lucide-react";
+import { codedError } from "iterate/lib";
 import { DashAgents, DashHome } from "./dash-agents.tsx";
 import { AgentCall } from "./dash-call.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
@@ -695,7 +696,7 @@ test("`call=join` on an agent with no call: the page turns the call on and joins
   expect(location).toMatchObject({ pathname: "/agents/agents/onboarding" });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
   await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
-  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: ["empty audio sender"] });
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
 });
 
 test("`call=join` never opens the microphone: the page joins a call that is on muted, says so, and the person's Unmute opens it", async () => {
@@ -725,11 +726,11 @@ test("`call=join` never opens the microphone: the page joins a call that is on m
   // the camera and the screen are off, and nothing was captured or sent
   expect(buttonOf(place, "Share video")).toBeTruthy();
   expect(buttonOf(place, "Share the screen")).toBeTruthy();
-  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: ["empty audio sender"] });
-  // the person's own press: now the microphone opens, and is live
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
+  // the person's own press: now the microphone opens, is published, and is live
   await act(async () => unmute.click());
   await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
-  expect(media.opened.map((track) => track.kind)).toEqual(["audio"]);
+  expect(capturedNothing(media)).toEqual({ opened: ["audio"], tracksSent: ["a track"] });
 });
 
 test("a start that fails says why in words, and Start a call can be pressed again", async () => {
@@ -1314,6 +1315,159 @@ test("a page that only listens and joins afresh after a repair still opens no mi
     });
     expect(media).toMatchObject({ opened: [] });
     call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a page that only listens sends nothing until its Unmute, which publishes the microphone once while the bar shows it at work", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join({ listenOnly: true });
+  expect({ published: facet.published, connections: media.connections.length }).toEqual({
+    published: [],
+    connections: 0,
+  });
+  const publishing = facet.hold("signal", "publish");
+  call.toggleMute();
+  await vi.waitFor(() => expect(facet).toMatchObject({ published: ["mic"] }));
+  expect({ unmuting: call.ui.unmuting, muted: call.ui.muted }).toEqual({
+    unmuting: true,
+    muted: true,
+  });
+  // a second press while the first is at work changes nothing
+  call.toggleMute();
+  publishing.release();
+  await vi.waitFor(() => expect(call.ui).toMatchObject({ unmuting: false }));
+  expect({
+    published: facet.published,
+    muted: call.ui.muted,
+    opened: media.opened.map((track) => track.kind),
+  }).toEqual({ published: ["mic"], muted: false, opened: ["audio"] });
+  call.dispose();
+});
+
+test("a first Unmute whose publish fails leaves the page muted, says why, and closes the microphone", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join({ listenOnly: true });
+  facet.failNext("signal", new Error("the SFU refused the offer"));
+  call.toggleMute();
+  await vi.waitFor(() => expect(call.ui).toMatchObject({ unmuting: false }));
+  expect({
+    muted: call.ui.muted,
+    notice: call.ui.notice,
+    microphone: media.mic.readyState,
+    sending: media.connections.filter((one) => !one.closed).length,
+  }).toEqual({
+    muted: true,
+    notice: expect.stringContaining("so you are still muted (the SFU refused the offer)"),
+    microphone: "ended",
+    sending: 0,
+  });
+  call.dispose();
+});
+
+test("a first Unmute whose sending connection never connects leaves the page muted, and the call forgets its track", async () => {
+  using media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join({ listenOnly: true });
+    media.sends = false;
+    call.toggleMute();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect({
+      muted: call.ui.muted,
+      unmuting: call.ui.unmuting,
+      notice: call.ui.notice,
+      signals: facet.signals,
+      open: media.connections.filter((one) => !one.closed).length,
+      microphone: media.mic.readyState,
+    }).toEqual({
+      muted: true,
+      unmuting: false,
+      notice: expect.stringContaining("so you are still muted (Sending: no connection"),
+      signals: ["publish", "reset"],
+      open: 0,
+      microphone: "ended",
+    });
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a page that only listens sends its camera as its first track, and an Unmute then puts the microphone beside it", async () => {
+  using media = browserMedia();
+  const facet = callFacet();
+  const call = engineOn(facet);
+  await call.join({ listenOnly: true });
+  await call.toggleCamera();
+  expect({ camera: call.ui.camera, published: facet.published }).toEqual({
+    camera: true,
+    published: ["camera"],
+  });
+  call.toggleMute();
+  await vi.waitFor(() => expect(call.ui).toMatchObject({ muted: false }));
+  expect({
+    published: facet.published,
+    // one sending connection, with both senders
+    senders: media.connections.map((one) => one.transceivers.length),
+  }).toEqual({ published: ["camera", "mic"], senders: [2] });
+  call.dispose();
+});
+
+test("a receiving session the SFU ended (410) is made anew by the repair, and the page says no error", async () => {
+  using _media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join();
+    facet.failNext("signal", sessionEnded());
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect({
+      subscribes: facet.signals.filter((step) => step === "subscribe").length,
+      resets: facet.signals.filter((step) => step === "reset").length,
+      error: call.ui.error,
+      repair: call.ui.repair,
+    }).toEqual({ subscribes: 2, resets: 1, error: "", repair: "" });
+    call.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a receiving session the SFU keeps refusing (410): the bounded repair, one rejoin, then the page leaves, says so, and asks nothing more", async () => {
+  using _media = browserMedia();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    facet.failStep("subscribe", sessionEnded());
+    await call.join();
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    const steps = facet.steps.length;
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect({
+      more: facet.steps.length - steps,
+      leaves: facet.steps.filter((step) => step === "leave").length,
+      joined: call.ui.joined,
+      error: call.ui.error,
+    }).toEqual({
+      more: 0,
+      leaves: 1,
+      joined: false,
+      error: expect.stringMatching(
+        /^Your receiving connection could not be repaired \(The SFU answered 410.*\)\. Press Join/,
+      ),
+    });
   } finally {
     vi.useRealTimers();
   }
@@ -2009,11 +2163,14 @@ test("a voice agent sent away while a sending repair offers its voice again: tha
     sending.fire("connectionstatechange", {});
     await vi.advanceTimersByTimeAsync(1_000);
     expect(facet.signals).toContain("reset");
-    // the rebuilt connection's next offer is the voice's
-    const offering = media.hold("offer");
+    // the rebuilt connection offers the microphone first, then the voice
+    const offeringMic = media.hold("offer");
     resetting.release();
     await vi.advanceTimersByTimeAsync(0);
     const rebuilt = media.connections.at(-1)!;
+    await vi.waitFor(() => expect(rebuilt.transceivers).toHaveLength(1));
+    const offering = media.hold("offer");
+    offeringMic.release();
     await vi.waitFor(() => expect(rebuilt.transceivers).toHaveLength(2));
     await call.aiDismiss();
     offering.release();
@@ -2464,7 +2621,7 @@ function browserMedia({
   const connections: FakeConnection[] = [];
   const opened: Track[] = [];
   const contexts: { closed: boolean }[] = [];
-  const state = { receives, displays: 0, refuseNext: "" };
+  const state = { receives, sends: true, displays: 0, refuseNext: "" };
   const gates = new Map<string, Promise<void>>();
   /** The next `step` waits while it is held. */
   const gate = async (step: string) => {
@@ -2519,8 +2676,7 @@ function browserMedia({
     connectionState = "connected";
     iceGatheringState = "complete";
     localDescription: { type: string; sdp: string } | null = null;
-    /** `empty`: an audio sender made with no track (a page that only listens). */
-    transceivers: { mid: string; stopped: boolean; track: Track; empty: boolean }[] = [];
+    transceivers: { mid: string; stopped: boolean; track: Track }[] = [];
     channels: { sent: string[] }[] = [];
     listeners = new Map<string, ((event: object) => void)[]>();
     constructor() {
@@ -2532,12 +2688,11 @@ function browserMedia({
     fire(type: string, event: object) {
       for (const listener of this.listeners.get(type) || []) listener(event);
     }
-    addTransceiver = (given: Track | "audio") => {
+    addTransceiver = (track: Track) => {
       const transceiver = {
         mid: String(this.transceivers.length),
         stopped: false,
-        track: typeof given === "string" ? trackOf("audio") : given,
-        empty: typeof given === "string",
+        track,
         sender: {
           replaceTrack: async () => {
             await gate("replaceTrack");
@@ -2568,7 +2723,9 @@ function browserMedia({
     setLocalDescription = async (description: { type: string; sdp: string }) => {
       this.localDescription = description;
     };
-    setRemoteDescription = async () => {};
+    setRemoteDescription = async (description: { type: string }) => {
+      if (description.type === "answer" && !state.sends) this.connectionState = "new";
+    };
     getConfiguration = () => ({});
     setConfiguration() {}
     close() {
@@ -2622,6 +2779,10 @@ function browserMedia({
     set receives(on: boolean) {
       state.receives = on;
     },
+    /** false: a sending connection made from here never connects. */
+    set sends(on: boolean) {
+      state.sends = on;
+    },
     /** The next open of a device throws an error of this name. */
     refuseNext(name: string) {
       state.refuseNext = name;
@@ -2661,12 +2822,17 @@ function callFacet(fails: Record<string, Error> = {}) {
   const published: string[] = [];
   const held = new Map<string, Promise<void>>();
   const once = new Map<string, Error>();
+  const failingSteps = new Map<string, Error>();
   return {
     steps,
     calls,
     /** The next call of `method` throws `error`. */
     failNext(method: string, error: Error) {
       once.set(method, error);
+    },
+    /** Every signalling step of this kind ("subscribe", …) throws `error` from now on. */
+    failStep(step: string, error: Error) {
+      failingSteps.set(step, error);
     },
     signals,
     published,
@@ -2690,6 +2856,8 @@ function callFacet(fails: Record<string, Error> = {}) {
       const failing = once.get(method);
       once.delete(method);
       if (failing) throw failing;
+      const stepFailing = method === "signal" && failingSteps.get(Object.keys(step)[0]!);
+      if (stepFailing) throw stepFailing;
       if (fails[method]) throw fails[method];
       // each track subscribed to comes under the mid `m-<track>`
       const tracks = (step.subscribe || []).map((track: string) => ({ track, mid: `m-${track}` }));
@@ -2959,12 +3127,20 @@ async function draw(
   };
 }
 
-/** No microphone was opened and no sender holds an audio track: what a join on arrival sends. */
+/** The devices opened, and a mark for each sender of each connection: a join on arrival has none. */
 function capturedNothing(media: ReturnType<typeof browserMedia>) {
   return {
     opened: media.opened.map((track) => track.kind),
     tracksSent: media.connections.flatMap((connection) =>
-      connection.transceivers.map((one) => (one.empty ? "empty audio sender" : "a track")),
+      connection.transceivers.map(() => "a track"),
     ),
   };
+}
+
+/** The call's refusal of a signalling step whose SFU session is gone (call/rules.ts). */
+function sessionEnded() {
+  return codedError(
+    "CALL_SESSION_ENDED",
+    "The SFU answered 410 to POST /sessions/…/tracks/new: Session appears to be disconnected.",
+  );
 }

@@ -148,6 +148,7 @@ const IDLE: CallUi = {
   joined: false,
   joining: false,
   muted: false,
+  unmuting: false,
   camera: false,
   screen: false,
   net: "",
