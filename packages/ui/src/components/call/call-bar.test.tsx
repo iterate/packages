@@ -36,6 +36,15 @@ test("a start under way is the host's: a bar drawn again says Starting…, and t
   expect(button(bar.element, "Starting…").getAttribute("aria-disabled")).toBe("true");
 });
 
+test("Join is the host's own when it passes one (a lobby first): the bar joins nothing itself", async () => {
+  const call = engine();
+  const join = vi.fn();
+  using bar = await mount(<CallBar call={call} ui={IDLE} live={FRESH} member join={join} />);
+  await act(async () => button(bar.element, "Join").click());
+  expect(join).toHaveBeenCalledOnce();
+  expect(call.join).not.toHaveBeenCalled();
+});
+
 test("in the call, the bar draws before the call's live state has come", async () => {
   using bar = await mount(
     <CallBar call={engine()} ui={{ ...IDLE, joined: true }} live={undefined} member />,

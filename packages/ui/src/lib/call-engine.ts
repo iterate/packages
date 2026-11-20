@@ -84,6 +84,47 @@ const MIC = { echoCancellation: true, noiseSuppression: true, autoGainControl: t
 // the camera at 1280×720 when it can: the full layer of its simulcast
 const CAMERA = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 } };
 const DEVICES_KEY = "iterate-call-devices";
+type SavedDevices = Partial<Record<DeviceKind, { id: string; label: string } | null>>;
+/** The devices this browser chose for calls: the engine's pickers and a lobby's share them. */
+export function savedDevices(): SavedDevices {
+  try {
+    return JSON.parse(localStorage.getItem(DEVICES_KEY) ?? "{}") || {};
+  } catch {
+    return {};
+  }
+}
+/** Keeps a choice for the next visit (`id` "" is the browser's default). No storage: it lasts as
+ *  long as the page. */
+export function saveDevice(kind: DeviceKind, id: string, label: string) {
+  const saved = { ...savedDevices(), [kind]: id ? { id, label } : null };
+  try {
+    localStorage.setItem(DEVICES_KEY, JSON.stringify(saved));
+  } catch {
+    // no storage
+  }
+  return saved;
+}
+/** A microphone or a camera, opened as a call opens it (the same processing and size), by its id;
+ *  a device that cannot be opened by its id falls back to the browser's default. A lobby opens its
+ *  preview with it, so the tracks it hands to `join` are the call's own. */
+export async function captureDevice(kind: "mic" | "camera", id: string) {
+  const base = kind === "mic" ? MIC : CAMERA;
+  if (!navigator.mediaDevices?.getUserMedia)
+    throw Object.assign(new Error("this browser gives this page no camera or microphone"), {
+      name: "NotSupportedError",
+    });
+  const ask = (constraints: MediaTrackConstraints) =>
+    navigator.mediaDevices.getUserMedia(
+      kind === "mic" ? { audio: constraints } : { video: constraints },
+    );
+  if (!id) return ask(base);
+  try {
+    return await ask({ ...base, deviceId: { exact: id } });
+  } catch (error) {
+    if (!["NotFoundError", "OverconstrainedError"].includes(nameOf(error))) throw error;
+    return ask(base);
+  }
+}
 /** The voice agent leaves when nobody, person or agent, said anything for this long. */
 const AI_IDLE_MS = 5 * 60_000;
 
@@ -480,18 +521,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   // ── devices ──
   const devices: {
     list: MediaDeviceInfo[];
-    saved: Partial<Record<DeviceKind, { id: string; label: string } | null>>;
+    saved: SavedDevices;
     sinkOk: boolean;
     sink: string;
   } = {
     list: [],
-    saved: (() => {
-      try {
-        return JSON.parse(localStorage.getItem(DEVICES_KEY) ?? "{}") || {};
-      } catch {
-        return {};
-      }
-    })(),
+    saved: savedDevices(),
     sinkOk: Boolean(globalThis.HTMLMediaElement) && "setSinkId" in HTMLMediaElement.prototype,
     sink: "",
   };
@@ -673,12 +708,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   /** The person chose a device: kept for the next visit, and used now. */
   async function chooseDevice(kind: DeviceKind, id: string) {
     const label = devices.list.find((d) => d.deviceId === id)?.label ?? "";
-    devices.saved = { ...devices.saved, [kind]: id ? { id, label } : null };
-    try {
-      localStorage.setItem(DEVICES_KEY, JSON.stringify(devices.saved));
-    } catch {
-      // no storage: the choice lasts as long as the page
-    }
+    devices.saved = saveDevice(kind, id, label);
     // the switch says its own failure; one of a call that ended meanwhile is no error to show
     const call = scope;
     const unlessEnded = (error: unknown) => {
@@ -767,12 +797,15 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   /** The camera or the screen, opened from the press itself (the screen's picker needs the click),
    *  then sent on the call's sending queue, behind a publish that may be under way. */
-  async function videoOn(kind: "camera" | "screen") {
+  /** A camera or the screen, sent. `given`: a camera a lobby opened already, which the call owns
+   *  from here (stopped on every path that does not send it). */
+  async function videoOn(kind: "camera" | "screen", given?: MediaStream) {
     const call = scope;
-    if (local[kind] || call.capturing[kind]) return;
+    if (local[kind] || call.capturing[kind]) return stopTracks(given);
     // a press during the join waits on the sending queue behind the join's own publish; a press
     // with no call says why, and asks the browser for nothing
     if (!joined && !ui.joining) {
+      stopTracks(given);
       fail(`No ${kind}: this page's connection to the call is not up. Join the call first.`);
       return;
     }
@@ -782,7 +815,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     const mine = () => call.capturing[kind] === press;
     try {
       const stream =
-        kind === "camera"
+        given ||
+        (kind === "camera"
           ? await openMedia("camera", deviceId("camera"), call)
           : await call.until(
               navigator.mediaDevices.getDisplayMedia({
@@ -790,7 +824,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
                 audio: false,
               }),
               stopTracks,
-            );
+            ));
       const track = stream.getVideoTracks()[0]!;
       // an Off while the picker was open: the chosen picture closes at once, not at its turn
       if (!mine()) {
@@ -2002,12 +2036,27 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       return () => listeners.delete(listener);
     },
     sync,
-    /** The person's own Join: a repair may again join afresh once. `listenOnly`: a join the
-     *  person did not press (a page opened with `call=join`): no microphone opens and no track is
-     *  sent until their Unmute. */
-    join: ({ listenOnly = false }: { listenOnly?: boolean } = {}) => {
+    /** The person's own Join: a repair may again join afresh once. `listenOnly`: a join with no
+     *  microphone: nothing is sent until the person's Unmute. A lobby hands over what it opened
+     *  (`mic`, whose track's `enabled` is the mute; `camera`): the call owns them from here, and
+     *  the browser is not asked again. */
+    join: async ({
+      listenOnly = false,
+      mic: given = null,
+      camera = null,
+    }: { listenOnly?: boolean; mic?: MediaStream | null; camera?: MediaStream | null } = {}) => {
       rejoinSpent = false;
-      return join(null, listenOnly);
+      if (joined || ui.joining) {
+        stopTracks(given);
+        stopTracks(camera);
+        return;
+      }
+      await join(given, listenOnly && !given);
+      // a lobby's microphone is new to the call: an unplug is watched as a fresh one's is
+      if (given && joined && mic === given) watchMic();
+      if (!camera) return;
+      if (joined) await videoOn("camera", camera);
+      else stopTracks(camera);
     },
     /** A number that changes at each teardown (a Leave, a dispose, a new call): a press that waited
      *  for something (a Start's enable) joins only while it is the same. */

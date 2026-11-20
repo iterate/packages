@@ -72,6 +72,7 @@
       "./components/app-shell": "./dist/components/app-shell.mjs",
       "./components/approvals-alert": "./dist/components/approvals-alert.mjs",
       "./components/call/call-bar": "./dist/components/call/call-bar.mjs",
+      "./components/call/call-lobby": "./dist/components/call/call-lobby.mjs",
       "./components/call/call-pip": "./dist/components/call/call-pip.mjs",
       "./components/call/call-tiles": "./dist/components/call/call-tiles.mjs",
       "./components/call/caption-strip": "./dist/components/call/caption-strip.mjs",

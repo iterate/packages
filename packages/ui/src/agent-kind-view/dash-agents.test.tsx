@@ -694,27 +694,41 @@ test("with `call` on and no call on the agent: one Start a call, whose press tur
   // no call facet: its live state is never asked for, so no entry of it fails
   expect(invoked.filter((one) => String(one.call).includes("'call'"))).toEqual([]);
   await act(async () => start.click());
+  await pressInLobby();
   await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
   expect(enable).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding");
 });
 
-test("`call=join` on an agent with no call: the page turns the call on and joins listening only, once, and the key leaves the address", async () => {
+test("`call=join` on an agent with no call: the lobby opens and turns nothing on, the key leaves the address, and Start the call starts and joins listening", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
   history.replaceState(null, "", "/agents/agents/onboarding?call=join");
   const { itx, steps } = mind({ row: "a-page" });
   const enable = vi.fn(async () => void steps.push("enable"));
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
-  await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
-  expect(enable).toHaveBeenCalledOnce();
+  const lobby = await act(() =>
+    vi.waitFor(() => {
+      const found = document.body.querySelector("[data-slot=call-lobby]");
+      if (!found) throw new Error("no lobby");
+      return found;
+    }),
+  );
+  expect(lobby.textContent).toContain("Nobody is in the call yet: you start it.");
   expect(new URLSearchParams(location.search).get("call")).toBe(null);
   expect(location).toMatchObject({ pathname: "/agents/agents/onboarding" });
+  // a link is no press: nothing was turned on, opened or joined
+  expect(enable).not.toHaveBeenCalled();
+  expect(steps).toEqual([]);
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
+  await pressInLobby({ mic: false, text: "Start the call" });
+  await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
+  expect(enable).toHaveBeenCalledOnce();
   const place = page.host.querySelector("[data-slot=agent-header-call]");
   await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
   expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
 });
 
-test("`call=join` never opens the microphone: the page joins a call that is on muted, says so, and the person's Unmute opens it", async () => {
+test("`call=join` opens the lobby and joins nothing; its microphone and camera hand their tracks to the join, opened once", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
   history.replaceState(null, "", "/agents/agents/onboarding?call=join");
@@ -725,27 +739,64 @@ test("`call=join` never opens the microphone: the page joins a call that is on m
   });
   const enable = vi.fn(async () => {});
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
-  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
-  expect(enable).not.toHaveBeenCalled();
-  expect(new URLSearchParams(location.search).get("call")).toBe(null);
-  const place = page.host.querySelector("[data-slot=agent-header-call]");
-  const unmute = await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
-  await act(() =>
-    vi.waitFor(() =>
-      // the call's notices are the tiles' words, over the feed
-      expect(page.host.querySelector("[data-slot=agent-call-tiles]")?.textContent).toContain(
-        "You joined from a link, muted: no one hears you until you press Unmute.",
-      ),
-    ),
+  const lobby = await act(() =>
+    vi.waitFor(() => {
+      const found = document.body.querySelector("[data-slot=call-lobby]");
+      if (!found?.textContent?.includes("In the call now:")) throw new Error("no lobby yet");
+      return found;
+    }),
   );
+  expect(new URLSearchParams(location.search).get("call")).toBe(null);
+  // nothing joined and nothing captured until the person's press
+  expect(steps).not.toContain("join");
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
+  await act(async () => buttonOf(lobby, "Turn the microphone on").click());
+  await act(async () => buttonOf(lobby, "Turn the camera on").click());
+  await act(() =>
+    vi.waitFor(() => expect(lobby.querySelector("video[aria-label]")).not.toBe(null)),
+  );
+  expect(capturedNothing(media)).toMatchObject({ opened: ["audio", "video"] });
+  expect(steps).not.toContain("join");
+  await pressInLobby();
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
+  await act(() => vi.waitFor(() => buttonOf(place, "Turn the camera off")));
+  expect(enable).not.toHaveBeenCalled();
+  // the lobby's tracks are the call's: the browser was not asked again
+  expect(capturedNothing(media)).toMatchObject({ opened: ["audio", "video"] });
+  expect(document.body.querySelector("[data-slot=call-lobby]")).toBe(null);
+});
+
+test("a microphone the browser refuses in the lobby: the lobby says why, and Join joins listening", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using media = browserMedia({ refuse: "NotAllowedError" });
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  const { itx, steps } = mind({
+    row: "a-page",
+    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
+    facets: { "/agents/onboarding": { call: callLive({ "b-page": ["mic"] }) } },
+  });
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  await act(async () => (await vi.waitFor(() => buttonOf(place, "Join"))).click());
+  const lobby = await act(() =>
+    vi.waitFor(() => {
+      const found = document.body.querySelector("[data-slot=call-lobby]");
+      if (!found?.querySelector("[role=alert]")) throw new Error("no refusal yet");
+      return found;
+    }),
+  );
+  expect(lobby.querySelector("[role=alert]")?.textContent).toContain(
+    "The browser did not give this page the microphone. Allow it for this site to talk; you can still join and listen.",
+  );
+  expect(steps).not.toContain("join");
+  await pressInLobby({ mic: false });
+  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
+  await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
   // the camera and the screen are off, and nothing was captured or sent
   expect(buttonOf(place, "Share video")).toBeTruthy();
   expect(buttonOf(place, "Share the screen")).toBeTruthy();
   expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
-  // the person's own press: now the microphone opens, is published, and is live
-  await act(async () => unmute.click());
-  await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
-  expect(capturedNothing(media)).toEqual({ opened: ["audio"], tracksSent: ["a track"] });
 });
 
 test("a start that fails says why in words, and Start a call can be pressed again", async () => {
@@ -762,6 +813,8 @@ test("a start that fails says why in words, and Start a call can be pressed agai
   });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
   await act(async () => (await vi.waitFor(() => buttonOf(place, "Start a call"))).click());
+  // this browser has no media: the lobby says so, and Start stays possible
+  await pressInLobby({ mic: false });
   await act(() =>
     vi.waitFor(() =>
       expect(place?.querySelector("[role=alert]")?.textContent).toBe(
@@ -828,6 +881,7 @@ test("in the call: the bar's buttons and Leave in the same place, the voice agen
   const place = page.host.querySelector("[data-slot=agent-header-call]");
   const before = place?.getAttribute("class");
   await act(async () => (await vi.waitFor(() => buttonOf(place, "Join"))).click());
+  await pressInLobby();
   // a member's bar: the voice agent's button is there (a guest's bar has none: call-bar.test.tsx)
   await act(() =>
     vi.waitFor(() =>
@@ -863,6 +917,7 @@ test("a start whose call's live state comes before the join ends: Starting… al
     page.update({ facetOn: true, live: callLive({}) });
   });
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join"] })));
   expect(buttonsOf(page.place)).toEqual(["Starting…"]);
   await act(async () => joining.release());
@@ -877,6 +932,7 @@ test("a start whose call's live state comes after the join ended: the joined bar
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
   expect(buttonOf(page.place, "Leave the call")).toMatchObject({
@@ -893,6 +949,7 @@ test("Leave wins against the live state: one that says 'not in the call' while t
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   now += 6_000;
@@ -916,6 +973,7 @@ test("no live state says nothing of who is in the call: a joined page does not j
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   now += 6_000;
@@ -2282,26 +2340,31 @@ test("a Start whose page went into the back-forward cache while the call came on
     () => new Promise<void>((resolve) => (enabled = resolve)),
   );
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(async () => {
     dispatchEvent(new Event("pagehide"));
     dispatchEvent(new Event("pageshow"));
   });
   await act(async () => enabled());
-  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
+  // the lobby's microphone went with the page: stopped, never sent
+  expect(facet).toMatchObject({ steps: [] });
+  expect(media.opened.map((track) => track.readyState)).toEqual(["ended"]);
   expect(buttonsOf(page.place)).not.toContain("Starting…");
 });
 
-test("a Start whose page went away while the call came on joins nothing and opens no microphone", async () => {
+test("a Start whose page went away while the call came on joins nothing and keeps no microphone", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
   const facet = callFacet();
   let enabled = () => {};
   const page = await drawCall(facet, () => new Promise<void>((resolve) => (enabled = resolve)));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await page[Symbol.asyncDispose]();
   enabled();
   await act(async () => {});
-  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
+  expect(facet).toMatchObject({ steps: [] });
+  expect(media.opened.map((track) => track.readyState)).toEqual(["ended"]);
 });
 
 test("someone watching an empty call hears the first arrival, and a page alone sees its notice", async () => {
@@ -2318,6 +2381,7 @@ test("someone watching an empty call hears the first arrival, and a page alone s
   // this page alone in the call, then a new row after a reconnect: the notice says how to come back
   await act(async () => page.update({ facetOn: true, live: callLive({}) }));
   await act(async () => buttonOf(page.place, "Join the call").click());
+  await pressInLobby();
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   await act(async () => page.update({ facetOn: true, live: callLive({}), row: "a-page-2" }));
   expect(tiles()?.querySelector("[data-slot=call-tiles]")?.textContent).toContain(
@@ -2332,6 +2396,7 @@ test("a start whose microphone is open while it publishes: Mute and Leave show, 
   const publishing = facet.hold("signal");
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal"] })));
   expect([buttonOf(page.place, "Mute"), buttonOf(page.place, "Leave the call")]).toMatchObject([
     { disabled: false },
@@ -2357,8 +2422,9 @@ test("on a phone, a start outlives the bar's popover, and the call's button says
   const trigger = page.place.querySelector("button")!;
   await act(async () => trigger.click());
   await act(async () => buttonOf(document.body, "Start a call").click());
-  // the popover closes, and opens again while the start runs
-  await act(async () => trigger.click());
+  await pressInLobby();
+  // the popover closes for the lobby, and opens again while the start runs
+  if (document.body.querySelector("[data-slot=call-bar]")) await act(async () => trigger.click());
   await act(async () => trigger.click());
   expect(buttonOf(document.body, "Starting…")).toBeTruthy();
   expect(buttonsOf(document.body)).not.toContain("Start a call");
@@ -2380,6 +2446,8 @@ test("on a phone, a page in the call with an error: the call's button says both"
   const trigger = page.place.querySelector("button")!;
   await act(async () => trigger.click());
   await act(async () => buttonOf(document.body, "Join the call").click());
+  await pressInLobby();
+  if (!document.body.querySelector("[data-slot=call-bar]")) await act(async () => trigger.click());
   await act(() => vi.waitFor(() => buttonOf(document.body, "Add a voice agent")));
   await act(async () => buttonOf(document.body, "Add a voice agent").click());
   await act(() =>
@@ -2413,6 +2481,7 @@ test("a start whose call came on but whose join failed: the call's words, and Jo
   const facet = callFacet({ join: new Error("the call has no SFU app") });
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(() =>
     vi.waitFor(() =>
       expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
@@ -2431,6 +2500,7 @@ test("a start whose join fails before the table shows the call: Join, never Star
   // the call came on, but neither its row nor its live state has reached the page yet
   await using page = await drawCall(facet, async () => {});
   await act(async () => buttonOf(page.place, "Start a call").click());
+  await pressInLobby();
   await act(() =>
     vi.waitFor(() =>
       expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
@@ -2980,6 +3050,27 @@ function buttonsOf(element: Element) {
 }
 
 /** The button in `element` whose words or title say `text`; throws while there is none. */
+/** The lobby that a Join or a Start opened (a dialog, on the body): its main button, pressed once
+ *  the microphone it opens by itself is open (`mic`), or at once. */
+async function pressInLobby({ mic = true, text }: { mic?: boolean; text?: string } = {}) {
+  const lobby = await act(() =>
+    vi.waitFor(() => {
+      const found = document.body.querySelector("[data-slot=call-lobby]");
+      if (!found) throw new Error("no lobby");
+      if (mic && !found.querySelector("[aria-label=Microphone][aria-pressed=true]"))
+        throw new Error("the lobby's microphone is not open yet");
+      return found;
+    }),
+  );
+  const button = text
+    ? buttonOf(lobby, text)
+    : [...lobby.querySelectorAll("button")].find((one) =>
+        ["Join now", "Start the call"].includes(one.textContent?.trim() ?? ""),
+      );
+  if (!button) throw new Error("no Join now in the lobby");
+  await act(async () => button.click());
+}
+
 function buttonOf(element: Element | null | undefined, text: string) {
   const found = [...(element?.querySelectorAll("button") || [])].find(
     (one) => one.title === text || one.textContent?.trim() === text,

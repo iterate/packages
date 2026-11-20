@@ -247,8 +247,8 @@ export default async function macEndpoint() {
     call: {
       /** A banner that looks like a call: `from` (who calls; the agent's path when none) and
        *  `reason`, Decline and Accept as round phone buttons, the ring sound, 30 s. Accept opens
-       *  `url`: by default the agent's page in the Dash, which joins its call on arrival, muted:
-       *  the person presses Unmute. */
+       *  `url`: by default the agent's page in the Dash, which opens the call's lobby: the person
+       *  checks their camera and sound, then presses Join now. */
       ring: (input: { agent: string; from?: string; reason?: string; url?: string }) =>
         ask("call.ring", input).then(ringAnswerOf),
     },

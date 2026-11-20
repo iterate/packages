@@ -197,9 +197,10 @@ it (or declines a call). One banner at a time: a newer one replaces it (`why: "r
 plain banner never replaces a call (it is refused). At most 6 begin in a minute.
 
 A page to open is checked before anything shows. For a call with no `url`, it is the agent's page
-in the mind's Dash, `https://dash.<zone>/agents<path>?call=join`, which joins the
-call as it loads, muted: anyone can send such a link, so the page opens no microphone and sends
-nothing until you press Unmute, and your camera and screen stay off. Any other page must be https, with no user or port, on the zone of the mind this Mac is
+in the mind's Dash, `https://dash.<zone>/agents<path>?call=join`, which opens the call's lobby:
+there you see your camera and your microphone's level, choose the devices, see who is in the call,
+and press Join now. Anyone can send such a link, so the lobby opens no microphone and no camera
+by itself, and nothing is sent until you join. Any other page must be https, with no user or port, on the zone of the mind this Mac is
 lent to or a subdomain of it: the app opens no other origin. The zone comes from the mind's
 address as the lend's CLI says it (`iterate.example.com`), without the leading `iterate.` when
 two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is refused.

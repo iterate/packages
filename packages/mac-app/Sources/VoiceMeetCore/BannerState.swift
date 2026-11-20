@@ -231,7 +231,7 @@ public struct BannerState: Equatable, Sendable {
     }
 
     /// The page of a call, for `call.ring`: the given one, checked, or, with none, the agent's page
-    /// in the mind's Dash, which joins the call on arrival, muted (`call=join`).
+    /// in the mind's Dash, which opens the call's lobby on arrival (`call=join`).
     public static func callPage(_ given: String?, agent: String, mind: String) -> Result<URL, BannerRefusal> {
         guard agent.hasPrefix("/") else {
             return .failure(BannerRefusal("ring needs the agent's path, such as /agents/meet/…"))

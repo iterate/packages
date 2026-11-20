@@ -34,7 +34,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover
  * on for this agent, for a member whose agent has no call yet (`live` is undefined): the bar then
  * shows "Start a call", and a start that fails says why in the call's words (`call.fail`).
  * `starting`: the host's start is under way; the host holds it, so it outlives this bar (a popover
- * that closes). What goes wrong is said in one element under the buttons,
+ * that closes). `join`: the host's own Join, such as a lobby it opens first (`CallLobby`); with
+ * none, Join joins at once. What goes wrong is said in one element under the buttons,
  * `data-slot="call-bar-words"`, which a host may place.
  */
 export function CallBar({
@@ -44,6 +45,7 @@ export function CallBar({
   member,
   start,
   starting = false,
+  join,
   className,
 }: {
   call: CallEngine | null;
@@ -52,6 +54,7 @@ export function CallBar({
   member: boolean;
   start?: () => Promise<unknown>;
   starting?: boolean;
+  join?: () => void;
   className?: string;
 }) {
   if (!call || (!ui.joined && !starting && !start && !live)) return null;
@@ -63,7 +66,7 @@ export function CallBar({
     >
       <div className="flex items-center gap-1">
         {ui.joined ? <JoinedControls call={call} ui={ui} live={live} member={member} /> : null}
-        <MainButton call={call} ui={ui} live={live} start={start} starting={starting} />
+        <MainButton call={call} ui={ui} live={live} start={start} starting={starting} join={join} />
       </div>
       <Words call={call} ui={ui} />
     </div>
@@ -165,12 +168,14 @@ function MainButton({
   live,
   start,
   starting,
+  join,
 }: {
   call: CallEngine;
   ui: CallUi;
   live: CallLive | undefined;
   start: (() => Promise<unknown>) | undefined;
   starting: boolean;
+  join: (() => void) | undefined;
 }) {
   const state: keyof typeof MAIN = ui.joined
     ? "leave"
@@ -185,7 +190,10 @@ function MainButton({
   const shut = state === "join" && !joinable(live);
   const press = () => {
     if (state === "leave") void call.leave();
-    if (state === "join") void call.join();
+    if (state === "join") {
+      if (join) join();
+      else void call.join();
+    }
     if (state === "start" && start)
       start().catch((error: unknown) =>
         call.fail(

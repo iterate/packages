@@ -456,7 +456,7 @@
     {
       "name": "call",
       "type": "registry:component",
-      "description": "A call on an agent's context: its controls for a header and its tiles beside the chat, the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
+      "description": "A call on an agent's context: its lobby before a join, its controls for a header and its tiles beside the chat, the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
       "dependencies": [
         "cn",
         "lucide-react"
@@ -474,8 +474,12 @@
       ],
       "cssVars": {
         "theme": {
+          "color-success": "var(--success)",
           "text-2xs": "0.6875rem",
           "text-2xs--line-height": "calc(1 / 0.6875)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))"
         }
       },
       "files": [
@@ -509,6 +513,10 @@
         },
         {
           "path": "src/components/call/call-pip.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-lobby.tsx",
           "type": "registry:component"
         }
       ]

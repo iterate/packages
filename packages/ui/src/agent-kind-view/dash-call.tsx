@@ -7,8 +7,13 @@
 //   `liveState`, so the chat's hook opens each facet the processors table has, `call` once its row
 //   is there. A context with no call opens nothing for it, and shows no error.
 // - THE PAGE is its own row on the context (`context.subscription`), which the call knows it by.
-// - BEFORE A CALL: "Start a call", once the table is read and has no `call` row. Its press turns the
-//   call on (`DashCall.enable`, with the config's spec) and joins.
+// - BEFORE A CALL: "Start a call", once the table is read and has no `call` row. Its press opens
+//   the lobby; the lobby's "Start the call" turns the call on (`DashCall.enable`, with the config's
+//   spec) and joins with what the lobby has on.
+// - THE LOBBY (`CallLobby`, in a dialog) comes before every join: Join and Start open it, with the
+//   microphone on (a press of the person's opened it), and the camera off. There the person checks
+//   their camera and their sound, chooses the devices, sees who is in the call, and joins with
+//   what is on, or muted. The tracks it opened go to the call as they are.
 // - THE HEADER draws the call as this page knows it: while its own start runs and the page is not
 //   in the call yet, "Starting…" alone (`starting`, held here, so a bar drawn again keeps it); in
 //   the call, the joined bar, with or without the live state; else the call's live state, or, once
@@ -22,19 +27,24 @@
 // - A START belongs to the engine it began with: one whose engine changed (a new row) or whose
 //   page went away does not join.
 // - JOIN ON ARRIVAL (`joinOnArrival`: the Dash's `call=join`, the page a Mac's Accept opens): once
-//   the table is read, the page joins the call, or starts it when the agent has none, once. ANYONE
-//   CAN SEND A MEMBER SUCH A LINK (a guest on a share link of the agent can), so it is no press of
-//   the person's, and capture starts only by the person's own act: the page joins LISTENING ONLY.
-//   No microphone opens and no track is sent; the camera and the screen stay off; the bar shows
-//   the call as muted, and the page says so. The person's own Unmute opens the microphone. They
-//   hear the call after the browser's first click (the engine says so). `arrived` then takes the
-//   key out of the address, so a reload does not join again.
+//   the table is read, the page opens the lobby, once, and joins nothing. ANYONE CAN SEND A MEMBER
+//   SUCH A LINK (a guest on a share link of the agent can), so it is no press of the person's: this
+//   lobby opens no microphone and no camera by itself. `arrived` then takes the key out of the
+//   address, so a reload does not open it again.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { PhoneIcon } from "lucide-react";
 import { CallBar } from "#/components/call/call-bar.tsx";
+import { CallLobby, type LobbyMedia } from "#/components/call/call-lobby.tsx";
 import { CallTiles } from "#/components/call/call-tiles.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 import { useCall, type CallContext, type CallEngine, type CallUi } from "#/lib/call-engine.ts";
 import type { CallLive } from "#/lib/call-rules.ts";
@@ -59,7 +69,7 @@ export function AgentCall({
   /** Turns the call on for this agent. */
   enable: () => Promise<unknown>;
   barIn: HTMLElement | null;
-  /** The page was opened to join: it joins, or starts the call, once the table is read. */
+  /** The page was opened to join: it opens the lobby once the table is read. */
   joinOnArrival?: boolean;
   /** The join on arrival began: the host takes its key out of the address. */
   arrived?: () => void;
@@ -85,10 +95,12 @@ export function AgentCall({
       heldCall.current = null;
     };
   }, [call]);
+  // the lobby, while it is open: `micAtStart` when a press of the person's opened it
+  const [lobby, setLobby] = useState<{ micAtStart: boolean } | null>(null);
   // nothing before the table is read: an agent with a call shows Join, never a start first
   const start =
     call && !barLive && context.processors.loaded
-      ? async (listenOnly = false) => {
+      ? async ({ mic, camera }: LobbyMedia) => {
           const token = { call, epoch: call.epoch };
           setStartedIn(token);
           const done = () => setStartedIn((now) => (now === token ? null : now));
@@ -100,36 +112,42 @@ export function AgentCall({
             setEnabled(true);
             // the page went away, or its call was closed (a pagehide, a Leave), while the call was
             // turned on: joining is the person's next press
-            if (heldCall.current !== call || call.epoch !== token.epoch) return;
-            await call.join({ listenOnly });
+            if (heldCall.current !== call || call.epoch !== token.epoch) {
+              for (const track of [...(mic?.getTracks() || []), ...(camera?.getTracks() || [])])
+                track.stop();
+              return;
+            }
+            await call.join({ mic, camera, listenOnly: !mic });
           } finally {
             inTheCall();
             done();
           }
         }
       : undefined;
-  // the join on arrival, once: Join for a call that is on, Start for an agent with none. What it
-  // does is this render's (`arrive`, set after each render); when it runs is the table's first read.
+  // the lobby on arrival, once, with nothing open. What it does is this render's (`arrive`, set
+  // after each render); when it runs is the table's first read.
   const arrival = useRef(joinOnArrival);
   const arrive = useRef(() => {});
   useEffect(() => {
     arrive.current = () => {
       if (!call) return;
       arrived?.();
-      if (ui.joined || ui.joining) return;
-      const joined = start ? start(true) : call.join({ listenOnly: true });
-      joined.then(
-        () => {
-          if (call.ui.joined && call.ui.muted)
-            call.say("You joined from a link, muted: no one hears you until you press Unmute.");
-        },
-        (error: unknown) =>
-          call.fail(
-            `The call could not start: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      );
+      if (!ui.joined && !ui.joining) setLobby({ micAtStart: false });
     };
   });
+  // the lobby's Join now (or Start the call): the call takes what it opened
+  const fromLobby = (media: LobbyMedia) => {
+    setLobby(null);
+    if (!call) return;
+    if (start)
+      start(media).catch((error: unknown) =>
+        call.fail(
+          `The call could not start: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    else void call.join({ ...media, listenOnly: !media.mic });
+  };
+  const openLobby = () => setLobby({ micAtStart: true });
   useEffect(() => {
     if (!arrival.current || !call || !context.processors.loaded) return;
     arrival.current = false;
@@ -139,10 +157,35 @@ export function AgentCall({
     <>
       {barIn
         ? createPortal(
-            <CallControls call={call} ui={ui} live={barLive} start={start} starting={starting} />,
+            <CallControls
+              call={call}
+              ui={ui}
+              live={barLive}
+              start={start ? async () => openLobby() : undefined}
+              starting={starting}
+              join={openLobby}
+            />,
             barIn,
           )
         : null}
+      <Dialog open={Boolean(lobby)} onOpenChange={(open) => !open && setLobby(null)}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{start ? "Start a call" : "Join the call"}</DialogTitle>
+            <DialogDescription>
+              Check your camera and your sound first. Nothing is sent until you join.
+            </DialogDescription>
+          </DialogHeader>
+          {lobby ? (
+            <CallLobby
+              live={live}
+              action={start ? "start" : "join"}
+              micAtStart={lobby.micAtStart}
+              onJoin={fromLobby}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
       {/* over the feed, which gives up the room: the composer stays where it is */}
       <div data-slot="agent-call-tiles" className="max-h-[40dvh] shrink-0 overflow-y-auto">
         <CallTiles
@@ -188,19 +231,21 @@ function CallControls({
   live,
   start,
   starting,
+  join,
 }: {
   call: CallEngine | null;
   ui: CallUi;
   live: CallLive | undefined;
   start: (() => Promise<unknown>) | undefined;
   starting: boolean;
+  join: () => void;
 }) {
   const narrow = useSyncExternalStore(
     watchNarrow,
     () => matchMedia(NARROW).matches,
     () => false,
   );
-  const bar = { call, ui, live, start, starting, member: true };
+  const bar = { call, ui, live, start, starting, join, member: true };
   if (!narrow) return <CallBar {...bar} className={WORDS_OVER_THE_PAGE} />;
   if (!call || (!ui.joined && !starting && !start && !live)) return null;
   const wrong = Boolean(ui.error || ui.aiRefusal);

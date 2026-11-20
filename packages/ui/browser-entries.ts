@@ -19,6 +19,7 @@ const ITEMS_OF_PARTS: Record<string, string[]> = {
     "call-bar.tsx",
     "call-tiles.tsx",
     "call-pip.tsx",
+    "call-lobby.tsx",
   ],
 };
 
