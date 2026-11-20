@@ -87,7 +87,7 @@ test("a button with a question asks it first and posts to its URL on the page's 
               "x/x-2": {
                 account: "@ada",
                 actions: [
-                  { label: "Manage", url: `${here}/?page=secrets` },
+                  { label: "Manage", url: `${here}/secrets` },
                   {
                     label: "Remove",
                     url: `${here}/remove/x?secret=x-2`,

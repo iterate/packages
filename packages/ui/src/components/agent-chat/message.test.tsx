@@ -16,7 +16,7 @@ test("a link to another page that names its way back here opens in this tab; one
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const back = encodeURIComponent(`${window.location.origin}/?agent=/agents/onboarding`);
+  const back = encodeURIComponent(`${window.location.origin}/agents/agents/onboarding`);
   await act(async () => {
     root.render(
       <MessageResponse>

@@ -19,7 +19,6 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthenticatedApp } from "iterate/app";
-import { mindMcpUrlOf } from "iterate/mind-api";
 import type { Principal } from "iterate/principal";
 import { useContextStub } from "iterate/react";
 import { servesOf } from "./serves.ts";
@@ -39,7 +38,7 @@ type Icon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true"
 
 /** One page of the Dash: a row of the sidebar. */
 export type DashPage = {
-  /** `?page=<id>`; the first page of the list has none */
+  /** `/<id>`; the first page of the list is `/` (linked from the sidebar header) */
   id: string;
   name: string;
   icon: Icon;
@@ -124,7 +123,6 @@ const repoPart = once(() => import("#/components/repo-ide/repo-ide.tsx"));
 const secretsPart = once(() => import("#/components/secrets-page.tsx"));
 const integrationsPart = once(() => import("#/components/integrations-page.tsx"));
 const analyticsPart = once(() => import("#/components/analytics-page.tsx"));
-const mcpPart = once(() => import("#/components/mcp-connect.tsx"));
 
 /** `children` when the mind serves `root`, else `off`. It suspends while the page asks. */
 function IfServed({
@@ -213,8 +211,8 @@ function useConnection(itx: Itx) {
   return useSyncExternalStore(session.subscribe, session.get, session.get);
 }
 
-/** Any context of the mind, live: `?context=<path>` (`?context=/` is the root), and the explorer's
- *  own state in `?view`. With no `?context` the page opens no context: the list, and a note. With
+/** Any context of the mind, live: `/contexts/<path>` (`/contexts?contextPath=/` for the root), and the explorer's
+ *  own state in `?view`. With no context path the page opens no context: the list, and a note. With
  *  an Agents page, beside the path is the way to the same context in the agent view. */
 export function DashContexts({ itx, mind, principal, page, pages, catalog }: DashPageProps) {
   const { ContextExplorer, contextPathOf, contextViewStateOf } = use(contextsPart());
@@ -270,7 +268,7 @@ export function DashContexts({ itx, mind, principal, page, pages, catalog }: Das
 // the explorer opens its contexts again at each new session, and keeps what it shows
 DashContexts.staysOverReconnect = true;
 
-/** One repo of the mind as a small IDE: `?repo=<name>` (none: config). It follows the repo's
+/** One repo of the mind as a small IDE: `/repos/<name>` (none: config). It follows the repo's
  *  commits live, so the mind's root is held while the page is up, and opened again at each new
  *  session. The root of the session before stays in hand until then, so the IDE stays, with what
  *  is typed in it; a failure while no session is open is the lost connection's. */
@@ -453,16 +451,3 @@ export function DashAnalytics({ itx, mind }: DashPageProps) {
 }
 // holds nothing of a session: each query is a call through the page's itx
 DashAnalytics.staysOverReconnect = true;
-
-/** How to connect Claude Code or the Codex CLI to the mind: the stack's MCP server. */
-export function DashMcp({ mind }: DashPageProps) {
-  const { McpConnect } = use(mcpPart());
-  return (
-    <DashScroll>
-      <McpConnect server={mindMcpUrlOf(mind)} />
-    </DashScroll>
-  );
-}
-
-// holds nothing of a session
-DashMcp.staysOverReconnect = true;

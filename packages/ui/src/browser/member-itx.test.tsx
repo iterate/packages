@@ -506,7 +506,7 @@ test(
     using _layout = laidOut();
     const net = network({ "/agents/a": [said(1, "first words")] });
     const { itx, reload } = member(net);
-    history.replaceState(null, "", "/agents?contextPath=/agents/a");
+    history.replaceState(null, "", "/agents/agents/a");
     await using page = await draw(itx);
     await shows(page.host, "first words");
     await shows(page.host, "Idle");

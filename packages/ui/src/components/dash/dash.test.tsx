@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // A mind's Dash drawn from lists: one list of pages makes the sidebar, the URL names the page shown, a part the mind does not have says "Off", and a page that fails says
 // so in its own place.
-import { act, use, useEffect } from "react";
+import { act, use, useEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
@@ -21,7 +21,10 @@ test("one list makes the sidebar; a mind with no telemetry shows Analytics as Of
     "/analytics",
   ]);
   expect(host.textContent?.match(/Off/g)).toHaveLength(1);
-  expect(linksNamed(host, "Home")[0]?.getAttribute("href")).toBe("/");
+  // the header brand links Home (`/`), and Home is not repeated in the nav
+  expect(headerBrandLink(host)?.getAttribute("href")).toBe("/");
+  expect(linksNamed(host, "Home")).toHaveLength(0);
+  expect(host.querySelector('[aria-label="Switch mind"]')).toBeNull();
   // and each group of links follows the pages
   expect(linksNamed(host, "Approvals")).toHaveLength(1);
   expect(dash.asked.filter((root) => root === "itx.telemetry")).toHaveLength(1);
@@ -36,7 +39,7 @@ test("a mind with telemetry has no Off; a click on a page's row shows that page 
   expect(location).toMatchObject({ pathname: "/analytics", search: "" });
   expect(host.textContent).toContain("the charts");
   expect(host.querySelector("h1")).toBeNull();
-  expect(linksNamed(host, "Home")).toHaveLength(1);
+  expect(headerBrandLink(host)?.getAttribute("href")).toBe("/");
 });
 
 test("a page that did not load says so on its own page alone, with the way to load again", async () => {
@@ -47,8 +50,8 @@ test("a page that did not load says so on its own page alone, with the way to lo
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(
     "This page did not load: Failed to fetch dynamically imported module. Load the page again to try once more.",
   );
-  // the sidebar stays, and another page draws as before
-  await act(() => linksNamed(host, "Home")[0]!.click());
+  // the sidebar stays, and clicking the header brand returns Home
+  await act(() => headerBrandLink(host)!.click());
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
 });
@@ -67,7 +70,7 @@ test("a page that threw is handed to the page's error capture, once, when the pa
     window.reportPageError = () => {
       throw new Error("the capture broke");
     };
-    await act(() => linksNamed(dash.host, "Home")[0]!.click());
+    await act(() => headerBrandLink(dash.host)!.click());
     await act(() => go("/broken"));
     expect(dash.host.querySelector('[role="alert"]')?.textContent).toContain(
       "This page did not load",
@@ -138,7 +141,7 @@ test("an agent that throws says so on its own view alone: View all and another a
     if (agent === "/agents/broken") throw new Error("the agent view threw");
     return <p data-shown>{agent || "every agent"}</p>;
   }
-  await using dash = await draw("/agents?contextPath=/agents/broken", [], {
+  await using dash = await draw("/agents/agents/broken", [], {
     pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: Agents }],
   });
   const { host } = dash;
@@ -149,14 +152,14 @@ test("an agent that throws says so on its own view alone: View all and another a
   await act(() => go("/agents"));
   expect([alert(), shown()]).toEqual([null, "every agent"]);
   // another agent after one that threw
-  await act(() => go("/agents?contextPath=/agents/broken"));
+  await act(() => go("/agents/agents/broken"));
   expect(alert()).not.toBeNull();
-  await act(() => go("/agents?contextPath=/agents/other"));
+  await act(() => go("/agents/agents/other"));
   expect([alert(), shown()]).toEqual([null, "/agents/other"]);
   // with no error, neither another agent nor the page's own view state mounts it anew
   const before = mounts;
-  await act(() => go("/agents?contextPath=/agents/third"));
-  await act(() => go(`/agents?contextPath=/agents/third&view=${encodeURIComponent('{"q":"x"}')}`));
+  await act(() => go("/agents/agents/third"));
+  await act(() => go(`/agents/agents/third?view=${encodeURIComponent('{"q":"x"}')}`));
   expect([shown(), mounts]).toEqual(["/agents/third", before]);
 });
 
@@ -166,7 +169,7 @@ test("the Dash draws before the mind has said who is signed in: the page at once
   await using dash = await draw("/who", [], { pages: withWho, principal: "ask", whoami });
   const { host } = dash;
   // the frame and the page are there, and nothing says who
-  expect(linksNamed(host, "Home")).toHaveLength(1);
+  expect(headerBrandLink(host)?.getAttribute("href")).toBe("/");
   expect(host.querySelector("output")?.textContent).toBe("not known yet");
   expect(host.querySelector('[aria-label="Account"]')).toBeNull();
   await act(async () => answer({ principal: { actor: "/members/a", email: "jo@example.com" } }));
@@ -243,7 +246,7 @@ test("while a page's part loads, its place holds quiet shapes and no words", asy
   expect(place?.textContent).toBe("");
   expect(dash.host.textContent).not.toContain("Loading the page…");
   // the sidebar is there meanwhile
-  expect(linksNamed(dash.host, "Home")).toHaveLength(1);
+  expect(headerBrandLink(dash.host)?.getAttribute("href")).toBe("/");
 });
 
 test("a page the URL does not name is the first page", async () => {
@@ -286,7 +289,7 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   ]);
   expect(rows[0]?.querySelector("[data-agent-line]")?.textContent).toBe("and 5 subagents");
   // each row is the agent view, and View all is the Agents page, which has no row of its own
-  expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("/agents?contextPath=/agents/a");
+  expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("/agents/agents/a");
   expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("/agents");
   expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
   // the section is the sidebar's last: every other link is above the first agent's row
@@ -299,7 +302,7 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   ).toBe(true);
   // a click opens the agent view: the Agents page, with the path; its row is the current one
   await act(() => rows[1]!.querySelector("a")!.click());
-  expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/t7" });
+  expect(location).toMatchObject({ pathname: "/agents/agents/t7", search: "" });
   expect(dash.host.textContent).toContain("agent view of /agents/t7");
   expect(
     [...dash.host.querySelectorAll("[data-agent-path] a")].map((row) =>
@@ -419,18 +422,18 @@ test("a closed link group with waiting approvals shows the count on its label", 
 test("a row the mind pins sits right under New agent, and an agent's view opens in place", async () => {
   await using dash = await draw("/", [], {
     pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: () => null }],
-    pinned: [{ name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon }],
+    pinned: [{ name: "Pinned helper", href: "/agents/agents/helper", icon: BotIcon }],
   });
   const names = [...dash.host.querySelectorAll("a")].map((link) => link.textContent);
   expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 3)).toEqual([
     "New agent",
     "Pinned helper",
-    "Home",
+    "Analytics",
   ]);
   const row = linksNamed(dash.host, "Pinned helper")[0]!;
-  expect(row.getAttribute("href")).toBe("/agents?contextPath=/agents/helper");
+  expect(row.getAttribute("href")).toBe("/agents/agents/helper");
   await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
-  expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/helper" });
+  expect(location).toMatchObject({ pathname: "/agents/agents/helper", search: "" });
 });
 
 test("New agent is never marked or boxed, and a pinned row is marked only while its own agent is open", async () => {
@@ -439,7 +442,7 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
       ...pages,
       { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents page</p> },
     ],
-    pinned: [{ name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon }],
+    pinned: [{ name: "Pinned helper", href: "/agents/agents/helper", icon: BotIcon }],
   });
   /** [is it marked as the current row, is it drawn as a box] of the sidebar row with this name */
   const look = (name: string) => {
@@ -449,12 +452,40 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
   const marked = () => ({ newAgent: look("New agent"), pinned: look("Pinned helper") });
   // home, the pinned agent's own view, another agent's view, and the page New agent links to
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
-  await act(() => go("/agents?contextPath=/agents/helper"));
+  await act(() => go("/agents/agents/helper"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [true, false] });
-  await act(() => go("/agents?contextPath=/agents/helper/sub"));
+  await act(() => go("/agents/agents/helper/sub"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
   await act(() => go("/agents"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
+});
+
+test("Dash header shows mind name, logo, and hostname as one Home link, and account menu says Sign out without hostname", async () => {
+  await using dash = await draw("/analytics", ["itx.telemetry"], {
+    name: "iterate",
+    logo: <span data-mind-logo>I</span>,
+  });
+  const { host } = dash;
+  expect(host.querySelector('[aria-label="Switch mind"]')).toBeNull();
+  const brand = headerBrandLink(host)!;
+  expect(brand.getAttribute("href")).toBe("/");
+  expect(brand.textContent).toContain("iterate");
+  expect(brand.textContent).toContain("iterate.example.com");
+  expect(brand.querySelector("[data-mind-logo]")?.textContent).toBe("I");
+  // clicking the brand navigates Home in place
+  await act(() => brand.click());
+  expect(location).toMatchObject({ pathname: "/", search: "" });
+  expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
+
+  // account popover says plain "Sign out" without repeating the hostname
+  const account = host.querySelector<HTMLElement>('[aria-label="Account"]')!;
+  await act(async () => {
+    account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    account.click();
+  });
+  const menu = document.querySelector('[role="menu"]')!;
+  expect(menu.textContent).toContain("Sign out");
+  expect(menu.textContent).not.toContain("Sign out of iterate.example.com");
 });
 
 test("each page and each agent has its canonical address: deep link, click, Back, /home", async () => {
@@ -465,43 +496,37 @@ test("each page and each agent has its canonical address: deep link, click, Back
     }
     const agents = { id: "agents", name: "Agents", icon: BotIcon, component: AgentShown };
     // a deep link, opened cold: an agent whose path holds an address
-    await using dash = await draw(
-      "/agents?contextPath=/agents/canvas2/ada@example.com/notes.md",
-      [],
-      {
-        pages: [...pages, agents],
-        pinned: [
-          { name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon },
-        ],
-        agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
-      },
-    );
+    await using dash = await draw("/agents/agents/canvas2/ada@example.com/notes.md", [], {
+      pages: [...pages, agents],
+      pinned: [{ name: "Pinned helper", href: "/agents/agents/helper", icon: BotIcon }],
+      agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
+    });
     const { host } = dash;
     const hrefOf = (name: string) => linksNamed(host, name)[0]?.getAttribute("href");
     expect(host.textContent).toContain("agent view of /agents/canvas2/ada@example.com/notes.md");
     // every link is a path from the root, so it leads to the same place from any page
     await until(() => host.querySelector("[data-agent-path] a"));
     expect({
-      home: hrefOf("Home"),
+      brand: headerBrandLink(host)?.getAttribute("href"),
       analytics: hrefOf("Analytics"),
       newAgent: hrefOf("New agent"),
       all: hrefOf("View all"),
       pinned: hrefOf("Pinned helper"),
       agent: host.querySelector("[data-agent-path] a")?.getAttribute("href"),
     }).toEqual({
-      home: "/",
+      brand: "/",
       analytics: "/analytics",
       newAgent: "/agents",
       all: "/agents",
-      pinned: "/agents?contextPath=/agents/helper",
-      agent: "/agents?contextPath=/agents/t1",
+      pinned: "/agents/agents/helper",
+      agent: "/agents/agents/t1",
     });
     // a click on a page's row, then on the pinned row, which is marked while its agent is open
     await act(() => linksNamed(host, "Analytics")[0]!.click());
     expect(location).toMatchObject({ pathname: "/analytics", search: "" });
     expect(host.textContent).toContain("the charts");
     await act(() => linksNamed(host, "Pinned helper")[0]!.click());
-    expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/helper" });
+    expect(location).toMatchObject({ pathname: "/agents/agents/helper", search: "" });
     expect(host.textContent).toContain("agent view of /agents/helper");
     expect(linksNamed(host, "Pinned helper")[0]!.hasAttribute("data-active")).toBe(true);
     // Back is the page before
@@ -515,10 +540,10 @@ test("each page and each agent has its canonical address: deep link, click, Back
     await act(() => go("/agents"));
     expect(location).toMatchObject({ pathname: "/agents", search: "" });
     expect(host.textContent).toContain("agent view of none");
-    await act(() => go("/agents?contextPath=/agents/t1&view=%7B%22view%22:%22events%22%7D"));
+    await act(() => go("/agents/agents/t1?view=%7B%22view%22:%22events%22%7D"));
     expect(location).toMatchObject({
-      pathname: "/agents",
-      search: "?contextPath=/agents/t1&view=%7B%22view%22:%22events%22%7D",
+      pathname: "/agents/agents/t1",
+      search: "?view=%7B%22view%22:%22events%22%7D",
     });
     expect(host.textContent).toContain("agent view of /agents/t1");
     // the first page is the root; /home replaces to / (keeping any hash), while /home/sub stays
@@ -527,7 +552,7 @@ test("each page and each agent has its canonical address: deep link, click, Back
     expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
     await act(() => go("/home/sub"));
     expect(location).toMatchObject({ pathname: "/home/sub", search: "" });
-    await act(() => linksNamed(host, "Home")[0]!.click());
+    await act(() => headerBrandLink(host)!.click());
     expect(location).toMatchObject({ pathname: "/", search: "" });
     expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
   } finally {
@@ -684,6 +709,8 @@ async function draw(
   serves: string[],
   {
     mind = "iterate.example.com",
+    name,
+    logo,
     pages: drawn = pages,
     links: drawnLinks = links,
     contexts,
@@ -697,6 +724,8 @@ async function draw(
     keepStorage = false,
   }: {
     mind?: string;
+    name?: string;
+    logo?: ReactNode;
     pages?: DashPage[];
     links?: DashLinks[];
     pinned?: DashLink[];
@@ -781,6 +810,8 @@ async function draw(
     root.render(
       <Dash
         app="Dash"
+        name={name}
+        logo={logo}
         itx={itx}
         mind={mind}
         principal={principal === "ask" ? undefined : principal}
@@ -814,4 +845,8 @@ async function until(check: () => unknown) {
 
 function linksNamed(host: Element, name: string) {
   return [...host.querySelectorAll("a")].filter((link) => link.textContent?.includes(name));
+}
+
+function headerBrandLink(host: Element) {
+  return host.querySelector<HTMLAnchorElement>('[data-slot="sidebar-header"] a');
 }

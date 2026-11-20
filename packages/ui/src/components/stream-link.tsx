@@ -1,3 +1,5 @@
+import { dashPaths } from "#/components/dash/dash-paths.ts";
+
 /** The context a "Stream ↗" opens, in the mind's Dash at `dashOrigin`. */
 export type StreamTarget = {
   /** `https://dash.<the mind's domain>`; null when the page knows no Dash */
@@ -10,9 +12,10 @@ export type StreamTarget = {
 };
 
 /** "Stream ↗": from a page to the context its data lives on, in the Contexts page of the mind's
- *  Dash (`?page=contexts&context=<path>` on `dashOrigin`): the context's events, its processors and
- *  their live state. The convention for a page that is one context's events (a doc, an agent): this
- *  one quiet link, beside the page's path. Nothing when the page knows no Dash. */
+ *  Dash (`/contexts/<path>` or `/contexts?contextPath=/` on `dashOrigin`): the context's events,
+ *  its processors and their live state. The convention for a page that is one context's events (a
+ *  doc, an agent): this one quiet link, beside the page's path. Nothing when the page knows no
+ *  Dash. */
 export function StreamLink(target: StreamTarget) {
   const href = streamHref(target);
   if (!href) return null;
@@ -30,9 +33,9 @@ export function StreamLink(target: StreamTarget) {
 }
 
 /** Where "Stream ↗" goes: null when there is no Dash to go to. */
-function streamHref({ dashOrigin, path }: StreamTarget) {
+export function streamHref({ dashOrigin, path }: Pick<StreamTarget, "dashOrigin" | "path">) {
   if (!dashOrigin) return null;
   // the root too is named: the Contexts page with no `context` opens no context
-  const query = new URLSearchParams({ page: "contexts", context: path });
-  return `${dashOrigin}/?${query}`;
+  const origin = dashOrigin.replace(/\/+$/, "");
+  return `${origin}${dashPaths.hrefOf(new URLSearchParams({ page: "contexts", context: path }))}`;
 }

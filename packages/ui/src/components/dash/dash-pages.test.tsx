@@ -90,7 +90,7 @@ test("the repo page draws no editor before the Dash knows who is signed in: a co
 });
 
 test("the repo page pushes a history entry when commit or file changes, and replaces when toggling sidebars", async () => {
-  history.replaceState(null, "", "/repo");
+  history.replaceState(null, "", "/repos");
   try {
     const { itx } = mind([], async () => []);
     const repoFacet = {
@@ -144,9 +144,9 @@ test("the repo page pushes a history entry when commit or file changes, and repl
     });
     for (let tick = 0; tick < 80 && !buttonNamed("worker.ts"); tick += 1)
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-    // opening a file pushes a history entry and writes `/repo/config/worker.ts`
+    // opening a file pushes a history entry and writes `/repos/config/worker.ts`
     await act(() => buttonNamed("worker.ts")!.click());
-    expect(location).toMatchObject({ pathname: "/repo/config/worker.ts" });
+    expect(location).toMatchObject({ pathname: "/repos/config/worker.ts" });
     expect(JSON.parse(new URLSearchParams(location.search).get("view") || "{}")).toEqual({
       history: true,
       commit: "abc1234",

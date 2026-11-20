@@ -39,7 +39,7 @@ test("the home with nothing waiting: the composer, the words that say so, and th
   expect(waiting?.textContent).toBe("Waiting for youNothing waits for you.");
   expect(
     page.host.querySelector('[data-agent-path="/agents/onboarding"]')?.getAttribute("href"),
-  ).toBe("/agents?contextPath=/agents/onboarding");
+  ).toBe("/agents/agents/onboarding");
 });
 
 test("the home before the count of what waits is known says nothing false, in the same room", async () => {
@@ -112,7 +112,7 @@ test.for([
 test("the agent view takes any path, has no button to its raw view, and says the opener once into an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx, appended } = mind({});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   await using page = await draw(DashAgents, itx, {
     waiting: 0,
     openers: { "/agents/onboarding": "Begin with step 1." },
@@ -138,7 +138,7 @@ test("the agent view takes any path, has no button to its raw view, and says the
     { timeout: 5_000 },
   );
   // a path that is no agent's draws as well, and an opener for another path says nothing
-  history.replaceState(null, "", "/agents?contextPath=/secrets/slack");
+  history.replaceState(null, "", "/agents/secrets/slack");
   await using other = await draw(DashAgents, itx, { waiting: 0, openers: {} });
   expect(other.host.textContent).toContain("/secrets/slack");
   expect(appended).toHaveLength(1);
@@ -146,7 +146,7 @@ test("the agent view takes any path, has no button to its raw view, and says the
 
 test("an agent page's header shows the stack of who is here, which opens who can use the conversation, only where the mind's config turned presence on", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   {
     // the default: no typing status, no place in the header, nothing sent
     const { itx, sent, appended } = mind({});
@@ -202,7 +202,7 @@ test("an agent page's header shows the stack of who is here, which opens who can
 
 test("the header's count of held events leaves out a page's presence status", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx } = mind({
     logs: {
       "/agents/onboarding": [
@@ -235,7 +235,7 @@ test.for<{ name: string; path: string; kind: string }>([
   async ({ path, kind }) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
-    history.replaceState(null, "", `/agents?contextPath=${path}`);
+    history.replaceState(null, "", `/agents${path}`);
     await using page = await draw(DashAgents, itx, {
       waiting: 0,
       agents: agentRowsOf({ agents: { [path]: { createdAt: now, kind } } }),
@@ -268,7 +268,7 @@ test.for<{ name: string; path: string; kind: string }>([
 test("the agent page while its view is not there: the header's tabs, which cannot be pressed, and one loading line", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
   const tabs = [...page.host.querySelectorAll("[role=tablist]")];
   expect(tabs).toHaveLength(1);
@@ -292,7 +292,7 @@ test("a chat draws a message's image for an agent whose context has no `files`: 
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   await using page = await draw(DashAgents, itx, { waiting: 0 });
   await act(() =>
     vi.waitFor(() =>
@@ -319,7 +319,7 @@ test("a message's image is signed once, however often the page draws the chat ag
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   await using page = await draw(DashAgents, itx, { waiting: 0 });
   await act(() =>
     vi.waitFor(() => expect(page.host.querySelector('img[alt="photo.png"]')).not.toBe(null)),
@@ -347,7 +347,7 @@ test("a message the signed-in member sent has no line under it that says who sen
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   await using page = await draw(DashAgents, itx, { waiting: 0 });
   const lines = () =>
     [...page.host.querySelectorAll("[data-kind=user]")].map(
@@ -359,7 +359,7 @@ test("a message the signed-in member sent has no line under it that says who sen
 test("an agent of another kind, before the catalog says its kind: no chat of iterate's, and never its words for an empty chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
-  history.replaceState(null, "", "/agents?contextPath=/agents/session");
+  history.replaceState(null, "", "/agents/agents/session");
   await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
   // the header is there, and one loading state: no view is chosen yet
   expect(page.host.textContent).toContain("/agents/session");
@@ -380,7 +380,7 @@ test("an agent of another kind, before the catalog says its kind: no chat of ite
 test("a kind's file that cannot be read is read once: its agent's view draws, and no later render reads again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx, reads } = mind({ kinds: { claude: "agent-kinds/claude.ts" }, unreadable: true });
-  history.replaceState(null, "", "/agents?contextPath=/agents/session");
+  history.replaceState(null, "", "/agents/agents/session");
   const rows = () =>
     agentRowsOf({ agents: { "/agents/session": { createdAt: now, kind: "claude" } } });
   await using page = await draw(DashAgents, itx, { waiting: 0, agents: rows() });
@@ -394,7 +394,7 @@ test("a kind's file that cannot be read is read once: its agent's view draws, an
 test("an iterate agent, before the catalog says its kind, waits under the same loading state, then is iterate's chat", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { itx } = mind({});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   await using page = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
   expect(page.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
   expect(page.host.querySelector("[role=log]")).toBe(null);
@@ -449,7 +449,7 @@ test("an iterate agent's view drawn a second time shows the saved rows while the
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   {
     await using first = await draw(DashAgents, itx, { waiting: 0 });
     expect(first.host.querySelector("[role=log]")?.textContent).toContain(
@@ -482,7 +482,7 @@ test("the agent page while its view is not there says nothing of a read when sav
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   {
     // a first visit reads the log, and the page keeps its rows
     await using first = await draw(DashAgents, itx, { waiting: 0 });
@@ -498,7 +498,7 @@ test("the agent page while its view is not there says nothing of a read when sav
     expect(again.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(0);
   }
   // another agent, of whose log nothing is held: the page says that it reads
-  history.replaceState(null, "", "/agents?contextPath=/agents/never-seen");
+  history.replaceState(null, "", "/agents/agents/never-seen");
   await using other = await draw(DashAgents, itx, { waiting: 0, agents: "unread" });
   expect(other.host.querySelectorAll("[data-slot=log-reading]")).toHaveLength(1);
 });
@@ -518,7 +518,7 @@ test("the opener is not appended while the chat's rows are a saved copy, only wh
       ],
     },
   });
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   {
     await using _first = await draw(DashAgents, itx, { waiting: 0, openers: {} });
   }
@@ -538,7 +538,7 @@ test("an iterate agent drawn a second time, before the catalog and the kinds ans
   using _layout = laidOut();
   const path = "/agents/remembered";
   const logs = { [path]: [words(1, "Words from the last visit")] };
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   {
     await using _first = await draw(DashAgents, mind({ logs }).itx, { waiting: 0 });
   }
@@ -632,7 +632,7 @@ test("the opener is not appended from a remembered view over a saved copy, only 
       },
     ],
   };
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   {
     await using _first = await draw(DashAgents, mind({ logs }).itx, { waiting: 0, openers: {} });
   }
@@ -654,7 +654,7 @@ test("the opener is not appended from a remembered view over a saved copy, only 
 
 test("with the Agents page's `call` off, an agent page has no call: no place, no button, no tiles, nothing turned on", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx, invoked } = mind({ row: "a-page" });
   await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
   expect({
@@ -668,7 +668,7 @@ test("with the Agents page's `call` off, an agent page has no call: no place, no
 test("with `call` on and no call on the agent: one Start a call, whose press turns the call on once, then joins", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx, invoked, steps } = mind({ row: "a-page" });
   const enable = vi.fn(async () => void steps.push("enable"));
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
@@ -684,7 +684,7 @@ test("with `call` on and no call on the agent: one Start a call, whose press tur
 
 test("a start that fails says why in words, and Start a call can be pressed again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx, steps } = mind({ row: "a-page" });
   await using page = await draw(DashAgents, itx, {
     waiting: 0,
@@ -709,7 +709,7 @@ test("a start that fails says why in words, and Start a call can be pressed agai
 
 test("a call another member is in: Join in the header, a ring on their face, and the card says so", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx } = mind({
     row: "a-page",
     pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
@@ -750,7 +750,7 @@ test("a call another member is in: Join in the header, a ring on their face, and
 test("in the call: the bar's buttons and Leave in the same place, the voice agent's too, and the tiles over the feed", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding");
+  history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx } = mind({
     row: "a-page",
     pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
@@ -2735,7 +2735,7 @@ function words(offset: number, content: string) {
  *  its view and keeps it. jsdom loads no frame, so the frame's read never starts and saves no
  *  rows: the rows it would have shown are saved here. */
 async function rememberKindView(path: string, source: string) {
-  history.replaceState(null, "", `/agents?contextPath=${path}`);
+  history.replaceState(null, "", `/agents${path}`);
   const { itx } = mind({ kinds: { claude: "agent-kinds/claude.ts" }, source });
   {
     await using first = await draw(DashAgents, itx, { waiting: 0, agents: claudeRows(path) });

@@ -90,6 +90,7 @@
       "./components/context-path-text": "./dist/components/context-path-text.mjs",
       "./components/context-view/context-view": "./dist/components/context-view/context-view.mjs",
       "./components/copy-text": "./dist/components/copy-text.mjs",
+      "./components/dash/dash-paths": "./dist/components/dash/dash-paths.mjs",
       "./components/dash/dash": "./dist/components/dash/dash.mjs",
       "./components/docs-editor/docs-editor": "./dist/components/docs-editor/docs-editor.mjs",
       "./components/environment-head-content": "./dist/components/environment-head-content.mjs",

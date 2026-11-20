@@ -7,9 +7,10 @@
 // the pages' icons are, and its tooltip says its title, its line and its path. The words hide by the
 // sidebar's own `group-data-[collapsible=icon]` classes, as every other row's do.
 //
-// AN AGENT VIEW is `?agent=<path>`, and the raw view of the same context is
-// `?page=contexts&context=<path>`; both read as paths (#/lib/page-url.ts). The agent view takes any
-// path: what makes an agent is its view, not where it lives.
+// AN AGENT VIEW is `/agents/<path>` (`/agents?contextPath=/` for root), and the raw view of the
+// same context is `/contexts/<path>` (`/contexts?contextPath=/` for root); both share `dashPaths`
+// (#/lib/page-url.ts). The agent view takes any path: what makes an agent is its view, not where it
+// lives.
 import { ListIcon } from "lucide-react";
 import { agentViewHref } from "./dash-href.ts";
 import { kindIcon } from "#/components/agent-look.ts";

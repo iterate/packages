@@ -7,7 +7,7 @@
 //
 // TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
 //   agents    the Agents page. The sidebar lists the most recently active agents below the pages
-//             and links, and `/agents?contextPath=<path>` shows that page (its agent view). The
+//             and links, and `/agents/<path>` shows that agent there. The
 //             catalog on `/agents` is read once, live, for all of them and handed to every page.
 //   contexts  the raw view of any context (`/contexts/<path>`).
 //
@@ -40,7 +40,7 @@ import {
   type DashLinks,
   type DashPage,
 } from "./dash-pages.tsx";
-import { AppShell } from "#/components/app-shell.tsx";
+import { AppShell, AppShellBrand } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
 import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
@@ -69,7 +69,6 @@ export {
   DashAnalytics,
   DashContexts,
   DashIntegrations,
-  DashMcp,
   DashNote,
   DashPartIsOff,
   DashPlaceholder,
@@ -87,6 +86,8 @@ type Itx = AuthenticatedApp["itx"];
 
 export function Dash({
   app,
+  name,
+  logo,
   itx,
   mind,
   principal,
@@ -95,8 +96,12 @@ export function Dash({
   pinned,
   sidebarDefaultOpen,
 }: {
-  /** the app's name, on top of the sidebar: "Dash" */
+  /** the app's name (fallback when `name` is omitted) */
   app: string;
+  /** the mind's name, shown in the sidebar header above `mind`; falls back to `app` */
+  name?: string;
+  /** the mind's logo, shown in the sidebar header tile; defaults to the iterate mark */
+  logo?: ReactNode;
   itx: Itx;
   mind: string;
   /** Who is signed in, when the page knows already. Absent: the Dash draws at once and asks the
@@ -106,7 +111,7 @@ export function Dash({
   pages: DashPage[];
   links: DashLinks[];
   /** Rows the mind pins right under New agent, drawn as it is: a link to another place (an
-   *  agent's view is `/agents?contextPath=<path>`, which opens in place). */
+   *  agent's view is `/agents/<path>`, which opens in place). */
   pinned?: DashLink[];
   /** The desktop sidebar for a person who has not toggled it yet: open, or false for the rail of
    *  icons. A page whose HTML draws the frame before the app loads passes what it drew. */
@@ -152,12 +157,22 @@ export function Dash({
   const account = useAccount(itx, principal, connection.epoch);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
+  const homeLink = linkTo(pageHref(undefined));
   return (
     <>
       <AppShell
         app={app}
         mind={mind}
         mindHref={() => pageHref(undefined)}
+        switcher={
+          <AppShellBrand
+            app={name || app}
+            line={mind}
+            logo={logo}
+            href={homeLink.href}
+            onClick={homeLink.onClick}
+          />
+        }
         commandPalette={false}
         nav={
           <DashNav
@@ -518,9 +533,9 @@ function DashNav({
       <SidebarGroup>
         <SidebarGroupContent>
           <SidebarMenu>
-            {/* with an Agents section, its "View all" is the Agents page's row */}
+            {/* the header brand links to pages[0] (Home); with an Agents section, its "View all" is the Agents page's row */}
             {pages
-              .filter((row) => !(agents && row.id === "agents"))
+              .filter((row, index) => index > 0 && !(agents && row.id === "agents"))
               .map((row) => (
                 <Off key={row.id} itx={itx} serves={row.serves}>
                   {(off) => (

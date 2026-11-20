@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// The Dash's canonical path addresses: round-trips for every route, encoding and trailing
-// punctuation, reserved page ids, and root-path normalisation with hashes.
+// The Dash's canonical path addresses: round-trips for every route, shared context-path rules for
+// Agents and Contexts, encoding and trailing punctuation, reserved page ids, and root-path
+// normalisation with hashes.
 import { expect, test } from "vitest";
 import { z } from "zod";
 import fixture from "./dash-routes.fixture.json" with { type: "json" };
@@ -37,19 +38,19 @@ test.for<{
 }>([
   {
     name: "agent with kind (iterate.com Herdr link)",
-    href: "/agents?contextPath=/agents/claude/s1&kind=claude",
+    href: "/agents/agents/claude/s1?kind=claude",
     keys: { agent: "/agents/claude/s1", kind: "claude" },
   },
   {
-    name: "agent with view (contextPath ordered before view)",
-    href: "/agents?contextPath=/agents/onboarding&view=%7B%22view%22:%22events%22%7D",
+    name: "agent with view state",
+    href: "/agents/agents/onboarding?view=%7B%22view%22:%22events%22%7D",
     keys: { agent: "/agents/onboarding" },
     view: { view: "events" },
   },
   {
     name: "repo file with extra view state",
-    href: "/repo/docs/guide.md?view=%7B%22diff%22:true%7D",
-    keys: { page: "repo", repo: "docs" },
+    href: "/repos/docs/guide.md?view=%7B%22diff%22:true%7D",
+    keys: { page: "repos", repo: "docs" },
     view: { file: "guide.md", diff: true },
   },
 ])("extra query-state round-trip: $name ($href)", ({ href, keys, view }) => {
@@ -64,17 +65,15 @@ test.for<{
   expect(parsed.pathname + parsed.search).toBe(written);
 });
 
-test("encoding rules: raw / @ : , ; %20 for space; encoded & # % + ? = ; '; trailing . , : encoded", () => {
+test("encoding rules: shared path encoding for agents and contexts; trailing . , : encoded", () => {
   const special = "/agents/ada+notes@example.com/a:b,c;d=e&f#g?h%20i'j k";
   const href = agentViewHref(special);
-  expect(href).toBe(
-    "/agents?contextPath=/agents/ada%2Bnotes@example.com/a:b,c%3Bd%3De%26f%23g%3Fh%2520i%27j%20k",
-  );
+  expect(href).toBe("/agents/agents/ada+notes@example.com/a:b,c;d=e&f%23g%3Fh%2520i'j%20k");
   expect(keysAt(href)).toEqual({ agent: special });
   const parsed = new URL(href, "https://dash.example.com");
   expect(parsed.pathname + parsed.search).toBe(href);
 
-  // trailing . , : are encoded at the end of the URL (both query and path) so linkifiers keep them
+  // trailing . , : are encoded at the end of the URL (both agents and contexts) so linkifiers keep them
   for (const [path, suffix] of [
     ["/agents/a.", "%2E"],
     ["/agents/a,", "%2C"],
@@ -112,22 +111,27 @@ test("encoding rules: raw / @ : , ; %20 for space; encoded & # % + ? = ; '; trai
   }
 });
 
-test("what the path cannot say stays a query, and reserved page ids stay in ?page=", () => {
+test("what the path cannot say stays in ?contextPath= (or query), and reserved page ids stay in ?page=", () => {
+  expect(agentViewHref("/")).toBe("/agents?contextPath=/");
+  expect(keysAt("/agents?contextPath=/")).toEqual({ agent: "/" });
+  expect(agentViewHref("/a/../b")).toBe("/agents?contextPath=/a/../b");
+  expect(keysAt("/agents?contextPath=/a/../b")).toEqual({ agent: "/a/../b" });
+
   expect(rawViewHref("contexts", "/")).toBe("/contexts?contextPath=/");
   expect(keysAt("/contexts?contextPath=/")).toEqual({ page: "contexts", context: "/" });
   expect(rawViewHref("contexts", "repos/config/")).toBe("/contexts?contextPath=repos/config/");
   expect(rawViewHref("contexts", "/a/../b")).toBe("/contexts?contextPath=/a/../b");
 
-  const badRepo = pageHref("repo", { repo: "a/b", view: JSON.stringify({ file: "worker.ts" }) });
-  expect(badRepo).toBe("/repo?repo=a/b&view=%7B%22file%22:%22worker.ts%22%7D");
+  const badRepo = pageHref("repos", { repo: "a/b", view: JSON.stringify({ file: "worker.ts" }) });
+  expect(badRepo).toBe("/repos?repo=a/b&view=%7B%22file%22:%22worker.ts%22%7D");
   expect(keysAt(badRepo)).toEqual({
-    page: "repo",
+    page: "repos",
     repo: "a/b",
     view: '{"file":"worker.ts"}',
   });
-  const badFile = pageHref("repo", { repo: "docs", view: JSON.stringify({ file: "a/../b" }) });
-  expect(badFile).toBe("/repo/docs?view=%7B%22file%22:%22a/../b%22%7D");
-  expect(keysAt(badFile)).toEqual({ page: "repo", repo: "docs", view: '{"file":"a/../b"}' });
+  const badFile = pageHref("repos", { repo: "docs", view: JSON.stringify({ file: "a/../b" }) });
+  expect(badFile).toBe("/repos/docs?view=%7B%22file%22:%22a/../b%22%7D");
+  expect(keysAt(badFile)).toEqual({ page: "repos", repo: "docs", view: '{"file":"a/../b"}' });
 
   // reserved first segments and dotted/slashed page ids stay in ?page=
   for (const id of ["itx", "connect", "api", "keys", "brands", "app.js", ".auth", "a/b"]) {
@@ -140,27 +144,29 @@ test("what the path cannot say stays a query, and reserved page ids stay in ?pag
 test("legacy query keys are ignored: unmatched addresses read no page or agent", () => {
   expect(keysAt("/?page=integrations")).toEqual({});
   expect(keysAt("/?agent=/agents/onboarding")).toEqual({});
+  expect(keysAt("/agents?contextPath=/agents/onboarding")).toEqual({ page: "agents" });
   expect(keysAt("/contexts?context=/agents/a")).toEqual({ page: "contexts" });
-  expect(keysAt("/repo?repo=docs")).toEqual({ page: "repo" });
+  expect(keysAt("/contexts?contextPath=/agents/a")).toEqual({ page: "contexts" });
+  expect(keysAt("/repos?repo=docs")).toEqual({ page: "repos" });
 });
 
 test("written() normalises root paths and ./, keeping any hash", () => {
-  history.replaceState(null, "", "/agents?contextPath=/agents/a");
+  history.replaceState(null, "", "/agents/agents/a");
   expect(linkTo("./")).toMatchObject({ href: "/" });
   expect(linkTo("./#top")).toMatchObject({ href: "/#top" });
   expect(linkTo("/agents/")).toMatchObject({ href: "/agents" });
-  expect(linkTo("/agents?contextPath=/agents/x#last")).toMatchObject({
-    href: "/agents?contextPath=/agents/x#last",
+  expect(linkTo("/agents/agents/x#last")).toMatchObject({
+    href: "/agents/agents/x#last",
   });
   expect(linkTo("https://docs.example.com/")).toMatchObject({ href: "https://docs.example.com/" });
-  go("/agents?contextPath=/agents/b#msg");
+  go("/agents/agents/b#msg");
   expect(location).toMatchObject({
-    pathname: "/agents",
-    search: "?contextPath=/agents/b",
+    pathname: "/agents/agents/b",
+    search: "",
     hash: "#msg",
   });
-  expect(hrefOf({ view: undefined })).toBe("/agents?contextPath=/agents/b");
-  expect(Object.fromEntries(keysOfLink("/agents?contextPath=/agents/b#msg") || [])).toEqual({
+  expect(hrefOf({ view: undefined })).toBe("/agents/agents/b");
+  expect(Object.fromEntries(keysOfLink("/agents/agents/b#msg") || [])).toEqual({
     agent: "/agents/b",
   });
   expect(keysOfLink("?agent=/agents/b")).toBeNull();

@@ -658,7 +658,7 @@ const wordsOf = (caught: unknown) => (caught instanceof Error ? caught.message :
  *  runs does nothing. Then, by the answer (iterate/integrations `IntegrationCallAnswer`):
  *  - a `link` that is https and on the mind's control plane (`callAnswerLink`): the page goes
  *    there IN THIS TAB, unless the member has left the page, and the button says the host it
- *    opens. A connect's consent page sends the member back to `?page=integrations`, so
+ *    opens. A connect's consent page sends the member back to `/integrations`, so
  *    one tab reads as one errand; a tab opened at the press would stand blank while the call runs,
  *    and stay blank when it fails. Any other link is not followed, and the card says why and
  *    names its host.

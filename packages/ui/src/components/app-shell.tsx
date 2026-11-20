@@ -243,6 +243,7 @@ export function AppShell({
             <AccountMenu
               name={account?.email || account?.actor || mind || app}
               mind={mind}
+              showMindOnSignOut={!switcher}
               actions={accountActions}
             />
           ) : (
@@ -432,21 +433,58 @@ const PageSlotsContext = createContext<{
  *  the row the shell has anyway, between the phone's sidebar trigger and the page's ⋯. The row gets
  *  a rule under it while a page has one, and a desktop shows it then even when the app gave the
  *  shell no `header`. */
-/** The sidebar's head for an app with no mind switcher: the logo, the app's name, and a line
- *  under it (whom the app serves, or what it is about). */
-export function AppShellBrand({ app, line }: { app: string; line?: string | null }) {
+/** The sidebar's head for an app with no mind switcher: the logo, the app's or mind's name, and a
+ *  line under it (the hostname, or whom the app serves). With `href`, the whole block is a link
+ *  (closing the phone sidebar sheet on a plain left click). */
+export function AppShellBrand({
+  app,
+  line,
+  logo,
+  href,
+  onClick,
+}: {
+  app: string;
+  line?: string | null;
+  logo?: ReactNode;
+  href?: string;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const content = (
+    <>
+      <span className="flex aspect-square size-8 items-center justify-center rounded-md bg-black">
+        {logo ?? <IterateLogo alt="" className="size-6" />}
+      </span>
+      <span className="grid flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{app}</span>
+        {line ? <span className="truncate text-xs text-muted-foreground">{line}</span> : null}
+      </span>
+    </>
+  );
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton size="lg" className="pointer-events-none">
-          <span className="flex aspect-square size-8 items-center justify-center rounded-md bg-black">
-            <IterateLogo alt="" className="size-6" />
-          </span>
-          <span className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-medium">{app}</span>
-            {line ? <span className="truncate text-xs text-muted-foreground">{line}</span> : null}
-          </span>
-        </SidebarMenuButton>
+        {href ? (
+          <SidebarMenuButton
+            size="lg"
+            tooltip={app}
+            render={
+              <a
+                href={href}
+                onClick={(event) => {
+                  onClick?.(event);
+                  if (isMobile && plainLeftClick(event)) setOpenMobile(false);
+                }}
+              />
+            }
+          >
+            {content}
+          </SidebarMenuButton>
+        ) : (
+          <SidebarMenuButton size="lg" className="pointer-events-none">
+            {content}
+          </SidebarMenuButton>
+        )}
       </SidebarMenuItem>
     </SidebarMenu>
   );
@@ -725,10 +763,12 @@ function CollapseButton() {
 function AccountMenu({
   name,
   mind,
+  showMindOnSignOut = true,
   actions,
 }: {
   name: string;
   mind: string | null;
+  showMindOnSignOut?: boolean;
   actions?: ReactNode;
 }) {
   const { isMobile, state } = useSidebar();
@@ -785,7 +825,9 @@ function AccountMenu({
                     }}
                   >
                     <LogOutIcon />
-                    <span className="truncate">Sign out of {mind}</span>
+                    <span className="truncate">
+                      {showMindOnSignOut ? `Sign out of ${mind}` : "Sign out"}
+                    </span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </>

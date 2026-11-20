@@ -91,14 +91,14 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   or 3rem, header rows of 45, 53 and 42 px, the column of 48rem): when one changes here, change
   `core/configs/default/apps/dash/public/app.css` with it. `data-frame` on `<html>` tells
   `LogReading` that the wait began with the page. Two page ids mean
-  more: `agents` puts the agents in the sidebar and takes `/agents?contextPath=<path>`, and
-  `contexts` is the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
-  `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
-  THE DASH'S ADDRESSES ARE PATHS: `/`, `/secrets`, `/agents?contextPath=/agents/onboarding`,
-  `/contexts/repos/config` (`/contexts?contextPath=/` for root), `/repo/config/worker.ts`, and
-  `/<id>/<rest>` (the scheme is `components/dash/dash-href.ts`). Every part reads `usePageParam`
-  and builds `pageHref`, `agentViewHref` or `rawViewHref`: never read `location` or write a
-  `?page=` link by hand.
+  more: `agents` puts the agents in the sidebar and takes `/agents/<path>` (`/agents?contextPath=/`
+  for root), and `contexts` is the raw view. The Home and Agents pages (`DashHome`, `DashAgents`)
+  are in `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
+  THE DASH'S ADDRESSES ARE PATHS: `/`, `/secrets`, `/agents/agents/onboarding`,
+  `/contexts/repos/config` (`/contexts?contextPath=/` for root), `/repos/config/worker.ts`, and
+  `/<id>/<rest>` (the pure codec is `components/dash/dash-paths.ts`, registered by
+  `components/dash/dash-href.ts`). Every part reads `usePageParam` and builds `pageHref`,
+  `agentViewHref` or `rawViewHref`: never read `location` or write a `?page=` link by hand.
 - The Agents app's parts (`components/agents-nav`, `components/agents-home`, `lib/agent-summary`)
   serve the hosted app; the Dash takes `StatusDot` and `lib/agent-summary`. None imports a router. They take
   `agentHref(path)` and `onOpen(path)`, so that a page with a client router can make a plain click

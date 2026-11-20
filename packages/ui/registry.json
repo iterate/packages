@@ -936,8 +936,7 @@
       "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and collapsible groups of links, the page the URL names, what waits for a member's yes, the most recently active agents, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
       "dependencies": [
         "iterate",
-        "lucide-react",
-        "zod"
+        "lucide-react"
       ],
       "registryDependencies": [
         "collapsible",
@@ -949,9 +948,9 @@
         "iterate/packages/context-catalog",
         "iterate/packages/context-explorer",
         "iterate/packages/context-path-text",
+        "iterate/packages/dash-paths",
         "iterate/packages/integrations-page",
         "iterate/packages/itx-session",
-        "iterate/packages/mcp-connect",
         "iterate/packages/page-url",
         "iterate/packages/reconnecting-mark",
         "iterate/packages/repo-ide",
@@ -989,6 +988,23 @@
         },
         {
           "path": "src/components/dash/dash-href.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "dash-paths",
+      "type": "registry:component",
+      "description": "Pure canonical URL codec for a mind's Dash (path and query formatting/parsing, zero side effects).",
+      "dependencies": [
+        "zod"
+      ],
+      "registryDependencies": [
+        "iterate/packages/page-url"
+      ],
+      "files": [
+        {
+          "path": "src/components/dash/dash-paths.ts",
           "type": "registry:component"
         }
       ]
@@ -1648,6 +1664,9 @@
       "name": "stream-link",
       "type": "registry:component",
       "description": "Stream ↗: a link from a page to the context its data lives on, in the Dash's Contexts page.",
+      "registryDependencies": [
+        "iterate/packages/dash-paths"
+      ],
       "files": [
         {
           "path": "src/components/stream-link.tsx",

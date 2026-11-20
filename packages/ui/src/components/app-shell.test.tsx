@@ -8,7 +8,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { AppShell, AppShellPageMenu } from "./app-shell.tsx";
+import { AppShell, AppShellBrand, AppShellPageMenu } from "./app-shell.tsx";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -190,6 +190,44 @@ test("AccountMenu shows the email once on the trigger and not again in the expan
     expect(menu?.textContent).toContain("jo@example.com");
     expect(menu?.textContent).toContain("Sign out of iterate.example.com");
   }
+});
+
+test("AppShellBrand with href and logo links without MindSwitcher, and Sign out drops the hostname", async () => {
+  const clicked = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+  using _shell = await mount(
+    {
+      mind: "iterate.example.com",
+      account: { actor: "/members/a", email: "jo@example.com" },
+      switcher: (
+        <AppShellBrand
+          app="iterate"
+          line="iterate.example.com"
+          logo={<span data-custom-logo>M</span>}
+          href="/"
+          onClick={clicked}
+        />
+      ),
+    },
+    {},
+  );
+  expect(document.querySelector('[aria-label="Switch mind"]')).toBeNull();
+  expect(document.body.textContent).not.toContain("Connect another mind");
+  const brand = document.querySelector<HTMLAnchorElement>('[data-slot="sidebar-header"] a')!;
+  expect(brand.getAttribute("href")).toBe("/");
+  expect(brand.textContent).toContain("iterate");
+  expect(brand.textContent).toContain("iterate.example.com");
+  expect(brand.querySelector("[data-custom-logo]")?.textContent).toBe("M");
+  await act(() => brand.click());
+  expect(clicked).toHaveBeenCalledTimes(1);
+
+  const account = document.querySelector<HTMLElement>('[aria-label="Account"]')!;
+  await act(async () => {
+    account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    account.click();
+  });
+  const menu = document.querySelector('[role="menu"]');
+  expect(menu?.textContent).toContain("Sign out");
+  expect(menu?.textContent).not.toContain("Sign out of iterate.example.com");
 });
 
 test("AppShellPageMenu omits Search when commandPalette is false", async () => {

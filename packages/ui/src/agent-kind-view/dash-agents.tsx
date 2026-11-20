@@ -4,7 +4,7 @@
 //   DashHome    a composer that starts a new agent, what waits for the member, and the agents
 //               active most recently.
 //   DashAgents  the Agents page (its row's id is `agents`): the composer and every agent, or, with
-//               `?agent=<path>`, ANY context seen as an agent. iterate's own agents are its chat
+//               `/agents/<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
 //               header is one row: the agent's title and path, the call's controls (with `call`
@@ -190,7 +190,7 @@ export function DashHome({ itx, mind, principal, pages, agents, waiting }: DashP
 // holds nothing of a session: the composer's draft stays over a new one
 DashHome.staysOverReconnect = true;
 
-/** THE AGENTS PAGE: every agent, or one context as an agent (`?agent=<path>`). */
+/** THE AGENTS PAGE: every agent, or one context as an agent (`/agents/<path>`). */
 export function DashAgents(props: DashPageProps) {
   const path = usePageParam("agent");
   if (path) return <AgentView key={path} {...props} path={path} />;
