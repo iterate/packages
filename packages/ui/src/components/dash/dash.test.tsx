@@ -4,9 +4,16 @@
 import { act, use, useEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
+import {
+  BotIcon,
+  ChartLineIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+} from "lucide-react";
 import type { Principal } from "iterate/principal";
-import { Dash, DashContexts, type DashPage } from "./dash.tsx";
+import { Dash, DashContexts, DashSettings, type DashPage } from "./dash.tsx";
 import type { DashLink, DashLinks, DashPageProps } from "./dash-pages.tsx";
 import { ITX_SESSION, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, usePageParam } from "#/lib/page-url.ts";
@@ -25,7 +32,7 @@ test("one list makes the sidebar; a mind with no telemetry shows Analytics as Of
   expect(headerBrandLink(host)?.getAttribute("href")).toBe("/");
   expect(linksNamed(host, "Home")).toHaveLength(0);
   expect(host.querySelector('[aria-label="Switch mind"]')).toBeNull();
-  // and each group of links follows the pages
+  // with no `settings` page, `links` groups fall back to plain labelled sidebar groups so no link disappears
   expect(linksNamed(host, "Approvals")).toHaveLength(1);
   expect(dash.asked.filter((root) => root === "itx.telemetry")).toHaveLength(1);
 });
@@ -292,14 +299,14 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("/agents/agents/a");
   expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("/agents");
   expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
-  // the section is the sidebar's last: every other link is above the first agent's row
-  const sidebarLinks = [...dash.host.querySelectorAll("a")];
+  // agents sit above the foot group (any remaining page rows follow View all)
+  const sidebarLinks = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')];
   const firstAgent = sidebarLinks.findIndex((link) => link.closest("[data-agent-path]"));
-  expect(
-    sidebarLinks
-      .slice(firstAgent)
-      .every((link) => link.closest("[data-agent-path]") || link.textContent?.includes("View all")),
-  ).toBe(true);
+  const viewAll = sidebarLinks.findIndex((link) => link.textContent?.includes("View all"));
+  const analytics = sidebarLinks.findIndex((link) => link.textContent?.includes("Analytics"));
+  expect(firstAgent).toBeGreaterThanOrEqual(0);
+  expect(viewAll).toBeGreaterThan(firstAgent);
+  expect(analytics).toBeGreaterThan(viewAll);
   // a click opens the agent view: the Agents page, with the path; its row is the current one
   await act(() => rows[1]!.querySelector("a")!.click());
   expect(location).toMatchObject({ pathname: "/agents/agents/t7", search: "" });
@@ -348,50 +355,47 @@ test("in the icon rail an agent row is its icon alone: its words hide by the sid
   ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
 });
 
-test("collapsible link groups default open, respect collapsed, persist in localStorage, and stay open in the icon rail", async () => {
-  const twoGroups: DashLinks[] = [
-    {
-      title: "Apps",
-      collapsed: true,
-      rows: [{ name: "Notes", href: "https://notes.example.com/", icon: BotIcon }],
-    },
-    ...links,
-  ];
-  // First mount: Apps starts closed (collapsed: true), Access starts open (default)
-  {
-    await using dash = await draw("/", [], { links: twoGroups });
-    expect(linksNamed(dash.host, "Notes")).toHaveLength(0);
-    expect(linksNamed(dash.host, "Approvals")).toHaveLength(1);
-    const appsTrigger = [...dash.host.querySelectorAll("button")].find(
-      (button) => button.textContent?.trim() === "Apps",
-    )!;
-    await act(() => appsTrigger.click());
-    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
-    expect(localStorage.getItem("dash:nav-group:Apps")).toBe("open");
-  }
-  // Second mount: persisted localStorage state wins over default collapsed: true
-  {
-    await using dash = await draw("/", [], { links: twoGroups, keepStorage: true });
-    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
-  }
-  // Icon rail: even a collapsed group is forced open so its links remain reachable
-  localStorage.clear();
-  document.cookie = "sidebar_state=false; path=/";
-  try {
-    await using dash = await draw("/", [], { links: twoGroups });
-    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
-  } finally {
-    document.cookie = "sidebar_state=; path=/; max-age=0";
-  }
-});
-
-test("a closed link group with waiting approvals shows the count on its label", async () => {
+test("sidebar order is alert, New agent & pinned, agents (skipping pinned), then foot links and visible pages", async () => {
   const now = new Date().toISOString();
-  const collapsedAccess: DashLinks[] = [{ ...links[0]!, collapsed: true }];
   await using dash = await draw("/", ["itx.secrets"], {
-    mind: "approvals.example.com",
-    links: collapsedAccess,
+    mind: "order.example.com",
     contexts: [],
+    pages: [
+      pages[0]!,
+      { ...pages[1]!, row: false as const },
+      { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents</p> },
+      { id: "settings", name: "Settings", icon: SettingsIcon, component: DashSettings },
+    ],
+    pinned: [{ name: "Chief of staff", href: "/agents/agents/chief", icon: BotIcon }],
+    foot: [
+      {
+        name: "Approvals",
+        href: "https://order.example.com/secrets/approvals",
+        icon: ShieldCheckIcon,
+        count: "approvals",
+      },
+    ],
+    accountLinks: [
+      {
+        name: "Your sessions",
+        href: "https://order.example.com/sessions",
+        icon: LogOutIcon,
+      },
+    ],
+    agents: {
+      "/agents/chief": {
+        createdAt: now,
+        kind: "iterate",
+        title: "Chief of staff",
+        lastActivityAt: now,
+      },
+      "/agents/other": {
+        createdAt: now,
+        kind: "iterate",
+        title: "Other agent",
+        lastActivityAt: now,
+      },
+    },
     approvalEvents: [
       {
         type: "events.iterate.com/approval/act-held",
@@ -406,17 +410,169 @@ test("a closed link group with waiting approvals shows the count on its label", 
     ],
   });
   await act(async () => {
-    askWaitingApprovals("approvals.example.com");
+    askWaitingApprovals("order.example.com");
   });
-  await until(() => dash.host.querySelector("[data-group-waiting]"));
-  expect(dash.host.querySelector("[data-group-waiting]")?.textContent).toBe("2");
-  expect(linksNamed(dash.host, "Approvals")).toHaveLength(0);
-  const accessTrigger = [...dash.host.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Access"),
-  )!;
-  await act(() => accessTrigger.click());
-  expect(dash.host.querySelector("[data-group-waiting]")).toBeNull();
-  expect(linksNamed(dash.host, "Approvals")).toHaveLength(1);
+  await until(() => dash.host.querySelector("[data-approvals-alert]"));
+  // phone sidebar trigger carries the warning dot while requests wait
+  expect(dash.host.querySelector("[data-sidebar-alert]")).not.toBeNull();
+  // pinned agent is skipped from DashAgentsNav so it is not listed twice
+  expect(
+    [...dash.host.querySelectorAll("[data-agent-path]")].map((r) =>
+      r.getAttribute("data-agent-path"),
+    ),
+  ).toEqual(["/agents/other"]);
+  // row: false hides Analytics from the sidebar while keeping /analytics routable
+  expect(linksNamed(dash.host, "Analytics")).toHaveLength(0);
+  // exact order in sidebar content: alert -> New agent -> Chief of staff -> Other agent -> View all -> Approvals (with badge 2) -> Settings
+  const alertEl = dash.host.querySelector("[data-approvals-alert]")!;
+  expect(alertEl).toMatchObject({
+    textContent: "2 requests wait",
+    title: "2 requests wait for approval",
+  });
+  const navOrder = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map((a) =>
+    a.textContent?.trim(),
+  );
+  expect(navOrder).toEqual([
+    "2 requests wait",
+    "New agent",
+    "Chief of staff",
+    "Other agent/agents/other",
+    "View all",
+    "Approvals",
+    "Settings",
+  ]);
+  const approvalsItem = linksNamed(dash.host, "Approvals")[0]!.closest(
+    '[data-slot="sidebar-menu-item"]',
+  );
+  expect(approvalsItem?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe("2");
+  // accountLinks appear in the account popover above Sign out
+  const account = dash.host.querySelector<HTMLElement>('[aria-label="Account"]')!;
+  await act(async () => {
+    account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    account.click();
+  });
+  const menu = document.querySelector('[role="menu"]')!;
+  expect(menu.textContent).toContain("Your sessions");
+  expect(menu.textContent).toContain("Sign out");
+  expect(menu.querySelector('a[href="https://order.example.com/sessions"]')).not.toBeNull();
+  // row: false page is still routable directly and marks the Settings sidebar row active
+  await act(() => go("/analytics"));
+  expect(dash.host.textContent).toContain("the charts");
+  expect(linksNamed(dash.host, "Settings")[0]!.hasAttribute("data-active")).toBe(true);
+});
+
+test("without a settings page, links draw as plain labelled fallback groups with approval counts; any settings id suppresses them", async () => {
+  const now = new Date().toISOString();
+  {
+    await using dash = await draw("/", ["itx.secrets"], {
+      mind: "fallback.example.com",
+      contexts: [],
+      approvalEvents: [
+        {
+          type: "events.iterate.com/approval/act-held",
+          createdAt: now,
+          payload: { digest: "f1", act: "email.send", summary: "Send mail" },
+        },
+      ],
+    });
+    await act(async () => {
+      askWaitingApprovals("fallback.example.com");
+    });
+    await until(() => dash.host.querySelector("[data-approvals-alert]"));
+    const labels = [...dash.host.querySelectorAll('[data-slot="sidebar-group-label"]')].map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(labels).toContain("Access");
+    const approvalsItem = linksNamed(dash.host, "Approvals")[0]!.closest(
+      '[data-slot="sidebar-menu-item"]',
+    );
+    expect(approvalsItem?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe("1");
+  }
+  {
+    // tested by id `settings`, even when a mind replaces DashSettings with its own component
+    await using dash = await draw("/", [], {
+      pages: [
+        ...pages,
+        { id: "settings", name: "Settings", icon: SettingsIcon, component: () => <p>custom</p> },
+      ],
+    });
+    expect(linksNamed(dash.host, "Approvals")).toHaveLength(0);
+  }
+});
+
+test("DashSettings lists row: false pages and links groups with about, Off state, and waiting approvals", async () => {
+  const now = new Date().toISOString();
+  await using dash = await draw("/settings", ["itx.secrets"], {
+    mind: "settings.example.com",
+    contexts: [],
+    pages: [
+      pages[0]!,
+      {
+        id: "analytics",
+        name: "Analytics",
+        about: "The mind's telemetry.",
+        icon: ChartLineIcon,
+        serves: "telemetry",
+        row: false,
+        component: () => <p>the charts</p>,
+      },
+      { id: "settings", name: "Settings", icon: SettingsIcon, component: DashSettings },
+    ],
+    links: [
+      {
+        title: "Access",
+        rows: [
+          {
+            name: "Approvals",
+            about: "What waits for a passkey, and the rules.",
+            href: "https://settings.example.com/secrets/approvals",
+            icon: ShieldCheckIcon,
+            count: "approvals",
+          },
+        ],
+      },
+      {
+        title: "Apps",
+        rows: [
+          {
+            name: "Docs",
+            about: "The repos' files, written together.",
+            href: "https://docs.example.com/",
+            icon: BotIcon,
+          },
+        ],
+      },
+    ],
+    approvalEvents: [
+      {
+        type: "events.iterate.com/approval/act-held",
+        createdAt: now,
+        payload: { digest: "d1", act: "email.send", summary: "Send mail" },
+      },
+    ],
+  });
+  await act(async () => {
+    askWaitingApprovals("settings.example.com");
+  });
+  await until(() => dash.host.textContent?.includes("1 waits"));
+  const main = dash.host.querySelector("main")!;
+  expect(main.textContent).toContain("Settings");
+  expect(main.textContent).toContain("These pages show what the mind holds. Each line opens one.");
+  expect(main.textContent).toContain("This mind");
+  expect(main.textContent).toContain("The mind's telemetry.");
+  expect(main.textContent).toContain("Off");
+  expect(main.textContent).toContain("Access (pages on settings.example.com)");
+  expect(main.textContent).toContain("What waits for a passkey, and the rules.");
+  expect(main.textContent).toContain("1 waits");
+  expect(main.textContent).toContain("Apps");
+  expect(main.textContent).toContain("The repos' files, written together.");
+  // clicking a page in Settings navigates in place
+  const analyticsLink = main.querySelector<HTMLAnchorElement>('a[href="/analytics"]')!;
+  await act(() =>
+    analyticsLink.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })),
+  );
+  expect(location).toMatchObject({ pathname: "/analytics", search: "" });
+  expect(dash.host.textContent).toContain("the charts");
 });
 
 test("a row the mind pins sits right under New agent, and an agent's view opens in place", async () => {
@@ -424,10 +580,13 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
     pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: () => null }],
     pinned: [{ name: "Pinned helper", href: "/agents/agents/helper", icon: BotIcon }],
   });
-  const names = [...dash.host.querySelectorAll("a")].map((link) => link.textContent);
-  expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 3)).toEqual([
+  const names = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map(
+    (link) => link.textContent,
+  );
+  expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 4)).toEqual([
     "New agent",
     "Pinned helper",
+    "View all",
     "Analytics",
   ]);
   const row = linksNamed(dash.host, "Pinned helper")[0]!;
@@ -436,7 +595,7 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
   expect(location).toMatchObject({ pathname: "/agents/agents/helper", search: "" });
 });
 
-test("New agent is never marked or boxed, and a pinned row is marked only while its own agent is open", async () => {
+test("New agent is never marked or boxed, and a pinned row is marked while its own agent or a subagent is open", async () => {
   await using dash = await draw("/", [], {
     pages: [
       ...pages,
@@ -450,11 +609,13 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
     return [row.hasAttribute("data-active"), /bg-background|shadow-\[/.test(row.className)];
   };
   const marked = () => ({ newAgent: look("New agent"), pinned: look("Pinned helper") });
-  // home, the pinned agent's own view, another agent's view, and the page New agent links to
+  // home, the pinned agent's own view, a subagent under its path, another agent, and the overview
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
   await act(() => go("/agents/agents/helper"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [true, false] });
   await act(() => go("/agents/agents/helper/sub"));
+  expect(marked()).toEqual({ newAgent: [false, false], pinned: [true, false] });
+  await act(() => go("/agents/agents/other"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
   await act(() => go("/agents"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
@@ -689,18 +850,6 @@ const links = [
   },
 ];
 
-const storageData = new Map<string, string>();
-const testStorage: Storage = {
-  get length() {
-    return storageData.size;
-  },
-  clear: () => storageData.clear(),
-  getItem: (key) => storageData.get(key) ?? null,
-  key: (index) => [...storageData.keys()][index] ?? null,
-  removeItem: (key) => void storageData.delete(key),
-  setItem: (key, value) => void storageData.set(key, String(value)),
-};
-
 /** The Dash at `url`, for a mind that serves the roots `serves` names and has no vault (nothing
  *  waits for approval). The sidebar asks the viewport's width, and the switcher this host's
  *  minds. */
@@ -721,7 +870,8 @@ async function draw(
     session,
     sidebarDefaultOpen,
     pinned,
-    keepStorage = false,
+    foot,
+    accountLinks,
   }: {
     mind?: string;
     name?: string;
@@ -729,6 +879,8 @@ async function draw(
     pages?: DashPage[];
     links?: DashLinks[];
     pinned?: DashLink[];
+    foot?: DashLink[];
+    accountLinks?: DashLink[];
     contexts?: unknown[];
     agents?: Record<string, object>;
     approvalEvents?: unknown[];
@@ -737,11 +889,8 @@ async function draw(
     whoami?: () => Promise<object>;
     session?: ReturnType<typeof fakeSession>;
     sidebarDefaultOpen?: boolean;
-    keepStorage?: boolean;
   } = {},
 ) {
-  vi.stubGlobal("localStorage", testStorage);
-  if (!keepStorage) testStorage.clear();
   history.replaceState(null, "", url);
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -818,6 +967,8 @@ async function draw(
         pages={drawn}
         links={drawnLinks}
         pinned={pinned}
+        foot={foot}
+        accountLinks={accountLinks}
         sidebarDefaultOpen={sidebarDefaultOpen}
       />,
     ),

@@ -230,6 +230,45 @@ test("AppShellBrand with href and logo links without MindSwitcher, and Sign out 
   expect(menu?.textContent).not.toContain("Sign out of iterate.example.com");
 });
 
+test("sidebarAlert shows a hidden warning dot on the phone sidebar trigger and states it in the trigger label", async () => {
+  {
+    using _shell = await mount({ sidebarAlert: false }, {});
+    expect(document.querySelector("[data-sidebar-alert]")).toBeNull();
+    expect(document.querySelector('[data-sidebar="trigger"]')?.getAttribute("aria-label")).toBe(
+      "Toggle sidebar",
+    );
+  }
+  {
+    using _shell = await mount({ sidebarAlert: true }, {});
+    const dot = document.querySelector("[data-sidebar-alert]");
+    expect(dot?.getAttribute("aria-hidden")).toBe("true");
+    const trigger = dot?.parentElement?.querySelector('[data-sidebar="trigger"]');
+    expect(trigger?.getAttribute("aria-label")).toBe("Toggle sidebar (requests wait for approval)");
+  }
+});
+
+test("at a phone width, clicking AppShellBrand closes the sidebar sheet even when locationKey does not change", async () => {
+  const clicked = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+  using _shell = await mount(
+    {
+      switcher: (
+        <AppShellBrand app="iterate" line="iterate.example.com" href="/" onClick={clicked} />
+      ),
+    },
+    { mobile: true },
+  );
+  expect(document.querySelector('[data-mobile="true"]')).toBeNull();
+  const trigger = document.querySelector<HTMLElement>('[data-sidebar="trigger"]')!;
+  await act(() => trigger.click());
+  const brand = document.querySelector<HTMLAnchorElement>(
+    '[data-mobile="true"] [data-slot="sidebar-header"] a',
+  )!;
+  expect(brand).not.toBeNull();
+  await act(() => brand.click());
+  expect(clicked).toHaveBeenCalledTimes(1);
+  expect(document.querySelector('[data-mobile="true"]')).toBeNull();
+});
+
 test("AppShellPageMenu omits Search when commandPalette is false", async () => {
   using _shell = await mount(
     {
@@ -258,10 +297,16 @@ test("AppShellPageMenu omits Search when commandPalette is false", async () => {
  *  the shell again with other props, as a navigation does. */
 async function mount(
   props: Partial<ComponentProps<typeof AppShell>>,
-  { cookie, feedScrolls = false }: { cookie?: string; feedScrolls?: boolean },
+  {
+    cookie,
+    feedScrolls = false,
+    mobile = false,
+  }: { cookie?: string; feedScrolls?: boolean; mobile?: boolean },
 ) {
+  const prevWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { value: mobile ? 390 : 1280, configurable: true });
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: false,
+    matches: mobile,
     media: query,
     addEventListener() {},
     removeEventListener() {},
@@ -300,6 +345,7 @@ async function mount(
       act(() => root.unmount());
       host.remove();
       document.cookie = "sidebar_state=; path=/; max-age=0";
+      Object.defineProperty(window, "innerWidth", { value: prevWidth, configurable: true });
     },
   };
 }

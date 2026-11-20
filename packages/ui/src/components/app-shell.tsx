@@ -117,6 +117,7 @@ export function AppShell({
   phoneHeader = "row",
   account,
   accountActions,
+  sidebarAlert = false,
   locationKey,
   children,
 }: {
@@ -170,6 +171,9 @@ export function AppShell({
   /** the app's own items in the account menu, before Sign out — `DropdownMenuItem`s; an app with
    *  no mind brings its own Sign out here */
   accountActions?: ReactNode;
+  /** shows a warning dot on the phone's sidebar button when something inside the closed sheet
+   *  needs the member's attention (waiting approvals) */
+  sidebarAlert?: boolean;
   /** the router's current href — a change closes the phone's sidebar sheet */
   locationKey: string;
   children: ReactNode;
@@ -262,6 +266,7 @@ export function AppShell({
         <ShellHeader
           header={header}
           floating={floating}
+          sidebarAlert={sidebarAlert}
           onOpenPalette={commandPalette ? openPalette : undefined}
           pageHeaderRef={setPageHeaderSlot}
           pageMenuRef={setPageMenuSlot}
@@ -291,6 +296,7 @@ export function AppShell({
 function ShellHeader({
   header,
   floating,
+  sidebarAlert,
   onOpenPalette,
   pageHeaderRef,
   pageMenuRef,
@@ -298,6 +304,8 @@ function ShellHeader({
   header: ReactNode;
   /** the phone's floating header (`phoneHeader`) */
   floating: boolean;
+  /** warning dot on the phone's sidebar button when something waits inside the sheet */
+  sidebarAlert: boolean;
   /** opens ⌘K's palette; the row has no Search button without it */
   onOpenPalette: (() => void) | undefined;
   pageHeaderRef: (element: HTMLElement | null) => void;
@@ -317,7 +325,21 @@ function ShellHeader({
           "max-md:pointer-events-none max-md:absolute max-md:inset-x-0 max-md:top-0 max-md:z-20 max-md:bg-linear-to-b max-md:from-background max-md:from-40% max-md:to-transparent max-md:*:pointer-events-auto max-md:motion-safe:transition-transform max-md:motion-safe:duration-200 max-md:group-data-[phone-header=hidden]/inset:not-focus-within:-translate-y-full",
       )}
     >
-      <SidebarTrigger className="-ml-1 md:hidden" title="Toggle sidebar" />
+      <span className="relative -ml-1 inline-flex md:hidden">
+        <SidebarTrigger
+          title={sidebarAlert ? "Toggle sidebar (requests wait for approval)" : "Toggle sidebar"}
+          aria-label={
+            sidebarAlert ? "Toggle sidebar (requests wait for approval)" : "Toggle sidebar"
+          }
+        />
+        {sidebarAlert ? (
+          <span
+            aria-hidden="true"
+            data-sidebar-alert
+            className="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-warning ring-2 ring-background"
+          />
+        ) : null}
+      </span>
       {/* in a page's menu instead on a phone, while it has one */}
       <div
         className={cn(
@@ -472,8 +494,10 @@ export function AppShellBrand({
               <a
                 href={href}
                 onClick={(event) => {
+                  // check before `onClick` calls preventDefault() for in-place SPA navigation
+                  const shouldClose = isMobile && plainLeftClick(event);
                   onClick?.(event);
-                  if (isMobile && plainLeftClick(event)) setOpenMobile(false);
+                  if (shouldClose) setOpenMobile(false);
                 }}
               />
             }

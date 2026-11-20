@@ -16,6 +16,7 @@ export function ApprovalsAlert({
   /** The link the alert is: an anchor, or the app router's link, with where it goes. */
   render: useRender.RenderProp;
 }) {
+  const short = waiting === 1 ? "1 request waits" : `${waiting} requests wait`;
   const words =
     waiting === 1 ? "1 request waits for approval" : `${waiting} requests wait for approval`;
   // the count is on the element: a page's own check, and a test, read it there
@@ -23,14 +24,11 @@ export function ApprovalsAlert({
     "data-approvals-alert": waiting,
     title: words,
     className:
-      "mb-2 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm outline-none hover:bg-warning/20 focus-visible:ring-3 focus-visible:ring-ring/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1.5",
+      "flex items-center gap-2 rounded-lg border border-warning/50 bg-warning/10 px-2.5 py-2 text-sm font-medium outline-none hover:bg-warning/20 focus-visible:ring-3 focus-visible:ring-ring/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1.5",
     children: (
       <>
-        <ShieldAlert aria-hidden className="size-5 shrink-0 text-warning" />
-        <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-          <span className="font-semibold">{words}</span>
-          <span className="text-xs text-muted-foreground">Your agents wait. Review now.</span>
-        </span>
+        <ShieldAlert aria-hidden className="size-4 shrink-0 text-warning" />
+        <span className="truncate group-data-[collapsible=icon]:hidden">{short}</span>
       </>
     ),
   };

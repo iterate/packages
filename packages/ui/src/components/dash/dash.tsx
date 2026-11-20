@@ -1,15 +1,22 @@
 // dash.tsx — A MIND'S DASH, drawn from lists: `Dash` takes the mind's pages (each a row with its
-// id, name, icon and component) and its groups of links (other apps, the stack's pages), and draws
-// the shell, the sidebar, the page the URL names and, on every page, what waits for a member's yes.
-// ONE list of pages drives the sidebar. A page is any component: the kit's (`DashContexts`,
-// `DashRepo`, … in ./dash-pages.tsx; `DashHome` and `DashAgents` in agent-kind-view/dash-agents.tsx)
-// or one of the mind's own, which takes the same props (`DashPageProps`).
+// id, name, icon and component; `row: false` keeps its route without taking a sidebar row), its
+// `links` groups (shown on `DashSettings`), optional `pinned`, `foot`, and `accountLinks` lists,
+// and draws the shell, the sidebar, the page the URL names and, on every page, what waits for a
+// member's yes.
+// ONE list of pages drives the sidebar and Settings. A page is any component: the kit's
+// (`DashContexts`, `DashRepo`, `DashSettings`, … in ./dash-pages.tsx; `DashHome` and `DashAgents`
+// in agent-kind-view/dash-agents.tsx) or one of the mind's own, which takes the same props
+// (`DashPageProps`).
 //
-// TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
-//   agents    the Agents page. The sidebar lists the most recently active agents below the pages
-//             and links, and `/agents/<path>` shows that agent there. The
+// THREE IDS ARE KNOWN TO THE SHELL, whatever component a row names:
+//   agents    the Agents page. The sidebar lists the most recently active agents right below
+//             New agent and any pinned rows (skipping pinned agents so they are not listed twice),
+//             above the foot group, and `/agents/<path>` shows that agent there. The
 //             catalog on `/agents` is read once, live, for all of them and handed to every page.
 //   contexts  the raw view of any context (`/contexts/<path>`).
+//   settings  the Settings page. Marked active while any `row: false` page shows; when no page
+//             has id `settings`, `links` groups are drawn as plain labelled groups after the foot
+//             rows so no link disappears on a Dash that has not added a Settings page yet.
 //
 // The URL is the page's (#/lib/page-url.ts): `/<id>` (none: the first page) and the page's own
 // keys. The first page of a no-build page loads none of the kit's larger parts: each page loads
@@ -27,7 +34,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { ChevronRightIcon, SquarePenIcon } from "lucide-react";
+import { SquarePenIcon } from "lucide-react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub, useFacetLiveState } from "iterate/react";
@@ -44,11 +51,7 @@ import { AppShell, AppShellBrand } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
 import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "#/components/ui/collapsible.tsx";
+import { DropdownMenuItem } from "#/components/ui/dropdown-menu.tsx";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -57,7 +60,6 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
@@ -75,6 +77,7 @@ export {
   DashRepo,
   DashScroll,
   DashSecrets,
+  DashSettings,
   type DashCall,
   type DashLink,
   type DashLinks,
@@ -94,6 +97,8 @@ export function Dash({
   pages,
   links,
   pinned,
+  foot,
+  accountLinks,
   sidebarDefaultOpen,
 }: {
   /** the app's name (fallback when `name` is omitted) */
@@ -111,8 +116,13 @@ export function Dash({
   pages: DashPage[];
   links: DashLinks[];
   /** Rows the mind pins right under New agent, drawn as it is: a link to another place (an
-   *  agent's view is `/agents/<path>`, which opens in place). */
+   *  agent's view is `/agents/<path>`, which opens in place). Pinned agents are skipped in the
+   *  recent-agents list below so they are not listed twice. */
   pinned?: DashLink[];
+  /** Links anchored to the foot of the sidebar above the remaining page rows (e.g. Approvals). */
+  foot?: DashLink[];
+  /** Links placed in the account popover above Sign out (e.g. Your sessions). */
+  accountLinks?: DashLink[];
   /** The desktop sidebar for a person who has not toggled it yet: open, or false for the rail of
    *  icons. A page whose HTML draws the frame before the app loads passes what it drew. */
   sidebarDefaultOpen?: boolean;
@@ -157,6 +167,15 @@ export function Dash({
   const account = useAccount(itx, principal, connection.epoch);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
+  const pinnedAgents = useMemo(
+    () =>
+      new Set(
+        (pinned || [])
+          .map((row) => inPlaceOf(row.href, pages).agent)
+          .filter((path): path is string => Boolean(path)),
+      ),
+    [pinned, pages],
+  );
   const homeLink = linkTo(pageHref(undefined));
   return (
     <>
@@ -174,6 +193,7 @@ export function Dash({
           />
         }
         commandPalette={false}
+        sidebarAlert={Boolean(waiting)}
         nav={
           <DashNav
             itx={itx}
@@ -181,6 +201,7 @@ export function Dash({
             pages={pages}
             links={links}
             pinned={pinned}
+            foot={foot}
             page={page}
             agent={agent}
             waiting={waiting}
@@ -190,14 +211,31 @@ export function Dash({
                 <DashAgentsNav
                   agents={agents}
                   current={agent}
+                  exclude={pinnedAgents}
                   overview={hrefOfPage(pages, agentsPage)}
                   overviewShown={page === agentsPage && !agent}
+                  shrink={pages.some((row) => row.id === "settings")}
                 />
               ) : null
             }
           />
         }
         account={account}
+        accountActions={
+          accountLinks?.length ? (
+            <>
+              {accountLinks.map((row) => (
+                <DropdownMenuItem
+                  key={row.name}
+                  render={<RowLink href={row.href} inPage={inPlaceOf(row.href, pages).inPage} />}
+                >
+                  <row.icon />
+                  <span className="truncate">{row.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </>
+          ) : undefined
+        }
         sidebarDefaultOpen={sidebarDefaultOpen}
         locationKey={address}
       >
@@ -440,17 +478,55 @@ function OffAnswer({
   return children(!use(servesOf(itx, serves)));
 }
 
-/** The sidebar: "New agent" first, with the rows the mind pins under it, then the pages, then each
- *  group of links. A page whose part the mind does not have stays in its place, muted, with "Off"
- *  beside it. New agent and the pinned rows are plain rows, as the pages' are: a box around a row
- *  reads as "you are here", and New agent is an act, never a place. A pinned row is marked only
- *  while the agent it links to is the open one. */
+/** Whether `current` is the agent `target` or one of its subagents (same prefix rule as `DashAgentsNav`). */
+function isAgentActive(current: string | undefined, target: string | undefined) {
+  return Boolean(current && target) && (current === target || current!.startsWith(`${target}/`));
+}
+
+/** One link row for `foot` and for fallback `links` groups (when no `settings` page exists). */
+function DashLinkRow({
+  row,
+  pages,
+  agent,
+  waiting,
+}: {
+  row: DashLink;
+  pages: DashPage[];
+  agent: string | undefined;
+  waiting: number | undefined;
+}) {
+  const place = inPlaceOf(row.href, pages);
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isAgentActive(agent, place.agent)}
+        tooltip={row.name}
+        render={<RowLink href={row.href} inPage={place.inPage} />}
+      >
+        <row.icon />
+        <span>{row.name}</span>
+      </SidebarMenuButton>
+      {row.count === "approvals" && waiting ? <SidebarMenuBadge>{waiting}</SidebarMenuBadge> : null}
+    </SidebarMenuItem>
+  );
+}
+
+/** The sidebar: alert (when requests wait), "New agent" with pinned rows under it, the recent
+ *  agents, then the foot group (`mt-auto`: `foot` links such as Approvals, followed by pages that
+ *  keep a sidebar row such as Settings). When no page has id `settings`, each non-empty `links`
+ *  group follows as a plain labelled group so no link disappears on an older config. Pages with
+ *  `row: false` stay routable without taking a sidebar row, and mark the Settings row active when
+ *  shown. A page whose part the mind does not have stays in its place, muted, with "Off" beside
+ *  it. New agent and the pinned rows are plain rows: a box around a row reads as "you are here",
+ *  and New agent is an act, never a place. A pinned row is marked while the agent it links to, or
+ *  a subagent under its path, is open. */
 function DashNav({
   itx,
   mind,
   pages,
   links,
   pinned = [],
+  foot = [],
   page,
   agent,
   waiting,
@@ -462,6 +538,7 @@ function DashNav({
   pages: DashPage[];
   links: DashLinks[];
   pinned?: DashLink[];
+  foot?: DashLink[];
   page: DashPage;
   /** the open agent's path, when an agent's view is shown */
   agent: string | undefined;
@@ -470,13 +547,19 @@ function DashNav({
   /** Where a new agent starts: the Agents page, whose composer's first message starts one. The
    *  sidebar's first row goes there. None for a Dash with no Agents page. */
   newAgent?: string;
-  /** The Agents section, below the pages and the links, for a Dash with an Agents page. */
+  /** The Agents section, above the foot group, for a Dash with an Agents page. */
   agents: ReactNode;
 }) {
+  // the header brand links to pages[0] (Home); with an Agents section, its "View all" is the Agents page's row
+  const visiblePages = pages.filter(
+    (row, index) => index > 0 && row.row !== false && !(agents && row.id === "agents"),
+  );
+  const hasSettings = pages.some((row) => row.id === "settings");
+  const fallbackGroups = hasSettings ? [] : links.filter((group) => group.rows.length > 0);
   return (
     <>
       {waiting ? (
-        <SidebarGroup className="pb-0">
+        <SidebarGroup className="shrink-0 pb-0">
           <SidebarGroupContent>
             <ApprovalsAlert
               waiting={waiting}
@@ -487,7 +570,7 @@ function DashNav({
       ) : null}
       {newAgent || pinned.length > 0 ? (
         // in the icon rail, the same gap below it as between the other groups
-        <SidebarGroup className="pb-0 group-data-[collapsible=icon]:pb-2">
+        <SidebarGroup className="shrink-0 pb-0 group-data-[collapsible=icon]:pb-2">
           <SidebarGroupContent>
             <SidebarMenu>
               {newAgent ? (
@@ -514,34 +597,45 @@ function DashNav({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ) : null}
-              {pinned.map((row) => (
-                <SidebarMenuItem key={row.name}>
-                  <SidebarMenuButton
-                    isActive={!!agent && inPlaceOf(row.href, pages).agent === agent}
-                    tooltip={row.name}
-                    render={<RowLink href={row.href} inPage={inPlaceOf(row.href, pages).inPage} />}
-                  >
-                    <row.icon />
-                    <span>{row.name}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {pinned.map((row) => {
+                const place = inPlaceOf(row.href, pages);
+                return (
+                  <SidebarMenuItem key={row.name}>
+                    <SidebarMenuButton
+                      isActive={isAgentActive(agent, place.agent)}
+                      tooltip={row.name}
+                      render={<RowLink href={row.href} inPage={place.inPage} />}
+                    >
+                      <row.icon />
+                      <span>{row.name}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <SidebarMenu>
-            {/* the header brand links to pages[0] (Home); with an Agents section, its "View all" is the Agents page's row */}
-            {pages
-              .filter((row, index) => index > 0 && !(agents && row.id === "agents"))
-              .map((row) => (
+      {agents}
+      {foot.length > 0 || visiblePages.length > 0 ? (
+        <SidebarGroup className="mt-auto shrink-0">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {foot.map((row) => (
+                <DashLinkRow
+                  key={row.name}
+                  row={row}
+                  pages={pages}
+                  agent={agent}
+                  waiting={waiting}
+                />
+              ))}
+              {visiblePages.map((row) => (
                 <Off key={row.id} itx={itx} serves={row.serves}>
                   {(off) => (
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        isActive={row === page}
+                        isActive={row === page || (row.id === "settings" && page.row === false)}
                         tooltip={row.name}
                         className={off ? "text-muted-foreground" : undefined}
                         render={<RowLink href={hrefOfPage(pages, row)} inPage />}
@@ -556,98 +650,28 @@ function DashNav({
                   )}
                 </Off>
               ))}
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-      {links.map((group) => (
-        <DashLinksGroup key={group.title} group={group} waiting={waiting} />
-      ))}
-      {/* last: the list moves as agents work, and nothing above it should move with it */}
-      {agents}
-    </>
-  );
-}
-
-const GROUP_STORAGE_PREFIX = "dash:nav-group:";
-
-/** Persisted open/closed state for a collapsible sidebar link group, falling back to its default. */
-function readGroupOpen(title: string, defaultOpen: boolean): boolean {
-  try {
-    const stored = window.localStorage?.getItem(`${GROUP_STORAGE_PREFIX}${title}`);
-    if (stored === "open") return true;
-    if (stored === "closed") return false;
-  } catch {
-    // storage unavailable or blocked: keep the group's default
-  }
-  return defaultOpen;
-}
-
-function writeGroupOpen(title: string, open: boolean) {
-  try {
-    window.localStorage?.setItem(`${GROUP_STORAGE_PREFIX}${title}`, open ? "open" : "closed");
-  } catch {
-    // ignore storage errors
-  }
-}
-
-/** One collapsible link group in the sidebar: forced open in the desktop icon rail so its links
- *  stay reachable, and showing any waiting-approvals count on the label while closed. */
-function DashLinksGroup({ group, waiting }: { group: DashLinks; waiting: number | undefined }) {
-  const { isMobile, state } = useSidebar();
-  const inRail = state === "collapsed" && !isMobile;
-  const [open, setOpen] = useState(() => readGroupOpen(group.title, !group.collapsed));
-  const badge =
-    waiting && group.rows.some((row) => row.count === "approvals") ? waiting : undefined;
-  const toggle = (next: boolean) => {
-    setOpen(next);
-    writeGroupOpen(group.title, next);
-  };
-  return (
-    <Collapsible open={inRail || open} onOpenChange={toggle}>
-      <SidebarGroup>
-        <SidebarGroupLabel
-          render={
-            <CollapsibleTrigger
-              type="button"
-              className="w-full cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            />
-          }
-        >
-          <span>{group.title}</span>
-          {!open && !inRail && badge ? (
-            <span
-              data-group-waiting
-              className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-sidebar-accent px-1 text-2xs font-medium text-sidebar-accent-foreground tabular-nums"
-            >
-              {badge}
-            </span>
-          ) : null}
-          <ChevronRightIcon
-            className={
-              open
-                ? "ml-auto rotate-90 transition-transform duration-200"
-                : "ml-auto transition-transform duration-200"
-            }
-          />
-        </SidebarGroupLabel>
-        <CollapsibleContent>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ) : null}
+      {fallbackGroups.map((group) => (
+        <SidebarGroup key={group.title}>
+          <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {group.rows.map((row) => (
-                <SidebarMenuItem key={row.name}>
-                  <SidebarMenuButton tooltip={row.name} render={<RowLink href={row.href} />}>
-                    <row.icon />
-                    <span>{row.name}</span>
-                  </SidebarMenuButton>
-                  {row.count === "approvals" && waiting ? (
-                    <SidebarMenuBadge>{waiting}</SidebarMenuBadge>
-                  ) : null}
-                </SidebarMenuItem>
+                <DashLinkRow
+                  key={row.name}
+                  row={row}
+                  pages={pages}
+                  agent={agent}
+                  waiting={waiting}
+                />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
-        </CollapsibleContent>
-      </SidebarGroup>
-    </Collapsible>
+        </SidebarGroup>
+      ))}
+    </>
   );
 }

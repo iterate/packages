@@ -41,29 +41,47 @@ export const SIDEBAR_AGENTS = 6;
 export function DashAgentsNav({
   agents,
   current,
+  exclude,
   overview,
   overviewShown,
+  shrink = false,
 }: {
   /** The catalog's rows, live; undefined while the first answer is on its way. */
   agents: readonly AgentRow[] | undefined;
   /** The path of the agent view shown, if one is. */
   current: string | undefined;
+  /** Agent paths already pinned above this section, skipped so they are not listed twice. */
+  exclude?: ReadonlySet<string>;
   /** The Agents page's link: "View all". */
   overview: string;
   /** Whether the Agents page shows its list now. */
   overviewShown: boolean;
+  /** Let this group shrink on short viewports so the foot group stays in view. */
+  shrink?: boolean;
 }) {
-  const groups = agents ? agentGroups(agents).slice(0, SIDEBAR_AGENTS) : undefined;
+  const groups = agents
+    ? agentGroups(agents)
+        .filter((group) => !exclude?.has(group.row.path))
+        .slice(0, SIDEBAR_AGENTS)
+    : undefined;
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Agents</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
+    <SidebarGroup className={shrink ? "min-h-0 overflow-hidden" : undefined}>
+      <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>Agents</SidebarGroupLabel>
+      <SidebarGroupContent className={shrink ? "flex min-h-0 flex-1 flex-col" : undefined}>
+        <SidebarMenu
+          className={
+            shrink
+              ? "no-scrollbar min-h-0 overflow-y-auto group-data-[collapsible=icon]:overflow-hidden"
+              : undefined
+          }
+        >
           {groups ? (
-            groups.map((group) => (
+            groups.map((group, index) => (
               <AgentsNavRow
                 key={group.row.path}
                 group={group}
+                // at short viewports (<=740 px tall) show five rows so the foot links fit without scrolling
+                className={index >= 5 ? "[@media(max-height:740px)]:hidden" : undefined}
                 active={
                   !!current &&
                   (current === group.row.path || current.startsWith(`${group.row.path}/`))
@@ -83,17 +101,33 @@ export function DashAgentsNav({
               No agents yet.
             </p>
           ) : null}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={overviewShown}
-              tooltip="View all agents"
-              render={<a {...linkTo(overview)} />}
-            >
-              <ListIcon />
-              <span>View all</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {!shrink ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={overviewShown}
+                tooltip="View all agents"
+                render={<a {...linkTo(overview)} />}
+              >
+                <ListIcon />
+                <span>View all</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
         </SidebarMenu>
+        {shrink ? (
+          <SidebarMenu className="mt-1 shrink-0">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={overviewShown}
+                tooltip="View all agents"
+                render={<a {...linkTo(overview)} />}
+              >
+                <ListIcon />
+                <span>View all</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        ) : null}
       </SidebarGroupContent>
     </SidebarGroup>
   );
@@ -105,12 +139,20 @@ const SKELETON_ROW =
 
 /** One agent: its kind's icon with its status on the corner, its title, and its one line. In the
  *  icon rail, the icon alone, with the words in its tooltip. */
-function AgentsNavRow({ group, active }: { group: AgentGroup; active: boolean }) {
+function AgentsNavRow({
+  group,
+  active,
+  className,
+}: {
+  group: AgentGroup;
+  active: boolean;
+  className?: string;
+}) {
   const { row, subagents } = group;
   const KindIcon = kindIcon(row.kind);
   const line = [subagentsLine(subagents.length), agentDoing(row)].filter(Boolean).join(" · ");
   return (
-    <SidebarMenuItem data-agent-path={row.path}>
+    <SidebarMenuItem data-agent-path={row.path} className={className}>
       <SidebarMenuButton
         size="lg"
         isActive={active}

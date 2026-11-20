@@ -364,6 +364,14 @@
         "sidebar",
         "skeleton"
       ],
+      "cssVars": {
+        "theme": {
+          "color-warning": "var(--warning)"
+        },
+        "light": {
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
+        }
+      },
       "files": [
         {
           "path": "src/components/app-shell.tsx",
@@ -933,13 +941,13 @@
     {
       "name": "dash",
       "type": "registry:component",
-      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and collapsible groups of links, the page the URL names, what waits for a member's yes, the most recently active agents, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
+      "description": "A mind's Dash drawn from lists: the shell, a sidebar with recent agents and foot rows (Approvals, Settings), the page the URL names, what waits for a member's yes, and the kit's pages (contexts, repo, secrets, integrations, analytics, settings), each loaded when it first draws.",
       "dependencies": [
         "iterate",
         "lucide-react"
       ],
       "registryDependencies": [
-        "collapsible",
+        "dropdown-menu",
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
         "iterate/packages/analytics-page",
@@ -965,8 +973,12 @@
       ],
       "cssVars": {
         "theme": {
+          "color-warning": "var(--warning)",
           "text-2xs": "0.6875rem",
           "text-2xs--line-height": "calc(1 / 0.6875)"
+        },
+        "light": {
+          "warning": "light-dark(oklch(0.555 0.163 48.998), oklch(0.828 0.189 84.429))"
         }
       },
       "files": [

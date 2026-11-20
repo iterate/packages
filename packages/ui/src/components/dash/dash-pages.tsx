@@ -18,6 +18,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub } from "iterate/react";
@@ -36,12 +37,16 @@ type Itx = AuthenticatedApp["itx"];
 
 type Icon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>;
 
-/** One page of the Dash: a row of the sidebar. */
+/** One page of the Dash: a route `/<id>`, and a row of the sidebar unless `row` is `false`. */
 export type DashPage = {
   /** `/<id>`; the first page of the list is `/` (linked from the sidebar header) */
   id: string;
   name: string;
   icon: Icon;
+  /** `false`: the page keeps its route `/<id>` and has no sidebar row (listed in `DashSettings`) */
+  row?: false;
+  /** one-line description shown on `DashSettings` */
+  about?: string;
   /** a part that not every stack has (`telemetry`): when the mind does not serve `itx.<serves>`,
    *  the row is muted with "Off" beside it */
   serves?: string;
@@ -82,10 +87,12 @@ export type DashLink = {
   name: string;
   href: string;
   icon: Icon;
+  /** one-line description shown on `DashSettings` */
+  about?: string;
   count?: "approvals";
 };
-/** A collapsible group of links in the sidebar; defaults to open when `collapsed` is omitted. */
-export type DashLinks = { title: string; rows: DashLink[]; collapsed?: boolean };
+/** A group of links shown as a section on `DashSettings` (Access, Apps, …). */
+export type DashLinks = { title: string; rows: DashLink[] };
 
 /** What the Dash's shell hands every page it draws. */
 export type DashPageProps = {
@@ -451,3 +458,101 @@ export function DashAnalytics({ itx, mind }: DashPageProps) {
 }
 // holds nothing of a session: each query is a call through the page's itx
 DashAnalytics.staysOverReconnect = true;
+
+function SettingsOffLabel({ itx, serves }: { itx: Itx; serves: string }) {
+  return use(servesOf(itx, serves)) ? null : (
+    <span className="shrink-0 text-xs text-muted-foreground">Off</span>
+  );
+}
+
+/** One page listing everything the mind holds: the pages kept off the sidebar (`row: false`) and
+ *  each group of `links` (Access, Apps), with one line of explanation and the state the Dash
+ *  already holds (`Off` for unserved parts, waiting count for approvals). Edits nothing. */
+export function DashSettings({ itx, mind, page, pages, links, waiting }: DashPageProps) {
+  const hiddenPages = pages.filter((row) => row.row === false);
+  const mindOrigin = mind ? `https://${mind}/` : "";
+  return (
+    <DashScroll>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 md:px-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{page.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            These pages show what the mind holds. Each line opens one.
+          </p>
+        </div>
+        {hiddenPages.length > 0 ? (
+          <section>
+            <h2 className="mb-2 text-xs font-medium text-muted-foreground">This mind</h2>
+            <div className="divide-y overflow-hidden rounded-lg border bg-card">
+              {hiddenPages.map((row) => (
+                <a
+                  key={row.id}
+                  {...linkTo(pageHref(row.id))}
+                  className="flex items-center gap-3 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                >
+                  <row.icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium text-foreground">{row.name}</span>
+                    {row.about ? (
+                      <span className="block text-xs text-muted-foreground">{row.about}</span>
+                    ) : null}
+                  </span>
+                  {row.serves ? (
+                    <Suspense fallback={null}>
+                      <SettingsOffLabel itx={itx} serves={row.serves} />
+                    </Suspense>
+                  ) : null}
+                  <ChevronRightIcon
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground/60"
+                  />
+                </a>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {links
+          .filter((group) => group.rows.length > 0)
+          .map((group) => {
+            const onMind =
+              Boolean(mindOrigin) && group.rows.every((row) => row.href.startsWith(mindOrigin));
+            return (
+              <section key={group.title}>
+                <h2 className="mb-2 text-xs font-medium text-muted-foreground">
+                  {group.title}
+                  {onMind ? <span className="font-normal"> (pages on {mind})</span> : null}
+                </h2>
+                <div className="divide-y overflow-hidden rounded-lg border bg-card">
+                  {group.rows.map((row) => (
+                    <a
+                      key={row.name}
+                      href={row.href}
+                      className="flex items-center gap-3 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    >
+                      <row.icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium text-foreground">{row.name}</span>
+                        {row.about ? (
+                          <span className="block text-xs text-muted-foreground">{row.about}</span>
+                        ) : null}
+                      </span>
+                      {row.count === "approvals" && waiting ? (
+                        <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning tabular-nums">
+                          {waiting === 1 ? "1 waits" : `${waiting} wait`}
+                        </span>
+                      ) : null}
+                      <ExternalLinkIcon
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-muted-foreground/60"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+      </div>
+    </DashScroll>
+  );
+}
+DashSettings.staysOverReconnect = true;
