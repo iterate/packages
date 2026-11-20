@@ -276,7 +276,20 @@ DashContexts.staysOverReconnect = true;
 export function DashRepo({ itx, mind, principal }: DashPageProps) {
   const { RepoIde, repoIdeSearchOf } = use(repoPart());
   const name = usePageParam("repo") || "config";
-  const { view, patchView } = useView();
+  const { view, setView } = useView();
+  // Selecting another file or commit is a navigation (pushState); toggling a pane replaces.
+  const onSearchChange = useCallback(
+    (patch: Record<string, unknown>) => {
+      const next = Object.fromEntries(
+        Object.entries({ ...view, ...patch }).filter(([, value]) => value !== undefined),
+      );
+      const pushes =
+        ("file" in patch && patch.file !== view.file) ||
+        ("commit" in patch && patch.commit !== view.commit);
+      setView(next, !pushes);
+    },
+    [view, setView],
+  );
   const { epoch, state } = useConnection(itx);
   const opened = useContextStub(() => itx.cd("/"), [itx, epoch]);
   const [keep] = useState(() => kept<typeof opened>());
@@ -299,7 +312,7 @@ export function DashRepo({ itx, mind, principal }: DashPageProps) {
         repoPath={`/repos/${name}`}
         author={email ? { name: email, email } : undefined}
         search={repoIdeSearchOf(view)}
-        onSearchChange={patchView}
+        onSearchChange={onSearchChange}
       />
     </div>
   );

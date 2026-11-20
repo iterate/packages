@@ -938,7 +938,8 @@
         "cmdk",
         "cn",
         "iterate",
-        "lucide-react"
+        "lucide-react",
+        "zod"
       ],
       "registryDependencies": [
         "command",

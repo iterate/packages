@@ -130,6 +130,12 @@ export function Dash({
   const agent = (agentsPage && agentParam) || undefined;
   const page = (agent && agentsPage) || pages.find((row) => row.id === asked) || pages[0];
   if (!page) throw new Error("A Dash has at least one page");
+  // The first page is the root `/` when addressed by path with no other key (e.g. `/home`).
+  const firstPageId = pages[0]?.id;
+  useEffect(() => {
+    if (firstPageId && asked === firstPageId && address === `/${firstPageId}`)
+      go(`/${location.hash}`, true);
+  }, [firstPageId, asked, address]);
   const Page = page.component;
   // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: ⌘K lists it, and the Contexts
   // page shows its awake dots and its Recent list. A platform without it rejects: the rows stay

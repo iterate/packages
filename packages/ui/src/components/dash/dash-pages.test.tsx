@@ -35,7 +35,7 @@ test("a mind with no integrations: the page says so under its title", async () =
 });
 
 test("the Contexts page hands the member's saved tails to the explorer: the log it read is saved for a reload", async () => {
-  history.replaceState(null, "", "/?page=contexts&context=/agents/a");
+  history.replaceState(null, "", "/contexts/agents/a");
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   // jsdom lays nothing out: the virtual log's scroller asks for one
   vi.stubGlobal(
@@ -87,6 +87,74 @@ test("the repo page draws no editor before the Dash knows who is signed in: a co
   await using page = await draw(DashRepo, held, "unknown");
   const words = page.host.textContent;
   expect(words).toBe("Opening the mind…");
+});
+
+test("the repo page pushes a history entry when commit or file changes, and replaces when toggling sidebars", async () => {
+  history.replaceState(null, "", "/repo");
+  try {
+    const { itx } = mind([], async () => []);
+    const repoFacet = {
+      listFiles: async () => ({ commitOid: "abc1234", paths: ["worker.ts", "AGENTS.md"] }),
+      readFile: async (path: string) => `// ${path}\n`,
+      log: async () => [
+        {
+          oid: "abc1234",
+          message: "Initial commit",
+          author: { name: "Ada", email: "ada@example.com" },
+          timestamp: Date.now(),
+          parents: [],
+        },
+      ],
+      modules: async () => ({ "worker.ts": "// worker\n", "AGENTS.md": "# Guide\n" }),
+      [Symbol.dispose]() {},
+    };
+    const root = {
+      repos: { get: () => repoFacet },
+      subscribe: async () => ({ [Symbol.dispose]() {} }),
+      [Symbol.dispose]() {},
+    };
+    const held = Object.assign(itx, { cd: async () => root });
+    await using page = await draw(DashRepo, held, {
+      actor: "/members/a",
+      email: "a@example.com",
+    });
+    const historyButton = () =>
+      page.host.querySelector<HTMLButtonElement>('button[aria-label="History"]');
+    for (let tick = 0; tick < 80 && !historyButton(); tick += 1)
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    // switching to the History sidebar replaces (no new history entry)
+    const beforeHistory = history.length;
+    await act(() => historyButton()!.click());
+    expect(history.length).toBe(beforeHistory);
+    expect(JSON.parse(new URLSearchParams(location.search).get("view") || "{}")).toEqual({
+      history: true,
+    });
+    const buttonNamed = (name: string) =>
+      [...page.host.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+        button.textContent?.includes(name),
+      );
+    for (let tick = 0; tick < 80 && !buttonNamed("Initial commit"); tick += 1)
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    // expanding a commit pushes a history entry
+    await act(() => buttonNamed("Initial commit")!.click());
+    expect(history.length).toBe(beforeHistory + 1);
+    expect(JSON.parse(new URLSearchParams(location.search).get("view") || "{}")).toEqual({
+      history: true,
+      commit: "abc1234",
+    });
+    for (let tick = 0; tick < 80 && !buttonNamed("worker.ts"); tick += 1)
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    // opening a file pushes a history entry and writes `/repo/config/worker.ts`
+    await act(() => buttonNamed("worker.ts")!.click());
+    expect(location).toMatchObject({ pathname: "/repo/config/worker.ts" });
+    expect(JSON.parse(new URLSearchParams(location.search).get("view") || "{}")).toEqual({
+      history: true,
+      commit: "abc1234",
+    });
+    expect(history.length).toBe(beforeHistory + 2);
+  } finally {
+    history.replaceState(null, "", "/");
+  }
 });
 
 /** A mind that serves the roots `serves` names, with a vault that lists by `secrets`. */

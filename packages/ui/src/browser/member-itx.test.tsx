@@ -388,7 +388,7 @@ test(
       reload,
       ...net,
     });
-    history.replaceState(null, "", "/?page=notes");
+    history.replaceState(null, "", "/notes");
     // as a page's script does before it draws: the first session is open
     await itx.whoami();
     let mounts = 0;
@@ -446,7 +446,7 @@ test(
     };
     const net = network({}, { "/agents": catalog });
     const itx = connectMemberItx({ root: null, url: new URL("ws://dash.example.com/itx"), ...net });
-    history.replaceState(null, "", "/?page=agents");
+    history.replaceState(null, "", "/agents");
     await itx.whoami();
     await using page = await drawDash(itx, "agents.example.com", [
       { id: "agents", name: "Agents", icon: BotIcon, component: Blank },
@@ -474,7 +474,7 @@ test(
       { "/": { contexts: { "/notes": {} } } },
     );
     const itx = connectMemberItx({ root: null, url: new URL("ws://dash.example.com/itx"), ...net });
-    history.replaceState(null, "", "/?page=contexts&context=/notes");
+    history.replaceState(null, "", "/contexts/notes");
     await itx.whoami();
     await using page = await drawDash(itx, "contexts.example.com", [
       { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts },
@@ -506,7 +506,7 @@ test(
     using _layout = laidOut();
     const net = network({ "/agents/a": [said(1, "first words")] });
     const { itx, reload } = member(net);
-    history.replaceState(null, "", "/?agent=/agents/a");
+    history.replaceState(null, "", "/agents?contextPath=/agents/a");
     await using page = await draw(itx);
     await shows(page.host, "first words");
     await shows(page.host, "Idle");

@@ -1,17 +1,11 @@
-// page-url.ts — THE URL OF A PAGE WITH NO ROUTER, as a no-build app with several pages keeps it:
-// `?page=<id>` is the page (none: the app's first page), each page has keys of its own
-// (`?context=<path>`), and `?view=<json>` holds what the page's own view keeps (a filter, an open
-// file, an open sheet). A link changes the URL in place, so Back and a new tab work as on any site.
+// page-url.ts — THE URL OF A PAGE WITH NO ROUTER, for a no-build app with several pages:
+// an app names its path scheme once (`pathAddresses`), and each page reads `usePageParam` and
+// builds links with `pageHref` and `useView` (`?view=<json>` holds view state like filters or
+// open sheets). Without a registered scheme, keys live in the query string.
 //
 //   const page = usePageParam("page");
 //   <a {...linkTo(pageHref("repo"))}>Config repo</a>
 //   const { view, patchView } = useView();
-//
-// AN APP WHOSE ADDRESSES ARE PATHS keeps some of those keys in the URL's path: `/secrets` for
-// `?page=secrets`. Two things turn that on, and without either every address is a query, as above.
-// The app's page says `<html data-addresses="paths">`, which is its host's word that it serves this
-// page for any path. And the app names its paths once (`pathAddresses`): which keys the path
-// holds, and how. Nothing else changes for a page: it reads `usePageParam` and builds `pageHref`.
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
@@ -28,20 +22,9 @@ export type PathAddresses = {
 
 let named: PathAddresses | undefined;
 
-/** The app's paths, when its page asked for them. */
-function paths() {
-  return named && document.documentElement.dataset.addresses === "paths" ? named : undefined;
-}
-
-/** Names the app's paths, once, before it draws. On a page that asked for paths, the address the
- *  page was opened at is then written as the app writes it, in place: an old link
- *  (`?page=secrets`) becomes its path, with its other keys and its hash. */
+/** Names the app's path scheme, once, before it draws. */
 export function pathAddresses(scheme: PathAddresses) {
   named = scheme;
-  if (!paths()) return;
-  const href = scheme.hrefOf(scheme.keysOf(location.pathname, location.search));
-  if (href !== location.pathname + location.search)
-    history.replaceState(history.state, "", href + location.hash);
 }
 
 /** The keys of `address`, a path with its query. */
@@ -49,33 +32,40 @@ function keysAt(address: string) {
   const cut = address.indexOf("?");
   const search = cut < 0 ? "" : address.slice(cut);
   return (
-    paths()?.keysOf(cut < 0 ? address : address.slice(0, cut), search) ||
-    new URLSearchParams(search)
+    named?.keysOf(cut < 0 ? address : address.slice(0, cut), search) || new URLSearchParams(search)
   );
 }
 
 /** The address that holds `keys`, as a link on this page. */
 function hrefWith(keys: URLSearchParams) {
-  const scheme = paths();
-  if (scheme) return scheme.hrefOf(keys);
+  if (named) return named.hrefOf(keys);
   const query = keys.toString().replaceAll("%2F", "/");
   return query ? `?${query}` : "./";
 }
 
-/** `href` as this app writes it. With paths, a link in the query's form (`?page=secrets`, "./")
- *  is the path that says the same, so a link written by hand leads to the same place from any
- *  path. Any other link is itself. */
-function written(href: string) {
-  const scheme = paths();
-  if (!scheme || !(href === "./" || href.startsWith("?"))) return href;
-  return scheme.hrefOf(scheme.keysOf("/", href === "./" ? "" : href));
+/** Splits an href into `[address, hash]` so hash fragments survive path normalisation. */
+function splitHash(href: string): [string, string] {
+  const cut = href.indexOf("#");
+  return cut < 0 ? [href, ""] : [href.slice(0, cut), href.slice(cut)];
 }
 
-/** The keys of a link that stays on this page, or null for a link to another place. With paths, a
- *  path from the root stays; without, only a query does. */
+/** `href` as this app writes it. With a path scheme, `./` and any root path accepted by
+ *  `keysOfLink` are normalised to their canonical address, keeping any hash. */
+function written(href: string) {
+  if (!named) return href;
+  const [address, hash] = splitHash(href);
+  if (address === "./") return `${named.hrefOf(named.keysOf("/", ""))}${hash}`;
+  const keys = keysOfLink(address);
+  if (!keys) return href;
+  return `${named.hrefOf(keys)}${hash}`;
+}
+
+/** The keys of a link that stays on this page, or null for a link to another place. With a path
+ *  scheme, a path from the root stays; without one, only a query does. */
 export function keysOfLink(href: string): URLSearchParams | null {
-  if (href.startsWith("?")) return keysAt(`/${href}`);
-  return paths() && href.startsWith("/") && !href.startsWith("//") ? keysAt(href) : null;
+  const [address] = splitHash(href);
+  if (named) return address.startsWith("/") && !address.startsWith("//") ? keysAt(address) : null;
+  return address.startsWith("?") ? keysAt(`/${address}`) : null;
 }
 
 const subscribe = (listener: () => void) => {

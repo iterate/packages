@@ -15,12 +15,12 @@ test("one list makes the sidebar; a mind with no telemetry shows Analytics as Of
   await using dash = await draw("/", []);
   const { host } = dash;
   expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
-  // the sidebar's row leads to ?page=analytics, and says Off
+  // the sidebar's row leads to /analytics, and says Off
   expect(linksNamed(host, "Analytics").map((link) => link.getAttribute("href"))).toEqual([
-    "?page=analytics",
+    "/analytics",
   ]);
   expect(host.textContent?.match(/Off/g)).toHaveLength(1);
-  expect(linksNamed(host, "Home")[0]?.getAttribute("href")).toBe("./");
+  expect(linksNamed(host, "Home")[0]?.getAttribute("href")).toBe("/");
   // and each group of links follows the pages
   expect(linksNamed(host, "Approvals")).toHaveLength(1);
   expect(dash.asked.filter((root) => root === "itx.telemetry")).toHaveLength(1);
@@ -32,7 +32,7 @@ test("a mind with telemetry has no Off; a click on a page's row shows that page 
   expect(host.textContent).not.toContain("Off");
   const row = linksNamed(host, "Analytics")[0]!;
   await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
-  expect(location).toMatchObject({ search: "?page=analytics" });
+  expect(location).toMatchObject({ pathname: "/analytics", search: "" });
   expect(host.textContent).toContain("the charts");
   expect(host.querySelector("h1")).toBeNull();
   expect(linksNamed(host, "Home")).toHaveLength(1);
@@ -41,7 +41,7 @@ test("a mind with telemetry has no Off; a click on a page's row shows that page 
 test("a page that did not load says so on its own page alone, with the way to load again", async () => {
   // React reports what an error boundary caught
   vi.spyOn(console, "error").mockImplementation(() => {});
-  await using dash = await draw("/?page=broken", []);
+  await using dash = await draw("/broken", []);
   const { host } = dash;
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(
     "This page did not load: Failed to fetch dynamically imported module. Load the page again to try once more.",
@@ -57,7 +57,7 @@ test("a page that threw is handed to the page's error capture, once, when the pa
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   window.reportPageError = (error) => reported.push(error);
   try {
-    await using dash = await draw("/?page=broken", []);
+    await using dash = await draw("/broken", []);
     expect(dash.host.querySelector('[role="alert"]')).not.toBeNull();
     expect(reported.map((error) => (error as Error).message)).toEqual([
       "Failed to fetch dynamically imported module",
@@ -67,7 +67,7 @@ test("a page that threw is handed to the page's error capture, once, when the pa
       throw new Error("the capture broke");
     };
     await act(() => linksNamed(dash.host, "Home")[0]!.click());
-    await act(() => go("/?page=broken"));
+    await act(() => go("/broken"));
     expect(dash.host.querySelector('[role="alert"]')?.textContent).toContain(
       "This page did not load",
     );
@@ -107,11 +107,11 @@ test("with a Contexts page, ⌘K lists the contexts active in the last five minu
       .querySelector("[cmdk-input]")!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
   );
-  expect(location).toMatchObject({ search: "?page=contexts&context=/agents/a" });
+  expect(location).toMatchObject({ pathname: "/contexts/agents/a", search: "" });
 });
 
 test("the Contexts page with no context: the list and a note, and no context opened, the root included", async () => {
-  await using dash = await draw("/?page=contexts", [], {
+  await using dash = await draw("/contexts", [], {
     pages: withContexts,
     contexts: catalogRows,
   });
@@ -123,15 +123,15 @@ test("the Contexts page with no context: the list and a note, and no context ope
   expect(host.textContent).toContain("3 contexts");
   expect(dash).toMatchObject({ opened: [] });
   // a path typed opens that context, the root too, and names it in the URL
-  await act(() => go("?page=contexts&context=/agents/a"));
+  await act(() => go("/contexts/agents/a"));
   await until(() => dash.opened.length);
   expect(dash).toMatchObject({ opened: ["/"] });
 });
 
-test("?context=/ opens the root, as a choice", async () => {
+test("/contexts?contextPath=/ opens the root, as a choice", async () => {
   // this test's itx cannot open the root: the page says so
   vi.spyOn(console, "error").mockImplementation(() => {});
-  await using dash = await draw("/?page=contexts&context=/", [], {
+  await using dash = await draw("/contexts?contextPath=/", [], {
     pages: withContexts,
     contexts: catalogRows,
   });
@@ -153,7 +153,7 @@ test("an agent that throws says so on its own view alone: View all and another a
     if (agent === "/agents/broken") throw new Error("the agent view threw");
     return <p data-shown>{agent || "every agent"}</p>;
   }
-  await using dash = await draw("/?agent=/agents/broken", [], {
+  await using dash = await draw("/agents?contextPath=/agents/broken", [], {
     pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: Agents }],
   });
   const { host } = dash;
@@ -161,24 +161,24 @@ test("an agent that throws says so on its own view alone: View all and another a
   const shown = () => host.querySelector("[data-shown]")?.textContent;
   expect(alert()?.textContent).toContain("the agent view threw");
   // View all: the same page, with no agent
-  await act(() => go("?page=agents"));
+  await act(() => go("/agents"));
   expect([alert(), shown()]).toEqual([null, "every agent"]);
   // another agent after one that threw
-  await act(() => go("?agent=/agents/broken"));
+  await act(() => go("/agents?contextPath=/agents/broken"));
   expect(alert()).not.toBeNull();
-  await act(() => go("?agent=/agents/other"));
+  await act(() => go("/agents?contextPath=/agents/other"));
   expect([alert(), shown()]).toEqual([null, "/agents/other"]);
   // with no error, neither another agent nor the page's own view state mounts it anew
   const before = mounts;
-  await act(() => go("?agent=/agents/third"));
-  await act(() => go(`?agent=/agents/third&view=${encodeURIComponent('{"q":"x"}')}`));
+  await act(() => go("/agents?contextPath=/agents/third"));
+  await act(() => go(`/agents?contextPath=/agents/third&view=${encodeURIComponent('{"q":"x"}')}`));
   expect([shown(), mounts]).toEqual(["/agents/third", before]);
 });
 
 test("the Dash draws before the mind has said who is signed in: the page at once, with the account not known, and the account when the mind answers", async () => {
   let answer: (who: object) => void = () => {};
   const whoami = vi.fn(() => new Promise<object>((resolve) => (answer = resolve)));
-  await using dash = await draw("/?page=who", [], { pages: withWho, principal: "ask", whoami });
+  await using dash = await draw("/who", [], { pages: withWho, principal: "ask", whoami });
   const { host } = dash;
   // the frame and the page are there, and nothing says who
   expect(linksNamed(host, "Home")).toHaveLength(1);
@@ -192,7 +192,7 @@ test("the Dash draws before the mind has said who is signed in: the page at once
 
 test("a page that already knows who is signed in is not asked, and a member with no address is known too", async () => {
   const whoami = vi.fn(async () => ({}));
-  await using dash = await draw("/?page=who", [], { pages: withWho, principal: null, whoami });
+  await using dash = await draw("/who", [], { pages: withWho, principal: null, whoami });
   expect(dash.host.querySelector("output")?.textContent).toBe("nobody the page can name");
   expect(whoami).not.toHaveBeenCalled();
 });
@@ -203,7 +203,7 @@ test("a whoami that the mind refused on an open session is asked again by itself
     .fn<() => Promise<object>>()
     .mockRejectedValueOnce(new Error("Durable Object is overloaded"))
     .mockResolvedValue({ principal: { actor: "/members/a", email: "jo@example.com" } });
-  await using dash = await draw("/?page=who", [], { pages: withWho, principal: "ask", whoami });
+  await using dash = await draw("/who", [], { pages: withWho, principal: "ask", whoami });
   await act(() => vi.advanceTimersByTimeAsync(0));
   expect(whoami).toHaveBeenCalledTimes(1);
   expect(dash.host.textContent).not.toContain("jo@example.com");
@@ -220,7 +220,7 @@ test("a whoami that was refused because no session opened is asked again when on
     .fn<() => Promise<object>>()
     .mockRejectedValueOnce(new Error("Peer closed WebSocket: 1006"))
     .mockResolvedValue({ principal: { actor: "/members/a", email: "jo@example.com" } });
-  await using dash = await draw("/?page=who", [], {
+  await using dash = await draw("/who", [], {
     pages: withWho,
     principal: "ask",
     whoami,
@@ -252,7 +252,7 @@ test("the sidebar of a person who made no choice is as the page says (the rail o
 });
 
 test("while a page's part loads, its place holds quiet shapes and no words", async () => {
-  await using dash = await draw("/?page=slow", [], { pages: withWho });
+  await using dash = await draw("/slow", [], { pages: withWho });
   const place = dash.host.querySelector("[data-slot=dash-placeholder]");
   expect(Boolean(place)).toBe(true);
   expect(place?.textContent).toBe("");
@@ -262,7 +262,7 @@ test("while a page's part loads, its place holds quiet shapes and no words", asy
 });
 
 test("a page the URL does not name is the first page", async () => {
-  await using dash = await draw("/?page=nothing-here", []);
+  await using dash = await draw("/nothing-here", []);
   expect(dash.host.querySelector("h1")?.textContent).toBe("iterate.example.com");
 });
 
@@ -301,8 +301,8 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   ]);
   expect(rows[0]?.querySelector("[data-agent-line]")?.textContent).toBe("and 5 subagents");
   // each row is the agent view, and View all is the Agents page, which has no row of its own
-  expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("?agent=/agents/a");
-  expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("?page=agents");
+  expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("/agents?contextPath=/agents/a");
+  expect(linksNamed(dash.host, "View all")[0]?.getAttribute("href")).toBe("/agents");
   expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
   // the section is the sidebar's last: every other link is above the first agent's row
   const sidebarLinks = [...dash.host.querySelectorAll("a")];
@@ -314,7 +314,7 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   ).toBe(true);
   // a click opens the agent view: the Agents page, with the path; its row is the current one
   await act(() => rows[1]!.querySelector("a")!.click());
-  expect(location).toMatchObject({ search: "?agent=/agents/t7" });
+  expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/t7" });
   expect(dash.host.textContent).toContain("agent view of /agents/t7");
   expect(
     [...dash.host.querySelectorAll("[data-agent-path] a")].map((row) =>
@@ -378,7 +378,7 @@ test("⌘K is one palette on every page: Agents first, then Raw contexts, and / 
     "/agents/people/jo/web/x": { createdAt: now, kind: "iterate", title: "Pays a bill" },
   };
   // on a page that is neither the Agents page nor the Contexts page
-  await using _dash = await draw("/?page=analytics", ["itx.telemetry"], {
+  await using _dash = await draw("/analytics", ["itx.telemetry"], {
     pages: withAgentPages,
     agents,
     contexts,
@@ -394,7 +394,10 @@ test("⌘K is one palette on every page: Agents first, then Raw contexts, and / 
   await typeInto(input(), "bill");
   expect(options()).toEqual(["/agents/people/jo/web/x"]);
   await press("Enter");
-  expect(location).toMatchObject({ search: "?agent=/agents/people/jo/web/x" });
+  expect(location).toMatchObject({
+    pathname: "/agents",
+    search: "?contextPath=/agents/people/jo/web/x",
+  });
   // the Raw contexts tab: any context; Enter opens the raw view
   await openPalette();
   await act(() =>
@@ -405,7 +408,7 @@ test("⌘K is one palette on every page: Agents first, then Raw contexts, and / 
   await typeInto(input(), "slack");
   expect(options()).toEqual(["/secrets/slack"]);
   await press("Enter");
-  expect(location).toMatchObject({ search: "?page=contexts&context=/secrets/slack" });
+  expect(location).toMatchObject({ pathname: "/contexts/secrets/slack", search: "" });
   // "/" first: the paths one level down; Tab completes one level, Enter opens the raw view
   await openPalette();
   await typeInto(input(), "/ag");
@@ -417,13 +420,13 @@ test("⌘K is one palette on every page: Agents first, then Raw contexts, and / 
   await press("Tab");
   expect(input()).toMatchObject({ value: "/agents/people/" });
   await press("Enter");
-  expect(location).toMatchObject({ search: "?page=contexts&context=/agents/people/jo" });
+  expect(location).toMatchObject({ pathname: "/contexts/agents/people/jo", search: "" });
 });
 
 test("a row the mind pins sits right under New agent, and an agent's view opens in place", async () => {
   await using dash = await draw("/", [], {
     pages: [...pages, { id: "agents", name: "Agents", icon: BotIcon, component: () => null }],
-    pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
+    pinned: [{ name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon }],
   });
   const names = [...dash.host.querySelectorAll("a")].map((link) => link.textContent);
   expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 3)).toEqual([
@@ -432,9 +435,9 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
     "Home",
   ]);
   const row = linksNamed(dash.host, "Pinned helper")[0]!;
-  expect(row.getAttribute("href")).toBe("?agent=/agents/helper");
+  expect(row.getAttribute("href")).toBe("/agents?contextPath=/agents/helper");
   await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
-  expect(location).toMatchObject({ pathname: "/", search: "?agent=/agents/helper" });
+  expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/helper" });
 });
 
 test("New agent is never marked or boxed, and a pinned row is marked only while its own agent is open", async () => {
@@ -443,7 +446,7 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
       ...pages,
       { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents page</p> },
     ],
-    pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
+    pinned: [{ name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon }],
   });
   /** [is it marked as the current row, is it drawn as a box] of the sidebar row with this name */
   const look = (name: string) => {
@@ -453,16 +456,15 @@ test("New agent is never marked or boxed, and a pinned row is marked only while 
   const marked = () => ({ newAgent: look("New agent"), pinned: look("Pinned helper") });
   // home, the pinned agent's own view, another agent's view, and the page New agent links to
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
-  await act(() => go("?agent=/agents/helper"));
+  await act(() => go("/agents?contextPath=/agents/helper"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [true, false] });
-  await act(() => go("?agent=/agents/helper/sub"));
+  await act(() => go("/agents?contextPath=/agents/helper/sub"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
-  await act(() => go("?page=agents"));
+  await act(() => go("/agents"));
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
 });
 
-test("with paths, each page and each agent has a path of its own: a deep link, a click, Back, and an old link", async () => {
-  document.documentElement.dataset.addresses = "paths";
+test("each page and each agent has its canonical address: deep link, click, Back, /home", async () => {
   try {
     function AgentShown() {
       const agent = usePageParam("agent");
@@ -470,11 +472,17 @@ test("with paths, each page and each agent has a path of its own: a deep link, a
     }
     const agents = { id: "agents", name: "Agents", icon: BotIcon, component: AgentShown };
     // a deep link, opened cold: an agent whose path holds an address
-    await using dash = await draw("/agents/canvas2/ada@example.com/notes.md", [], {
-      pages: [...pages, agents],
-      pinned: [{ name: "Pinned helper", href: "?agent=/agents/helper", icon: BotIcon }],
-      agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
-    });
+    await using dash = await draw(
+      "/agents?contextPath=/agents/canvas2/ada@example.com/notes.md",
+      [],
+      {
+        pages: [...pages, agents],
+        pinned: [
+          { name: "Pinned helper", href: "/agents?contextPath=/agents/helper", icon: BotIcon },
+        ],
+        agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
+      },
+    );
     const { host } = dash;
     const hrefOf = (name: string) => linksNamed(host, name)[0]?.getAttribute("href");
     expect(host.textContent).toContain("agent view of /agents/canvas2/ada@example.com/notes.md");
@@ -492,15 +500,15 @@ test("with paths, each page and each agent has a path of its own: a deep link, a
       analytics: "/analytics",
       newAgent: "/agents",
       all: "/agents",
-      pinned: "/agents/helper",
-      agent: "/agents/t1",
+      pinned: "/agents?contextPath=/agents/helper",
+      agent: "/agents?contextPath=/agents/t1",
     });
     // a click on a page's row, then on the pinned row, which is marked while its agent is open
     await act(() => linksNamed(host, "Analytics")[0]!.click());
     expect(location).toMatchObject({ pathname: "/analytics", search: "" });
     expect(host.textContent).toContain("the charts");
     await act(() => linksNamed(host, "Pinned helper")[0]!.click());
-    expect(location).toMatchObject({ pathname: "/agents/helper", search: "" });
+    expect(location).toMatchObject({ pathname: "/agents", search: "?contextPath=/agents/helper" });
     expect(host.textContent).toContain("agent view of /agents/helper");
     expect(linksNamed(host, "Pinned helper")[0]!.hasAttribute("data-active")).toBe(true);
     // Back is the page before
@@ -510,26 +518,33 @@ test("with paths, each page and each agent has a path of its own: a deep link, a
     });
     expect(location).toMatchObject({ pathname: "/analytics" });
     expect(host.textContent).toContain("the charts");
-    // an old link, followed from a deep page, shows what it always showed
-    await act(() => go("?page=agents"));
+    // agents overview and agent with view state
+    await act(() => go("/agents"));
     expect(location).toMatchObject({ pathname: "/agents", search: "" });
     expect(host.textContent).toContain("agent view of none");
-    await act(() => go("/?agent=/agents/t1&view=%7B%22view%22%3A%22events%22%7D"));
+    await act(() => go("/agents?contextPath=/agents/t1&view=%7B%22view%22:%22events%22%7D"));
+    expect(location).toMatchObject({
+      pathname: "/agents",
+      search: "?contextPath=/agents/t1&view=%7B%22view%22:%22events%22%7D",
+    });
     expect(host.textContent).toContain("agent view of /agents/t1");
-    // the first page is the root
+    // the first page is the root; /home replaces to / (keeping any hash), while /home/sub stays
+    await act(() => go("/home#top"));
+    expect(location).toMatchObject({ pathname: "/", search: "", hash: "#top" });
+    expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
+    await act(() => go("/home/sub"));
+    expect(location).toMatchObject({ pathname: "/home/sub", search: "" });
     await act(() => linksNamed(host, "Home")[0]!.click());
     expect(location).toMatchObject({ pathname: "/", search: "" });
     expect(host.querySelector("h1")?.textContent).toBe("iterate.example.com");
   } finally {
-    delete document.documentElement.dataset.addresses;
     history.replaceState(null, "", "/");
   }
 });
 
-test("with paths, the Contexts page shows the context whose path follows its id, a dot in it or not", async () => {
+test("the Contexts page shows the context whose path follows its id, a dot in it or not", async () => {
   // this test's itx cannot open the root: the page says so
   vi.spyOn(console, "error").mockImplementation(() => {});
-  document.documentElement.dataset.addresses = "paths";
   try {
     await using dash = await draw("/contexts/agents/a.b", [], {
       pages: withContexts,
@@ -540,7 +555,6 @@ test("with paths, the Contexts page shows the context whose path follows its id,
     expect(dash.host.textContent).toContain("/agents/a.b");
     expect(dash.host.textContent).not.toContain("Pick a context from the list");
   } finally {
-    delete document.documentElement.dataset.addresses;
     history.replaceState(null, "", "/");
   }
 });
