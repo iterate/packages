@@ -28,6 +28,8 @@ sharing on. Chrome restart or extension reload leaves sharing off.
   for recovery. The `WORKERS` offscreen reason matches the dedicated worker it creates.
 - `public/address.js` — the mind's address from what a person typed, by the rule of
   `iterate/mind-api`, applied once; and its issuer.
+- `public/profile.js` — the mind's name and logo, read from its website's public profile
+  (below, **How a mind is shown**).
 - `public/instructions.js` — agent instructions prepared by the worker; the panel copies the text.
 - `public/icon-{16,32,48,128}.png` — the iterate logo, as
   PNGs (Chrome takes no SVG icons). Flat in `public/`: the SPA's zip packs only top-level files.
@@ -76,7 +78,7 @@ a lend to a mind with another address, no tab is drivable.
 debugging bar:
 
 - A frame on the edge of the tab's page, in one iterate color, and a small label at the top
-  center: the mind's address and what it does ("iterate.com is using this tab", "iterate.com is
+  center: the mind (below, **How a mind is shown**) and what it does ("is using this tab", "is
   clicking"), with a **Stop** button. The frame glows stronger and pulses for 3 s after each
   command (no pulse with reduced motion). The words come from the command's method: clicking,
   typing, opening a page, looking (a screenshot), reading the page (`Runtime.*`, `DOM.*`,
@@ -99,6 +101,25 @@ debugging bar:
 - The worker keeps the Page and Runtime domains on (the indicator, navigation facts and page
   reports need them): `cdp` answers `Page.disable` and `Runtime.disable` with `{}` and does not
   send them.
+
+**How a mind is shown.** Everywhere the extension names a mind (the panel's header once signed
+in, the label on a tab), it shows the mind's logo on the left, then its name over its address, or
+the address alone for a mind with no name. The address is always there: it is what the person
+signed in to and the title of the tab group.
+
+- The name and the logo are the mind's profile, `https://<address>/.well-known/iterate-profile`
+  (`core/configs/default/profile.ts`). Its website answers it to anyone with
+  `access-control-allow-origin: *`, so the worker reads it with no host permission and no
+  credential: when a session shows, at sign-in and at each connect. A read with no answer keeps
+  what an earlier read of the same mind got.
+- The profile is the owner's own words, unsigned, and proves nothing. `profile.js` takes two
+  fields from it and drops the rest. The name is one line of at most 80 characters, with no
+  control character and none that reorders text, and is only ever written as text. The profile's
+  default name is the hostname, which counts as no name. The logo must be an `https:` address on
+  the mind's website or a host under it, and is only ever an `<img>`, asked for with no referrer.
+- A mind with no logo, and a logo that does not load, show iterate's mark in the panel and the
+  plain dot in the label. A page whose content policy refuses the image gets the dot too.
+- No lend, group or permission depends on the profile.
 
 **What reaches the stream.** The CDP wire stays a wire, but the browser's facts go to the mind's
 root stream, each with the `lendName`:
@@ -272,8 +293,8 @@ host, then the mind's own sign-in and consent pages open in a Chrome identity wi
 **Share this browser**. Closing the panel keeps sharing on. **Turn sharing off** or **Sign out**
 ends it. The panel shows **Connected · sharing on** only after the mind accepts the current lend.
 
-To update an existing install to 0.8.2: replace the files in the installed folder, click **Reload**
-on its extension card, then close and reopen the panel. Confirm **v0.8.2** and click
+To update an existing install to 0.8.3: replace the files in the installed folder, click **Reload**
+on its extension card, then close and reopen the panel. Confirm **v0.8.3** and click
 **Share this browser**. After Chrome restarts, sharing is off even if sign-in was remembered.
 Open the panel and turn sharing on again. Automatic sharing on browser startup is not enabled;
 the policy is the one `SHARE_ON_BROWSER_START` setting in `public/background.js`.

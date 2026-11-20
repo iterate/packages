@@ -33,7 +33,14 @@ async function panel() {
   const ports = [];
   const timers = new Map();
   let serial = 0;
-  const app = { innerHTML: "", append() {} };
+  let imageError;
+  const app = {
+    innerHTML: "",
+    append() {},
+    addEventListener(type, listener, capture) {
+      if (type === "error" && capture) imageError = (target) => listener({ target });
+    },
+  };
   const elements = new Map([
     ["app", app],
     ["login", {}],
@@ -69,6 +76,7 @@ async function panel() {
     Date,
     Error,
     Map,
+    Set,
     String,
     Promise,
     console,
@@ -89,6 +97,7 @@ async function panel() {
     ports,
     timers,
     app,
+    imageError,
     tick() {
       const entry = timers.entries().next().value;
       if (entry) {
@@ -135,4 +144,68 @@ void test("panel shows continued recovery try count then an explicit Lend again 
   });
   assert.match(ui.app.innerHTML, /Not lent · Lend again/);
   assert.match(ui.app.innerHTML, />Lend again<\/button>/);
+});
+
+void test("a signed-in panel shows the mind's logo beside its name over its address", async () => {
+  const ui = await panel();
+  ui.ports[0].onMessage.emit({
+    state: {
+      phase: "off",
+      signedIn: true,
+      version: "0.8.3",
+      address: "example.com",
+      profile: { name: 'Ada\'s <b>"mind"</b>', icon: "https://example.com/favicon.svg" },
+    },
+  });
+  assert.match(
+    ui.app.innerHTML,
+    /<img class="mind-logo" src="https:\/\/example\.com\/favicon\.svg" alt="" referrerpolicy="no-referrer" \/>/,
+  );
+  assert.match(
+    ui.app.innerHTML,
+    /<div class="mind-name truncate">Ada's &lt;b>&quot;mind&quot;&lt;\/b><\/div><div class="mind-address truncate">example\.com<\/div>/,
+  );
+  assert.doesNotMatch(ui.app.innerHTML, /class="brand"/);
+});
+
+void test("a mind with no name shows its address alone, and one with no logo shows iterate's mark", async () => {
+  const ui = await panel();
+  ui.ports[0].onMessage.emit({
+    state: {
+      phase: "off",
+      signedIn: true,
+      version: "0.8.3",
+      address: "example.com",
+      profile: { name: "", icon: null },
+    },
+  });
+  assert.match(ui.app.innerHTML, /<img class="mind-logo" src="icon-32\.png"/);
+  assert.match(
+    ui.app.innerHTML,
+    /<div class="grow"><div class="mind-address truncate">example\.com<\/div><\/div>/,
+  );
+  assert.doesNotMatch(ui.app.innerHTML, /mind-name/);
+});
+
+void test("a logo that does not load is replaced by iterate's mark and is not asked for again", async () => {
+  const ui = await panel();
+  const state = {
+    phase: "off",
+    signedIn: true,
+    version: "0.8.3",
+    address: "example.com",
+    profile: { name: "Ada", icon: "https://example.com/favicon.svg" },
+  };
+  ui.ports[0].onMessage.emit({ state });
+  const image = {
+    src: "https://example.com/favicon.svg",
+    classList: { contains: (name) => name === "mind-logo" },
+    getAttribute: () => "https://example.com/favicon.svg",
+  };
+  ui.imageError(image);
+  assert.equal(image.src, "icon-32.png");
+  ui.ports[0].onMessage.emit({ state });
+  assert.match(ui.app.innerHTML, /<img class="mind-logo" src="icon-32\.png"/);
+  assert.match(ui.app.innerHTML, /mind-name truncate">Ada</);
+  assert.match(ui.app.innerHTML, /mind-address truncate">example\.com</);
 });

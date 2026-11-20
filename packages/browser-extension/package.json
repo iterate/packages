@@ -1,6 +1,6 @@
 {
   "name": "@iterate-com/browser-extension",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.ts",

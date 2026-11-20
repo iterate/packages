@@ -616,6 +616,7 @@ async function panel(
     console: { error: () => {}, warn: (...args) => warnings.push(args), info: () => {} },
     WebSocket: Socket,
     AbortController,
+    AbortSignal,
     URL,
     Error,
     Symbol,
@@ -701,9 +702,9 @@ async function panel(
         readFileSync(new URL("../public/instructions.js", import.meta.url), "utf8"),
         { context },
       );
-    if (specifier === "./address.js")
+    if (specifier === "./address.js" || specifier === "./profile.js")
       return new vm.SourceTextModule(
-        readFileSync(new URL("../public/address.js", import.meta.url), "utf8"),
+        readFileSync(new URL(`../public/${specifier.slice(2)}`, import.meta.url), "utf8"),
         { context },
       );
     const exports =

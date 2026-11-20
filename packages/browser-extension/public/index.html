@@ -81,6 +81,35 @@
         height: 20px;
         border-radius: 4px;
       }
+      /* the mind: its logo, then its name over its address, or the address alone */
+      .mind {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        min-width: 0;
+      }
+      .mind-logo {
+        width: 32px;
+        height: 32px;
+        flex: none;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+      .mind-name,
+      .mind-address:only-child {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .mind-name {
+        unicode-bidi: isolate;
+      }
+      .mind-name + .mind-address {
+        color: var(--muted-foreground);
+        font-size: 12px;
+        line-height: 1.3;
+      }
       .stack {
         display: grid;
         gap: 12px;

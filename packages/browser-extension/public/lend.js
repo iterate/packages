@@ -5,6 +5,7 @@ import { locatorSource } from "./locator-source.js";
 import { oauthClient } from "./oauth.js";
 import { agentInstructions } from "./instructions.js";
 import { answeringIssuer, mindIssuerOf } from "./address.js";
+import { mindAddressOf, readMindProfile } from "./profile.js";
 import { openOffscreenApi, disconnectOffscreen } from "./offscreen-client.js";
 
 // Root overload lasted about 12 minutes (measured 2026-11-16), so five retries are too short.
@@ -461,8 +462,10 @@ export function createLending(shareOnBrowserStart) {
       throw error;
     });
   }
+  /** The label names the mind as the panel does: its address, with the name and logo of its
+   *  profile when it has them (./profile.js). */
   const indicatorExpression = async () =>
-    `(${await indicatorScript()})(${JSON.stringify(groupTitle())});`;
+    `(${await indicatorScript()})(${JSON.stringify({ address: groupTitle(), ...shownProfile() })});`;
 
   /** The indicator's host element, as an expression for its world. */
   const HOST = `document.documentElement?.querySelector(":scope > iterate-indicator")`;
@@ -1063,9 +1066,30 @@ export function createLending(shareOnBrowserStart) {
   const isMindSession = (value) =>
     typeof value?.issuer === "string" && value.issuer.startsWith("https://");
 
+  // What the mind says of itself (./profile.js), read when a session shows and at each connect. It
+  // is display data alone: no lend, group or permission depends on it. A read that got no answer
+  // keeps the profile that an earlier read of the same mind got.
+  let profile = null;
+  const shownProfile = () =>
+    profile && profile.issuer === session?.issuer
+      ? { name: profile.name, icon: profile.icon }
+      : { name: "", icon: null };
+  function readProfile() {
+    const issuer = session?.issuer;
+    if (!issuer) return;
+    void readMindProfile(issuer).then((read) => {
+      if (!read || session?.issuer !== issuer) return;
+      profile = { issuer, ...read };
+      publish({});
+    });
+  }
+
   function snapshot() {
     return {
       ...state,
+      // a signed-in panel names its mind in every phase, not only while connected
+      address: isMindSession(session) ? mindAddressOf(session.issuer) : state.address,
+      profile: shownProfile(),
       recoveryUntil,
       instructions:
         state.phase === "connected"
@@ -1200,6 +1224,7 @@ export function createLending(shareOnBrowserStart) {
     const setupDeadline = Date.now() + LENDING_TIMING.setupDeadlineMs;
     const setupCurrent = () => mine === generation && Date.now() < setupDeadline;
     publish({ phase: "connecting", retryAt: null, error: "", members: [] });
+    readProfile();
     let itx;
     let checkLend;
     let canReconnect = false;
@@ -1241,7 +1266,7 @@ export function createLending(shareOnBrowserStart) {
           lend = {
             browser,
             name,
-            title: new URL(currentSession.issuer).hostname.replace(/^iterate\./, ""),
+            title: mindAddressOf(currentSession.issuer),
             append: (event) => itx.append(event).catch(console.error),
             announced: new Set(),
           };
@@ -1361,6 +1386,7 @@ export function createLending(shareOnBrowserStart) {
       await watch();
       return;
     }
+    readProfile();
     if (previous?.sharing && previous.issuer === session.issuer) {
       retries =
         Number.isSafeInteger(previous.retries) && previous.retries >= 0 ? previous.retries : 0;
@@ -1438,6 +1464,7 @@ export function createLending(shareOnBrowserStart) {
           if (mine !== generation) throw new Error("This sign-in ended.");
           session = signedIn;
           publish({ mind: message.mind.trim() });
+          readProfile();
           return snapshot();
         } finally {
           signInRequest = null;

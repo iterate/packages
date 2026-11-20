@@ -5,6 +5,30 @@ const escape = (value) =>
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll('"', "&quot;");
+// THE MIND, AS EVERY PLACE OF THE EXTENSION SHOWS IT: its logo on the left, then its name over its
+// address, or the address alone for a mind with no name. The name and the logo come from the mind's
+// profile (profile.js): the owner's own words, so the name is escaped text, the logo is an image
+// and no more, and the address is always there. A mind with no logo, and a logo that does not
+// load, show iterate's mark.
+const OWN_MARK = "icon-32.png";
+const brokenLogos = new Set();
+function mindMark(state) {
+  const { name, icon } = state.profile || {};
+  const logo = icon && !brokenLogos.has(icon) ? icon : OWN_MARK;
+  return `<div class="mind"><img class="mind-logo" src="${escape(logo)}" alt="" referrerpolicy="no-referrer" /><div class="grow">${name ? `<div class="mind-name truncate">${escape(name)}</div>` : ""}<div class="mind-address truncate">${escape(state.address)}</div></div></div>`;
+}
+// An image's error does not bubble, so it is caught on its way down. render() writes the page
+// again at each state, which a listener on the image itself would not outlive.
+app.addEventListener(
+  "error",
+  ({ target }) => {
+    const src = target.getAttribute?.("src");
+    if (!target.classList?.contains("mind-logo") || src === OWN_MARK) return;
+    brokenLogos.add(src);
+    target.src = OWN_MARK;
+  },
+  true,
+);
 let port;
 let serial = 0;
 let reconnectTimer;
@@ -70,7 +94,7 @@ function render(state) {
   const focus = document.activeElement;
   // Tab events may update the state while the person types a browser name.
   if (focus?.id === "browser-name" && latest?.phase === "connected") return;
-  app.innerHTML = `<header class="header"><div class="brand"><img src="icon-32.png" alt="" />Iterate</div><div class="row"><span class="badge">v${escape(state.version)}</span>${state.signedIn ? '<button id="logout" class="btn btn-ghost btn-sm">Sign out</button>' : ""}</div></header>`;
+  app.innerHTML = `<header class="header">${state.signedIn ? mindMark(state) : '<div class="brand"><img src="icon-32.png" alt="" />Iterate</div>'}<div class="row"><span class="badge">v${escape(state.version)}</span>${state.signedIn ? '<button id="logout" class="btn btn-ghost btn-sm">Sign out</button>' : ""}</div></header>`;
   if (!state.signedIn) {
     app.innerHTML += `<section class="card"><h2>Sign in to a mind</h2><p class="muted">Then turn sharing on. The mind can drive only tabs in its tab group.</p><label class="field">Mind<input id="mind" class="input" value="${escape(state.mind)}" placeholder="example.com" /></label><button id="login" class="btn btn-primary">Sign in with Iterate</button></section>`;
     document.getElementById("login").onclick = async () => {
@@ -115,7 +139,7 @@ function render(state) {
     return;
   }
   const members = state.members || [];
-  app.innerHTML += `<section class="card"><dl class="facts"><dt>Mind</dt><dd>${escape(state.address)}</dd><dt>Signed in as</dt><dd>${escape(state.person)}</dd><dt>Lent as</dt><dd><code>${escape(state.name)}</code></dd></dl><details><summary>Rename this browser</summary><form id="rename-form" class="row rename"><input id="browser-name" class="input grow" value="${escape(state.browserName)}" aria-label="Browser name" /><button class="btn btn-outline">Save</button></form></details></section><section class="card"><h2>Tab group <code>${escape(state.address)}</code></h2><p class="muted">Drag a tab into this group to lend it. Drag it out or click Remove to take it back.</p><ul id="tabs" class="tabs">${members.length ? members.map((tab) => `<li><div class="grow"><div class="title truncate">${escape(tab.title || tab.url)}</div><div class="muted mono truncate">${escape(tab.url)}</div></div>${tab.attached ? `<span class="badge">${escape(tab.activity || "in use")}</span>` : ""}<button class="btn btn-ghost btn-sm" data-remove="${tab.tabId}">Remove</button></li>`).join("") : '<li class="empty">No tabs in the group yet.</li>'}</ul><div class="actions"><button id="add" class="btn btn-primary">Add this tab</button><button id="prove" class="btn btn-outline">Test: open a page</button></div><p id="proof-result" class="muted">${escape(state.notice)}</p></section><section class="card"><h2>Tell an agent</h2><button id="copy" class="btn btn-outline">Copy instructions for an agent</button><details><summary>Show the instructions</summary><pre id="instructions"></pre></details></section>`;
+  app.innerHTML += `<section class="card"><dl class="facts"><dt>Signed in as</dt><dd>${escape(state.person)}</dd><dt>Lent as</dt><dd><code>${escape(state.name)}</code></dd></dl><details><summary>Rename this browser</summary><form id="rename-form" class="row rename"><input id="browser-name" class="input grow" value="${escape(state.browserName)}" aria-label="Browser name" /><button class="btn btn-outline">Save</button></form></details></section><section class="card"><h2>Tab group <code>${escape(state.address)}</code></h2><p class="muted">Drag a tab into this group to lend it. Drag it out or click Remove to take it back.</p><ul id="tabs" class="tabs">${members.length ? members.map((tab) => `<li><div class="grow"><div class="title truncate">${escape(tab.title || tab.url)}</div><div class="muted mono truncate">${escape(tab.url)}</div></div>${tab.attached ? `<span class="badge">${escape(tab.activity || "in use")}</span>` : ""}<button class="btn btn-ghost btn-sm" data-remove="${tab.tabId}">Remove</button></li>`).join("") : '<li class="empty">No tabs in the group yet.</li>'}</ul><div class="actions"><button id="add" class="btn btn-primary">Add this tab</button><button id="prove" class="btn btn-outline">Test: open a page</button></div><p id="proof-result" class="muted">${escape(state.notice)}</p></section><section class="card"><h2>Tell an agent</h2><button id="copy" class="btn btn-outline">Copy instructions for an agent</button><details><summary>Show the instructions</summary><pre id="instructions"></pre></details></section>`;
   controls();
   document.getElementById("instructions").textContent = state.instructions;
   document.getElementById("copy").onclick = () =>

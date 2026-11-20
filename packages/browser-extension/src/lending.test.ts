@@ -64,10 +64,33 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
       key: readFileSync(join(directory, "key.pem")),
       cert: readFileSync(join(directory, "cert.pem")),
     },
-    // the mind's API is a WebSocket alone
-    (_request, response) => {
-      response.writeHead(426);
-      response.end();
+    // The mind's API is a WebSocket alone. Its website (the address without `iterate.`) answers
+    // its profile: the first mind has a name and a logo, the second has no name (the profile's
+    // default is the hostname) and a logo that does not load.
+    (request, response) => {
+      const host = (request.headers.host || "").replace(/:\d+$/, "");
+      const website = `https://${request.headers.host}`;
+      if (request.url === "/.well-known/iterate-profile" && !host.startsWith("iterate.")) {
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "access-control-allow-origin": "*",
+        });
+        response.end(
+          JSON.stringify(
+            host === "first.test"
+              ? { name: "First <b>mind</b>", description: "", icon: `${website}/favicon.svg` }
+              : { name: host, description: "", icon: `${website}/missing.svg` },
+          ),
+        );
+      } else if (request.url === "/favicon.svg" && host === "first.test") {
+        response.writeHead(200, { "content-type": "image/svg+xml" });
+        response.end(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#0a0"/></svg>',
+        );
+      } else {
+        response.writeHead(request.url === "/missing.svg" ? 404 : 426);
+        response.end();
+      }
     },
   );
   // Every socket opens: the bearer on its request is checked inside the session, at
@@ -84,7 +107,7 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
         `--disable-extensions-except=${extension}`,
         `--load-extension=${extension}`,
         "--ignore-certificate-errors",
-        "--host-resolver-rules=MAP iterate.first.test 127.0.0.1,MAP iterate.second.test 127.0.0.1",
+        "--host-resolver-rules=MAP iterate.first.test 127.0.0.1,MAP first.test 127.0.0.1,MAP iterate.second.test 127.0.0.1,MAP second.test 127.0.0.1",
       ],
     });
   let context = await launch();
@@ -200,10 +223,57 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
       if (!lend) throw new Error("Fixture was not lent");
       return lend.browser;
     };
+    /** What the label on an attached tab shows: the closed shadow root, read through CDP. */
+    const labelOf = (id: number) =>
+      controller.evaluate<{
+        name: string | null;
+        address: string | null;
+        text: string | null;
+        logo: string | null;
+        dot: boolean;
+      } | null>(`(async () => {
+        const send = (method, params) => chrome.debugger.sendCommand({tabId:${id}}, method, params);
+        const {root} = await send('DOM.getDocument', {depth:-1,pierce:true});
+        function find(node, test) {
+          if (test(node)) return node;
+          for (const child of [...(node.children || []), ...(node.shadowRoots || [])]) { const found=find(child, test); if(found) return found; }
+        }
+        const classOf = (node) => { const all = node.attributes || []; const at = all.indexOf('class'); return at < 0 ? '' : all[at + 1]; };
+        const host = find(root, node => node.nodeName === 'ITERATE-INDICATOR');
+        if (!host) return null;
+        const part = (name) => find(host, node => classOf(node) === name);
+        const text = (name) => { const node = part(name); return node ? (node.children || []).map(child => child.nodeValue || '').join('') : null; };
+        let logo = null;
+        if (part('logo')) {
+          const {object} = await send('DOM.resolveNode', {nodeId:part('logo').nodeId});
+          const {result} = await send('Runtime.callFunctionOn', {objectId:object.objectId, functionDeclaration:'function(){return this.complete && this.naturalWidth > 0 ? this.src : "";}', returnByValue:true});
+          logo = result.value;
+        }
+        return {name:text('name'), address:text('address'), text:text('text'), logo, dot:Boolean(part('dot'))};
+      })()`);
     let first = await signIn("first");
+    // The panel names the mind by its profile: the logo, then the name over the address.
+    await expect
+      .poll(() =>
+        controller.evaluate(() => {
+          const logo = window.document.querySelector<HTMLImageElement>(".mind-logo");
+          return {
+            name: window.document.querySelector(".mind-name")?.textContent,
+            address: window.document.querySelector(".mind-address")?.textContent,
+            markup: window.document.querySelectorAll(".mind b").length,
+            logo: logo?.complete && logo.naturalWidth > 0 ? logo.src : "",
+          };
+        }),
+      )
+      .toEqual({
+        name: "First <b>mind</b>",
+        address: "first.test",
+        markup: 0,
+        logo: `https://first.test:${tlsAddress.port}/favicon.svg`,
+      });
     const screenshots = process.env.ITERATE_EXTENSION_SCREENSHOTS_DIR;
     if (screenshots)
-      await controller.screenshot({ path: join(screenshots, "chrome-082-sharing-on.png") });
+      await controller.screenshot({ path: join(screenshots, "chrome-083-sharing-on.png") });
     await controller.close();
     expect(await first.tabs()).toEqual([]);
     controller = await context.newPage();
@@ -214,6 +284,20 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
     await first.openPage({ url: `http://127.0.0.1:${address.port}/anchor` });
     let page = first.page(tabId);
     await page.getByLabel("Message").fill("signed-in panel");
+    await expect
+      .poll(() => labelOf(tabId))
+      .toEqual({
+        name: "First <b>mind</b>",
+        address: "first.test",
+        text: expect.stringMatching(/^is /),
+        logo: `https://first.test:${tlsAddress.port}/favicon.svg`,
+        dot: false,
+      });
+    if (screenshots)
+      await context
+        .pages()
+        .find((tab) => tab.url().endsWith("/form"))
+        ?.screenshot({ path: join(screenshots, "chrome-083-label.png") });
     await first.cdp(tabId, "Input.insertText", { text: " activity proof " });
     await expect
       .poll(() => controller.locator("#tabs .badge").allTextContents())
@@ -358,6 +442,25 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
     );
     const other = await second.openPage({ url: `http://127.0.0.1:${address.port}/second` });
     await second.page(other.tabId).getByLabel("Message").fill("second mind");
+    // A mind with no name and a logo that does not load: the address stays, with the plain marks.
+    await expect
+      .poll(() => labelOf(other.tabId))
+      .toEqual({
+        name: null,
+        address: "second.test",
+        text: expect.stringMatching(/^is /),
+        logo: null,
+        dot: true,
+      });
+    await expect
+      .poll(() =>
+        controller.evaluate(() => ({
+          name: window.document.querySelector(".mind-name")?.textContent ?? null,
+          address: window.document.querySelector(".mind-address")?.textContent,
+          logo: window.document.querySelector(".mind-logo")?.getAttribute("src"),
+        })),
+      )
+      .toEqual({ name: null, address: "second.test", logo: "icon-32.png" });
     await controller.close();
     await second.page(other.tabId).getByLabel("Message").fill("closed panel still lent");
     const cdp = await context.browser()!.newBrowserCDPSession();
@@ -432,7 +535,7 @@ test("signed-in lends recover a dropped connection and enforce group changes, si
     );
     await lends.at(-1)!.browser.page(tokenTab.tabId).getByLabel("Message").fill("token renewed");
     if (screenshots)
-      await controller.screenshot({ path: join(screenshots, "chrome-082-sharing-off.png") });
+      await controller.screenshot({ path: join(screenshots, "chrome-083-sharing-off.png") });
   } finally {
     for (const lend of lends) lend.browser[Symbol.dispose]();
     for (const stub of stubs) stub[Symbol.dispose]();

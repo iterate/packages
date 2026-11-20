@@ -1,9 +1,16 @@
 // indicator.js — what the person sees on a tab while the mind's debugger is attached to it: a frame
-// on the viewport's edge and a label, top center, with the mind's address, what it does and a Stop
-// button. panel.js runs this function as `(<this file>)("<address>")` in the isolated world
+// on the viewport's edge and a label, top center, with the mind, what it does and a Stop button.
+// lend.js runs this function as `(<this file>)({ address, name, icon })` in the isolated world
 // "iterate-indicator" of the top frame: on each page the tab loads while the debugger is attached,
 // and on the page that shows when it attaches. The page's own scripts do not see that world, and the
 // shadow root is closed, so the page's CSS cannot reach inside it.
+//
+// THE MIND IS SHOWN AS THE PANEL SHOWS IT: its logo on the left, then its name over its address, or
+// the address alone for a mind with no name. The name and the logo are the owner's own words
+// (profile.js) and prove nothing, so the address is always there. The logo is an image and no
+// more: a mind with none, a logo that does not load and a page whose policy refuses the image all
+// show the plain dot. The image is asked for with no referrer, so the logo's host does not learn
+// which page the tab shows.
 //
 // The host element is the only thing the panel and this script share: the panel writes its
 // attributes from a world of its own. `data-activity="<word> <time>"` means the mind acts now (the
@@ -13,7 +20,7 @@
 // session, so the page cannot tell that the debugger went, and without a heartbeat for 12 s the
 // indicator removes itself.
 // oxlint-disable-next-line no-unused-vars -- panel.js calls it, by its source text
-function iterateIndicator(mind) {
+function iterateIndicator({ address, name, icon }) {
   if (window !== window.top) return;
   /** How long the label says what the mind does, after its last command. */
   const ACTING_MS = 3_000;
@@ -58,13 +65,13 @@ function iterateIndicator(mind) {
       z-index: ${TOP};
       pointer-events: none;
       box-sizing: border-box;
-      height: 28px;
+      min-height: 28px;
       max-width: calc(100vw - 16px);
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 4px 0 10px;
-      border-radius: 14px;
+      padding: 4px 4px 4px 10px;
+      border-radius: 18px;
       background: #18181b;
       color: #fafafa;
       font: 500 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -93,9 +100,39 @@ function iterateIndicator(mind) {
         opacity: 0.35;
       }
     }
+    .logo {
+      flex: none;
+      width: 20px;
+      height: 20px;
+      margin-left: -4px;
+      border-radius: 5px;
+      object-fit: cover;
+    }
+    .who {
+      flex: 0 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .name,
+    .address,
     .text {
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .name {
+      font-weight: 600;
+      unicode-bidi: isolate;
+    }
+    /* under a name the address is the smaller line; alone it is the label's first words */
+    .name + .address {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+    .text {
+      flex: 0 4 auto;
+      min-width: 0;
     }
     button {
       all: unset;
@@ -151,16 +188,28 @@ function iterateIndicator(mind) {
     const root = make("div", "root");
     const label = make("div", "label");
     label.setAttribute("role", "status");
+    const who = make("span", "who");
+    if (name) who.append(Object.assign(make("span", "name"), { textContent: name }));
+    who.append(Object.assign(make("span", "address"), { textContent: address }));
+    let mark = make("span", "dot");
+    if (icon) {
+      const dot = mark;
+      mark = make("img", "logo");
+      mark.alt = "";
+      mark.referrerPolicy = "no-referrer";
+      mark.addEventListener("error", () => mark.replaceWith(dot), { once: true });
+      mark.src = icon;
+    }
     const text = make("span", "text");
     const stop = make("button");
     stop.type = "button";
     stop.textContent = "Stop";
-    stop.title = `${mind} lets go of this tab, and the tab leaves its group`;
-    label.append(make("span", "dot"), text, stop);
+    stop.title = `${address} lets go of this tab, and the tab leaves its group`;
+    label.append(mark, who, text, stop);
     root.append(make("div", "frame"), label);
     shadow.append(root);
 
-    const idle = `${mind} is using this tab`;
+    const idle = "is using this tab";
     text.textContent = idle;
     let settle;
     const update = () => {
@@ -169,7 +218,7 @@ function iterateIndicator(mind) {
       clearTimeout(settle);
       if (!word) return;
       root.classList.add("acting");
-      text.textContent = `${mind} is ${word}`;
+      text.textContent = `is ${word}`;
       settle = setTimeout(() => {
         root.classList.remove("acting");
         text.textContent = idle;
@@ -200,7 +249,7 @@ function iterateIndicator(mind) {
 
     stop.addEventListener("click", () => {
       stop.disabled = true;
-      text.textContent = `${mind} is letting go…`;
+      text.textContent = "is letting go…";
       globalThis.iterateIndicatorStop?.("stop");
     });
     page.append(host);
