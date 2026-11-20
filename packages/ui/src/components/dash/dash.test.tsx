@@ -7,9 +7,10 @@ import { expect, test, vi } from "vitest";
 import { BotIcon, ChartLineIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
 import type { Principal } from "iterate/principal";
 import { Dash, DashContexts, type DashPage } from "./dash.tsx";
-import type { DashLink, DashPageProps } from "./dash-pages.tsx";
+import type { DashLink, DashLinks, DashPageProps } from "./dash-pages.tsx";
 import { ITX_SESSION, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, usePageParam } from "#/lib/page-url.ts";
+import { askWaitingApprovals } from "#/lib/waiting-approvals.ts";
 
 test("one list makes the sidebar; a mind with no telemetry shows Analytics as Off, and is asked once", async () => {
   await using dash = await draw("/", []);
@@ -82,32 +83,16 @@ test("a page that threw is handed to the page's error capture, once, when the pa
   }
 });
 
-test("with a Contexts page, ⌘K lists the contexts active in the last five minutes, and Enter shows one there", async () => {
-  // the Contexts page draws the explorer, which this test's itx cannot open: its page says so
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  const now = new Date().toISOString();
-  const rows = [
-    { path: "/agents/a", description: "Chases an invoice", lastActivityAt: now },
-    { path: "/secrets/old", lastActivityAt: "2026-01-01T00:00:00.000Z" },
-  ].map((row) => ({ eventCount: 1, eventTypes: {}, recentTypes: [], processors: [], ...row }));
-  await using _dash = await draw("/", [], {
-    pages: [...pages, { id: "contexts", name: "Contexts", icon: BotIcon, component: DashContexts }],
-    contexts: rows,
+test("Dash renders no sidebar Search button and ⌘K opens no dialog", async () => {
+  await using dash = await draw("/", [], {
+    pages: withContexts,
+    contexts: catalogRows,
   });
+  expect(dash.host.textContent).not.toContain("Search");
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),
   );
-  const dialog = document.querySelector('[role="dialog"]');
-  expect(dialog?.textContent).toContain("Active in the last 5 minutes");
-  expect(
-    [...document.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("data-value")),
-  ).toEqual(["/agents/a"]);
-  await act(() =>
-    document
-      .querySelector("[cmdk-input]")!
-      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-  );
-  expect(location).toMatchObject({ pathname: "/contexts/agents/a", search: "" });
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 
 test("the Contexts page with no context: the list and a note, and no context opened, the root included", async () => {
@@ -360,67 +345,75 @@ test("in the icon rail an agent row is its icon alone: its words hide by the sid
   ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
 });
 
-test("⌘K is one palette on every page: Agents first, then Raw contexts, and / completes paths", async () => {
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  const now = new Date().toISOString();
-  const contexts = [
-    { path: "/agents/onboarding", lastActivityAt: now },
-    { path: "/agents/people/jo/web/x", lastActivityAt: now },
-    { path: "/secrets/slack", description: "Slack's token", lastActivityAt: now },
-  ].map((row) => ({ eventCount: 1, eventTypes: {}, recentTypes: [], processors: [], ...row }));
-  const agents = {
-    "/agents/onboarding": {
-      createdAt: now,
-      kind: "iterate",
-      title: "Onboarding",
-      lastActivityAt: now,
+test("collapsible link groups default open, respect collapsed, persist in localStorage, and stay open in the icon rail", async () => {
+  const twoGroups: DashLinks[] = [
+    {
+      title: "Apps",
+      collapsed: true,
+      rows: [{ name: "Notes", href: "https://notes.example.com/", icon: BotIcon }],
     },
-    "/agents/people/jo/web/x": { createdAt: now, kind: "iterate", title: "Pays a bill" },
-  };
-  // on a page that is neither the Agents page nor the Contexts page
-  await using _dash = await draw("/analytics", ["itx.telemetry"], {
-    pages: withAgentPages,
-    agents,
-    contexts,
+    ...links,
+  ];
+  // First mount: Apps starts closed (collapsed: true), Access starts open (default)
+  {
+    await using dash = await draw("/", [], { links: twoGroups });
+    expect(linksNamed(dash.host, "Notes")).toHaveLength(0);
+    expect(linksNamed(dash.host, "Approvals")).toHaveLength(1);
+    const appsTrigger = [...dash.host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Apps",
+    )!;
+    await act(() => appsTrigger.click());
+    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
+    expect(localStorage.getItem("dash:nav-group:Apps")).toBe("open");
+  }
+  // Second mount: persisted localStorage state wins over default collapsed: true
+  {
+    await using dash = await draw("/", [], { links: twoGroups, keepStorage: true });
+    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
+  }
+  // Icon rail: even a collapsed group is forced open so its links remain reachable
+  localStorage.clear();
+  document.cookie = "sidebar_state=false; path=/";
+  try {
+    await using dash = await draw("/", [], { links: twoGroups });
+    expect(linksNamed(dash.host, "Notes")).toHaveLength(1);
+  } finally {
+    document.cookie = "sidebar_state=; path=/; max-age=0";
+  }
+});
+
+test("a closed link group with waiting approvals shows the count on its label", async () => {
+  const now = new Date().toISOString();
+  const collapsedAccess: DashLinks[] = [{ ...links[0]!, collapsed: true }];
+  await using dash = await draw("/", ["itx.secrets"], {
+    mind: "approvals.example.com",
+    links: collapsedAccess,
+    contexts: [],
+    approvalEvents: [
+      {
+        type: "events.iterate.com/approval/act-held",
+        createdAt: now,
+        payload: { digest: "d1", act: "email.send", summary: "Send mail" },
+      },
+      {
+        type: "events.iterate.com/approval/act-held",
+        createdAt: now,
+        payload: { digest: "d2", act: "email.send", summary: "Send mail 2" },
+      },
+    ],
   });
-  const options = () =>
-    [...document.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("data-value"));
-  const input = () => document.querySelector<HTMLInputElement>("[cmdk-input]")!;
-  const press = (key: string) =>
-    act(() => input().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
-  await openPalette();
-  // the Agents tab: every agent, the newest first; Enter opens the agent view
-  expect(options()).toEqual(["/agents/onboarding", "/agents/people/jo/web/x"]);
-  await typeInto(input(), "bill");
-  expect(options()).toEqual(["/agents/people/jo/web/x"]);
-  await press("Enter");
-  expect(location).toMatchObject({
-    pathname: "/agents",
-    search: "?contextPath=/agents/people/jo/web/x",
+  await act(async () => {
+    askWaitingApprovals("approvals.example.com");
   });
-  // the Raw contexts tab: any context; Enter opens the raw view
-  await openPalette();
-  await act(() =>
-    [...document.querySelectorAll('[role="tab"]')]
-      .at(1)!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
-  );
-  await typeInto(input(), "slack");
-  expect(options()).toEqual(["/secrets/slack"]);
-  await press("Enter");
-  expect(location).toMatchObject({ pathname: "/contexts/secrets/slack", search: "" });
-  // "/" first: the paths one level down; Tab completes one level, Enter opens the raw view
-  await openPalette();
-  await typeInto(input(), "/ag");
-  expect(options()).toEqual(["/agents"]);
-  await press("Tab");
-  expect(input()).toMatchObject({ value: "/agents/" });
-  expect(options()).toEqual(["/agents/onboarding", "/agents/people"]);
-  await typeInto(input(), "/agents/pe");
-  await press("Tab");
-  expect(input()).toMatchObject({ value: "/agents/people/" });
-  await press("Enter");
-  expect(location).toMatchObject({ pathname: "/contexts/agents/people/jo", search: "" });
+  await until(() => dash.host.querySelector("[data-group-waiting]"));
+  expect(dash.host.querySelector("[data-group-waiting]")?.textContent).toBe("2");
+  expect(linksNamed(dash.host, "Approvals")).toHaveLength(0);
+  const accessTrigger = [...dash.host.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Access"),
+  )!;
+  await act(() => accessTrigger.click());
+  expect(dash.host.querySelector("[data-group-waiting]")).toBeNull();
+  expect(linksNamed(dash.host, "Approvals")).toHaveLength(1);
 });
 
 test("a row the mind pins sits right under New agent, and an agent's view opens in place", async () => {
@@ -559,21 +552,6 @@ test("the Contexts page shows the context whose path follows its id, a dot in it
   }
 });
 
-async function openPalette() {
-  await act(() =>
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })),
-  );
-}
-
-/** Types `value` into a React input, as a person would. */
-async function typeInto(input: HTMLInputElement, value: string) {
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-  await act(() => {
-    setValue.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
 const pages: DashPage[] = [
   {
     id: "home",
@@ -686,6 +664,18 @@ const links = [
   },
 ];
 
+const storageData = new Map<string, string>();
+const testStorage: Storage = {
+  get length() {
+    return storageData.size;
+  },
+  clear: () => storageData.clear(),
+  getItem: (key) => storageData.get(key) ?? null,
+  key: (index) => [...storageData.keys()][index] ?? null,
+  removeItem: (key) => void storageData.delete(key),
+  setItem: (key, value) => void storageData.set(key, String(value)),
+};
+
 /** The Dash at `url`, for a mind that serves the roots `serves` names and has no vault (nothing
  *  waits for approval). The sidebar asks the viewport's width, and the switcher this host's
  *  minds. */
@@ -693,26 +683,36 @@ async function draw(
   url: string,
   serves: string[],
   {
+    mind = "iterate.example.com",
     pages: drawn = pages,
+    links: drawnLinks = links,
     contexts,
     agents,
+    approvalEvents,
     principal = { actor: "/members/a", email: "a@example.com" },
     whoami,
     session,
     sidebarDefaultOpen,
     pinned,
+    keepStorage = false,
   }: {
+    mind?: string;
     pages?: DashPage[];
+    links?: DashLinks[];
     pinned?: DashLink[];
     contexts?: unknown[];
     agents?: Record<string, object>;
+    approvalEvents?: unknown[];
     /** Who the page says is signed in; "ask": it does not say, and the Dash asks the mind. */
     principal?: Principal | null | "ask";
     whoami?: () => Promise<object>;
     session?: ReturnType<typeof fakeSession>;
     sidebarDefaultOpen?: boolean;
+    keepStorage?: boolean;
   } = {},
 ) {
+  vi.stubGlobal("localStorage", testStorage);
+  if (!keepStorage) testStorage.clear();
   history.replaceState(null, "", url);
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -722,8 +722,8 @@ async function draw(
   }));
   vi.stubGlobal("fetch", async () =>
     Response.json({
-      minds: [{ address: "iterate.example.com", lastUsedAt: 0 }],
-      lastUsed: "iterate.example.com",
+      minds: [{ address: mind, lastUsedAt: 0 }],
+      lastUsed: mind,
     }),
   );
   // jsdom lays nothing out: cmdk asks for both
@@ -749,14 +749,24 @@ async function draw(
       },
     },
     // the catalog of the mind's agents on /agents: its live state's seed, and no change after
-    cd: async (path: string) => {
+    cd: (path: string) => {
+      if (path === "/approvals" && approvalEvents) {
+        return {
+          readEvents: async () => ({
+            events: approvalEvents,
+            scannedThroughOffset: approvalEvents.length,
+            atHead: true,
+          }),
+          [Symbol.dispose]() {},
+        };
+      }
       opened.push(path);
-      if (path !== "/agents" || !agents) throw new Error(`no context ${path}`);
-      return {
+      if (path !== "/agents" || !agents) return Promise.reject(new Error(`no context ${path}`));
+      return Promise.resolve({
         invoke: async () => ({ rev: 1, state: { agents } }),
         subscribe: async () => ({ [Symbol.dispose]() {} }),
         [Symbol.dispose]() {},
-      };
+      });
     },
     rewriteRules: {
       get: async (root: string) => {
@@ -772,10 +782,10 @@ async function draw(
       <Dash
         app="Dash"
         itx={itx}
-        mind="iterate.example.com"
+        mind={mind}
         principal={principal === "ask" ? undefined : principal}
         pages={drawn}
-        links={links}
+        links={drawnLinks}
         pinned={pinned}
         sidebarDefaultOpen={sidebarDefaultOpen}
       />,

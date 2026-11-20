@@ -85,7 +85,8 @@ export type DashLink = {
   icon: Icon;
   count?: "approvals";
 };
-export type DashLinks = { title: string; rows: DashLink[] };
+/** A collapsible group of links in the sidebar; defaults to open when `collapsed` is omitted. */
+export type DashLinks = { title: string; rows: DashLink[]; collapsed?: boolean };
 
 /** What the Dash's shell hands every page it draws. */
 export type DashPageProps = {

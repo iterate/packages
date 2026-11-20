@@ -91,8 +91,8 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   or 3rem, header rows of 45, 53 and 42 px, the column of 48rem): when one changes here, change
   `core/configs/default/apps/dash/public/app.css` with it. `data-frame` on `<html>` tells
   `LogReading` that the wait began with the page. Two page ids mean
-  more: `agents` puts the agents in the sidebar and ⌘K and takes `?agent=<path>`, and `contexts` is
-  the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
+  more: `agents` puts the agents in the sidebar and takes `/agents?contextPath=<path>`, and
+  `contexts` is the raw view. The Home and Agents pages (`DashHome`, `DashAgents`) are in
   `agent-kind-view/dash-agents.tsx`, outside the registry, because they host a kind's frame.
   THE DASH'S ADDRESSES ARE PATHS: `/`, `/secrets`, `/agents?contextPath=/agents/onboarding`,
   `/contexts/repos/config` (`/contexts?contextPath=/` for root), `/repo/config/worker.ts`, and

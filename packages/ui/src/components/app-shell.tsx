@@ -209,8 +209,13 @@ export function AppShell({
   usePaletteShortcut(commandPalette ? togglePalette : null);
   useHeightOfWhatIsVisible();
   const pageSlots = useMemo(
-    () => ({ header: pageHeaderSlot, menu: pageMenuSlot, openPalette, appHeader: header }),
-    [pageHeaderSlot, pageMenuSlot, openPalette, header],
+    () => ({
+      header: pageHeaderSlot,
+      menu: pageMenuSlot,
+      openPalette: commandPalette ? openPalette : undefined,
+      appHeader: header,
+    }),
+    [pageHeaderSlot, pageMenuSlot, commandPalette, openPalette, header],
   );
   return (
     <SidebarProvider defaultOpen={defaultOpen} className="h-(--app-height,100svh) min-h-0">
@@ -243,11 +248,9 @@ export function AppShell({
           ) : (
             <SidebarMenu>
               <SidebarMenuItem>
-                {/* the account's own height (two lines with a mind, one without; its avatar alone
-                    in the rail), so nothing in the footer moves when the account arrives */}
-                <SidebarRowSkeleton
-                  className={cn(mind ? "h-13.5" : "h-12", "group-data-[collapsible=icon]:h-8")}
-                />
+                {/* the account's own height (one line; its avatar alone in the rail), so nothing
+                    in the footer moves when the account arrives */}
+                <SidebarRowSkeleton className="h-12 group-data-[collapsible=icon]:h-8" />
               </SidebarMenuItem>
             </SidebarMenu>
           )}
@@ -420,7 +423,7 @@ function ShellPalette({
 const PageSlotsContext = createContext<{
   header: HTMLElement | null;
   menu: HTMLElement | null;
-  openPalette: () => void;
+  openPalette: (() => void) | undefined;
   /** the app's `header`, which a phone shows in the page's menu */
   appHeader: ReactNode;
 } | null>(null);
@@ -488,13 +491,17 @@ export function AppShellPageMenu({ children }: { children: ReactNode }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56 rounded-lg">
         {shell.appHeader ? <div className="px-1.5 py-1">{shell.appHeader}</div> : null}
-        <DropdownMenuGroup>
-          <DropdownMenuItem onClick={shell.openPalette}>
-            <SearchIcon />
-            Search
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
+        {shell.openPalette ? (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={shell.openPalette}>
+                <SearchIcon />
+                Search
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         {children}
       </DropdownMenuContent>
     </DropdownMenu>,
@@ -724,9 +731,11 @@ function AccountMenu({
   mind: string | null;
   actions?: ReactNode;
 }) {
-  const { isMobile } = useSidebar();
+  const { isMobile, state } = useSidebar();
+  const inRail = state === "collapsed" && !isMobile;
   const logout = useRef<HTMLFormElement>(null);
   const initials = name.slice(0, 2).toUpperCase();
+  const hasTopGroup = inRail || Boolean(actions);
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -741,11 +750,8 @@ function AccountMenu({
                 <Avatar className="size-8 rounded-lg">
                   <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left group-data-[collapsible=icon]:hidden">
-                  <span className="truncate text-sm font-medium">{name}</span>
-                  {mind && mind !== name ? (
-                    <span className="truncate text-xs text-muted-foreground">{mind}</span>
-                  ) : null}
+                <span className="min-w-0 flex-1 truncate text-left text-sm font-medium group-data-[collapsible=icon]:hidden">
+                  {name}
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
               </SidebarMenuButton>
@@ -757,14 +763,19 @@ function AccountMenu({
             align="end"
             sideOffset={4}
           >
-            {/* Base UI: a menu label lives inside a group, never bare in the menu */}
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="truncate font-normal">{name}</DropdownMenuLabel>
-              {actions}
-            </DropdownMenuGroup>
+            {/* Base UI: a menu label lives inside a group, never bare in the menu.
+                Show the label only in the icon rail, where the trigger's text is hidden. */}
+            {hasTopGroup ? (
+              <DropdownMenuGroup>
+                {inRail ? (
+                  <DropdownMenuLabel className="truncate font-normal">{name}</DropdownMenuLabel>
+                ) : null}
+                {actions}
+              </DropdownMenuGroup>
+            ) : null}
             {mind ? (
               <>
-                <DropdownMenuSeparator />
+                {hasTopGroup ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     onClick={() => {

@@ -8,7 +8,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { AppShell } from "./app-shell.tsx";
+import { AppShell, AppShellPageMenu } from "./app-shell.tsx";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -159,6 +159,61 @@ test("the header row, the default, has no state to show or hide", async () => {
   expect(shell.header()).toBeUndefined();
 });
 
+test("AccountMenu shows the email once on the trigger and not again in the expanded menu; in the icon rail the menu labels it once", async () => {
+  const openAccountMenu = async () => {
+    const account = document.querySelector<HTMLElement>('[aria-label="Account"]')!;
+    await act(async () => {
+      account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      account.click();
+    });
+    return account;
+  };
+  {
+    using _shell = await mount(
+      { mind: "iterate.example.com", account: { actor: "/members/a", email: "jo@example.com" } },
+      {},
+    );
+    const account = await openAccountMenu();
+    expect(account).toMatchObject({ textContent: "JOjo@example.com" });
+    expect(account.textContent).not.toContain("iterate.example.com");
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu?.textContent).not.toContain("jo@example.com");
+    expect(menu?.textContent).toContain("Sign out of iterate.example.com");
+  }
+  {
+    using _shell = await mount(
+      { mind: "iterate.example.com", account: { actor: "/members/a", email: "jo@example.com" } },
+      { cookie: "sidebar_state=false" },
+    );
+    await openAccountMenu();
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu?.textContent).toContain("jo@example.com");
+    expect(menu?.textContent).toContain("Sign out of iterate.example.com");
+  }
+});
+
+test("AppShellPageMenu omits Search when commandPalette is false", async () => {
+  using _shell = await mount(
+    {
+      commandPalette: false,
+      children: (
+        <AppShellPageMenu>
+          <div role="menuitem">Inspect</div>
+        </AppShellPageMenu>
+      ),
+    },
+    {},
+  );
+  const trigger = document.querySelector<HTMLElement>('[aria-label="More"]')!;
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    trigger.click();
+  });
+  const menu = document.querySelector('[role="menu"]');
+  expect(menu?.textContent).toContain("Inspect");
+  expect(menu?.textContent).not.toContain("Search");
+});
+
 /** The shell over one feed, on a desktop-wide jsdom window: the sidebar asks the viewport's width,
  *  and the switcher this host's minds. `feedScrolls` gives the feed 2,000 pixels in a view of 600
  *  (jsdom lays nothing out). `cookie` is the sidebar's, cleared again on disposal. `render` draws
@@ -177,7 +232,7 @@ async function mount(
   if (cookie) document.cookie = `${cookie}; path=/`;
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
-  const render = (drawn: Partial<ComponentProps<typeof AppShell>>) =>
+  const render = ({ children, ...drawn }: Partial<ComponentProps<typeof AppShell>>) =>
     act(async () =>
       root.render(
         <AppShell
@@ -188,6 +243,7 @@ async function mount(
           locationKey="/"
           {...drawn}
         >
+          {children}
           <div data-testid="feed" style={{ overflowY: "auto" }}>
             <p>a row</p>
           </div>

@@ -46,7 +46,8 @@ function hrefWith(keys: URLSearchParams) {
 /** Splits an href into `[address, hash]` so hash fragments survive path normalisation. */
 function splitHash(href: string): [string, string] {
   const cut = href.indexOf("#");
-  return cut < 0 ? [href, ""] : [href.slice(0, cut), href.slice(cut)];
+  if (cut < 0) return [href, ""];
+  return [href.slice(0, cut), href.slice(cut)];
 }
 
 /** `href` as this app writes it. With a path scheme, `./` and any root path accepted by

@@ -6,15 +6,15 @@
 // or one of the mind's own, which takes the same props (`DashPageProps`).
 //
 // TWO IDS ARE KNOWN TO THE SHELL, whatever component a row names:
-//   agents    the Agents page. The sidebar lists the most recently active agents below the pages and links,
-//             `?agent=<path>` shows that page (its agent view), and ⌘K has an Agents tab. The
+//   agents    the Agents page. The sidebar lists the most recently active agents below the pages
+//             and links, and `/agents?contextPath=<path>` shows that page (its agent view). The
 //             catalog on `/agents` is read once, live, for all of them and handed to every page.
-//   contexts  the raw view of any context: ⌘K's Raw contexts tab and its path mode open it.
-// ⌘K is the shell's, one palette for every page (./dash-palette.tsx).
+//   contexts  the raw view of any context (`/contexts/<path>`).
 //
-// The URL is the page's (#/lib/page-url.ts): `?page=<id>` (none: the first page) and the page's
-// own keys. The first page of a no-build page loads none of the kit's larger parts: each page loads
+// The URL is the page's (#/lib/page-url.ts): `/<id>` (none: the first page) and the page's own
+// keys. The first page of a no-build page loads none of the kit's larger parts: each page loads
 // its own when it first draws, and suspends meanwhile.
+import "./dash-href.ts";
 import {
   Component,
   Suspense,
@@ -27,13 +27,12 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { SquarePenIcon } from "lucide-react";
+import { ChevronRightIcon, SquarePenIcon } from "lucide-react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
 import { DashAgentsNav } from "./dash-agents-nav.tsx";
-import { agentViewHref, rawViewHref } from "./dash-href.ts";
 import {
   DashNote,
   DashPlaceholder,
@@ -41,11 +40,15 @@ import {
   type DashLinks,
   type DashPage,
 } from "./dash-pages.tsx";
-import { DashPalette } from "./dash-palette.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
 import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
 import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "#/components/ui/collapsible.tsx";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -54,6 +57,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
@@ -102,7 +106,7 @@ export function Dash({
   pages: DashPage[];
   links: DashLinks[];
   /** Rows the mind pins right under New agent, drawn as it is: a link to another place (an
-   *  agent's view is `?agent=<path>`, which opens in place). */
+   *  agent's view is `/agents?contextPath=<path>`, which opens in place). */
   pinned?: DashLink[];
   /** The desktop sidebar for a person who has not toggled it yet: open, or false for the rail of
    *  icons. A page whose HTML draws the frame before the app loads passes what it drew. */
@@ -124,8 +128,7 @@ export function Dash({
   const address = useAddress();
   const asked = usePageParam("page");
   const agentsPage = pages.find((row) => row.id === "agents");
-  const contextsPage = pages.find((row) => row.id === "contexts");
-  // an agent view is the Agents page's, whatever `?page` says
+  // an agent view is the Agents page's, whatever page is named
   const agentParam = usePageParam("agent");
   const agent = (agentsPage && agentParam) || undefined;
   const page = (agent && agentsPage) || pages.find((row) => row.id === asked) || pages[0];
@@ -137,9 +140,8 @@ export function Dash({
       go(`/${location.hash}`, true);
   }, [firstPageId, asked, address]);
   const Page = page.component;
-  // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: ⌘K lists it, and the Contexts
-  // page shows its awake dots and its Recent list. A platform without it rejects: the rows stay
-  // undefined, and ⌘K says so.
+  // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: the Contexts page shows its
+  // awake dots and its Recent list. A platform without it rejects and the rows stay undefined.
   const listContexts = useCallback(() => itx.contexts.list({ limit: 500 }), [itx]);
   const catalog = useContextCatalog(listContexts, { of: mind });
   // THE PAGE'S SESSION. The Dash subscribes to it, so the page lives on when a socket closes and
@@ -148,23 +150,15 @@ export function Dash({
   const session = itxSessionOf(itx);
   const connection = useSyncExternalStore(session.subscribe, session.get, session.get);
   const account = useAccount(itx, principal, connection.epoch);
-  // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar, ⌘K and every page
+  // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
-  const context = usePageParam("context");
-  const searchContexts = useCallback(
-    (query: string) => itx.contexts.list({ search: query, limit: 200 }),
-    [itx],
-  );
-  const listUnder = useCallback(
-    (path: string) => itx.contexts.list({ under: path, limit: 200 }),
-    [itx],
-  );
   return (
     <>
       <AppShell
         app={app}
         mind={mind}
         mindHref={() => pageHref(undefined)}
+        commandPalette={false}
         nav={
           <DashNav
             itx={itx}
@@ -190,26 +184,6 @@ export function Dash({
         }
         account={account}
         sidebarDefaultOpen={sidebarDefaultOpen}
-        palette={
-          agentsPage || contextsPage
-            ? ({ open, onClose }) => (
-                <DashPalette
-                  open={open}
-                  onClose={onClose}
-                  agents={agents}
-                  rows={catalog.rows}
-                  error={catalog.error}
-                  search={searchContexts}
-                  listUnder={listUnder}
-                  onOpenAgent={agentsPage ? (path) => go(agentViewHref(path)) : null}
-                  onOpenContext={
-                    contextsPage ? (path) => go(rawViewHref(contextsPage.id, path)) : null
-                  }
-                  current={agent || (page === contextsPage && context) || undefined}
-                />
-              )
-            : undefined
-        }
         locationKey={address}
       >
         <PageBoundary key={page.id} shows={agent || ""}>
@@ -366,7 +340,7 @@ function inPlaceOf(href: string, pages: DashPage[]) {
   return { agent, inPage };
 }
 
-/** The link to a page of the list: the first one is the Dash's root, "./". */
+/** The link to a page of the list: the first one is the Dash's root, `/`. */
 function hrefOfPage(pages: DashPage[], page: DashPage) {
   return pageHref(page === pages[0] ? undefined : page.id);
 }
@@ -571,8 +545,77 @@ function DashNav({
         </SidebarGroupContent>
       </SidebarGroup>
       {links.map((group) => (
-        <SidebarGroup key={group.title}>
-          <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+        <DashLinksGroup key={group.title} group={group} waiting={waiting} />
+      ))}
+      {/* last: the list moves as agents work, and nothing above it should move with it */}
+      {agents}
+    </>
+  );
+}
+
+const GROUP_STORAGE_PREFIX = "dash:nav-group:";
+
+/** Persisted open/closed state for a collapsible sidebar link group, falling back to its default. */
+function readGroupOpen(title: string, defaultOpen: boolean): boolean {
+  try {
+    const stored = window.localStorage?.getItem(`${GROUP_STORAGE_PREFIX}${title}`);
+    if (stored === "open") return true;
+    if (stored === "closed") return false;
+  } catch {
+    // storage unavailable or blocked: keep the group's default
+  }
+  return defaultOpen;
+}
+
+function writeGroupOpen(title: string, open: boolean) {
+  try {
+    window.localStorage?.setItem(`${GROUP_STORAGE_PREFIX}${title}`, open ? "open" : "closed");
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/** One collapsible link group in the sidebar: forced open in the desktop icon rail so its links
+ *  stay reachable, and showing any waiting-approvals count on the label while closed. */
+function DashLinksGroup({ group, waiting }: { group: DashLinks; waiting: number | undefined }) {
+  const { isMobile, state } = useSidebar();
+  const inRail = state === "collapsed" && !isMobile;
+  const [open, setOpen] = useState(() => readGroupOpen(group.title, !group.collapsed));
+  const badge =
+    waiting && group.rows.some((row) => row.count === "approvals") ? waiting : undefined;
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    writeGroupOpen(group.title, next);
+  };
+  return (
+    <Collapsible open={inRail || open} onOpenChange={toggle}>
+      <SidebarGroup>
+        <SidebarGroupLabel
+          render={
+            <CollapsibleTrigger
+              type="button"
+              className="w-full cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <span>{group.title}</span>
+          {!open && !inRail && badge ? (
+            <span
+              data-group-waiting
+              className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-sidebar-accent px-1 text-2xs font-medium text-sidebar-accent-foreground tabular-nums"
+            >
+              {badge}
+            </span>
+          ) : null}
+          <ChevronRightIcon
+            className={
+              open
+                ? "ml-auto rotate-90 transition-transform duration-200"
+                : "ml-auto transition-transform duration-200"
+            }
+          />
+        </SidebarGroupLabel>
+        <CollapsibleContent>
           <SidebarGroupContent>
             <SidebarMenu>
               {group.rows.map((row) => (
@@ -588,10 +631,8 @@ function DashNav({
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
-      ))}
-      {/* last: the list moves as agents work, and nothing above it should move with it */}
-      {agents}
-    </>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
   );
 }

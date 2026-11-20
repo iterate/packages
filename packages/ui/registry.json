@@ -933,17 +933,14 @@
     {
       "name": "dash",
       "type": "registry:component",
-      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and groups of links, the page the URL names, what waits for a member's yes, the most recently active agents, one ⌘K over agents, contexts and context paths, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
+      "description": "A mind's Dash drawn from lists: the shell, a sidebar and an overview from one list of pages and collapsible groups of links, the page the URL names, what waits for a member's yes, the most recently active agents, and the kit's pages (contexts, repo, secrets, integrations, analytics, MCP), each loaded when it first draws.",
       "dependencies": [
-        "cmdk",
-        "cn",
         "iterate",
         "lucide-react",
         "zod"
       ],
       "registryDependencies": [
-        "command",
-        "dialog",
+        "collapsible",
         "iterate/packages/agent-summary",
         "iterate/packages/agents-nav",
         "iterate/packages/analytics-page",
@@ -965,8 +962,7 @@
         "iterate/packages/waiting-approvals",
         "sidebar",
         "skeleton",
-        "sonner",
-        "tabs"
+        "sonner"
       ],
       "cssVars": {
         "theme": {
@@ -993,14 +989,6 @@
         },
         {
           "path": "src/components/dash/dash-href.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/dash/dash-palette.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/dash/path-completion.ts",
           "type": "registry:component"
         }
       ]
