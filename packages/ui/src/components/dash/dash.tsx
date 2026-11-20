@@ -14,7 +14,8 @@
 //             above the foot group, and `/agents/<path>` shows that agent there. The
 //             catalog on `/agents` is read once, live, for all of them and handed to every page.
 //   contexts  the raw view of any context (`/contexts/<path>`).
-//   settings  the Settings page. Marked active while any `row: false` page shows; when no page
+//   settings  the Settings page. Marked active while any `row: false` page shows; a page with
+//             id `settings` must draw `links` (otherwise `links` groups are lost). When no page
 //             has id `settings`, `links` groups are drawn as plain labelled groups after the foot
 //             rows so no link disappears on a Dash that has not added a Settings page yet.
 //

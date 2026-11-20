@@ -64,6 +64,18 @@ export function DashAgentsNav({
         .filter((group) => !exclude?.has(group.row.path))
         .slice(0, SIDEBAR_AGENTS)
     : undefined;
+  const viewAll = (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={overviewShown}
+        tooltip="View all agents"
+        render={<a {...linkTo(overview)} />}
+      >
+        <ListIcon />
+        <span>View all</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
   return (
     <SidebarGroup className={shrink ? "min-h-0 overflow-hidden" : undefined}>
       <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>Agents</SidebarGroupLabel>
@@ -101,33 +113,9 @@ export function DashAgentsNav({
               No agents yet.
             </p>
           ) : null}
-          {!shrink ? (
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={overviewShown}
-                tooltip="View all agents"
-                render={<a {...linkTo(overview)} />}
-              >
-                <ListIcon />
-                <span>View all</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ) : null}
+          {!shrink ? viewAll : null}
         </SidebarMenu>
-        {shrink ? (
-          <SidebarMenu className="mt-1 shrink-0">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={overviewShown}
-                tooltip="View all agents"
-                render={<a {...linkTo(overview)} />}
-              >
-                <ListIcon />
-                <span>View all</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        ) : null}
+        {shrink ? <SidebarMenu className="mt-1 shrink-0">{viewAll}</SidebarMenu> : null}
       </SidebarGroupContent>
     </SidebarGroup>
   );
@@ -156,8 +144,9 @@ function AgentsNavRow({
       <SidebarMenuButton
         size="lg"
         isActive={active}
-        // in the rail the large row is the same square as the pages' rows, its icon centred
-        className="group-data-[collapsible=icon]:p-2!"
+        // in the rail the large row is the same square as the pages' rows, its icon centred;
+        // ring-inset keeps the focus ring inside the scrolling list's overflow box in open and rail
+        className="focus-visible:ring-inset group-data-[collapsible=icon]:p-2!"
         tooltip={{ children: <AgentTooltip title={agentTitle(row)} line={line} path={row.path} /> }}
         // the link's name, also in the rail, where the row's words are not drawn
         render={<a aria-label={agentTitle(row)} {...linkTo(agentViewHref(row.path))} />}
