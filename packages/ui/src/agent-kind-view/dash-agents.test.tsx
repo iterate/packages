@@ -685,14 +685,14 @@ test("with `call` on and no call on the agent: one Start a call, whose press tur
 test("`call=join` on an agent with no call: the page turns the call on and joins listening only, once, and the key leaves the address", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding&call=join");
+  history.replaceState(null, "", "/agents/agents/onboarding?call=join");
   const { itx, steps } = mind({ row: "a-page" });
   const enable = vi.fn(async () => void steps.push("enable"));
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
   await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
   expect(enable).toHaveBeenCalledOnce();
   expect(new URLSearchParams(location.search).get("call")).toBe(null);
-  expect(new URLSearchParams(location.search).get("contextPath")).toBe("/agents/onboarding");
+  expect(location).toMatchObject({ pathname: "/agents/agents/onboarding" });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
   await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
   expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: ["empty audio sender"] });
@@ -701,7 +701,7 @@ test("`call=join` on an agent with no call: the page turns the call on and joins
 test("`call=join` never opens the microphone: the page joins a call that is on muted, says so, and the person's Unmute opens it", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
-  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding&call=join");
+  history.replaceState(null, "", "/agents/agents/onboarding?call=join");
   const { itx, steps } = mind({
     row: "a-page",
     pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },

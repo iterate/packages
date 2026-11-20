@@ -3,7 +3,7 @@ import XCTest
 @testable import VoiceMeetCore
 
 final class BannerStateTests: XCTestCase {
-    private let page = URL(string: "https://dash.example.com/agents?contextPath=/agents/a&call=join")!
+    private let page = URL(string: "https://dash.example.com/agents/agents/a?call=join")!
     private func call(_ id: Int) -> Banner { Banner.call(id: id, from: "Lunch agent", reason: "Lunch is ready", page: page) }
     private func notice(_ id: Int, _ buttons: [[String: Any]]? = nil) -> Banner {
         try! Banner.make(id: id, title: "Standup", body: "Join meeting X?", buttons: buttons, sound: "chime", seconds: nil, mind: "example.com").get()
@@ -130,7 +130,7 @@ final class BannerStateTests: XCTestCase {
 
     func testWithNoURLACallsPageIsTheAgentsPageInTheDash() throws {
         let url = try BannerState.callPage(nil, agent: "/agents/meet/2026-11-20-1030-lunch", mind: "example.com").get()
-        XCTAssertEqual(url.absoluteString, "https://dash.example.com/agents?contextPath=/agents/meet/2026-11-20-1030-lunch&call=join")
+        XCTAssertEqual(url.absoluteString, "https://dash.example.com/agents/agents/meet/2026-11-20-1030-lunch?call=join")
         XCTAssertEqual(try BannerState.callPage(nil, agent: "/agents/a", mind: "iterate.example.com").get().host, "dash.example.com")
         XCTAssertEqual(try BannerState.callPage(nil, agent: "/agents/a", mind: "iterate.iterate.com").get().host, "dash.iterate.com")
         XCTAssertEqual(try BannerState.callPage(nil, agent: "/agents/a", mind: "iterate.com").get().host, "dash.iterate.com")

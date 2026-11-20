@@ -17,9 +17,11 @@ import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** What agents read next to the name. */
+/** What agents read next to the name. The mind refuses a lend whose description is over 500
+ *  characters ("a rewrite rule's description is one line: a string of at most 500 chars"), and the
+ *  lend then never goes live: keep this well under it. The detail is in `instructions` below. */
 export const description =
-  "A person's Mac as an endpoint device, through its iterate menu-bar app. Inputs: the screen, the camera, the microphone, the window in front as text (accessibility). Outputs: the speakers, and banners on the screen (banner.show: a title, text and buttons; it answers the button pressed, and a button may open a page of this mind; call.ring is a banner that looks like a call). Compute: commands with the app's permissions. A person is often near it. The owner chooses for each thing: off, ask (they approve each use) or shared; they see each use in the menu bar.";
+  "A person's Mac as an endpoint device, through its iterate menu-bar app. Inputs: screen, camera, microphone, the front window as text. Outputs: speakers, and banners on the screen with buttons (banner.show; call.ring looks like a call). Compute: commands. A person is often near it. The owner sets each thing to off, ask or shared, and sees each use in the menu bar.";
 
 const socketPath = join(homedir(), "Library/Application Support/voice-meet-mac/endpoint.sock");
 

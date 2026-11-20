@@ -331,7 +331,7 @@ final class BannerWindow {
         default:
             return Banner.call(
                 id: 1, from: "Lunch planner", reason: "The table for Friday needs your yes before noon, or it goes to the next group.",
-                page: URL(string: "https://dash.example.com/agents?contextPath=/agents/meet/2026-11-20-1030-lunch&call=join")!
+                page: URL(string: "https://dash.example.com/agents/agents/meet/2026-11-20-1030-lunch?call=join")!
             )
         }
     }

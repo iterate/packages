@@ -238,12 +238,13 @@ public struct BannerState: Equatable, Sendable {
         }
         if let given, !given.isEmpty { return page(given, mind: mind) }
         guard let zone = zone(of: mind) else { return .failure(noZone(mind)) }
-        // the Dash's address of one agent (packages/ui `dash-href.ts`), and its join on arrival
+        // the Dash's address of one agent, `/agents<agent's path>` (packages/ui `dash-paths.ts`), and
+        // its join on arrival. The Dash reads `?contextPath=` only for a path a URL cannot carry.
         var page = URLComponents()
         page.scheme = "https"
         page.host = "dash.\(zone)"
-        page.path = "/agents"
-        page.queryItems = [URLQueryItem(name: "contextPath", value: agent), URLQueryItem(name: "call", value: "join")]
+        page.path = "/agents" + agent
+        page.queryItems = [URLQueryItem(name: "call", value: "join")]
         return page.url.map { .success($0) } ?? .failure(BannerRefusal("No page could be made for \(agent)."))
     }
 
