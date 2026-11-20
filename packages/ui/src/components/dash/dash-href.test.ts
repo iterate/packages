@@ -2,8 +2,32 @@
 // The Dash's canonical path addresses: round-trips for every route, encoding and trailing
 // punctuation, reserved page ids, and root-path normalisation with hashes.
 import { expect, test } from "vitest";
+import { z } from "zod";
+import fixture from "./dash-routes.fixture.json" with { type: "json" };
 import { agentViewHref, dashPaths, rawViewHref } from "./dash-href.ts";
 import { go, hrefOf, keysOfLink, linkTo, pageHref } from "#/lib/page-url.ts";
+
+const FixtureRow = z.object({
+  name: z.string(),
+  href: z.string(),
+  keys: z.record(z.string(), z.string()),
+  view: z.record(z.string(), z.unknown()).optional(),
+});
+
+test.for(z.array(FixtureRow).parse(fixture))(
+  "shared fixture round-trip: $name ($href)",
+  ({ href, keys, view }) => {
+    const read = keysAt(href);
+    const { view: readView, ...readKeys } = read;
+    expect(readKeys).toEqual(keys);
+    if (view) expect(JSON.parse(readView!)).toEqual(view);
+    else expect(readView).toBeUndefined();
+    const written = dashPaths.hrefOf(new URLSearchParams(read));
+    expect(written).toBe(href);
+    const parsed = new URL(written, "https://dash.example.com");
+    expect(parsed.pathname + parsed.search).toBe(written);
+  },
+);
 
 test.for<{
   name: string;
@@ -11,26 +35,6 @@ test.for<{
   keys: Record<string, string>;
   view?: Record<string, unknown>;
 }>([
-  { name: "root", href: "/", keys: {} },
-  { name: "simple page", href: "/secrets", keys: { page: "secrets" } },
-  { name: "integrations page", href: "/integrations", keys: { page: "integrations" } },
-  { name: "agents overview", href: "/agents", keys: { page: "agents" } },
-  {
-    name: "agents path remainder (free for the Agents page)",
-    href: "/agents/drafts/1",
-    keys: { page: "agents", rest: "drafts/1" },
-  },
-  {
-    name: "agent under /agents/",
-    href: "/agents?contextPath=/agents/onboarding",
-    keys: { agent: "/agents/onboarding" },
-  },
-  {
-    name: "agent outside /agents/",
-    href: "/agents?contextPath=/people/ada",
-    keys: { agent: "/people/ada" },
-  },
-  { name: "agent at root", href: "/agents?contextPath=/", keys: { agent: "/" } },
   {
     name: "agent with kind (iterate.com Herdr link)",
     href: "/agents?contextPath=/agents/claude/s1&kind=claude",
@@ -42,49 +46,13 @@ test.for<{
     keys: { agent: "/agents/onboarding" },
     view: { view: "events" },
   },
-  { name: "contexts overview", href: "/contexts", keys: { page: "contexts" } },
-  {
-    name: "context path",
-    href: "/contexts/repos/config",
-    keys: { page: "contexts", context: "/repos/config" },
-  },
-  {
-    name: "context with page's name",
-    href: "/contexts/secrets",
-    keys: { page: "contexts", context: "/secrets" },
-  },
-  {
-    name: "root context",
-    href: "/contexts?contextPath=/",
-    keys: { page: "contexts", context: "/" },
-  },
-  { name: "default repo", href: "/repo", keys: { page: "repo" } },
-  { name: "explicit config repo", href: "/repo/config", keys: { page: "repo", repo: "config" } },
-  { name: "other repo", href: "/repo/docs", keys: { page: "repo", repo: "docs" } },
-  {
-    name: "repo file with dot",
-    href: "/repo/config/worker.ts",
-    keys: { page: "repo", repo: "config" },
-    view: { file: "worker.ts" },
-  },
-  {
-    name: "nested repo file named like a static asset",
-    href: "/repo/config/apps/dash/app.js",
-    keys: { page: "repo", repo: "config" },
-    view: { file: "apps/dash/app.js" },
-  },
   {
     name: "repo file with extra view state",
     href: "/repo/docs/guide.md?view=%7B%22diff%22:true%7D",
     keys: { page: "repo", repo: "docs" },
     view: { file: "guide.md", diff: true },
   },
-  {
-    name: "custom page with remainder",
-    href: "/notes/2026/standup",
-    keys: { page: "notes", rest: "2026/standup" },
-  },
-])("canonical round-trip: $name ($href)", ({ href, keys, view }) => {
+])("extra query-state round-trip: $name ($href)", ({ href, keys, view }) => {
   const read = keysAt(href);
   const { view: readView, ...readKeys } = read;
   expect(readKeys).toEqual(keys);
