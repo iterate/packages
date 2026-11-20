@@ -682,6 +682,56 @@ test("with `call` on and no call on the agent: one Start a call, whose press tur
   expect(enable).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding");
 });
 
+test("`call=join` on an agent with no call: the page turns the call on and joins listening only, once, and the key leaves the address", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using media = browserMedia();
+  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding&call=join");
+  const { itx, steps } = mind({ row: "a-page" });
+  const enable = vi.fn(async () => void steps.push("enable"));
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
+  await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
+  expect(enable).toHaveBeenCalledOnce();
+  expect(new URLSearchParams(location.search).get("call")).toBe(null);
+  expect(new URLSearchParams(location.search).get("contextPath")).toBe("/agents/onboarding");
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: ["empty audio sender"] });
+});
+
+test("`call=join` never opens the microphone: the page joins a call that is on muted, says so, and the person's Unmute opens it", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using media = browserMedia();
+  history.replaceState(null, "", "/agents?contextPath=/agents/onboarding&call=join");
+  const { itx, steps } = mind({
+    row: "a-page",
+    pages: { "/agents/onboarding": [{ name: "b-page", principal: memberB }] },
+    facets: { "/agents/onboarding": { call: callLive({ "b-page": ["mic"] }) } },
+  });
+  const enable = vi.fn(async () => {});
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
+  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
+  expect(enable).not.toHaveBeenCalled();
+  expect(new URLSearchParams(location.search).get("call")).toBe(null);
+  const place = page.host.querySelector("[data-slot=agent-header-call]");
+  const unmute = await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
+  await act(() =>
+    vi.waitFor(() =>
+      // the call's notices are the tiles' words, over the feed
+      expect(page.host.querySelector("[data-slot=agent-call-tiles]")?.textContent).toContain(
+        "You joined from a link, muted: no one hears you until you press Unmute.",
+      ),
+    ),
+  );
+  // the camera and the screen are off, and nothing was captured or sent
+  expect(buttonOf(place, "Share video")).toBeTruthy();
+  expect(buttonOf(place, "Share the screen")).toBeTruthy();
+  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: ["empty audio sender"] });
+  // the person's own press: now the microphone opens, and is live
+  await act(async () => unmute.click());
+  await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
+  expect(media.opened.map((track) => track.kind)).toEqual(["audio"]);
+});
+
 test("a start that fails says why in words, and Start a call can be pressed again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
@@ -1238,6 +1288,32 @@ test("a repair that joins afresh while the first microphone publish waits still 
       opened: media.opened.filter((track) => track.readyState === "live").length,
       connections: media.connections.filter((one) => !one.closed).length,
     }).toEqual({ opened: 0, connections: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a page that only listens and joins afresh after a repair still opens no microphone", async () => {
+  using media = browserMedia({ receives: false });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const facet = callFacet();
+    const call = engineOn(facet);
+    await call.join({ listenOnly: true });
+    void call.sync(viewOf(CallLive.parse(callLive({ "b-page": ["mic"] })), "a-page"));
+    // the receiving connection never connects: five repairs, then the page joins afresh
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect({
+      joined: call.ui.joined,
+      muted: call.ui.muted,
+      joins: facet.steps.filter((one) => one === "join").length > 1,
+    }).toEqual({
+      joined: true,
+      muted: true,
+      joins: true,
+    });
+    expect(media).toMatchObject({ opened: [] });
+    call.dispose();
   } finally {
     vi.useRealTimers();
   }
@@ -2443,7 +2519,8 @@ function browserMedia({
     connectionState = "connected";
     iceGatheringState = "complete";
     localDescription: { type: string; sdp: string } | null = null;
-    transceivers: { mid: string; stopped: boolean; track: Track }[] = [];
+    /** `empty`: an audio sender made with no track (a page that only listens). */
+    transceivers: { mid: string; stopped: boolean; track: Track; empty: boolean }[] = [];
     channels: { sent: string[] }[] = [];
     listeners = new Map<string, ((event: object) => void)[]>();
     constructor() {
@@ -2455,11 +2532,12 @@ function browserMedia({
     fire(type: string, event: object) {
       for (const listener of this.listeners.get(type) || []) listener(event);
     }
-    addTransceiver = (track: Track) => {
+    addTransceiver = (given: Track | "audio") => {
       const transceiver = {
         mid: String(this.transceivers.length),
         stopped: false,
-        track,
+        track: typeof given === "string" ? trackOf("audio") : given,
+        empty: typeof given === "string",
         sender: {
           replaceTrack: async () => {
             await gate("replaceTrack");
@@ -2878,5 +2956,15 @@ async function draw(
       await act(() => root.unmount());
       host.remove();
     },
+  };
+}
+
+/** No microphone was opened and no sender holds an audio track: what a join on arrival sends. */
+function capturedNothing(media: ReturnType<typeof browserMedia>) {
+  return {
+    opened: media.opened.map((track) => track.kind),
+    tracksSent: media.connections.flatMap((connection) =>
+      connection.transceivers.map((one) => (one.empty ? "empty audio sender" : "a track")),
+    ),
   };
 }

@@ -684,13 +684,14 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
 
   // ── sending ──
-  /** The microphone's `track`, sent on a new connection, which is the call's until it is `pub`. */
-  async function publish(track: MediaStreamTrack, call: CallScope) {
+  /** The microphone's `track`, sent on a new connection, which is the call's until it is `pub`. With
+   *  no track (a page that only listens), the audio sender is empty until the first Unmute. */
+  async function publish(track: MediaStreamTrack | null, call: CallScope) {
     const pc = new RTCPeerConnection(iceConfig());
     const release = call.own(() => pc.close());
     guard(pc, "pub");
     try {
-      const micTx = pc.addTransceiver(track, { direction: "sendonly" });
+      const micTx = pc.addTransceiver(track || "audio", { direction: "sendonly" });
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
       call.signal.throwIfAborted();
@@ -1090,12 +1091,15 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  voice agent's voice, as they were. */
   function rebuildPub(call: CallScope) {
     return call.send(async () => {
-      if (!mic) throw new Error("the call ended");
+      if (!joined) throw new Error("the call ended");
       const pc = new RTCPeerConnection(iceConfig());
       const release = call.own(() => pc.close());
       guard(pc, "pub");
       try {
-        const micTx = pc.addTransceiver(mic.getAudioTracks()[0]!, { direction: "sendonly" });
+        // a page that only listens keeps its audio sender empty
+        const micTx = pc.addTransceiver(mic?.getAudioTracks()[0] || "audio", {
+          direction: "sendonly",
+        });
         await pc.setLocalDescription(await pc.createOffer());
         await gathered(pc);
         // each step of this call's repair, only while it is the call: never into the next one
@@ -1221,7 +1225,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // dismissed one's answer, so the call's list of withdrawn invites always holds the one
     // under way (call/rules.ts)
     if (aiStart?.call === call) await aiStart.answered;
-    if (call.ended || ai.state !== "off" || !joined || !pub || !mic) return;
+    if (call.ended || ai.state !== "off" || !joined || !pub) return;
+    // a page that only listens has no microphone for the voice agent to hear
+    if (!mic) return say("Unmute first: the voice agent hears your microphone.");
     const invite = { id: crypto.randomUUID() };
     const current = () => ai.invite === invite;
     ai.invite = invite;
@@ -1703,12 +1709,57 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       });
   }
 
+  /** The first Unmute of a page that only listened: the microphone opens now, by the person's
+   *  press, and its track goes into the empty audio sender, as a switch of microphone does. */
+  function micOn() {
+    const call = scope;
+    if (!joined || mic) return;
+    return call.send(async () => {
+      if (!joined || mic || !pub) return;
+      let stream: MediaStream;
+      try {
+        stream = await openMedia("mic", deviceId("mic"), call);
+      } catch (error) {
+        say(
+          nameOf(error) === "NotAllowedError"
+            ? "The browser did not give this page the microphone. Allow it for this site, then press Unmute again."
+            : `No microphone could be opened (${messageOf(error)}).`,
+        );
+        return;
+      }
+      const release = call.own(() => stopTracks(stream));
+      try {
+        call.signal.throwIfAborted();
+        await pub.micTx.sender.replaceTrack(stream.getAudioTracks()[0]!);
+        call.signal.throwIfAborted();
+      } catch (error) {
+        if (!call.ended) {
+          stopTracks(stream);
+          say(`The microphone could not be sent (${messageOf(error)}).`);
+        }
+        return;
+      } finally {
+        release();
+      }
+      mic = stream;
+      watchMic();
+      set({ muted: false });
+      captionsOn();
+      renderDevices();
+    });
+  }
+
   // ── the call itself ──
   /** Into the call. A person's own press joins unmuted. A rejoin hands over the microphone it had
    *  (`kept`): from this function's first line the call owns it, so every path that does not take
    *  it stops it, and its mute is the track's own at the hand-over. The camera and the screen stay
-   *  off until the person turns them on: capture starts only by the person's own act. */
-  async function join(kept?: MediaStream | null) {
+   *  off until the person turns them on: capture starts only by the person's own act.
+   *
+   *  `listenOnly`: a join that no press of the person's made (a page opened with `call=join`). It
+   *  opens no microphone and sends no track: the sending connection has an empty audio sender, and
+   *  the page shows the call as muted. The person's first Unmute opens the microphone and puts its
+   *  track in that sender (`micOn`). */
+  async function join(kept?: MediaStream | null, listenOnly = false) {
     const call = scope;
     if (joined || ui.joining) {
       stopTracks(kept);
@@ -1720,13 +1771,13 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     try {
       // the microphone first: the call hears of this page once it can be heard, and a refused
       // microphone tells nobody anything
-      const stream = kept || (await openMedia("mic", deviceId("mic"), call));
+      const stream = kept || (listenOnly ? null : await openMedia("mic", deviceId("mic"), call));
       const release = call.own(() => stopTracks(stream));
       call.signal.throwIfAborted();
       mic = stream;
       release();
-      const track = stream.getAudioTracks()[0]!;
-      if (!kept) watchMic();
+      const track = stream?.getAudioTracks()[0];
+      if (stream && !kept) watchMic();
       // the chosen speaker, once the list says which it is, for the sound already playing too
       void listDevices().then(async () => {
         if (devices.sinkOk) await useSpeaker(deviceId("speaker"));
@@ -1747,10 +1798,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       if (!relay.on) say("No TURN relay: this page connects over UDP alone.");
       joined = true;
       joinedAt = Date.now();
-      set({ joined: true, muted: !track.enabled });
+      set({ joined: true, muted: !track?.enabled });
       // on the sending queue: a camera, a screen or a voice agent pressed meanwhile waits for it
       await call.send(async () => {
-        let sent = mic!.getAudioTracks()[0]!;
+        // listening only: the sending connection with an empty audio sender, for the first Unmute
+        if (!mic) return publish(null, call);
+        let sent = mic.getAudioTracks()[0]!;
         // the kept microphone ended meanwhile (unplugged while the call took the page in): the
         // default stands in, with the mute it had
         if (sent.readyState === "ended") {
@@ -1854,7 +1907,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       mic = null;
       teardown();
       const next = scope;
-      await join(kept);
+      // a page that only listened listens again: no microphone opens without the person's press
+      await join(kept, !kept);
       // the new admission did not come in: the earlier one's row goes, by its own leave (which
       // removes nothing once a newer admission has the row)
       if (!joined) void facet("leave", page, call.admission).catch(() => {});
@@ -1924,10 +1978,12 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       return () => listeners.delete(listener);
     },
     sync,
-    /** The person's own Join: a repair may again join afresh once. */
-    join: () => {
+    /** The person's own Join: a repair may again join afresh once. `listenOnly`: a join the
+     *  person did not press (a page opened with `call=join`): no microphone opens and no track is
+     *  sent until their Unmute. */
+    join: ({ listenOnly = false }: { listenOnly?: boolean } = {}) => {
       rejoinSpent = false;
-      return join();
+      return join(null, listenOnly);
     },
     /** A number that changes at each teardown (a Leave, a dispose, a new call): a press that waited
      *  for something (a Start's enable) joins only while it is the same. */
@@ -1937,7 +1993,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     leave,
     toggleMute() {
       const track = mic?.getAudioTracks()[0];
-      if (!track) return;
+      // a page that only listens: this press is the person's own act, which opens the microphone
+      if (!track) return void micOn();
       track.enabled = !track.enabled;
       // a microphone being switched in takes the same mute
       if (switchingTo) switchingTo.enabled = track.enabled;

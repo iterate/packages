@@ -233,4 +233,16 @@ final class LendStateTests: XCTestCase {
         _ = state.handle(.stateLine(live), now: at(2))
         return state
     }
+
+    func testTheMindsAddressIsTheCLIsAndAStopForgetsIt() {
+        var state = LendState()
+        _ = state.handle(.started, now: at(0))
+        XCTAssertNil(state.mindAddress)
+        _ = state.handle(.stateLine(connecting), now: at(1))
+        XCTAssertEqual(state.mindAddress, "iterate.example.com")
+        _ = state.handle(.stateLine(live), now: at(2))
+        XCTAssertEqual(state.mindAddress, "iterate.example.com")
+        _ = state.handle(.stopRequested, now: at(3))
+        XCTAssertNil(state.mindAddress)
+    }
 }

@@ -3,7 +3,8 @@
 //   iterate provide <this package>/bridge/mac-endpoint.ts --name jonas.mac --mind <address>
 //
 // The mind then has `itx.jonas.mac`: the screen, the camera, the microphone, the speakers, the accessibility tree
-// of the window in front, and commands that run with the app's permissions. This file holds no
+// of the window in front, banners on the screen (a call's among them), and commands that run with
+// the app's permissions: the inputs, outputs and compute of a device that a person is often near. This file holds no
 // capture code and no permission: it asks the app on its local socket (LocalEndpoint.swift), one
 // line of JSON for each call. The app holds the permissions of macOS, shows each use in the menu
 // bar, and its owner chooses for each thing: off, ask or shared. It imports nothing but Node.
@@ -18,7 +19,7 @@ import { join } from "node:path";
 
 /** What agents read next to the name. */
 export const description =
-  "A person's Mac, through its iterate menu-bar app: see the screen and the camera, hear the microphone, play sound through the speakers, read the window in front as text (accessibility), and run commands with the app's permissions. The owner chooses for each thing: off, ask (they approve each use) or shared; they see each use in the menu bar.";
+  "A person's Mac as an endpoint device, through its iterate menu-bar app. Inputs: the screen, the camera, the microphone, the window in front as text (accessibility). Outputs: the speakers, and banners on the screen (banner.show: a title, text and buttons; it answers the button pressed, and a button may open a page of this mind; call.ring is a banner that looks like a call). Compute: commands with the app's permissions. A person is often near it. The owner chooses for each thing: off, ask (they approve each use) or shared; they see each use in the menu bar.";
 
 const socketPath = join(homedir(), "Library/Application Support/voice-meet-mac/endpoint.sock");
 
@@ -128,6 +129,53 @@ function picture({ jpegBase64, ...size }: Answer) {
   return { ...size, jpeg: bytes(jpegBase64) };
 }
 
+type BannerAnswer =
+  | { pressed: string }
+  | { pressed: null; why: "no answer" | "dismissed" | "replaced" | "off"; words: string };
+
+/** The app's answer to `banner.show` (Banner.swift `Banners.show`), read: one this bridge does not
+ *  know is an error, never a guess. */
+function bannerAnswerOf(answer: Answer): BannerAnswer {
+  if (typeof answer.pressed === "string") return { pressed: answer.pressed };
+  const { why } = answer;
+  if (why === "no answer" || why === "dismissed" || why === "replaced" || why === "off")
+    return { pressed: null, why, words: String(answer.words ?? "") };
+  throw new Error(
+    "The iterate menu-bar app gave an answer to banner.show that this bridge does not know.",
+  );
+}
+
+type RingAnswer =
+  | { accepted: true }
+  | { accepted: false; why: "declined" | "no answer" | "replaced" | "off"; words: string };
+
+/** The app's answer to `call.ring` (Banner.swift `Banners.ring`), read the same way. */
+function ringAnswerOf(answer: Answer): RingAnswer {
+  if (answer.accepted === true) return { accepted: true };
+  const { why } = answer;
+  if (why === "declined" || why === "no answer" || why === "replaced" || why === "off")
+    return { accepted: false, why, words: String(answer.words ?? "") };
+  throw new Error(
+    "The iterate menu-bar app gave an answer to call.ring that this bridge does not know.",
+  );
+}
+
+/** A banner on the screen (`banner.show`). */
+type BannerInput = {
+  title: string;
+  body?: string;
+  buttons?: {
+    label: string;
+    style?: "accept" | "decline" | "plain";
+    /** An SF Symbol's name. */
+    symbol?: string;
+    /** A page of this mind, opened after the press. */
+    open?: string;
+  }[];
+  sound?: "ring" | "chime" | "none";
+  seconds?: number;
+};
+
 /** THE PROVIDED OBJECT: what `iterate provide` lends. Each call fails with the app's own words
  *  when the owner has the thing off, does not approve the use, or macOS has not given the app the
  *  permission. */
@@ -135,7 +183,7 @@ export default async function macEndpoint() {
   await ensureTheAppRuns();
   return {
     /** Every thing of the Mac (each display, each camera, the microphone, the speakers, the window
-     *  text, commands) with its `sharing`: "shared", "ask" (the owner approves each use) or "off". */
+     *  text, banners, commands) with its `sharing`: "shared", "ask" (the owner approves each use) or "off". */
     state: () => ask("state"),
     screen: {
       /** One still picture of a whole display, as JPEG bytes. `display` is the number
@@ -180,11 +228,28 @@ export default async function macEndpoint() {
     /** Run a Swift program on the Mac, given as source. It needs the Command Line Tools there. */
     swift: (source: string, options: { timeoutSeconds?: number } = {}) =>
       run(["/usr/bin/swift", "-"], { ...options, stdin: source }).then(asText),
+    banner: {
+      /** Show a banner on the Mac's screen: an output, beside the speakers. `title` (one line),
+       *  `body` (two lines at most), one to three `buttons` (default one "OK"), a `sound` ("chime"
+       *  unless said) and `seconds` (30 unless said; 5 to 120). The button that Return presses is
+       *  the first `accept`, else the first. A button with `open` opens that page in the browser
+       *  after its press: https on this mind's own domain, else the banner is refused before it
+       *  shows. Answers the label pressed, or why none was. One banner at a time (a newer one
+       *  replaces it, but never a call), at most 6 a minute. */
+      show: (input: BannerInput) => ask("banner.show", input).then(bannerAnswerOf),
+    },
+    call: {
+      /** A banner that looks like a call: `from` (who calls; the agent's path when none) and
+       *  `reason`, Decline and Accept as round phone buttons, the ring sound, 30 s. Accept opens
+       *  `url`: by default the agent's page in the Dash, which joins its call on arrival. */
+      ring: (input: { agent: string; from?: string; reason?: string; url?: string }) =>
+        ask("call.ring", input).then(ringAnswerOf),
+    },
     __describe() {
       return {
         instructions: `${description} Say what you looked at or did, and why.`,
         types:
-          "state(): Promise<{ things: { thing: string; kind: 'screen' | 'camera' | 'microphone' | 'speaker' | 'accessibility' | 'commands'; name: string; sharing: 'off' | 'ask' | 'shared'; permitted: boolean; uses: number; display?: number }[]; microphone: string }>; uses: Record<string, number>; microphone: string; displays: { display: number; name: string; checked: boolean }[]; cameras: { camera: string; checked: boolean; status: string }[] }>; screen.snapshot(input?: { display?: number; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; camera.snapshot(input?: { camera?: string; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; microphone.listen(input?: { seconds?: number }): Promise<{ wav: Uint8Array; seconds: number }>; speaker.play(sound: Uint8Array): Promise<{ seconds: number }>; speaker.say(words: string): Promise<{ characters: number }>; accessibility.frontWindow(input?: { maxDepth?: number; maxNodes?: number }): Promise<{ application: string; bundleIdentifier: string; window?: object; truncated: boolean }>; run(argv: string[], options?: { stdin?: string | Uint8Array; timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: Uint8Array; stderr: Uint8Array }>; appleScript(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; swift(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>;",
+          "state(): Promise<{ things: { thing: string; kind: 'screen' | 'camera' | 'microphone' | 'speaker' | 'banners' | 'accessibility' | 'commands'; name: string; sharing: 'off' | 'ask' | 'shared'; permitted: boolean; uses: number; display?: number }[]; microphone: string }>; uses: Record<string, number>; microphone: string; displays: { display: number; name: string; checked: boolean }[]; cameras: { camera: string; checked: boolean; status: string }[] }>; screen.snapshot(input?: { display?: number; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; camera.snapshot(input?: { camera?: string; maxWidth?: number }): Promise<{ jpeg: Uint8Array; pixelWidth: number; pixelHeight: number }>; microphone.listen(input?: { seconds?: number }): Promise<{ wav: Uint8Array; seconds: number }>; speaker.play(sound: Uint8Array): Promise<{ seconds: number }>; speaker.say(words: string): Promise<{ characters: number }>; accessibility.frontWindow(input?: { maxDepth?: number; maxNodes?: number }): Promise<{ application: string; bundleIdentifier: string; window?: object; truncated: boolean }>; run(argv: string[], options?: { stdin?: string | Uint8Array; timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: Uint8Array; stderr: Uint8Array }>; appleScript(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; swift(source: string, options?: { timeoutSeconds?: number }): Promise<{ exitCode: number; timedOut: boolean; stdout: string; stderr: string }>; banner.show(input: { title: string; body?: string; buttons?: { label: string; style?: 'accept' | 'decline' | 'plain'; symbol?: string; open?: string }[]; sound?: 'ring' | 'chime' | 'none'; seconds?: number }): Promise<{ pressed: string } | { pressed: null; why: 'no answer' | 'dismissed' | 'replaced' | 'off'; words: string }>; call.ring(input: { agent: string; from?: string; reason?: string; url?: string }): Promise<{ accepted: true } | { accepted: false; why: 'declined' | 'no answer' | 'replaced' | 'off'; words: string }>;",
       };
     },
   };

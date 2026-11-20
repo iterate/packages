@@ -112,6 +112,10 @@ public struct LendState: Equatable, Sendable {
     public private(set) var stoppedWhy: String?
     /// Starts that ended quickly, one after the other: each waits longer (`backOff`).
     public private(set) var quickFailures = 0
+    /// The mind's address as the CLI says it (`connecting` and `live`), for example
+    /// `iterate.example.com`. The config may name the mind shorter (`example.com`). Nil until the
+    /// CLI said it, and after a stop.
+    public private(set) var mindAddress: String?
 
     public init() {}
 
@@ -131,6 +135,7 @@ public struct LendState: Equatable, Sendable {
         case (_, .stopRequested):
             phase = .idle
             quickFailures = 0
+            mindAddress = nil
             return [.stopProcess]
         case (_, .started), (_, .reconnectNow):
             if case .idle = phase, case .reconnectNow = event { return [] }
@@ -188,10 +193,12 @@ public struct LendState: Equatable, Sendable {
     /// One state of the CLI.
     private mutating func read(_ state: ProvideState, now: Date) {
         switch state {
-        case .connecting:
+        case .connecting(let mind, _):
+            mindAddress = mind
             if case .connecting = phase { return }
             phase = .connecting(since: now)
-        case .live:
+        case .live(let mind, _, _):
+            mindAddress = mind
             phase = .live(since: now)
             quickFailures = 0
         case .reconnecting(let attempt, let of, let inMs, let lastFailure):

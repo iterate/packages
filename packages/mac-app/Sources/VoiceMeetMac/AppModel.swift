@@ -18,6 +18,8 @@ final class AppModel {
     private var cameras: [String: CameraUnit] = [:]
     private let endpoint = LocalEndpoint()
     private let speaker = Speaker()
+    /// Banners on the screen, a call's among them: the window, the sound, a button's page.
+    let banners = Banners()
     /// The person's approvals, for things whose choice is "Ask".
     let approval = Approval()
     private var activity: NSObjectProtocol?
@@ -45,6 +47,7 @@ final class AppModel {
         endpoint.stop()
         audioOwner.stop()
         speaker.stop()
+        banners.stop()
         cameras.values.forEach { $0.owner.stop() }
     }
 
@@ -130,9 +133,16 @@ final class AppModel {
             try await use(.commands, what: "Run this command with this app's permissions:\n\n\(shown)")
             log.info("endpoint: runs \(argv.joined(separator: " ").prefix(300))")
             return try await Commands.run(argv, stdin: stdin, timeout: parameters["timeoutSeconds"] as? Double ?? 120)
+        // No approval first: the banner is the question, and Ask and Shared both show it.
+        case "banner.show":
+            if Shareable.banners.sharing != .off { count(.banners) }
+            return try await banners.show(parameters)
+        case "call.ring":
+            if Shareable.banners.sharing != .off { count(.banners) }
+            return try await banners.ring(parameters)
         default:
             throw EndpointRefusal(
-                "No method \"\(method)\". The methods are: state, screen.snapshot, camera.snapshot, microphone.listen, speaker.play, speaker.say, accessibility.frontWindow, run."
+                "No method \"\(method)\". The methods are: state, screen.snapshot, camera.snapshot, microphone.listen, speaker.play, speaker.say, accessibility.frontWindow, run, banner.show, call.ring."
             )
         }
     }
@@ -152,6 +162,11 @@ final class AppModel {
         if sharing == .ask, approval.isApproved(thing) == nil {
             try await approval.ask(for: thing, what: what)
         }
+        count(thing)
+    }
+
+    /// One use of `thing`, for the menu bar and the panel.
+    private func count(_ thing: Shareable) {
         uses[thing.id, default: 0] += 1
         lastUse = (thing, Date())
         log.info("endpoint: a caller uses \(thing.id) (\(thing.title)), use \(uses[thing.id] ?? 0) of this run")

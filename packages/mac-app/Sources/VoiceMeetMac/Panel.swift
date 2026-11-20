@@ -12,6 +12,8 @@ final class PanelState: ObservableObject {
     @Published var didCopy = false
     /// The lend (AppDelegate `showLend`): the minds, the active one, the state in words.
     @Published var lend = LendView()
+    /// The banner on the screen, while one shows (`Banners`).
+    @Published var banner: Banner?
 }
 
 /// What the panel shows of the lend.
@@ -54,10 +56,18 @@ struct Panel: View {
     /// The person wants to give a permission of macOS: the guide starts.
     let allow: (Permission) -> Void
     let copyPrompt: () -> Void
+    /// The person presses a button of the banner (its index), or closes it (nil).
+    var pressBanner: (Int?) -> Void = { _ in }
     var lendActions = LendActions()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let banner = state.banner {
+                bannerSection(banner)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                Divider()
+            }
             lendSection
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -65,7 +75,7 @@ struct Panel: View {
             VStack(alignment: .leading, spacing: 16) {
                 section("Displays", of: .screen)
                 section("Cameras", of: .camera)
-                section("This Mac", of: .microphone, .speaker, .accessibility, .commands)
+                section("This Mac", of: .microphone, .speaker, .banners, .accessibility, .commands)
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -154,6 +164,35 @@ struct Panel: View {
                 HStack(spacing: 6) {
                     if lend.isCommandRunning { ProgressView().controlSize(.mini) }
                     Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// The banner on the screen, again: its title, its text and its buttons, and a close.
+    private func bannerSection(_ banner: Banner) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: banner.isCall ? "phone.fill" : "bell.badge").foregroundStyle(.green).frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(banner.isCall ? "\(banner.title) calls" : banner.title).lineLimit(1)
+                    if !banner.body.isEmpty {
+                        Text(banner.body).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button { pressBanner(nil) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .help(banner.isCall ? "Decline" : "Close the banner with no button")
+            }
+            HStack(spacing: 6) {
+                Spacer()
+                ForEach(Array(banner.buttons.enumerated()), id: \.offset) { index, button in
+                    if index == banner.defaultButton {
+                        Button(button.label) { pressBanner(index) }.controlSize(.small).buttonStyle(.borderedProminent)
+                    } else {
+                        Button(button.label) { pressBanner(index) }.controlSize(.small)
+                    }
                 }
             }
         }
@@ -251,13 +290,13 @@ struct Panel: View {
     static var prompt: String {
         let mac = Host.current().localizedName ?? "This Mac"
         return """
-        "\(mac)" is lent to this iterate mind through its menu-bar app "iterate". In the mind it is one capability, lent with `iterate provide` under a name such as `itx.jonas.mac`. Find the name:
+        "\(mac)" is lent to this iterate mind through its menu-bar app "iterate". Think of it as an endpoint device that a person is often near: inputs (the screen, the camera, the microphone, the window in front as text), outputs (the speakers, banners on the screen) and compute (commands). In the mind it is one capability, lent with `iterate provide` under a name such as `itx.jonas.mac`. Find the name:
 
             (await itx.rewriteRules.list()).filter((rule) => rule.description?.includes("iterate menu-bar app")).map((rule) => rule.match)
 
         Below, `mac` stands for that capability (for example `const mac = itx.jonas.mac`).
 
-        First read what the owner shares: `await mac.state()`. It lists every thing of the Mac (each display, each camera, the microphone, the speakers, the window text, commands) with its `sharing`: "shared" (use it), "ask" (the owner approves each use on the Mac, which can take up to a minute) or "off" (the call fails with the reason: say so to the person, do not try again).
+        First read what the owner shares: `await mac.state()`. It lists every thing of the Mac (each display, each camera, the microphone, the speakers, banners, the window text, commands) with its `sharing`: "shared" (use it), "ask" (the owner approves each use on the Mac, which can take up to a minute) or "off" (the call fails with the reason: say so to the person, do not try again).
 
         The calls:
 
@@ -269,6 +308,9 @@ struct Panel: View {
         - `await mac.appleScript("…")`: run an AppleScript. This is the plainest way to use the Mac's apps.
         - `await mac.swift("…")`: run a Swift program given as source. Use it for anything the other calls cannot do, such as a dialog that asks the person something.
         - `await mac.run(["command", "argument"], { stdin?, timeoutSeconds? })`: run a command; it has the app's permissions for the screen, the camera, the microphone and Accessibility.
+        - `await mac.banner.show({ title, body?, buttons?, sound?, seconds? })`: a banner on the Mac's screen, at the top right. `buttons` is one to three `{ label, style?: "accept" | "decline" | "plain", symbol?, open? }` (default one "OK"); a button with `open` opens that page in the browser after its press, and the page must be on this mind's domain. `sound` is "chime" (default), "ring" or "none"; `seconds` is 30 unless said (5 to 120). It answers `{ pressed: "<label>" }`, or `{ pressed: null, why: "no answer" | "dismissed" | "replaced" | "off", words }`. What happens next is yours. For example, to ask the person into meeting X: `await mac.banner.show({ title: "Design review is starting", body: "Misha asks you to join", buttons: [{ label: "Join", style: "accept", open: "<the meeting's page>" }, { label: "Not now" }] })`.
+        - `await mac.call.ring({ agent, from?, reason?, url? })`: a banner that looks like a call, for a call on the agent `agent` (its path, such as your own): who calls, why, Decline and Accept, and a ring. Accept opens the call's page, which joins the call muted (the person unmutes); with no `url` it is the agent's page in the Dash. It answers `{ accepted: true }` or `{ accepted: false, why: "declined" | "no answer" | "replaced" | "off", words }` after at most 30 seconds.
+        - One banner at a time; a newer one replaces it, but a plain banner never replaces a call. At most 6 a minute. Show one only when the person asked for it, or for something they said may interrupt them.
 
         The owner sees each use in the menu bar. Say what you looked at or did, and why.
         """
@@ -284,6 +326,7 @@ extension Panel {
         let state = PanelState()
         state.things = Shareable.all
         state.lend = sampleLend(phase)
+        if phase == "ringing" { state.banner = BannerWindow.sample("ring") }
         let panel = Panel(state: state, model: AppModel(), changed: {}, allow: { _ in }, copyPrompt: {})
         // The panel has no background of its own (a popover gives it one); the file needs one.
         let view = NSHostingView(rootView: panel.background(Color(nsColor: .windowBackgroundColor)))
@@ -300,7 +343,7 @@ extension Panel {
 extension Panel {
     /// The minds as config.json lists them, with a phase of the lend made from the CLI's own states:
     /// a copy that only draws the panel starts no lend. `phase` is live, reconnecting, stopped,
-    /// not-allowed, incompatible or connecting (the default).
+    /// not-allowed, incompatible or connecting (the default); `ringing` also shows a ring.
     @MainActor
     static func sampleLend(_ phase: String?) -> LendView {
         let file = Lend.folder.appendingPathComponent("config.json")
@@ -313,7 +356,7 @@ extension Panel {
         let live = #"{"state":"live","mind":"\#(mind)","name":"itx.\#(name)","again":false}"#
         let lines: [String] =
             switch phase {
-            case "live": [live]
+            case "live", "ringing": [live]
             case "reconnecting": [live, #"{"state":"reconnecting","attempt":2,"of":14,"inMs":60000,"lastFailure":"fetch failed"}"#]
             case "not-allowed": [#"{"state":"notAllowed","why":"No member has allowed this key yet.","link":"https://\#(mind)/keys/enrol?provide=\#(name)","waiting":true}"#]
             case "incompatible": [#"{"state":"incompatible","why":"the statement is for another mind: this iterate CLI and the mind do not agree on the protocol"}"#]

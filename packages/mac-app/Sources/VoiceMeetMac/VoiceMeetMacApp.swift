@@ -25,6 +25,14 @@ enum VoiceMeetMacApp {
             let form = RemoveMindForm(mind: "example.com", isActive: true, remove: {}, cancel: {})
             exit(FormWindow.render(form, to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
         }
+        // A sample banner: `--render-banner <file> ring|request|notice [dark]`; `--render-ring <file> [dark]`
+        // is the ring's.
+        for flag in ["--render-banner", "--render-ring"] {
+            guard let at = CommandLine.arguments.firstIndex(of: flag), CommandLine.arguments.indices.contains(at + 1) else { continue }
+            let words = Array(CommandLine.arguments[(at + 2)...])
+            let kind = flag == "--render-ring" ? "ring" : words.first ?? "notice"
+            exit(BannerWindow.render(kind, to: URL(fileURLWithPath: CommandLine.arguments[at + 1]), dark: words.contains("dark")) ? 0 : 1)
+        }
         // AVFoundation reports some mistakes as Objective-C exceptions. The log gets the reason.
         NSSetUncaughtExceptionHandler { exception in
             AppLog("app").error("uncaught exception \(exception.name.rawValue): \(exception.reason ?? "no reason")")

@@ -19,6 +19,8 @@ enum IterateIcon {
     static let red = mark(height: menuBarHeight, color: .systemRed)
     /// While only the microphone is on.
     static let orange = mark(height: menuBarHeight, color: .systemOrange)
+    /// While a banner shows, a call's among them.
+    static let green = mark(height: menuBarHeight, color: .systemGreen)
 
     static func mark(height: CGFloat, color: NSColor?) -> NSImage {
         let glyph = glyph()

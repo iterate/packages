@@ -21,6 +21,14 @@
 //   region for a screen reader stays, so it hears the first arrival and the last departure.
 // - A START belongs to the engine it began with: one whose engine changed (a new row) or whose
 //   page went away does not join.
+// - JOIN ON ARRIVAL (`joinOnArrival`: the Dash's `call=join`, the page a Mac's Accept opens): once
+//   the table is read, the page joins the call, or starts it when the agent has none, once. ANYONE
+//   CAN SEND A MEMBER SUCH A LINK (a guest on a share link of the agent can), so it is no press of
+//   the person's, and capture starts only by the person's own act: the page joins LISTENING ONLY.
+//   No microphone opens and no track is sent; the camera and the screen stay off; the bar shows
+//   the call as muted, and the page says so. The person's own Unmute opens the microphone. They
+//   hear the call after the browser's first click (the engine says so). `arrived` then takes the
+//   key out of the address, so a reload does not join again.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { PhoneIcon } from "lucide-react";
@@ -39,6 +47,8 @@ export function AgentCall({
   context,
   enable,
   barIn,
+  joinOnArrival = false,
+  arrived,
 }: {
   stub: CallContext | undefined;
   context: {
@@ -49,6 +59,10 @@ export function AgentCall({
   /** Turns the call on for this agent. */
   enable: () => Promise<unknown>;
   barIn: HTMLElement | null;
+  /** The page was opened to join: it joins, or starts the call, once the table is read. */
+  joinOnArrival?: boolean;
+  /** The join on arrival began: the host takes its key out of the address. */
+  arrived?: () => void;
 }) {
   const { call, ui, live } = useCall(stub, context.subscription, context.liveState.call?.value);
   // this page's own start, in flight: the header shows it alone, never a Join beside it, until the
@@ -74,7 +88,7 @@ export function AgentCall({
   // nothing before the table is read: an agent with a call shows Join, never a start first
   const start =
     call && !barLive && context.processors.loaded
-      ? async () => {
+      ? async (listenOnly = false) => {
           const token = { call, epoch: call.epoch };
           setStartedIn(token);
           const done = () => setStartedIn((now) => (now === token ? null : now));
@@ -87,13 +101,40 @@ export function AgentCall({
             // the page went away, or its call was closed (a pagehide, a Leave), while the call was
             // turned on: joining is the person's next press
             if (heldCall.current !== call || call.epoch !== token.epoch) return;
-            await call.join();
+            await call.join({ listenOnly });
           } finally {
             inTheCall();
             done();
           }
         }
       : undefined;
+  // the join on arrival, once: Join for a call that is on, Start for an agent with none. What it
+  // does is this render's (`arrive`, set after each render); when it runs is the table's first read.
+  const arrival = useRef(joinOnArrival);
+  const arrive = useRef(() => {});
+  useEffect(() => {
+    arrive.current = () => {
+      if (!call) return;
+      arrived?.();
+      if (ui.joined || ui.joining) return;
+      const joined = start ? start(true) : call.join({ listenOnly: true });
+      joined.then(
+        () => {
+          if (call.ui.joined && call.ui.muted)
+            call.say("You joined from a link, muted: no one hears you until you press Unmute.");
+        },
+        (error: unknown) =>
+          call.fail(
+            `The call could not start: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      );
+    };
+  });
+  useEffect(() => {
+    if (!arrival.current || !call || !context.processors.loaded) return;
+    arrival.current = false;
+    arrive.current();
+  }, [call, context.processors.loaded]);
   return (
     <>
       {barIn

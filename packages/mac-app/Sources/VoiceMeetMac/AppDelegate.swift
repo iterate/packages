@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             changed: { [weak self] in self?.choiceChanged() },
             allow: { [weak self] permission in self?.guide(permission) },
             copyPrompt: { [weak self] in self?.copyPrompt() },
+            pressBanner: { [weak self] index in
+                self?.popover.performClose(nil)
+                if let index { self?.model.banners.press(index) } else { self?.model.banners.dismiss() }
+            },
             lendActions: LendActions(
                 reconnect: { [weak self] in self?.lend.reconnectNow() },
                 use: { [weak self] mind in self?.lend.use(mind) },
@@ -50,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
 
         model.onChange = { [weak self] in self?.stateDidChange() }
+        // the address as the CLI says it (`iterate.example.com`), not the config's short name
+        model.banners.activeMind = { [weak self] in self?.lend.state.mindAddress }
+        model.banners.onChange = { [weak self] in self?.stateDidChange() }
         model.start()
         lend.isBusy = { [weak self] in (self?.model.microphone.isRunning ?? false) || (self?.model.isAnyCameraRunning ?? false) }
         lend.onChange = { [weak self] in self?.stateDidChange() }
@@ -183,11 +190,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateStatusButton()
         panelState.things = Shareable.all
         panelState.revision += 1
+        let banner = model.banners.state.showing
+        if banner != panelState.banner { panelState.banner = banner }
         showLend()
     }
 
-    /// The iterate mark: red for 3 seconds at each use by a mind, orange while the microphone or
-    /// a camera is on.
+    /// The iterate mark: green while a banner shows, red for 3 seconds at each use by a
+    /// mind, orange while the microphone or a camera is on.
     private func updateStatusButton() {
         guard let button = statusItem?.button else { return }
         let isInUse = model.lastUse.map { Date().timeIntervalSince($0.at) < 3 } ?? false
@@ -195,9 +204,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in self?.updateStatusButton() }
         }
         let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning
-        let shown = isInUse ? "red" : isCapturing ? "orange" : "plain"
-        button.image = isInUse ? IterateIcon.red : isCapturing ? IterateIcon.orange : IterateIcon.plain
-        let label = isInUse ? "iterate: a mind uses this Mac now" : isCapturing ? "iterate: microphone or camera on" : "iterate"
+        let banner = model.banners.state.showing
+        let shown = banner != nil ? "green" : isInUse ? "red" : isCapturing ? "orange" : "plain"
+        button.image =
+            banner != nil ? IterateIcon.green : isInUse ? IterateIcon.red : isCapturing ? IterateIcon.orange : IterateIcon.plain
+        let label =
+            banner.map { $0.isCall ? "iterate: \($0.title) calls" : "iterate: \($0.title)" }
+            ?? (isInUse ? "iterate: a mind uses this Mac now" : isCapturing ? "iterate: microphone or camera on" : "iterate")
         button.toolTip = label
         button.setAccessibilityLabel(label)
         if shown != shownStatusIcon {

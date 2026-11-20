@@ -114,15 +114,17 @@ enum Power: String, CaseIterable {
     case speaker
     case accessibility
     case commands
+    /// Banners on the screen, a call's among them (`Banners`): an output, beside the speakers.
+    case banners
 
-    /// The permission of macOS that the power needs. The speakers and commands need none.
+    /// The permission of macOS that the power needs. The speakers, commands and banners need none.
     var permission: Permission? {
         switch self {
         case .screen: return .screenRecording
         case .camera: return .camera
         case .microphone: return .microphone
         case .accessibility: return .accessibility
-        case .speaker, .commands: return nil
+        case .speaker, .commands, .banners: return nil
         }
     }
 }
@@ -147,7 +149,7 @@ enum Sharing: String, CaseIterable, Identifiable {
 }
 
 /// One thing the person shares or not: a display, a camera, the microphone, the speakers, the
-/// text of the window in front, or commands. Each display and each camera is a thing of its own.
+/// text of the window in front, commands, or banners. Each display and each camera is a thing of its own.
 struct Shareable: Identifiable, Hashable {
     /// Its name in the settings and for a caller, for example `screen.1` or `microphone`.
     let id: String
@@ -177,10 +179,12 @@ struct Shareable: Identifiable, Hashable {
     static let speaker = Shareable(id: "speaker", power: .speaker, title: "Speakers", does: "play sound through the speakers", symbol: "speaker.wave.2")
     static let accessibility = Shareable(id: "accessibility", power: .accessibility, title: "Window text", does: "read the window in front", symbol: "text.viewfinder")
     static let commands = Shareable(id: "commands", power: .commands, title: "Commands", does: "run commands", symbol: "terminal")
+    /// Ask and Shared both show: a button is pressed by the person alone.
+    static let banners = Shareable(id: "banners", power: .banners, title: "Banners", does: "show banners on the screen", symbol: "bell.badge")
 
     /// Everything on this Mac now, in the panel's order.
     @MainActor
     static var all: [Shareable] {
-        Screen.displays.map(display) + Camera.devices.map(camera) + [microphone, speaker, accessibility, commands]
+        Screen.displays.map(display) + Camera.devices.map(camera) + [microphone, speaker, banners, accessibility, commands]
     }
 }

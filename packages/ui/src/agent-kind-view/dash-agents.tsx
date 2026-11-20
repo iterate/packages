@@ -53,7 +53,7 @@ import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-su
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
 import { isPresenceEvent } from "#/lib/presence.ts";
 import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
-import { go, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
+import { go, hrefOf, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -769,6 +769,8 @@ function IterateChat({
   // the header's place for the call's controls, once the header has drawn it
   const [callIn, setCallIn] = useState<HTMLElement | null>(null);
   const { view, patchView } = useView();
+  // `call=join`: the page was opened to join the call (a Mac's Accept opens it so)
+  const joinOnArrival = usePageParam("call") === "join";
   // the header's place for who is here and can use the conversation, once the header has drawn it
   const [aside, setAside] = useState<HTMLElement | null>(null);
   // held and read again at each new session: the rows of the last one, or of the last page load,
@@ -832,6 +834,8 @@ function IterateChat({
           context={context}
           enable={() => call.enable(itx, path)}
           barIn={callIn}
+          joinOnArrival={joinOnArrival}
+          arrived={leaveTheJoinKey}
         />
       ) : null}
       <AgentChat
@@ -856,6 +860,11 @@ function IterateChat({
 }
 
 /** How many of the held events are rows of the log: a page's presence status is no row. */
+/** The join on arrival began: `call=join` leaves the address, in place. */
+function leaveTheJoinKey() {
+  go(hrefOf({ call: undefined }), true);
+}
+
 function rowsOf(events: readonly { type: string }[]): number {
   return events.filter((event) => !isPresenceEvent(event)).length;
 }

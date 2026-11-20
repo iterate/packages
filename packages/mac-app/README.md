@@ -1,8 +1,9 @@
 # @iterate-com/mac-app
 
-A Mac's menu-bar app for an [iterate](https://iterate.com) mind. Through it the mind can see the
-screen and the camera, hear the microphone, play sound, read the window in front as text, and run
-commands (AppleScript, Swift, shell) on this Mac. You choose for each thing: **Off**, **Ask** (you
+A Mac's menu-bar app for an [iterate](https://iterate.com) mind. It makes this Mac an endpoint
+device of the mind, which a person is often near. Its inputs are the screen, the camera, the
+microphone and the window in front as text; its outputs, the speakers and banners on the screen
+(a call's among them); its compute, commands (AppleScript, Swift, shell). You choose for each thing: **Off**, **Ask** (you
 approve each use with Touch ID) or **Shared**. Everything starts at Off.
 
 ```sh
@@ -74,7 +75,44 @@ await mac.accessibility.frontWindow(); // the window in front as text
 await mac.appleScript('tell application "Music" to play');
 await mac.swift('print("hello")');
 await mac.run(["sw_vers"]); // { exitCode, stdout, stderr }
+await mac.banner.show({
+  title: "Design review is starting",
+  body: "Misha asks you to join",
+  buttons: [
+    { label: "Join", style: "accept", open: "https://meet.example.com/contexts/agents/meet/x" },
+    { label: "Not now" },
+  ],
+}); // { pressed: "Join" }, or { pressed: null, why: "no answer" | "dismissed" | "replaced" | "off", words }
+await mac.call.ring({ agent: "/agents/lunch", from: "Lunch planner", reason: "Friday's table" });
+// { accepted: true }, or { accepted: false, why: "declined" | "no answer" | "replaced" | "off", words }
 ```
+
+### Banners
+
+A banner is an output of this Mac, beside the speakers. `mac.banner.show` puts one on the screen:
+a title, a line or two of text, one to three buttons (one "OK" when none is given), a sound
+(`chime` unless said, or `ring`, or `none`) and a time limit (30 s unless said, 5 to 120). It
+answers the label of the button pressed: what happens next is the agent's. A button with `open`
+also opens that page in the default browser after its press. `mac.call.ring` is a banner that
+looks like a call: who calls, why, Decline and Accept as round red and green phone buttons, and a
+ring for 30 s. Accept opens the call's page.
+
+With Banners at **Off** in the panel, a banner is refused in words (`why: "off"`). At **Ask** and
+at **Shared** it shows: no button is ever pressed but by you. The banner has the look of macOS's
+own call banner and comes at the top right, where notifications come, over every window and on
+the active space; the 𝑖 turns green, and the panel shows the banner too, with its buttons. It
+does not take the keyboard when it comes, so a Return typed elsewhere presses nothing; click it,
+and Return presses the default button (the first `accept`, else the first one) and Escape closes
+it (or declines a call). One banner at a time: a newer one replaces it (`why: "replaced"`), but a
+plain banner never replaces a call (it is refused). At most 6 begin in a minute.
+
+A page to open is checked before anything shows. For a call with no `url`, it is the agent's page
+in the mind's Dash, `https://dash.<zone>/agents?contextPath=<path>&call=join`, which joins the
+call as it loads, muted: anyone can send such a link, so the page opens no microphone and sends
+nothing until you press Unmute, and your camera and screen stay off. Any other page must be https, with no user or port, on the zone of the mind this Mac is
+lent to or a subdomain of it: the app opens no other origin. The zone comes from the mind's
+address as the lend's CLI says it (`iterate.example.com`), without the leading `iterate.` when
+two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is refused.
 
 A call for a thing that is Off, or that macOS has not allowed yet, fails with the reason in words
 an agent can pass on. Each use turns the 𝑖 red for 3 seconds.
@@ -110,10 +148,12 @@ Notes from the first runs (macOS 15.7.4, a MacBook Pro):
 ./run-on-mac.sh               # build, install in /Applications, open, follow the logs
 ./run-on-mac.sh --build-only  # build and sign .build/iterate.app only
 ./run-on-mac.sh --logs        # follow the app's log
-swift test                    # the state machines' tests (needs Xcode)
+swift test                    # the state machines' tests (needs Xcode): microphone, camera, lend, banner
 npx .                         # the installer from this folder
 ```
 
 `.build/release/VoiceMeetMac --render-panel panel.png` draws the panel to a file without opening
 anything. A third word draws the lend in one phase: `live`, `reconnecting`, `stopped` or
-`not-allowed`.
+`not-allowed`; `ringing` draws a call's banner at the top. `--render-banner banner.png ring`
+draws a banner (`ring`, `request` or `notice`; add `dark` for the dark appearance);
+`--render-ring ring.png` is the ring's.
