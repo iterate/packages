@@ -65,6 +65,12 @@ export type DashPage = {
    *  cameras and screens stand over the feed while a call is live. Absent: no call, and no call
    *  code is loaded. */
   call?: DashCall;
+  /** The Agents page's, beside `call`: Share in the header of an agent page with a call. It makes
+   *  links that let people who are not members into that one agent's chat and call, lists the live
+   *  ones (the call's live state) with who came by each, ends one, and makes a calendar invite to
+   *  the agent's page or to a link made there. Its first open turns the call on (`call.enable`).
+   *  Absent, or without `call`: no Share. */
+  share?: DashShare;
   /** The Agents page's: each member's open agent page lends that agent tools that run in the page
    *  (#/components/page-tools.tsx): a banner, and, inside what the page marks with
    *  `data-page-tools="scope"`, Playwright's locators. `tools` adds functions of the page's own.
@@ -86,6 +92,19 @@ export type DashPage = {
  *  `enable: (itx, path) => itx.cd(path).processors.enable("call", { …the config's CALL_FACET })`. */
 export type DashCall = {
   enable: (itx: Itx, path: string) => Promise<unknown>;
+};
+
+/** LINKS FOR GUESTS TO AN AGENT, as a Dash page turns them on. The links and their rules are the
+ *  mind's config's, which the kit does not know: `make` makes a link to the agent at `path` that
+ *  lives `lifetimeMs` and answers it once, with its secret in `url` (the page shows it once and
+ *  keeps it nowhere); `end` ends one by its id. The live links come from the call's live state. */
+export type DashShare = {
+  make: (
+    itx: Itx,
+    path: string,
+    lifetimeMs: number,
+  ) => Promise<{ url: string; until: number; link: string }>;
+  end: (itx: Itx, path: string, link: string) => Promise<unknown>;
 };
 
 /** A row that leaves the Dash: another app of the mind, or a page of the stack. `count:

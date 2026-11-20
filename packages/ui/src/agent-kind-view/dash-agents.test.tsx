@@ -681,6 +681,98 @@ test("with the Agents page's `call` off, an agent page has no call: no place, no
   }).toEqual({ place: undefined, start: false, tiles: undefined, facet: [] });
 });
 
+test("with `call` on and `share` off, an agent page has no Share: no place, no button", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  const { itx } = mind({ row: "a-page" });
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
+  await act(() =>
+    vi.waitFor(() =>
+      buttonOf(page.host.querySelector("[data-slot=agent-header-call]"), "Start a call"),
+    ),
+  );
+  expect(page.host.querySelector("[data-slot=agent-header-share]")).toBeNull();
+  expect(page.host.querySelector('button[title="Share this agent"]')).toBeNull();
+});
+
+test("Share: a link made once and shown once, the call's live links with their guests, End, and an invite to the page or the link", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  const until = Date.parse("2026-11-21T12:00:00Z");
+  const made = {
+    url: "https://meet.example.com/join/agents/onboarding#the-secret",
+    until,
+    link: "l-made",
+  };
+  const { itx } = mind({
+    row: "a-page",
+    facets: {
+      "/agents/onboarding": {
+        agent: {},
+        call: {
+          ...callLive({}),
+          links: [
+            { link: "l-old", until, madeBy: "jo", guests: ["Grace"] },
+            { link: "l-made", until, madeBy: "jo", guests: [] },
+          ],
+        },
+      },
+    },
+  });
+  const enable = vi.fn(async () => {});
+  const share = { make: vi.fn(async () => made), end: vi.fn(async () => {}) };
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable }, share });
+  const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-share]");
+  await act(async () =>
+    (await act(() => vi.waitFor(() => buttonOf(place, "Share this agent")))).click(),
+  );
+  const pane = await act(() =>
+    vi.waitFor(() => {
+      const found = document.querySelector("[data-slot=share-pane]");
+      if (!found?.querySelector("[data-slot=share-links]")) throw new Error("no links yet");
+      return found;
+    }),
+  );
+  // the call is on already: Share turns nothing on
+  expect(enable).not.toHaveBeenCalled();
+  expect(
+    [...pane.querySelectorAll("[data-slot=share-links] li")].map((row) =>
+      row.textContent?.replace(/until .*?(\d guest|No guest)/, "until …$1"),
+    ),
+  ).toEqual(["Made by jo, until …1 guest: GraceEnd", "Made by jo, until …No guest yetEnd"]);
+  const google = () =>
+    new URL(pane.querySelector<HTMLAnchorElement>('a[href^="https://calendar.google.com"]')!.href)
+      .searchParams;
+  // before a link: the invite holds the agent's page, for members
+  expect(google().get("location")).toBe(`${location.origin}/agents/agents/onboarding`);
+  expect(google().get("text")).toBe("Set up the mind");
+  await act(async () => buttonOf(pane, "Make a link").click());
+  expect(share.make).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding", 24 * 3_600_000);
+  expect(pane.querySelector("[data-slot=share-made] code")?.textContent).toBe(made.url);
+  // the invite may hold the new link, while the call lists it
+  await act(async () => pane.querySelector<HTMLElement>("[data-slot=checkbox]")!.click());
+  expect(google().get("location")).toBe(made.url);
+  await act(async () => buttonOf(pane.querySelector("[data-slot=share-links] li"), "End").click());
+  expect(share.end).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding", "l-old");
+});
+
+test("Share on an agent with no call turns the call on once, at its first open", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  const { itx } = mind({ row: "a-page", facets: { "/agents/onboarding": { agent: {} } } });
+  const enable = vi.fn(async () => {});
+  const share = { make: vi.fn(), end: vi.fn() };
+  await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable }, share });
+  const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-share]");
+  await act(async () =>
+    (await act(() => vi.waitFor(() => buttonOf(place, "Share this agent")))).click(),
+  );
+  await act(() => vi.waitFor(() => expect(enable).toHaveBeenCalledTimes(1)));
+  expect(enable).toHaveBeenCalledWith(itx, "/agents/onboarding");
+  await page.settle();
+  expect(enable).toHaveBeenCalledTimes(1);
+});
+
 test("with `call` on and no call on the agent: one Start a call, whose press turns the call on once, then joins", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
@@ -3148,6 +3240,7 @@ async function draw(
     openers,
     presence,
     call,
+    share,
     pageTools,
     agents: first = agents,
     account = true,
@@ -3164,6 +3257,8 @@ async function draw(
     presence?: boolean;
     /** The Agents page's `call`. */
     call?: DashPage["call"];
+    /** The Agents page's `share`. */
+    share?: DashPage["share"];
     /** The Agents page's `pageTools`. */
     pageTools?: DashPage["pageTools"];
     /** The catalog of the mind's agents; "unread": it has not answered yet. */
@@ -3188,7 +3283,7 @@ async function draw(
   const row = (id: string): DashPage => ({ id, name: id, icon: BotIcon, component: () => null });
   const pages = [
     row("home"),
-    { ...row("agents"), openers, presence, call, pageTools },
+    { ...row("agents"), openers, presence, call, share, pageTools },
     row("contexts"),
     row("integrations"),
   ];

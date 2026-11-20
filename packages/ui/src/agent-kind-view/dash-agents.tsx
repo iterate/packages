@@ -46,6 +46,7 @@ import {
   type DashCall,
   type DashPage,
   type DashPageProps,
+  type DashShare,
 } from "#/components/dash/dash.tsx";
 import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
@@ -67,13 +68,15 @@ const homePart = once(() => import("#/components/agents-home.tsx"));
 const chatPart = once(() => import("#/components/agent-chat/agent-chat.tsx"));
 // only where the Agents page's row turns the page's tools on
 const toolsPart = once(() => import("#/components/page-tools.tsx"));
-// only where the Agents page's row turns calls on: the call's view, and who is in it
+// only where the Agents page's row turns calls on: the call's view, who is in it, and Share
 const callPart = once(async () => {
   // the two modules load at once
   const people = import("./call-presence.ts");
+  const share = import("./dash-share.tsx");
   const { AgentCall } = await import("./dash-call.tsx");
   const { inCallOf } = await people;
-  return { AgentCall, inCallOf };
+  const { AgentShare } = await share;
+  return { AgentCall, AgentShare, inCallOf };
 });
 
 // ── the kinds ──
@@ -503,6 +506,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
             quiet={quiet}
             presence={Boolean(page.presence)}
             call={Boolean(page.call)}
+            share={Boolean(page.call && page.share)}
           />
         }
       >
@@ -513,6 +517,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
           opener={page.openers?.[path]}
           presence={Boolean(page.presence)}
           call={page.call}
+          share={page.call ? page.share : undefined}
           me={principal?.actor}
           tails={tails}
           quiet={quiet}
@@ -561,7 +566,8 @@ type PageToolsPart = Awaited<ReturnType<typeof toolsPart>>;
  *  draws the stack of who is here in it (`AgentChat`'s `asideIn`, which `aside` receives), which
  *  grows to its left, so the tabs do not move when it comes or when people arrive. With `call`,
  *  a place before that one, as wide as one button, from the first paint: the call's controls
- *  (`callIn` receives it), which grow to their left as well, so the path gives up the room. */
+ *  (`callIn` receives it), which grow to their left as well, so the path gives up the room. With
+ *  `share`, a place as wide as one button beside the call's: Share (`shareIn` receives it). */
 function AgentPageHeader({
   path,
   agents,
@@ -570,6 +576,8 @@ function AgentPageHeader({
   aside,
   call,
   callIn,
+  share = false,
+  shareIn,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
@@ -580,6 +588,9 @@ function AgentPageHeader({
   call: boolean;
   /** Receives the call's place. */
   callIn?: (element: HTMLElement | null) => void;
+  share?: boolean;
+  /** Receives Share's place. */
+  shareIn?: (element: HTMLElement | null) => void;
 }) {
   const title = agents?.find((agent) => agent.path === path)?.title;
   return (
@@ -602,6 +613,13 @@ function AgentPageHeader({
             ref={callIn}
             data-slot="agent-header-call"
             className="flex h-7 min-w-7 shrink-0 items-center justify-end"
+          />
+        ) : null}
+        {share ? (
+          <span
+            ref={shareIn}
+            data-slot="agent-header-share"
+            className="flex size-7 shrink-0 items-center justify-center"
           />
         ) : null}
         {presence ? (
@@ -640,6 +658,7 @@ function AgentPageReading({
   quiet,
   presence,
   call,
+  share,
 }: {
   path: string;
   agents: readonly AgentRow[] | undefined;
@@ -649,10 +668,12 @@ function AgentPageReading({
   presence: boolean;
   /** The header keeps the place of the call's controls. */
   call: boolean;
+  /** The header keeps Share's place. */
+  share: boolean;
 }) {
   return (
     <>
-      <AgentPageHeader path={path} agents={agents} presence={presence} call={call} />
+      <AgentPageHeader path={path} agents={agents} presence={presence} call={call} share={share} />
       <AgentReading strip={false} quiet={quiet} />
     </>
   );
@@ -670,6 +691,7 @@ function AgentViewOfKind({
   opener,
   presence,
   call,
+  share,
   me,
   tails,
   quiet,
@@ -681,6 +703,8 @@ function AgentViewOfKind({
   presence: boolean;
   /** The Agents page's `call`: an iterate agent's chat has the call's controls. */
   call: DashCall | undefined;
+  /** The Agents page's `share`, where `call` is on too: Share beside the call's controls. */
+  share: DashShare | undefined;
   me: string | undefined;
   tails: TailsOfMember;
   quiet: boolean;
@@ -712,6 +736,7 @@ function AgentViewOfKind({
         quiet={quiet}
         presence={presence}
         call={Boolean(call)}
+        share={Boolean(share)}
       />
     );
   }
@@ -725,6 +750,7 @@ function AgentViewOfKind({
       agents={agents}
       presence={presence}
       call={Boolean(call)}
+      share={Boolean(share)}
       me={me}
       tails={tails}
     />
@@ -738,6 +764,7 @@ function AgentViewOfKind({
       opener={opener}
       presence={presence}
       call={call}
+      share={share}
       me={me}
       tails={tails}
     />
@@ -779,6 +806,7 @@ function IterateChat({
   opener,
   presence,
   call,
+  share,
   me,
   tails,
 }: {
@@ -793,6 +821,8 @@ function IterateChat({
   presence: boolean;
   /** The agent's call: its controls in the header, its tiles over the feed. */
   call: DashCall | undefined;
+  /** Links for guests: Share beside the call's controls. */
+  share: DashShare | undefined;
   /** The signed-in member's actor id: their own messages have no line under them. */
   me: string | undefined;
   tails: TailsOfMember;
@@ -803,6 +833,8 @@ function IterateChat({
   const callKit = calling && use(calling);
   // the header's place for the call's controls, once the header has drawn it
   const [callIn, setCallIn] = useState<HTMLElement | null>(null);
+  // Share's place in the header, once the header has drawn it
+  const [shareIn, setShareIn] = useState<HTMLElement | null>(null);
   const { view, patchView } = useView();
   // `call=join`: the page was opened to join the call (a Mac's Accept opens it so)
   const joinOnArrival = usePageParam("call") === "join";
@@ -834,6 +866,8 @@ function IterateChat({
     context.older.exhausted &&
     !context.events.some((event) => Said.safeParse(event).success);
   const callLive = context.liveState.call?.value;
+  // one function while the agent is the same: Share turns the call on at most once by it
+  const enableCall = useCallback(() => call!.enable(itx, path), [call, itx, path]);
   const inCall = useMemo(() => callKit && callKit.inCallOf(callLive), [callKit, callLive]);
   useEffect(() => {
     if (!opener || !stub || !empty) return;
@@ -862,7 +896,21 @@ function IterateChat({
         aside={setAside}
         call={Boolean(call)}
         callIn={setCallIn}
+        share={Boolean(share)}
+        shareIn={setShareIn}
       />
+      {call && share && callKit ? (
+        <callKit.AgentShare
+          share={share}
+          itx={itx}
+          path={path}
+          title={agents?.find((row) => row.path === path)?.title || path.split("/").at(-1) || path}
+          pageUrl={new URL(agentViewHref(path), location.href).href}
+          context={context}
+          enable={enableCall}
+          shareIn={shareIn}
+        />
+      ) : null}
       {call && callKit ? (
         <callKit.AgentCall
           stub={stub}
@@ -925,6 +973,7 @@ function KindChat({
   agents,
   presence,
   call,
+  share,
   me,
   tails,
 }: {
@@ -938,6 +987,8 @@ function KindChat({
   /** The header keeps the call's place as the loading header had it, and empty: a kind's own view
    *  has no call controls. */
   call: boolean;
+  /** The header keeps Share's place, empty, as the call's. */
+  share: boolean;
   /** The signed-in member's actor id, for a view that draws AgentChat. */
   me: string | undefined;
   tails: TailsOfMember;
@@ -1026,6 +1077,7 @@ function KindChat({
         // frame, which draws nothing into this page
         presence={presence}
         call={call}
+        share={share}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <AgentKindViewFrame

@@ -84,6 +84,7 @@ export {
   type DashLinks,
   type DashPage,
   type DashPageProps,
+  type DashShare,
 } from "./dash-pages.tsx";
 
 type Itx = AuthenticatedApp["itx"];
