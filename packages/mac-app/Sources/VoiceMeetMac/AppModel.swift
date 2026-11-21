@@ -12,6 +12,11 @@ final class AppModel {
     private(set) var uses: [String: Int] = [:]
     private(set) var lastUse: (thing: Shareable, at: Date)?
     var onChange: (() -> Void)?
+    /// ⌥⇧S, from a script on this Mac (`capture.toggle` on the socket): the bridge lends no such call.
+    var toggleCapture: (() -> Void)?
+    /// A mark in the capture that runs, from a script on this Mac (`capture.mark`): points of the
+    /// display from its top left. The same as ink by hand, for a test with no hand.
+    var markCapture: (([[Double]]) -> Void)?
 
     private let log = AppLog("state")
     private let audioOwner = AudioOwner()
@@ -156,6 +161,14 @@ final class AppModel {
         case "call.ring":
             if Shareable.banners.sharing != .off { count(.banners) }
             return try await banners.ring(parameters)
+        case "capture.toggle":
+            guard let toggleCapture else { throw EndpointRefusal("A capture needs macOS 15.") }
+            toggleCapture()
+            return [:]
+        case "capture.mark":
+            guard let markCapture, let points = parameters["points"] as? [[Double]] else { throw EndpointRefusal("capture.mark needs points: [[x, y], …].") }
+            markCapture(points)
+            return [:]
         default:
             throw EndpointRefusal(
                 "No method \"\(method)\". The methods are: state, screen.snapshot, camera.snapshot, microphone.listen, speaker.play, speaker.say, accessibility.frontWindow, run, banner.show, call.ring."

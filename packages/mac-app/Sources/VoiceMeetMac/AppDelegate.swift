@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var displayPictureTimer: Timer?
     /// The cameras that run for the open panel's previews.
     private var camerasHeldByThePanel: Set<String> = []
+    /// The person's own capture (⌥⇧S). It needs macOS 15: nil before.
+    private var capture: AnyObject?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logRunStart()
@@ -58,10 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.banners.activeMind = { [weak self] in self?.lend.state.mindAddress }
         model.banners.onChange = { [weak self] in self?.stateDidChange() }
         model.start()
-        lend.isBusy = { [weak self] in (self?.model.microphone.isRunning ?? false) || (self?.model.isAnyCameraRunning ?? false) }
+        lend.isBusy = { [weak self] in
+            (self?.model.microphone.isRunning ?? false) || (self?.model.isAnyCameraRunning ?? false) || (self?.isCapturing ?? false)
+        }
         lend.onChange = { [weak self] in self?.stateDidChange() }
         lend.start()
         openAtLogin()
+        startCapture()
         stateDidChange()
         watchForGrants()
 
@@ -111,6 +116,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } catch {
             log.error("login item: not changed: \(AppLog.describe(error))")
         }
+    }
+
+    /// ⌥⇧S starts the person's capture and ends it: `Capture`. It goes to the mind this Mac is lent to.
+    private func startCapture() {
+        guard #available(macOS 15.0, *) else { return log.info("capture: off, it needs macOS 15") }
+        let capture = Capture()
+        capture.onChange = { [weak self] in self?.stateDidChange() }
+        capture.allow = { [weak self] permission in self?.guide(permission) }
+        capture.destination = { [weak self] in
+            guard let config = self?.lend.config, let mind = config.activeMind else { return nil }
+            let uploader = URL(fileURLWithPath: config.bridge).deletingLastPathComponent().appendingPathComponent("capture-upload.mjs").path
+            return Capture.Destination(node: config.node, iterateBin: config.iterateBin, uploader: uploader, mind: mind.mind, name: mind.name)
+        }
+        self.capture = capture
+        CaptureHotKey.pressed = { capture.toggle() }
+        model.toggleCapture = { capture.toggle() }
+        model.markCapture = { capture.mark($0) }
+        log.info(CaptureHotKey.register() ? "capture: ⌥⇧S starts and ends one" : "capture: macOS refused the key ⌥⇧S")
+    }
+
+    private var isCapturing: Bool {
+        if #available(macOS 15.0, *) { return (capture as? Capture)?.isRunning ?? false }
+        return false
     }
 
     /// The lend's state for the panel.
@@ -193,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         panelState.revision += 1
         let banner = model.banners.state.showing
         if banner != panelState.banner { panelState.banner = banner }
+        if #available(macOS 15.0, *) { panelState.captureLine = (capture as? Capture)?.lastLine }
         showLend()
     }
 
@@ -205,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if isInUse {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in self?.updateStatusButton() }
         }
-        let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning
+        let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning || self.isCapturing
         let banner = model.banners.state.showing
         let glance = lend.state.phase.glance
         let shown = banner != nil ? "green" : isInUse ? "red" : isCapturing ? "orange" : glance.rawValue
@@ -219,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         let label =
             banner.map { $0.isCall ? "iterate: \($0.title) calls" : "iterate: \($0.title)" }
-            ?? (isInUse ? "iterate: a mind uses this Mac now" : isCapturing ? "iterate: microphone or camera on" : lendWords)
+            ?? (isInUse ? "iterate: a mind uses this Mac now" : self.isCapturing ? "iterate: your capture runs" : isCapturing ? "iterate: microphone or camera on" : lendWords)
         button.toolTip = label
         button.setAccessibilityLabel(label)
         if shown != shownStatusIcon {

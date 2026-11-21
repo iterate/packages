@@ -14,6 +14,8 @@ final class PanelState: ObservableObject {
     @Published var lend = LendView()
     /// The banner on the screen, while one shows (`Banners`).
     @Published var banner: Banner?
+    /// How the person's last capture (⌥⇧S) ended.
+    @Published var captureLine: String?
 }
 
 /// What the panel shows of the lend.
@@ -83,6 +85,16 @@ struct Panel: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 12)
+            Divider()
+            VStack(alignment: .leading, spacing: 2) {
+                Text("⌥⇧S captures: talk, click, hold ⇧ and move the pointer to draw. ⌥⇧S again sends it to the mind and copies its text for an agent.")
+                if let line = state.captureLine { Text("Last capture: \(line)").textSelection(.enabled) }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             Divider()
             HStack(spacing: 12) {
                 Button(state.didCopy ? "Copied" : "Copy Prompt", action: copyPrompt)

@@ -127,7 +127,7 @@ Three parts are what a thing lent to a mind from a Mac needs; keep them:
 For a minimal app, delete the things it shares and their methods in `AppModel.swift` and the
 bridge: `Camera.swift` and `CameraState.swift`, `AudioOwner.swift`, `AudioDevices.swift` and
 `MicrophoneState.swift`, `Speaker.swift`, `Banner.swift` and `BannerState.swift`, `Powers.swift`
-(screen, window text, commands), `Presence.swift`, and their tests; `swift build` then names what
+(screen, window text, commands), `Capture.swift` and `bridge/capture-upload.mjs`, `Presence.swift`, and their tests; `swift build` then names what
 still refers to them, in the panel and the app's delegate. Then add your own method: a
 case in `AppModel.swift`, a function in the bridge, a line in its description.
 
@@ -208,6 +208,78 @@ two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is 
 A call for a thing that is Off, or that macOS has not allowed yet, fails with the reason in words
 an agent can pass on. Each use turns the 𝑖 red for 3 seconds.
 
+## Capture: show an agent what you mean
+
+Press **⌥⇧S** in any app, then talk, click, and hold **⇧** and move the mouse to draw on the
+screen in red (no button). Press ⌥⇧S again (or Send on the pill at the top of the display). A short
+text is on the clipboard at once: paste it to an agent. The capture also goes into the mind this
+Mac is lent to. The gesture and the shape of the text are
+[Scrawl](https://github.com/kitlangton/scrawl)'s, by Kit Langton. A capture is your own act, so it
+has no switch in the panel; it needs macOS 15, Screen Recording, and the microphone for your
+voice. It ends by itself after 10 minutes. Discard on the pill throws it away.
+
+The text is a line for each **numbered picture** with the words you said at it, and the two ways
+to the pictures:
+
+```
+[capture 0:15 · Ghostty “my project” · jonas.mac → example.com]
+The words point at red marks on the screen: look at the pictures before you answer. Each # is a numbered picture.
+On jonas.mac: read sheet.jpg and 1.jpg, 2.jpg together, in /Users/…/iterate-mac-app/captures/<id>. Those files are the whole capture: answer from them, and open nothing else in that folder
+If you cannot read that folder (you are an agent of the mind example.com, or you have its MCP tool and no file tool), run this as your first step. It answers the words and the marks, and it shows you the pictures as images: async (itx) => { … one script, about 600 characters: it waits for capture/ready, reads context.json, and shows the pictures … }
+- #1 (0:06) drew “what is this here?”
+- #2 (0:12) clicked “Save” “and this is slow”
+```
+
+Each mark and each click gets a numbered picture: the part of the display around it, cut out
+while you talk. `sheet.jpg` is all of them on one. While you talk the pictures go up and the mind
+puts your voice into words at each pause (the pill shows the last words: the sign that the
+microphone hears you). So at the end only your last words can be missing: the first text says so,
+and the same text with all the words takes its place on the clipboard a moment later, unless you
+copied something else.
+
+**Who reads the text, and what they get** (tested with real agents on 21 November 2026):
+
+| The agent                                         | What it does                                | Does its model see the pictures?                                                                                                               |
+| ------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| On this Mac (Claude Code, Codex)                  | Reads the numbered pictures from the folder | Yes                                                                                                                                            |
+| In the mind (the Dash, Slack)                     | Runs the text's script                      | Yes: the script sends them to that agent as the files of a message                                                                             |
+| Elsewhere, with the mind's MCP tool and a shell   | Runs the text's script                      | Yes                                                                                                                                            |
+| With the mind's MCP tool alone (no shell, no web) | Runs the text's script                      | Yes: the tool answers the pictures as images. A mind that does not have that yet answers text, with `seen`: what a model read off each picture |
+
+Each of them answers in one turn: one reply to the one message with the text.
+
+The script waits for the event `capture/ready`, so a text that is pasted before the capture is
+whole still gives the whole capture. The folder stays on this Mac for 7 days.
+
+A capture is a set of **observations**, each with its time in milliseconds from the start. They
+are files of the mind under `/captures/<id>/`, and the capture is a context of its own at that
+path, with two events: `capture/ready` (the words, the marks and the pictures are there) and
+`capture/received` (the movie too):
+
+| File                   | What it holds                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `summary.md`           | The text on the clipboard, with all the words                                                                                                                                                                                                                                                                                 |
+| `1.jpg` …, `sheet.jpg` | The numbered pictures, at most 12, and all of them on one. A capture with no mark and no click has one: the display at the end                                                                                                                                                                                                |
+| `context.json`         | What the text's script answers: the words, the marks, and the pictures under `"itx/images"`                                                                                                                                                                                                                                   |
+| `seen.json`            | What a model read under each mark, for a reader that gets no picture: a model's claim                                                                                                                                                                                                                                         |
+| `transcript.json`      | The words with their times. The mind's Whisper hears the voice piece by piece: a model's claim, not an observation                                                                                                                                                                                                            |
+| `capture.json`         | The observations: `screen` and `voice` (the two files below), `window` (the app in front, its window's title, a browser's page URL, its accessibility tree: a new one at each change), `click` and `ink` (the points, and the accessibility element under them), `picture`; the numbered pictures (`panels`); and the display |
+| `pictures/01.jpg` …    | At most 12 sharp stills of the whole display: at each mark, at the start and the end, at a change of window, at a click                                                                                                                                                                                                       |
+| `screen.mp4`           | The display under the pointer, with the ink on it and your voice: small (1600 pixels wide, 10 pictures a second)                                                                                                                                                                                                              |
+| `voice.m4a`            | The voice alone                                                                                                                                                                                                                                                                                                               |
+| `accessibility/0.json` | The window in front as text, for the first six windows                                                                                                                                                                                                                                                                        |
+
+**A word list for the transcript.** When the mind has `/dictation/words.txt` (the terms to know,
+one on a line) and `/dictation/replacements.csv` (`wrong,right` on each line), the capture uses
+them: the terms go to Whisper as its prompt (Whisper reads the last 224 tokens of a prompt only),
+and each wrong form in the heard text is replaced, as a whole word, whatever its case.
+
+The Mac's key only lends, so the capture goes up as you: `bridge/capture-upload.mjs` uses the
+iterate CLI's own sign-in to that mind (`iterate login <mind>`, once). With no sign-in, or no
+network, the capture stays in `~/Library/Application Support/iterate-mac-app/captures/<id>/`, the
+text on the clipboard names the files there, and the panel says why; send it later with
+`node bridge/capture-upload.mjs <folder> --finish --iterate <iterate.js> --mind <mind>`.
+
 ## How it works
 
 - **The app** (`Sources/`) holds macOS's permissions: Screen Recording, Accessibility, Camera and
@@ -243,6 +315,12 @@ swift test                    # the state machines' tests (needs Xcode): microph
 npx .                         # the installer from this folder
 npx . init /tmp/mac --no-install   # a copy, without building or installing it
 ```
+
+`printf '{"method":"capture.toggle"}\n' | nc -U ~/Library/Application\ Support/voice-meet-mac/endpoint.sock`
+does what ⌥⇧S does, from a script on this Mac; the bridge lends no such call to a mind.
+
+A script can also draw a mark in the capture that runs, for a test with no hand:
+`{"method":"capture.mark","points":[[x,y],…]}` (points of the display from its top left).
 
 `.build/release/VoiceMeetMac --render-panel panel.png` draws the panel to a file without opening
 anything. A third word draws the lend in one phase: `live`, `reconnecting`, `stopped` or

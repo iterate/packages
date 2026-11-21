@@ -87,7 +87,7 @@ enum Accessibility {
         return answer
     }
 
-    private static func describe(_ element: AXUIElement, depth: Int, budget: inout Int) -> [String: Any] {
+    static func describe(_ element: AXUIElement, depth: Int, budget: inout Int) -> [String: Any] {
         budget -= 1
         var node: [String: Any] = [:]
         for (key, name) in [
@@ -108,9 +108,25 @@ enum Accessibility {
         return node
     }
 
-    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+    }
+
+    /// The page a browser's window shows: the URL of its first web area. A window that has no
+    /// document of its own (Chrome's) has one. At most 400 elements are looked at.
+    static func pageURL(in window: AXUIElement) -> String? {
+        var queue = [window]
+        var looked = 0
+        while !queue.isEmpty, looked < 400 {
+            let element = queue.removeFirst()
+            looked += 1
+            if attribute(element, kAXRoleAttribute) as? String == "AXWebArea", let url = attribute(element, kAXURLAttribute) as? URL {
+                return url.absoluteString
+            }
+            queue += attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
+        }
+        return nil
     }
 }
 
