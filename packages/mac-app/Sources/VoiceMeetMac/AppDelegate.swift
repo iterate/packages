@@ -58,6 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.onChange = { [weak self] in self?.stateDidChange() }
         // the address as the CLI says it (`iterate.example.com`), not the config's short name
         model.banners.activeMind = { [weak self] in self?.lend.state.mindAddress }
+        model.acts.mind = { [weak self] in self?.lend.config?.activeMind?.mind }
+        model.deviceEvents.destination = { [weak self] in
+            guard let config = self?.lend.config, let mind = config.activeMind else { return nil }
+            let publisher = URL(fileURLWithPath: config.bridge).deletingLastPathComponent().appendingPathComponent("device-events.mjs").path
+            return DeviceEvents.Destination(node: config.node, iterateBin: config.iterateBin, publisher: publisher, mind: mind.mind, name: mind.name)
+        }
         model.banners.onChange = { [weak self] in self?.stateDidChange() }
         model.start()
         lend.isBusy = { [weak self] in

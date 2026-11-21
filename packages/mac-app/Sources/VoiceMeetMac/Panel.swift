@@ -18,6 +18,8 @@ final class PanelState: ObservableObject {
     @Published var captureLine: String?
     /// The mind switcher shows its list of minds. It closes with the panel.
     @Published var isSwitcherOpen = false
+    /// Whether the list of what a mind did is open.
+    @Published var isActivityOpen = false
 }
 
 /// What the panel shows of the lend.
@@ -83,6 +85,7 @@ struct Panel: View {
                 section("Displays", of: .screen)
                 section("Cameras", of: .camera)
                 section("This Mac", of: .microphone, .speaker, .banners, .accessibility, .commands)
+                DeviceEventsSection(events: model.deviceEvents)
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -98,17 +101,15 @@ struct Panel: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             Divider()
+            ActivityList(log: model.acts, isOpen: $state.isActivityOpen)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            Divider()
             HStack(spacing: 12) {
                 Button(state.didCopy ? "Copied" : "Copy Prompt", action: copyPrompt)
                     .controlSize(.large)
                     .help("Copies how an agent uses this Mac, to paste into a chat with it")
                 VStack(alignment: .leading, spacing: 2) {
-                    if let lastUse = model.lastUse {
-                        Text("Last use: \(lastUse.thing.title), \(lastUse.at.formatted(date: .omitted, time: .standard))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
                     if let source = state.lend.source {
                         Text(source)
                             .font(.caption)

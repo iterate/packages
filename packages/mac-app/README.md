@@ -219,6 +219,41 @@ two labels are left (`iterate.com` stays `iterate.com`); a zone of one label is 
 A call for a thing that is Off, or that macOS has not allowed yet, fails with the reason in words
 an agent can pass on. Each use turns the 𝑖 red for 3 seconds.
 
+## What a mind does with the Mac, as you see it
+
+Each act of a mind with this Mac shows twice:
+
+- **On the screen.** While the act runs, and for 4 seconds after, a pill at the top right names it
+  with the mind's face: "Running a command" with the command's words, "Taking a picture of the
+  display", "Listening to the microphone for 5 s". The 𝑖 in the menu bar is red for that time. The
+  pill is in no picture or recording of the screen, so a mind's own screenshot does not show it.
+- **In the panel.** "Activity" opens a list of the last acts with their times, how long each took,
+  and the reason when one failed. The list is in memory alone and starts empty with the app.
+
+The pill's × hides it until the next act begins, also while a long act runs on. "Show each act
+on the screen", in the open Activity list, turns the pill off; the list and the red 𝑖 stay.
+An act that was refused (the thing is off, or you said no) is no act and shows in neither.
+`--render-activity <folder>` draws the pill and the list to PNG files, with sample acts.
+
+## What the Mac tells its mind: `/devices/<name>`
+
+A lent Mac has a context of its own in the mind, `/devices/<name>`, with the name of its lend
+(`itx.<name>`). The app adds events there, through `bridge/device-events.mjs`, as you (the iterate
+CLI's own sign-in; the Mac's key lends and does nothing else):
+
+| Event                     | When                                                                                       | Payload                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| `device/presence-changed` | Always while the Mac is lent: it goes idle (120 s with no input), active, locked or asleep | `state`, `idleSeconds`, `was`                            |
+| `device/key-pressed`      | While **Keyboard and mouse** is on in the panel                                            | `key`, `text`, `keyCode`, `modifiers`, `app`, `isRepeat` |
+| `device/mouse-pressed`    | The same                                                                                   | `x`, `y`, `button`, `clicks`, `app`                      |
+| `device/mouse-moved`      | The same, at most 10 a second                                                              | `x`, `y`                                                 |
+| `device/scrolled`         | The same, at most 10 a second                                                              | `x`, `y`, `dx`, `dy`                                     |
+
+A key event holds the key itself, so what you type goes to the mind, a password too. Keyboard and
+mouse is off until you turn it on. Its events are ephemeral: they reach whoever listens at that
+moment and are in no log, unless you tick **Keep these events in the mind's log**. Keys need the
+Accessibility permission of macOS. A presence event is always kept.
+
 ## Capture: show an agent what you mean
 
 Press **⌥⇧S** in any app, then talk, click, and hold **⇧** and move the mouse to draw on the

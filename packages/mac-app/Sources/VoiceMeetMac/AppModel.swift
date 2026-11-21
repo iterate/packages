@@ -27,6 +27,10 @@ final class AppModel {
     let banners = Banners()
     /// The person's approvals, for things whose choice is "Ask".
     let approval = Approval()
+    /// What a mind did with this Mac, for the pill on the screen and the panel's list.
+    let acts = ActivityLog()
+    /// What this Mac tells its mind about itself: presence, and keyboard and mouse when shared.
+    let deviceEvents = DeviceEvents()
     private var activity: NSObjectProtocol?
     private var microphoneHolders = 0
     private var isListening = false
@@ -46,10 +50,14 @@ final class AppModel {
     /// file (`Panel.render`) must not take the running app's socket.
     func start() {
         endpoint.start()
+        deviceEvents.readPresence = { Self.presence() }
+        deviceEvents.start()
     }
 
     func shutDown() {
         endpoint.stop()
+        acts.stop()
+        deviceEvents.stop()
         audioOwner.stop()
         speaker.stop()
         banners.stop()
@@ -94,56 +102,62 @@ final class AppModel {
             ]
         case "screen.snapshot":
             let display = try Screen.resolve(parameters["display"] as? Int)
-            try await use(display, what: "A still picture of the display \"\(display.title)\".")
-            return lend(try await Screen.snapshot(of: Screen.id(of: display), maxWidth: maxWidth), of: "the display \"\(display.title)\"")
+            return try await act(display, what: "A still picture of the display \"\(display.title)\".", doing: "Taking a picture of the display “\(display.title)”", did: "Took a picture of the display “\(display.title)”") {
+                self.lend(try await Screen.snapshot(of: Screen.id(of: display), maxWidth: maxWidth), of: "the display \"\(display.title)\"")
+            }
         case "camera.snapshot":
             let device = try Camera.resolve(parameters["camera"] as? String)
-            try await use(.camera(device), what: "A still picture of the camera \"\(device.localizedName)\".")
             let owner = unit(device.uniqueID).owner
-            return try await withCamera(device.uniqueID) {
+            return try await act(.camera(device), what: "A still picture of the camera \"\(device.localizedName)\".", doing: "Taking a picture with the camera “\(device.localizedName)”", did: "Took a picture with the camera “\(device.localizedName)”") {
+              try await self.withCamera(device.uniqueID) {
                 // The first frames of a camera are dark: it sets its exposure for a moment.
                 try await wait(seconds: 5, for: "the camera's first picture") { owner.snapshot(maxWidth: 16) != nil }
                 try await Task.sleep(nanoseconds: 700_000_000)
                 guard let picture = owner.snapshot(maxWidth: maxWidth) else {
                     throw EndpointRefusal("The camera gave no picture.")
                 }
-                return lend(picture, of: "the camera \"\(device.localizedName)\"")
+                return self.lend(picture, of: "the camera \"\(device.localizedName)\"")
+              }
             }
         case "microphone.listen":
             let seconds = min(max(parameters["seconds"] as? Double ?? 5, 0.5), 60)
-            try await use(.microphone, what: "\(String(format: "%.0f", seconds)) seconds of the microphone.")
-            return try await withMicrophone {
+            return try await act(.microphone, what: "\(String(format: "%.0f", seconds)) seconds of the microphone.", doing: "Listening to the microphone for \(String(format: "%.0f", seconds)) s", did: "Listened to the microphone for \(String(format: "%.0f", seconds)) s") {
+              try await self.withMicrophone {
                 // One recording at a time: a second caller waits for the first one's end.
-                while isListening { try await Task.sleep(nanoseconds: 100_000_000) }
-                isListening = true
-                defer { isListening = false }
-                let wave = await audioOwner.listen(seconds: seconds)
-                log.info("endpoint: lent \(String(format: "%.1f", seconds)) s of the microphone, \(wave.count) bytes of WAV")
+                while self.isListening { try await Task.sleep(nanoseconds: 100_000_000) }
+                self.isListening = true
+                defer { self.isListening = false }
+                let wave = await self.audioOwner.listen(seconds: seconds)
+                self.log.info("endpoint: lent \(String(format: "%.1f", seconds)) s of the microphone, \(wave.count) bytes of WAV")
                 return ["wavBase64": wave.base64EncodedString(), "seconds": seconds]
+              }
             }
         case "speaker.play":
             guard let sound = Data(base64Encoded: parameters["soundBase64"] as? String ?? ""), !sound.isEmpty else {
                 throw EndpointRefusal("speaker.play needs a sound: the bytes of a sound file.")
             }
             let player = try speaker.open(sound)
-            try await use(.speaker, what: "Play a sound of \(String(format: "%.1f", player.duration)) seconds through the speakers.")
-            log.info("endpoint: plays a sound of \(String(format: "%.1f", player.duration)) s, \(sound.count) bytes")
-            try await speaker.play(player)
-            return ["seconds": player.duration]
+            return try await act(.speaker, what: "Play a sound of \(String(format: "%.1f", player.duration)) seconds through the speakers.", doing: "Playing a sound through the speakers", did: "Played a sound of \(String(format: "%.0f", player.duration)) s through the speakers") {
+                self.log.info("endpoint: plays a sound of \(String(format: "%.1f", player.duration)) s, \(sound.count) bytes")
+                try await self.speaker.play(player)
+                return ["seconds": player.duration]
+            }
         case "speaker.say":
             guard let words = parameters["words"] as? String, !words.isEmpty else {
                 throw EndpointRefusal("speaker.say needs words.")
             }
-            try await use(.speaker, what: "Say through the speakers:\n\n\(words.prefix(700))")
-            log.info("endpoint: says \(words.count) characters through the speakers")
-            try await speaker.say(String(words.prefix(5_000)))
-            return ["characters": min(words.count, 5_000)]
+            return try await act(.speaker, what: "Say through the speakers:\n\n\(words.prefix(700))", doing: "Speaking through the speakers", did: "Spoke through the speakers", detail: Self.oneLine(words)) {
+                self.log.info("endpoint: says \(words.count) characters through the speakers")
+                try await self.speaker.say(String(words.prefix(5_000)))
+                return ["characters": min(words.count, 5_000)]
+            }
         case "accessibility.frontWindow":
-            try await use(.accessibility, what: "The text and controls of the window in front.")
-            return try Accessibility.frontWindow(
-                maxDepth: parameters["maxDepth"] as? Int ?? 12,
-                maxNodes: parameters["maxNodes"] as? Int ?? 1_500
-            )
+            return try await act(.accessibility, what: "The text and controls of the window in front.", doing: "Reading the text of the window in front", did: "Read the text of the window in front") {
+                try Accessibility.frontWindow(
+                    maxDepth: parameters["maxDepth"] as? Int ?? 12,
+                    maxNodes: parameters["maxNodes"] as? Int ?? 1_500
+                )
+            }
         case "run":
             guard let argv = parameters["argv"] as? [String] else {
                 throw EndpointRefusal("run needs a command: argv is a list of strings.")
@@ -151,16 +165,15 @@ final class AppModel {
             let stdin = Data(base64Encoded: parameters["stdinBase64"] as? String ?? "") ?? Data()
             let input = String(data: stdin, encoding: .utf8) ?? ""
             let shown = argv.joined(separator: " ").prefix(300) + (input.isEmpty ? "" : "\n\nWith this input:\n" + input.prefix(700))
-            try await use(.commands, what: "Run this command with this app's permissions:\n\n\(shown)")
-            log.info("endpoint: runs \(argv.joined(separator: " ").prefix(300))")
-            return try await Commands.run(argv, stdin: stdin, timeout: parameters["timeoutSeconds"] as? Double ?? 120)
+            return try await act(.commands, what: "Run this command with this app's permissions:\n\n\(shown)", doing: "Running a command", did: "Ran a command", detail: Self.oneLine(argv.joined(separator: " "))) {
+                self.log.info("endpoint: runs \(argv.joined(separator: " ").prefix(300))")
+                return try await Commands.run(argv, stdin: stdin, timeout: parameters["timeoutSeconds"] as? Double ?? 120)
+            }
         // No approval first: the banner is the question, and Ask and Shared both show it.
         case "banner.show":
-            if Shareable.banners.sharing != .off { count(.banners) }
-            return try await banners.show(parameters)
+            return try await shown(parameters, did: "Showed a banner") { try await self.banners.show(parameters) }
         case "call.ring":
-            if Shareable.banners.sharing != .off { count(.banners) }
-            return try await banners.ring(parameters)
+            return try await shown(parameters, did: "Rang a call") { try await self.banners.ring(parameters) }
         case "capture.toggle":
             guard let toggleCapture else { throw EndpointRefusal("A capture needs macOS 15.") }
             toggleCapture()
@@ -192,6 +205,40 @@ final class AppModel {
             try await approval.ask(for: thing, what: what)
         }
         count(thing)
+    }
+
+    /// One act of a caller with `thing`: `use` first, then `body`, and the person sees it in the
+    /// pill on the screen and in the panel's list, from its start to its end. A refusal before
+    /// the act (the thing is off, the person said no) is no act.
+    private func act(
+        _ thing: Shareable, what: String, doing: String, did: String, detail: String? = nil, _ body: () async throws -> [String: Any]
+    ) async throws -> [String: Any] {
+        try await use(thing, what: what)
+        let id = acts.began(thing, doing: doing, did: did, detail: detail)
+        do {
+            let answer = try await body()
+            acts.ended(id)
+            return answer
+        } catch {
+            acts.ended(id, failure: Self.oneLine(AppLog.describe(error), limit: 90))
+            throw error
+        }
+    }
+
+    /// A banner or a call: it has its own window, so the list has it and the pill is short.
+    private func shown(_ parameters: [String: Any], did: String, _ body: () async throws -> [String: Any]) async throws -> [String: Any] {
+        guard Shareable.banners.sharing != .off else { return try await body() }
+        count(.banners)
+        let id = acts.began(.banners, doing: did, did: did, detail: (parameters["title"] as? String).map { Self.oneLine($0) })
+        // the answer comes when the person presses a button: the act for the list is the showing
+        acts.ended(id)
+        return try await body()
+    }
+
+    /// Words on one line, cut: for a line of the activity list.
+    private static func oneLine(_ words: String, limit: Int = 160) -> String {
+        let line = words.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return line.count > limit ? line.prefix(limit) + "…" : line
     }
 
     /// One use of `thing`, for the menu bar and the panel.

@@ -18,6 +18,10 @@ enum VoiceMeetMacApp {
         if let flag = CommandLine.arguments.firstIndex(of: "--render-switcher"), CommandLine.arguments.indices.contains(flag + 1) {
             exit(MindSwitcher.render(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
         }
+        // The activity pill and the panel's activity list, with sample acts: `--render-activity <folder>`.
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-activity"), CommandLine.arguments.indices.contains(flag + 1) {
+            exit(ActivityLog.render(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) ? 0 : 1)
+        }
         // The same for the forms of the mind menu: Add a Mind, and Remove.
         if let flag = CommandLine.arguments.firstIndex(of: "--render-add-mind"), CommandLine.arguments.indices.contains(flag + 1) {
             // an optional third word is the name in the field, to see its check
