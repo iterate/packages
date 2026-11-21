@@ -1,22 +1,23 @@
-// call-controls.tsx — THE CALL'S CONTROLS IN A HEADER, icon buttons in one shadcn button group that
-// does not wrap: the microphone, the camera, the screen, the voice agent (a member's alone), and, in
-// the call, the devices. Leave stands apart after the group, in red. The Dash's agent page and Meet
-// draw the same row.
+// call-controls.tsx — THE CALL'S CONTROLS IN A HEADER. Out of the call, one button: "Start call"
+// when nobody is in the agent's call, "Join call" when someone is. In the call, the microphone, the
+// camera, the screen, the voice agent (a member's alone) and the devices are icon buttons in one
+// shadcn button group that does not wrap, and Leave stands apart after it, in red. The Dash's agent
+// page and Meet draw the same controls.
 //
-// - ONE PRESS GOES IN: before the page is in the call, a press of the microphone, the camera, the
-//   screen or the voice agent turns the call on when the agent has none (`start`), joins, then does
-//   what the button says. The microphone and the voice agent join with the microphone open; the
-//   camera and the screen join listening, and send only their own picture.
-// - THE BUTTONS ARE THERE FROM THE FIRST PAINT: with no engine yet, or while nobody knows whether
-//   the agent has a call, they are drawn and cannot be pressed. So the header does not move when the
-//   call comes.
-// - EACH BUTTON HAS ONE NAME for a screen reader (`aria-label`); `aria-pressed` says whether it is
-//   on. Its tooltip says what a press does, or why it cannot be pressed.
+// - ONE PRESS GOES IN: Start or Join turns the call on when the agent has none (`start`), and joins
+//   with the microphone open. A microphone that the browser refuses does not keep the person out:
+//   the page joins listening, and says why. The camera, the screen and the voice agent are the
+//   call's own controls: they come once the page is in it.
+// - THE BUTTON IS THERE FROM THE FIRST PAINT: with no engine yet, or while nobody knows whether the
+//   agent has a call, it is drawn and cannot be pressed. So the header does not move when the call
+//   comes.
+// - EACH BUTTON HAS ONE NAME for a screen reader (`aria-label`); a switch's `aria-pressed` says
+//   whether it is on. Its tooltip says what a press does, or why it cannot be pressed.
 // - WHAT GOES WRONG is said in words under the buttons, from the engine's state, so a row drawn
 //   again still says it: a start that failed, a join that failed, a voice agent that did not come.
-// - ON A PHONE (`CallHeaderControls`) the row is behind one button, so the path and the tabs keep
-//   the header.
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+// - ON A PHONE (`CallHeaderControls`) Start or Join is its icon alone, and in the call the controls
+//   are behind one button, so the path and the tabs keep the header.
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   BotIcon,
   BotOffIcon,
@@ -39,14 +40,12 @@ import { Button } from "#/components/ui/button.tsx";
 import { ButtonGroup } from "#/components/ui/button-group.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
+import { Spinner } from "#/components/ui/spinner.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
 
-/** What a press before the join does once the page is in: the button that was pressed. */
-type First = "mic" | "camera" | "screen" | "voice";
-
 export type CallControlsProps = {
-  /** What `useCall` answers. `call` is null until the page has a context and its row: the buttons
-   *  are then drawn and cannot be pressed. */
+  /** What `useCall` answers. `call` is null until the page has a context and its row: the button
+   *  is then drawn and cannot be pressed. */
   call: CallEngine | null;
   ui: CallUi;
   live: CallLive | undefined;
@@ -55,13 +54,13 @@ export type CallControlsProps = {
   /** Turns the call on, for an agent that has none yet (`live` is undefined). A press then turns it
    *  on, and joins. Without it and without `live`, nobody knows yet whether there is a call. */
   start?: () => Promise<unknown>;
-  /** The host's start is under way: the buttons wait for it. */
+  /** The host's start is under way: the button waits for it. */
   starting?: boolean;
   className?: string;
 };
 
-/** THE CALL'S CONTROLS: the row of buttons, and what went wrong under it, in one element a host may
- *  place (`data-slot="call-bar-words"`). */
+/** THE CALL'S CONTROLS: Start or Join out of the call, the button group and Leave in it, and what
+ *  went wrong under them, in one element a host may place (`data-slot="call-bar-words"`). */
 export function CallControls({
   call,
   ui,
@@ -73,21 +72,22 @@ export function CallControls({
 }: CallControlsProps) {
   // this row's own press, from the start to the end of its join
   const [entering, setEntering] = useState(false);
-  const busy = starting || entering || ui.joining;
-  const shut = !ui.joined && !joinable(live);
-  // nothing to press: no engine yet, or nobody knows yet whether the agent has a call
-  const unknown = !call || (!ui.joined && !live && !start);
-  const why = unknown
-    ? "The call is not ready yet"
-    : shut
-      ? "This mind has no call service yet"
-      : undefined;
-  const othersInCall = !ui.joined && Object.keys(live?.inCall || {}).length > 0;
-  const voiceHere = Boolean(live?.voiceAgent);
+  // a press of Start, Join or Leave in this row moves the focus to the row's first button after it:
+  // the button that was pressed is gone then
+  const row = useRef<HTMLDivElement>(null);
+  const keepFocus = useRef(false);
+  const joined = ui.joined && Boolean(call);
+  useLayoutEffect(() => {
+    if (!keepFocus.current) return;
+    keepFocus.current = false;
+    row.current?.querySelector("button")?.focus();
+  }, [joined]);
 
-  /** In the call first, then `first`'s own act. A start that fails says why in the call's words. */
-  const enter = async (first: First) => {
+  /** In the call: the call on first when the agent has none, then the join with the microphone. A
+   *  start that fails says why in the call's words. */
+  const enter = async () => {
     if (!call) return;
+    keepFocus.current = true;
     setEntering(true);
     try {
       const epoch = call.epoch;
@@ -103,71 +103,50 @@ export function CallControls({
         // a Leave, or a page that went away, while the call came on: joining is the next press
         if (call.epoch !== epoch) return;
       }
-      const joining = call.join({ listenOnly: first === "camera" || first === "screen" });
-      // the camera and the screen go from the press itself: the screen's picker needs it, and the
-      // call sends them once the join has its connection
-      if (first === "camera") void call.toggleCamera();
-      if (first === "screen") void call.toggleScreen();
-      await joining;
-      if (first === "voice" && call.ui.joined) void call.aiInvite();
+      await call.join({ orListen: true });
     } finally {
       setEntering(false);
     }
   };
-  const press = (first: First, inCall: () => unknown) => () => {
-    if (ui.joined) void inCall();
-    else void enter(first);
-  };
-  const waits = Boolean(why) || (!ui.joined && busy);
-  const goIn = start ? "Start a call" : "Join the call";
+  const words = call ? <CallWords call={call} ui={ui} /> : null;
+  if (!joined || !call)
+    return (
+      <div
+        data-slot="call-bar"
+        data-joined={false}
+        className={cn("flex flex-col gap-2", className)}
+      >
+        <div ref={row} className="flex items-center">
+          <GoIn
+            ready={Boolean(call)}
+            live={live}
+            start={start}
+            busy={starting || entering || ui.joining}
+            onClick={() => void enter()}
+          />
+        </div>
+        {words}
+      </div>
+    );
+  const voiceHere = Boolean(live?.voiceAgent);
   return (
-    <div
-      data-slot="call-bar"
-      data-joined={ui.joined}
-      className={cn("flex flex-col gap-2", className)}
-    >
-      <div className="flex items-center gap-1" aria-busy={busy || undefined}>
+    <div data-slot="call-bar" data-joined className={cn("flex flex-col gap-2", className)}>
+      <div ref={row} className="flex items-center gap-1">
         <ButtonGroup aria-label="The call">
           <Switch
             label="Microphone"
-            on={ui.joined && !ui.muted}
-            tip={
-              why ||
-              (ui.joined
-                ? ui.unmuting
-                  ? "Unmuting…"
-                  : ui.muted
-                    ? "Unmute"
-                    : "Mute"
-                : othersInCall
-                  ? "Join the call: others are in it"
-                  : goIn)
-            }
-            disabled={waits || ui.unmuting}
-            onClick={press("mic", () => call?.toggleMute())}
+            on={!ui.muted}
+            tip={ui.unmuting ? "Unmuting…" : ui.muted ? "Unmute" : "Mute"}
+            disabled={ui.unmuting}
+            onClick={() => void call.toggleMute()}
           >
-            {ui.joined && ui.muted ? <MicOffIcon /> : <MicIcon />}
-            {othersInCall ? (
-              <span
-                data-slot="call-live-dot"
-                aria-hidden
-                className="pointer-events-none absolute top-0.5 right-0.5 size-1.5 rounded-full bg-success"
-              />
-            ) : null}
+            {ui.muted ? <MicOffIcon /> : <MicIcon />}
           </Switch>
           <Switch
             label="Camera"
             on={ui.camera}
-            tip={
-              why ||
-              (ui.camera
-                ? "Turn the camera off"
-                : ui.joined
-                  ? "Share video"
-                  : `${goIn} with the camera`)
-            }
-            disabled={waits}
-            onClick={press("camera", () => call?.toggleCamera())}
+            tip={ui.camera ? "Turn the camera off" : "Share video"}
+            onClick={() => void call.toggleCamera()}
           >
             {ui.camera ? <VideoIcon /> : <VideoOffIcon />}
           </Switch>
@@ -175,16 +154,8 @@ export function CallControls({
             <Switch
               label="Share screen"
               on={ui.screen}
-              tip={
-                why ||
-                (ui.screen
-                  ? "Stop sharing the screen"
-                  : ui.joined
-                    ? "Share the screen"
-                    : `${goIn} and share the screen`)
-              }
-              disabled={waits}
-              onClick={press("screen", () => call?.toggleScreen())}
+              tip={ui.screen ? "Stop sharing the screen" : "Share the screen"}
+              onClick={() => void call.toggleScreen()}
             >
               {ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
             </Switch>
@@ -194,50 +165,111 @@ export function CallControls({
               label="Voice agent"
               on={voiceHere}
               tip={
-                why ||
-                (voiceHere
-                  ? ui.joined
-                    ? "Send the voice agent away"
-                    : "Join the call: a voice agent is in it"
+                voiceHere
+                  ? "Send the voice agent away"
                   : ui.ai === "starting"
                     ? "The voice agent is coming…"
-                    : ui.joined
-                      ? "Add a voice agent"
-                      : `${goIn} with a voice agent`)
+                    : "Add a voice agent"
               }
-              disabled={waits || (ui.joined && !voiceHere && ui.ai !== "off")}
+              disabled={!voiceHere && ui.ai !== "off"}
               className={voiceHere ? "border-success text-success" : undefined}
-              onClick={() => {
-                if (!ui.joined) void enter(voiceHere ? "mic" : "voice");
-                else if (voiceHere) void call?.aiDismiss();
-                else void call?.aiInvite();
-              }}
+              onClick={() => void (voiceHere ? call.aiDismiss() : call.aiInvite())}
             >
               {voiceHere ? <BotOffIcon /> : <BotIcon />}
             </Switch>
           ) : null}
-          {ui.joined && call ? <CallDevices call={call} ui={ui} variant="outline" /> : null}
+          <CallDevices call={call} ui={ui} variant="outline" />
         </ButtonGroup>
-        {ui.joined && call ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon-sm"
-                  variant="destructive"
-                  aria-label="Leave the call"
-                  onClick={() => void call.leave()}
-                />
-              }
-            >
-              <PhoneOffIcon />
-            </TooltipTrigger>
-            <TooltipContent>Leave the call</TooltipContent>
-          </Tooltip>
-        ) : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="destructive"
+                aria-label="Leave the call"
+                onClick={() => {
+                  keepFocus.current = true;
+                  void call.leave();
+                }}
+              />
+            }
+          >
+            <PhoneOffIcon />
+          </TooltipTrigger>
+          <TooltipContent>Leave the call</TooltipContent>
+        </Tooltip>
       </div>
-      {call ? <CallWords call={call} ui={ui} /> : null}
+      {words}
     </div>
+  );
+}
+
+/** START OR JOIN, the one button out of the call: "Start call" when nobody is in the call, "Join
+ *  call" and how many are in it when someone is. Below `md` it is its icon (and the count) alone;
+ *  its name and its tooltip say the words. While a start or a join is under way it waits, with a
+ *  spinner. */
+function GoIn({
+  ready,
+  live,
+  start,
+  busy,
+  onClick,
+}: {
+  /** The page has its engine. */
+  ready: boolean;
+  live: CallLive | undefined;
+  start: (() => Promise<unknown>) | undefined;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  const inCall = Object.keys(live?.inCall || {}).length;
+  // nothing to press: no engine yet, or nobody knows yet whether the agent has a call
+  const why =
+    !ready || (!live && !start)
+      ? "The call is not ready yet"
+      : joinable(live)
+        ? undefined
+        : "This mind has no call service yet";
+  const word = inCall ? "Join call" : "Start call";
+  const people = inCall === 1 ? "1 person is" : `${inCall} people are`;
+  const tip =
+    why ||
+    (busy
+      ? `${inCall ? "Joining" : "Starting"} the call…`
+      : inCall
+        ? `Join the call: ${people} in it`
+        : "Start a call");
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            data-slot="call-go-in"
+            size="sm"
+            variant={inCall ? "default" : "outline"}
+            aria-label={inCall ? `Join call: ${people} in it` : word}
+            aria-busy={busy || undefined}
+            disabled={Boolean(why) || busy}
+            focusableWhenDisabled
+            className="aria-disabled:opacity-50"
+            onClick={onClick}
+          />
+        }
+      >
+        {busy ? (
+          <Spinner data-icon="inline-start" aria-hidden />
+        ) : (
+          <PhoneIcon data-icon="inline-start" />
+        )}
+        <span className="hidden md:inline">{word}</span>
+        {inCall ? (
+          <span data-slot="call-count" aria-hidden className="tabular-nums">
+            {inCall}
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -249,16 +281,16 @@ function watchNarrow(changed: () => void) {
   return () => query.removeEventListener("change", changed);
 }
 
-/** THE CALL'S CONTROLS IN A HEADER: the row on a wide screen, behind one button on a phone. The
- *  button says when the page is in the call, and marks an error that the closed row holds. */
+/** THE CALL'S CONTROLS IN A HEADER: as they are on a wide screen, and out of the call. On a phone
+ *  in the call they are behind one button, which marks an error that the closed row holds. */
 export function CallHeaderControls(props: CallControlsProps) {
   const narrow = useSyncExternalStore(
     watchNarrow,
     () => matchMedia(NARROW).matches,
     () => false,
   );
-  if (!narrow) return <CallControls {...props} />;
   const { ui } = props;
+  if (!narrow || !ui.joined || !props.call) return <CallControls {...props} />;
   const wrong = Boolean(ui.error || ui.aiRefusal);
   return (
     <Popover>
@@ -267,18 +299,12 @@ export function CallHeaderControls(props: CallControlsProps) {
           render={
             <PopoverTrigger
               nativeButton
-              data-joined={ui.joined}
+              data-joined
               render={
                 <Button
                   size="icon-sm"
-                  variant={ui.joined ? "secondary" : "ghost"}
-                  aria-label={
-                    ui.joined
-                      ? `Call: you are in it${wrong ? ", and an error" : ""}`
-                      : wrong
-                        ? "Call: an error"
-                        : "Call"
-                  }
+                  variant="secondary"
+                  aria-label={`Call: you are in it${wrong ? ", and an error" : ""}`}
                   className="relative"
                 />
               }
@@ -290,7 +316,7 @@ export function CallHeaderControls(props: CallControlsProps) {
             <span className="absolute top-0.5 right-0.5 size-2 rounded-full bg-destructive" />
           ) : null}
         </TooltipTrigger>
-        <TooltipContent>{ui.joined ? "The call: you are in it" : "Call"}</TooltipContent>
+        <TooltipContent>The call: you are in it</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-auto max-w-[calc(100vw-2rem)]">
         <CallControls {...props} className={undefined} />
@@ -324,7 +350,7 @@ const WAITING: CallUi = {
   captions: { status: "off", text: "" },
 };
 
-/** THE CALL'S CONTROLS BEFORE THE CALL'S PART HAS LOADED: the same buttons in the same place, which
+/** THE CALL'S CONTROLS BEFORE THE CALL'S PART HAS LOADED: Start call in the same place, which
  *  cannot be pressed yet. A header draws it at its first paint, so nothing moves when the call
  *  comes. */
 export function CallHeaderWaiting({ member }: { member: boolean }) {
@@ -341,7 +367,7 @@ function Switch({
   label,
   on,
   tip,
-  disabled,
+  disabled = false,
   className,
   onClick,
   children,
@@ -349,7 +375,7 @@ function Switch({
   label: string;
   on: boolean;
   tip: string;
-  disabled: boolean;
+  disabled?: boolean;
   className?: string;
   onClick: () => void;
   children: ReactNode;

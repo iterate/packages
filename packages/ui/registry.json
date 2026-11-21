@@ -482,6 +482,7 @@
         "label",
         "native-select",
         "popover",
+        "spinner",
         "tooltip"
       ],
       "cssVars": {

@@ -1,5 +1,5 @@
 // call-bar.tsx — THE CALL'S CONTROLS WITH A MAIN BUTTON in words (Start a call, Join, Leave), for a
-// page that wants one; an agent's header has the icon row of call-controls.tsx. In one row that does
+// page that wants one; an agent's header has the controls of call-controls.tsx. In one row that does
 // not wrap: join, leave, mute, the camera, the screen, the devices, and the voice agent (a member's
 // alone). Each switch is an icon button with its name in words for a screen reader and a pointer.
 // What goes wrong is said in words under the buttons, from the engine's state, so a bar drawn again

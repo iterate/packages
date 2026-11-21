@@ -1,6 +1,7 @@
 // agent-page-header.tsx — THE AGENT PAGE'S HEADER, one row: the agent's title and its path at the
 // left, then, at the right and never wrapped, who is here (the mind's face first), the call's
-// controls (one button group), Share, and Chat | Events. The Dash's agent page and Meet draw this
+// controls (Start call or Join call; in the call, one button group and Leave), Share, and Chat |
+// Events. The Dash's agent page and Meet draw this
 // one row, so the two pages cannot drift apart.
 //
 // Inside an `AppShell` (the Dash) the row goes into the shell's header row. A page with no shell
@@ -47,7 +48,7 @@ export type AgentPageHeaderProps = {
 
 /** THE AGENT PAGE'S HEADER. Who is here, the call and Share each have no box of their own: before
  *  their part has drawn, the header draws them as they will be, which cannot be pressed yet (the
- *  mind's face, with a plain circle for the viewer under presence; the call's buttons; Share).
+ *  mind's face, with a plain circle for the viewer under presence; Start call; Share).
  *  Where their part is there (`aside`, `callIn`, `shareIn`), the places are `contents`, which the
  *  part fills in the same paint. So the header never shows an empty place. Who is here grows to
  *  its left as people come, so the controls and the tabs do not move. Without presence the stack

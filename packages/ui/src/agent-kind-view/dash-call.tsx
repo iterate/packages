@@ -7,15 +7,15 @@
 //   `liveState`, so the chat's hook opens each facet the processors table has, `call` once its row
 //   is there. A context with no call opens nothing for it, and shows no error.
 // - THE PAGE is its own row on the context (`context.subscription`), which the call knows it by.
-// - THE HEADER has the kit's icon row (components/call/call-controls.tsx), the same as Meet's.
-//   Before a call, once the table is read and has no `call` row, a press of the microphone, the
-//   camera, the screen or the voice agent turns the call on (`DashCall.enable`, with the config's
-//   spec) and joins. The row draws the call as this page knows it: in the call, with or without
-//   the live state; else the call's live state, or, once the call is on (its row, or this page's
-//   start), a call whose live state has not come yet. While this page's start runs, the row waits
-//   for it (`starting`, held here, so a row drawn again keeps it).
-// - ON A PHONE the row is behind one button in the header, so the path and the tabs keep the row.
-//   The button says when the page is in the call, and marks an error the closed row holds.
+// - THE HEADER has the kit's call controls (components/call/call-controls.tsx), the same as Meet's:
+//   out of the call, Start call or Join call; in it, the button group and Leave. Before a call,
+//   once the table is read and has no `call` row, Start call turns the call on (`DashCall.enable`,
+//   with the config's spec) and joins. The controls draw the call as this page knows it: in the
+//   call, with or without the live state; else the call's live state, or, once the call is on (its
+//   row, or this page's start), a call whose live state has not come yet. While this page's start
+//   runs, the button waits for it (`starting`, held here, so a row drawn again keeps it).
+// - ON A PHONE, in the call, the controls are behind one button in the header, so the path and the
+//   tabs keep the row. The button marks an error the closed row holds.
 // - THE TILES are always there over the feed: they draw what the call has to show, and their
 //   region for a screen reader stays, so it hears the first arrival and the last departure.
 // - A START belongs to the engine it began with: one whose engine changed (a new row) or whose

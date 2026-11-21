@@ -305,6 +305,8 @@ async function connectedPath(
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const nameOf = (error: unknown) => (error instanceof Error ? error.name : "");
+/** The browser's errors for a microphone it refused, or that is not there. */
+const NO_MIC = ["NotAllowedError", "NotFoundError"];
 const stopTracks = (stream: MediaStream | null | undefined) => {
   for (const track of stream?.getTracks() ?? []) track.stop();
 };
@@ -1817,7 +1819,9 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
    *  `listenOnly`: a join that no press of the person's made (a page opened with `call=join`). It
    *  opens no microphone and sends nothing: the page has no sending connection, and shows the call
    *  as muted. The person's first Unmute opens the microphone and publishes it (`micOn`). */
-  async function join(kept?: MediaStream | null, listenOnly = false) {
+  /** `orListen`: a microphone the browser refuses, or that is not there, does not keep the page
+   *  out. It joins listening, and says why it sends no sound. */
+  async function join(kept?: MediaStream | null, listenOnly = false, orListen = false) {
     const call = scope;
     if (joined || ui.joining) {
       stopTracks(kept);
@@ -1829,7 +1833,16 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     try {
       // the microphone first: the call hears of this page once it can be heard, and a refused
       // microphone tells nobody anything
-      const stream = kept || (listenOnly ? null : await openMedia("mic", deviceId("mic"), call));
+      let noMic = false;
+      const stream =
+        kept ||
+        (listenOnly
+          ? null
+          : await openMedia("mic", deviceId("mic"), call).catch((error: unknown) => {
+              if (!orListen || call.ended || !NO_MIC.includes(nameOf(error))) throw error;
+              noMic = true;
+              return null;
+            }));
       const release = call.own(() => stopTracks(stream));
       call.signal.throwIfAborted();
       mic = stream;
@@ -1857,6 +1870,10 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       joined = true;
       joinedAt = Date.now();
       set({ joined: true, muted: !track?.enabled });
+      if (noMic)
+        fail(
+          "The browser did not give this page the microphone, so you only listen. Allow it for this site, then press Unmute.",
+        );
       // on the sending queue: a camera, a screen or a voice agent pressed meanwhile waits for it
       await call.send(async () => {
         // listening only: nothing to send until the person's first Unmute, camera or screen
@@ -2037,21 +2054,28 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     },
     sync,
     /** The person's own Join: a repair may again join afresh once. `listenOnly`: a join with no
-     *  microphone: nothing is sent until the person's Unmute. A lobby hands over what it opened
-     *  (`mic`, whose track's `enabled` is the mute; `camera`): the call owns them from here, and
-     *  the browser is not asked again. */
+     *  microphone: nothing is sent until the person's Unmute. `orListen`: a refused microphone
+     *  joins listening, and says so, rather than keep the person out. A lobby hands over what it
+     *  opened (`mic`, whose track's `enabled` is the mute; `camera`): the call owns them from
+     *  here, and the browser is not asked again. */
     join: async ({
       listenOnly = false,
+      orListen = false,
       mic: given = null,
       camera = null,
-    }: { listenOnly?: boolean; mic?: MediaStream | null; camera?: MediaStream | null } = {}) => {
+    }: {
+      listenOnly?: boolean;
+      orListen?: boolean;
+      mic?: MediaStream | null;
+      camera?: MediaStream | null;
+    } = {}) => {
       rejoinSpent = false;
       if (joined || ui.joining) {
         stopTracks(given);
         stopTracks(camera);
         return;
       }
-      await join(given, listenOnly && !given);
+      await join(given, listenOnly && !given, orListen);
       // a lobby's microphone is new to the call: an unplug is watched as a fresh one's is
       if (given && joined && mic === given) watchMic();
       if (!camera) return;

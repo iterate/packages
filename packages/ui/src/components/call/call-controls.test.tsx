@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-// The call's icon row: its buttons are there before the engine, and cannot be pressed; one press
-// before the join turns the call on when there is none and joins, then does what the button says;
-// a start that fails says why; a mind with no SFU app cannot be joined, and the tooltip says why;
-// the live dot says others are in the call; in the call, the devices (in the button group) and Leave
-// (apart from it) come; a guest has no
-// voice agent; and Share is the share icon and its word, with a tooltip.
+// The call's controls: out of the call, one button, Start call when nobody is in it and Join call
+// (with how many) when someone is; it is there before the engine, and cannot be pressed; one press
+// turns the call on when there is none and joins with the microphone, and a refused microphone
+// joins listening; a start that fails says why; a mind with no SFU app cannot be joined, and the
+// tooltip says why; in the call, the switches and the devices in one button group, and Leave apart
+// from it; a guest has no voice agent; on a phone, Start call is its icon alone; and Share is the
+// share icon and its word, with a tooltip.
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { CallControls, CallHeaderWaiting } from "./call-controls.tsx";
+import { CallControls, CallHeaderControls, CallHeaderWaiting } from "./call-controls.tsx";
 import { ShareButton } from "./call-share.tsx";
 import type { CallEngine, CallUi } from "#/lib/call-engine.ts";
 import { CallLive } from "#/lib/call-rules.ts";
@@ -17,27 +18,32 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const FRESH = CallLive.parse({ since: null, inCall: {}, voiceAgent: null, setup: null });
 
-test("before the engine, the same buttons are there and cannot be pressed: the tooltip says why", async () => {
+test("before the engine, Start call is there and cannot be pressed: the tooltip says why", async () => {
   using _wide = wideScreen();
   using row = await mount(<CallHeaderWaiting member />);
-  expect(switches(row.element)).toEqual([
-    ["Microphone", "false", "true"],
-    ["Camera", "false", "true"],
-    ["Voice agent", "false", "true"],
-  ]);
-  expect(await tipOf(named(row.element, "Microphone"))).toBe("The call is not ready yet");
+  expect(labels(row.element)).toEqual(["Start call"]);
+  expect(named(row.element, "Start call")).toMatchObject({ textContent: "Start call" });
+  expect(named(row.element, "Start call").getAttribute("aria-disabled")).toBe("true");
+  expect(await tipOf(named(row.element, "Start call"))).toBe("The call is not ready yet");
 });
 
-test("a press of the microphone on an agent with no call: the call comes on, then the page joins with the microphone", async () => {
+test("out of the call there is one button: no microphone, camera, screen or voice agent", async () => {
+  using row = await mount(<CallControls call={engine()} ui={IDLE} live={FRESH} member />);
+  expect(labels(row.element)).toEqual(["Start call"]);
+  expect(row.element.querySelector("[data-slot=button-group]")).toBe(null);
+  expect(await tipOf(named(row.element, "Start call"))).toBe("Start a call");
+});
+
+test("Start call on an agent with no call: the call comes on, then the page joins with the microphone", async () => {
   const call = engine();
   const start = vi.fn(async () => void call.steps.push("start"));
   using row = await mount(
     <CallControls call={call} ui={IDLE} live={undefined} member start={start} />,
   );
-  expect(await tipOf(named(row.element, "Microphone"))).toBe("Start a call");
-  await act(async () => named(row.element, "Microphone").click());
+  await act(async () => named(row.element, "Start call").click());
   expect(call).toMatchObject({ steps: ["start", "join"] });
-  expect(call.join).toHaveBeenCalledExactlyOnceWith({ listenOnly: false });
+  // the microphone open, and a refused one joins listening
+  expect(call.join).toHaveBeenCalledExactlyOnceWith({ orListen: true });
 });
 
 test("a start that fails says why in the call's words, and joins nothing", async () => {
@@ -51,51 +57,52 @@ test("a start that fails says why in the call's words, and joins nothing", async
       start={() => Promise.reject(new Error("the call's module is not in this mind's config"))}
     />,
   );
-  await act(async () => named(row.element, "Microphone").click());
+  await act(async () => named(row.element, "Start call").click());
   expect(call.fail).toHaveBeenCalledExactlyOnceWith(
     "The call could not start: the call's module is not in this mind's config",
   );
   expect(call.join).not.toHaveBeenCalled();
 });
 
-test("the camera joins listening and sends its picture from the press; the voice agent joins, then is invited", async () => {
-  {
-    const call = engine();
-    using row = await mount(<CallControls call={call} ui={IDLE} live={FRESH} member />);
-    await act(async () => named(row.element, "Camera").click());
-    expect(call).toMatchObject({ steps: ["join", "camera"] });
-    expect(call.join).toHaveBeenCalledExactlyOnceWith({ listenOnly: true });
-  }
-  {
-    const call = engine({ joins: true });
-    using row = await mount(<CallControls call={call} ui={IDLE} live={FRESH} member />);
-    await act(async () => named(row.element, "Voice agent").click());
-    expect(call).toMatchObject({ steps: ["join", "voice"] });
-  }
+test("a join under way: the button waits, with its spinner, and says so", async () => {
+  using row = await mount(
+    <CallControls call={engine()} ui={{ ...IDLE, joining: true }} live={FRESH} member />,
+  );
+  const button = named(row.element, "Start call");
+  expect([button.getAttribute("aria-disabled"), button.getAttribute("aria-busy")]).toEqual([
+    "true",
+    "true",
+  ]);
+  expect(button.querySelector("[data-slot=spinner]")).not.toBe(null);
+  expect(await tipOf(button)).toBe("Starting the call…");
 });
 
 test("a mind with no SFU app cannot be joined, and the tooltip says why", async () => {
   const live = { ...FRESH, setup: { sfu: false, turn: false, voice: false } };
   const call = engine();
   using row = await mount(<CallControls call={call} ui={IDLE} live={live} member />);
-  expect(named(row.element, "Microphone").getAttribute("aria-disabled")).toBe("true");
-  expect(await tipOf(named(row.element, "Microphone"))).toBe("This mind has no call service yet");
-  await act(async () => named(row.element, "Microphone").click());
+  expect(named(row.element, "Start call").getAttribute("aria-disabled")).toBe("true");
+  expect(await tipOf(named(row.element, "Start call"))).toBe("This mind has no call service yet");
+  await act(async () => named(row.element, "Start call").click());
   expect(call.join).not.toHaveBeenCalled();
 });
 
-test("others in the call: a live dot on the microphone, and its tooltip says so", async () => {
+test("others in the call: Join call, with how many, and its tooltip says so", async () => {
   const who = { actor: "/members/b", name: "B" };
-  const live = CallLive.parse({ ...FRESH, inCall: { "b-page": { who, since: 1, tracks: {} } } });
-  using row = await mount(<CallControls call={engine()} ui={IDLE} live={live} member />);
-  // the dot is in the microphone's own button, so the group's rounded ends stay its buttons'
-  expect(named(row.element, "Microphone").querySelector("[data-slot=call-live-dot]")).not.toBe(
-    null,
-  );
-  expect(await tipOf(named(row.element, "Microphone"))).toBe("Join the call: others are in it");
+  const live = CallLive.parse({
+    ...FRESH,
+    inCall: { "b-page": { who, tracks: {} }, "c-page": { who, tracks: {} } },
+  });
+  const call = engine();
+  using row = await mount(<CallControls call={call} ui={IDLE} live={live} member />);
+  const join = named(row.element, "Join call: 2 people are in it");
+  expect(join).toMatchObject({ textContent: "Join call2" });
+  expect(await tipOf(join)).toBe("Join the call: 2 people are in it");
+  await act(async () => join.click());
+  expect(call.join).toHaveBeenCalledExactlyOnceWith({ orListen: true });
 });
 
-test("in the call: the devices and Leave come, and a guest has no voice agent", async () => {
+test("in the call: the switches and the devices in one group, Leave apart from it, and a guest has no voice agent", async () => {
   const ui = { ...IDLE, joined: true };
   {
     using row = await mount(<CallControls call={engine()} ui={ui} live={FRESH} member />);
@@ -106,17 +113,48 @@ test("in the call: the devices and Leave come, and a guest has no voice agent", 
       "Devices",
       "Leave the call",
     ]);
-    // one button group holds the switches and the devices; Leave stands apart from it
     const group = row.element.querySelector("[data-slot=button-group]")!;
     expect([group.getAttribute("role"), labels(group)]).toEqual([
       "group",
       ["Microphone", "Camera", "Voice agent", "Devices"],
     ]);
     expect(await tipOf(named(row.element, "Microphone"))).toBe("Mute");
+    expect(await tipOf(named(row.element, "Voice agent"))).toBe("Add a voice agent");
   }
   {
     using row = await mount(<CallControls call={engine()} ui={ui} live={FRESH} member={false} />);
     expect(labels(row.element)).not.toContain("Voice agent");
+  }
+});
+
+test("Start call's press moves the focus to the microphone once the page is in, and Leave's back to Start call", async () => {
+  using _wide = wideScreen();
+  const call = engine({ joins: true });
+  using row = await mount(<CallControls call={call} ui={IDLE} live={FRESH} member />);
+  await act(async () => named(row.element, "Start call").click());
+  await act(async () =>
+    row.render(<CallControls call={call} ui={{ ...IDLE, joined: true }} live={FRESH} member />),
+  );
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Microphone");
+  await act(async () => named(row.element, "Leave the call").click());
+  await act(async () => row.render(<CallControls call={call} ui={IDLE} live={FRESH} member />));
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Start call");
+});
+
+test("on a phone: Start call is its icon alone, and in the call the controls are behind one button", async () => {
+  using _narrow = narrowScreen();
+  {
+    using row = await mount(<CallHeaderControls call={engine()} ui={IDLE} live={FRESH} member />);
+    expect(labels(row.element)).toEqual(["Start call"]);
+    // the word is drawn from `md` up alone
+    expect(named(row.element, "Start call").querySelector("span")?.className).toContain(
+      "hidden md:inline",
+    );
+  }
+  {
+    const ui = { ...IDLE, joined: true };
+    using row = await mount(<CallHeaderControls call={engine()} ui={ui} live={FRESH} member />);
+    expect(labels(row.element)).toEqual(["Call: you are in it"]);
   }
 });
 
@@ -131,8 +169,17 @@ test("Share: the share icon and its word, named for a screen reader, with a tool
 
 /** A wide screen: the header draws the row, not its button. */
 function wideScreen() {
+  return screenOf(false);
+}
+
+/** A phone's screen: in the call, the header draws one button for the controls. */
+function narrowScreen() {
+  return screenOf(true);
+}
+
+function screenOf(narrow: boolean) {
   vi.stubGlobal("matchMedia", () => ({
-    matches: false,
+    matches: narrow,
     addEventListener() {},
     removeEventListener() {},
   }));
@@ -163,8 +210,8 @@ const IDLE: CallUi = {
   captions: { status: "off", text: "" },
 };
 
-/** An engine of the methods the row calls; each call is kept in `steps`. `joins`: a join takes the
- *  page in. */
+/** An engine of the methods the controls call; each call is kept in `steps`. `joins`: a join takes
+ *  the page in. */
 function engine({ joins = false } = {}) {
   const steps: string[] = [];
   const ui = { ...IDLE };
@@ -178,6 +225,8 @@ function engine({ joins = false } = {}) {
       steps.push("join");
       if (joins) ui.joined = true;
     }),
+    leave: vi.fn(async () => void steps.push("leave")),
+    toggleMute: vi.fn(async () => void steps.push("mute")),
     toggleCamera: vi.fn(async () => void steps.push("camera")),
     toggleScreen: vi.fn(async () => void steps.push("screen")),
     aiInvite: vi.fn(async () => void steps.push("voice")),
@@ -186,15 +235,6 @@ function engine({ joins = false } = {}) {
   };
   // the cast: the row calls only these of the engine's methods
   return call as unknown as CallEngine & typeof call;
-}
-
-/** Each switch's name, whether it is on, and whether it can be pressed. */
-function switches(element: Element) {
-  return [...element.querySelectorAll("button[aria-pressed]")].map((one) => [
-    one.getAttribute("aria-label"),
-    one.getAttribute("aria-pressed"),
-    one.getAttribute("aria-disabled"),
-  ]);
 }
 
 function labels(element: Element) {
@@ -242,6 +282,7 @@ async function mount(node: ReactNode) {
   await act(async () => root.render(node));
   return {
     element: host,
+    render: (next: ReactNode) => root.render(next),
     [Symbol.dispose]: () => {
       act(() => root.unmount());
       host.remove();

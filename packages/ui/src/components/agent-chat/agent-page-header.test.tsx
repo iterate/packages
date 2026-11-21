@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The agent page's header on a page with no AppShell (Meet): a header row of its own, with the way
-// back, the title and the path at the left, then who is here (the mind's face first), the call's
-// button group, Share and Chat | Events. Each place is drawn from the first paint.
+// back, the title and the path at the left, then who is here (the mind's face first), Start call,
+// Share and Chat | Events. Each place is drawn from the first paint.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -47,7 +47,10 @@ test("with no AppShell the header is a row of its own, in the Dash's order, and 
     ["agent-header-share", "contents", true],
   ]);
   expect(header.querySelector("[data-mind-face]")?.getAttribute("aria-label")).toBe("Acme");
-  expect(header.querySelector("[data-slot=button-group]")).not.toBe(null);
+  // out of the call: Start call, which waits for the call's part
+  expect(
+    header.querySelector("[data-slot=agent-header-call] button")?.getAttribute("aria-label"),
+  ).toBe("Start call");
   // the tabs are there, and cannot be pressed until the page passes them
   expect(header.querySelector("[inert] [role=tablist]")).not.toBe(null);
   act(() => root.unmount());
