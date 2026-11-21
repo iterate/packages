@@ -149,18 +149,31 @@ test("an agent page's header shows the stack of who is here, which opens who can
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
   {
-    // the default: no typing status, no place in the header, nothing sent
+    // the default: no typing status, nothing sent, and the header's stack is the mind's face
+    // alone, named by its hostname, with iterate's mark: no button, no viewer
     const { itx, sent, appended } = mind({});
     await using page = await draw(DashAgents, itx, { waiting: 0 });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
     expect(page.host.querySelector("[data-slot=agent-presence]")?.outerHTML).toBeUndefined();
-    expect(page.host.querySelector("[data-slot=agent-header-aside]")?.outerHTML).toBeUndefined();
+    const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-aside]");
+    expect([
+      [...(place?.querySelectorAll("[data-slot=avatar]") || [])].map((face) =>
+        face.getAttribute("aria-label"),
+      ),
+      place?.querySelector("[data-mind-face] img")?.getAttribute("src"),
+      place?.querySelectorAll("button").length,
+    ]).toEqual([["iterate.example.com"], expect.stringMatching(/^data:image\/svg/), 0]);
   }
   {
     // alone: the typing status over the composer holds no words, and the header's place holds
-    // the button with one plain circle, as the page does not know its own row yet
+    // the button with the mind's face (its own logo and name) and one plain circle, as the page
+    // does not know its own row yet
     const { itx, sent, appended } = mind({});
-    await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
+    await using page = await draw(DashAgents, itx, {
+      waiting: 0,
+      presence: true,
+      mindFace: { name: "Acme", logo: <img src="/acme.svg" alt="" /> },
+    });
     expect({ sent, appended }).toEqual({ sent: [], appended: [] });
     expect(page.host.querySelector("[data-slot=agent-presence]")?.textContent).toBe("");
     const access = await vi.waitFor(() => {
@@ -173,8 +186,11 @@ test("an agent page's header shows the stack of who is here, which opens who can
     expect([
       access.getAttribute("aria-label"),
       access.getAttribute("data-here"),
-      access.querySelectorAll("[data-viewer-unknown]").length,
-    ]).toEqual(["Who can use this conversation", "0", 1]);
+      [...access.querySelectorAll("[data-slot=avatar]")].map((face) =>
+        face.hasAttribute("data-viewer-unknown") ? "viewer" : face.getAttribute("aria-label"),
+      ),
+      access.querySelector("[data-mind-face] img")?.getAttribute("src"),
+    ]).toEqual(["Who can use this conversation", "0", ["Acme", "viewer"], "/acme.svg"]);
   }
   // another member's page open on this agent's context: a face in the header's stack, none over
   // the composer. The SDK does not say this page's own row yet, so the page says no status of its
@@ -197,7 +213,8 @@ test("an agent page's header shows the stack of who is here, which opens who can
   expect([
     [...(access()?.querySelectorAll("[data-slot=avatar]") || [])].map((face) => face.textContent),
     page.host.querySelector("[data-slot=agent-presence] [data-slot=avatar]")?.outerHTML,
-  ]).toEqual([["B", ""], undefined]);
+  ]).toEqual([["", "B", ""], undefined]);
+  expect(access()?.querySelector("[data-slot=avatar]")?.hasAttribute("data-mind-face")).toBe(true);
   expect({ sent, appended }).toEqual({ sent: [], appended: [] });
 });
 
@@ -691,7 +708,7 @@ test("with `call` on and `share` off, an agent page has no Share: no place, no b
   expect(page.host.querySelector('button[aria-label="Share this agent"]')).toBeNull();
 });
 
-test("the header's call and Share are buttons from the first paint, never an empty place, in Meet's order: call, who is here, Share, the tabs", async () => {
+test("the header's stack, call and Share are drawn from the first paint, never an empty place, in this order: who is here, the call's button group, Share, the tabs", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
   const held = mind({ row: "a-page" });
@@ -709,30 +726,42 @@ test("the header's call and Share are buttons from the first paint, never an emp
   // the view is not there yet: the buttons are, and cannot be pressed
   expect(page.host.querySelector("[role=log]")).toBe(null);
   expect(places()).toEqual([
-    ["agent-header-call", ["Microphone", "Camera", "Voice agent"]],
     ["agent-header-aside", []],
+    ["agent-header-call", ["Microphone", "Camera", "Voice agent"]],
     ["agent-header-share", ["Share this agent"]],
   ]);
+  // who is here, before the chat says it: the mind's face and a plain circle for the viewer
+  expect(
+    [...header().querySelectorAll("[data-slot=agent-header-aside] [data-slot=avatar]")].map(
+      (face) => face.getAttribute("aria-label") || "viewer",
+    ),
+  ).toEqual(["iterate.example.com", "viewer"]);
   expect(
     [...header().querySelectorAll("[aria-disabled=true]")].map((one) =>
       one.getAttribute("aria-label"),
     ),
   ).toEqual(["Microphone", "Camera", "Voice agent", "Share this agent"]);
-  // the call's and Share's places have no box of their own: nothing is drawn where they are empty
+  // the call's switches are one button group; Share stands beside it
   expect(
-    [
-      ...header().querySelectorAll("[data-slot=agent-header-call], [data-slot=agent-header-share]"),
-    ].map((place) => place.className),
-  ).toEqual(["contents", "contents"]);
+    buttonsOf(header().querySelector("[data-slot=agent-header-call] [data-slot=button-group]")!),
+  ).toEqual(["Microphone", "Camera", "Voice agent"]);
+  // the places have no box of their own: nothing is drawn where they are empty
+  expect(
+    [...header().querySelectorAll("[data-slot^=agent-header-]")].map((place) => place.className),
+  ).toEqual(["contents", "contents", "contents"]);
   held.releaseKinds();
   await page.settle();
   await act(() => vi.waitFor(() => goIn(header().querySelector("[data-slot=agent-header-call]"))));
   await shareOf(page.host);
   expect(places().map(([slot]) => slot)).toEqual([
-    "agent-header-call",
     "agent-header-aside",
+    "agent-header-call",
     "agent-header-share",
   ]);
+  expect(header().querySelector("[data-conversation-access-waiting]")).toBe(null);
+  expect(
+    header().querySelector("[data-slot=agent-header-aside] button[data-conversation-access]"),
+  ).not.toBe(null);
 });
 
 test("Share: a link made once and shown once, the call's live links with their guests, End, and an invite to the page or the link", async () => {
@@ -974,6 +1003,8 @@ test("a call another member is in: Join in the header, a ring on their face, and
           face.classList.contains("outline-success"),
         ]),
       ).toEqual([
+        // the mind's face first, never in the call
+        ["", false],
         ["B", true],
         ["", false],
       ]),
@@ -3287,7 +3318,10 @@ async function draw(
     agents: first = agents,
     account = true,
     actor = "/members/a",
+    mindFace,
   }: {
+    /** The Dash's name and logo of the mind; absent: the page names it by its hostname. */
+    mindFace?: DashPageProps["mindFace"];
     /** How many requests wait; undefined: the count is not known yet. */
     waiting: number | undefined;
     /** false: the Dash has not heard yet who is signed in */
@@ -3357,6 +3391,7 @@ async function draw(
             <Page
               itx={itx}
               mind="iterate.example.com"
+              mindFace={mindFace}
               principal={account ? { actor, email: "jo@example.com" } : undefined}
               page={pages[1]!}
               pages={pages}

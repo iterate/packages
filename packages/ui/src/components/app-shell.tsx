@@ -451,6 +451,12 @@ const PageSlotsContext = createContext<{
   appHeader: ReactNode;
 } | null>(null);
 
+/** Whether the page is drawn inside an `AppShell`, whose header row `AppShellPageHeader` fills. A
+ *  part that pages with no shell draw too draws a row of its own where this says no. */
+export function useInAppShell(): boolean {
+  return Boolean(useContext(PageSlotsContext));
+}
+
 /** A page's own row of the header: what it shows above itself (a doc's path and its controls), in
  *  the row the shell has anyway, between the phone's sidebar trigger and the page's ⋯. The row gets
  *  a rule under it while a page has one, and a desktop shows it then even when the app gave the

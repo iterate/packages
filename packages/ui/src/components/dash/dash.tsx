@@ -179,6 +179,9 @@ export function Dash({
     [pinned, pages],
   );
   const homeLink = linkTo(pageHref(undefined));
+  // the mind as its owner named it, for the agent pages' stack of who is here: the sidebar's
+  // fallback to the app's name is no name of the mind
+  const mindFace = useMemo(() => ({ name: name || mind, logo }), [name, mind, logo]);
   return (
     <>
       <AppShell
@@ -249,6 +252,7 @@ export function Dash({
               key={Page.staysOverReconnect ? "stays" : connection.epoch}
               itx={itx}
               mind={mind}
+              mindFace={mindFace}
               principal={account}
               page={page}
               pages={pages}

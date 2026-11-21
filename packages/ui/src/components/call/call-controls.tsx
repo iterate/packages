@@ -1,6 +1,7 @@
-// call-controls.tsx — THE CALL'S CONTROLS IN A HEADER, icon buttons in one row that does not wrap:
-// the microphone, the camera, the screen, the voice agent (a member's alone), and, in the call, the
-// devices and Leave. The Dash's agent page and Meet draw the same row.
+// call-controls.tsx — THE CALL'S CONTROLS IN A HEADER, icon buttons in one shadcn button group that
+// does not wrap: the microphone, the camera, the screen, the voice agent (a member's alone), and, in
+// the call, the devices. Leave stands apart after the group, in red. The Dash's agent page and Meet
+// draw the same row.
 //
 // - ONE PRESS GOES IN: before the page is in the call, a press of the microphone, the camera, the
 //   screen or the voice agent turns the call on when the agent has none (`start`), joins, then does
@@ -35,6 +36,7 @@ import type { CallEngine, CallUi, VoiceRefusal } from "#/lib/call-engine.ts";
 import { joinable, type CallLive, type DeviceKind } from "#/lib/call-rules.ts";
 import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { ButtonGroup } from "#/components/ui/button-group.tsx";
 import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
@@ -125,7 +127,7 @@ export function CallControls({
       className={cn("flex flex-col gap-2", className)}
     >
       <div className="flex items-center gap-1" aria-busy={busy || undefined}>
-        <span className="relative inline-flex">
+        <ButtonGroup aria-label="The call">
           <Switch
             label="Microphone"
             on={ui.joined && !ui.muted}
@@ -145,77 +147,77 @@ export function CallControls({
             onClick={press("mic", () => call?.toggleMute())}
           >
             {ui.joined && ui.muted ? <MicOffIcon /> : <MicIcon />}
+            {othersInCall ? (
+              <span
+                data-slot="call-live-dot"
+                aria-hidden
+                className="pointer-events-none absolute top-0.5 right-0.5 size-1.5 rounded-full bg-success"
+              />
+            ) : null}
           </Switch>
-          {othersInCall ? (
-            <span
-              data-slot="call-live-dot"
-              aria-hidden
-              className="pointer-events-none absolute top-0.5 right-0.5 size-1.5 rounded-full bg-success"
-            />
-          ) : null}
-        </span>
-        <Switch
-          label="Camera"
-          on={ui.camera}
-          tip={
-            why ||
-            (ui.camera
-              ? "Turn the camera off"
-              : ui.joined
-                ? "Share video"
-                : `${goIn} with the camera`)
-          }
-          disabled={waits}
-          onClick={press("camera", () => call?.toggleCamera())}
-        >
-          {ui.camera ? <VideoIcon /> : <VideoOffIcon />}
-        </Switch>
-        {canShareScreen() ? (
           <Switch
-            label="Share screen"
-            on={ui.screen}
+            label="Camera"
+            on={ui.camera}
             tip={
               why ||
-              (ui.screen
-                ? "Stop sharing the screen"
+              (ui.camera
+                ? "Turn the camera off"
                 : ui.joined
-                  ? "Share the screen"
-                  : `${goIn} and share the screen`)
+                  ? "Share video"
+                  : `${goIn} with the camera`)
             }
             disabled={waits}
-            onClick={press("screen", () => call?.toggleScreen())}
+            onClick={press("camera", () => call?.toggleCamera())}
           >
-            {ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
+            {ui.camera ? <VideoIcon /> : <VideoOffIcon />}
           </Switch>
-        ) : null}
-        {member ? (
-          <Switch
-            label="Voice agent"
-            on={voiceHere}
-            tip={
-              why ||
-              (voiceHere
-                ? ui.joined
-                  ? "Send the voice agent away"
-                  : "Join the call: a voice agent is in it"
-                : ui.ai === "starting"
-                  ? "The voice agent is coming…"
+          {canShareScreen() ? (
+            <Switch
+              label="Share screen"
+              on={ui.screen}
+              tip={
+                why ||
+                (ui.screen
+                  ? "Stop sharing the screen"
                   : ui.joined
-                    ? "Add a voice agent"
-                    : `${goIn} with a voice agent`)
-            }
-            disabled={waits || (ui.joined && !voiceHere && ui.ai !== "off")}
-            className={voiceHere ? "border-success text-success" : undefined}
-            onClick={() => {
-              if (!ui.joined) void enter(voiceHere ? "mic" : "voice");
-              else if (voiceHere) void call?.aiDismiss();
-              else void call?.aiInvite();
-            }}
-          >
-            {voiceHere ? <BotOffIcon /> : <BotIcon />}
-          </Switch>
-        ) : null}
-        {ui.joined && call ? <CallDevices call={call} ui={ui} /> : null}
+                    ? "Share the screen"
+                    : `${goIn} and share the screen`)
+              }
+              disabled={waits}
+              onClick={press("screen", () => call?.toggleScreen())}
+            >
+              {ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
+            </Switch>
+          ) : null}
+          {member ? (
+            <Switch
+              label="Voice agent"
+              on={voiceHere}
+              tip={
+                why ||
+                (voiceHere
+                  ? ui.joined
+                    ? "Send the voice agent away"
+                    : "Join the call: a voice agent is in it"
+                  : ui.ai === "starting"
+                    ? "The voice agent is coming…"
+                    : ui.joined
+                      ? "Add a voice agent"
+                      : `${goIn} with a voice agent`)
+              }
+              disabled={waits || (ui.joined && !voiceHere && ui.ai !== "off")}
+              className={voiceHere ? "border-success text-success" : undefined}
+              onClick={() => {
+                if (!ui.joined) void enter(voiceHere ? "mic" : "voice");
+                else if (voiceHere) void call?.aiDismiss();
+                else void call?.aiInvite();
+              }}
+            >
+              {voiceHere ? <BotOffIcon /> : <BotIcon />}
+            </Switch>
+          ) : null}
+          {ui.joined && call ? <CallDevices call={call} ui={ui} variant="outline" /> : null}
+        </ButtonGroup>
         {ui.joined && call ? (
           <Tooltip>
             <TooltipTrigger
@@ -363,7 +365,7 @@ function Switch({
             aria-pressed={on}
             disabled={disabled}
             focusableWhenDisabled
-            className={cn("aria-disabled:opacity-50", className)}
+            className={cn("relative aria-disabled:opacity-50", className)}
             onClick={onClick}
           />
         }
@@ -432,7 +434,16 @@ const PICKERS: [DeviceKind, string][] = [
 
 /** The microphone, the camera and the speaker, each a picker; the browser lists them when the
  *  pickers open. */
-export function CallDevices({ call, ui }: { call: CallEngine; ui: CallUi }) {
+export function CallDevices({
+  call,
+  ui,
+  variant = "ghost",
+}: {
+  call: CallEngine;
+  ui: CallUi;
+  /** The button's look: "outline" in the call's button group. */
+  variant?: "ghost" | "outline";
+}) {
   return (
     <Popover onOpenChange={(open) => open && void call.listDevices()}>
       <Tooltip>
@@ -440,7 +451,7 @@ export function CallDevices({ call, ui }: { call: CallEngine; ui: CallUi }) {
           render={
             <PopoverTrigger
               nativeButton
-              render={<Button size="icon-sm" variant="ghost" aria-label="Devices" />}
+              render={<Button size="icon-sm" variant={variant} aria-label="Devices" />}
             />
           }
         >

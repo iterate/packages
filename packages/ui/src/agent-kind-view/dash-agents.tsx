@@ -7,16 +7,19 @@
 //               `/agents/<path>`, ANY context seen as an agent. iterate's own agents are its chat
 //               (`AgentChat`); an agent of a kind with a file of its own (`agent-kinds/<kind>.ts`
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
-//               header is one row: the agent's title and path, the call's controls (with `call`
-//               on: ./dash-call.tsx, an iterate agent's chat alone), who is here and can use the
-//               conversation (with presence on), Share (with `share` on), and Chat | Events. The row's
-//               `openers` are what the mind says first in an empty chat.
+//               header is the kit's one row (components/agent-chat/agent-page-header.tsx): the
+//               agent's title and path, who is here and can use the conversation (the mind's
+//               face first, always; the people with presence on), the call's controls (with
+//               `call` on: ./dash-call.tsx, an iterate agent's chat alone), Share (with `share`
+//               on), and Chat | Events. The row's `openers` are what the mind says first in an
+//               empty chat.
 //
 // They live here, out of the shadcn registry, because they host kinds' frames: a registry item may
 // not import this folder. Each loads its larger part when it first draws (the composer, the chat),
 // and reads the kinds once for the page's life: which kind has which file (the mind's KV,
 // `agent-kinds`, which worker.ts writes at every publish), and each file's source.
 import {
+  createContext,
   Suspense,
   use,
   useCallback,
@@ -37,11 +40,12 @@ import { useHeldContext } from "#/hooks/use-itx-session.ts";
 import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
-import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";
-import { CallHeaderWaiting } from "#/components/call/call-controls.tsx";
-import { ShareButton } from "#/components/call/call-share.tsx";
-import { AppShellPageHeader } from "#/components/app-shell.tsx";
-import { ContextPathText } from "#/components/context-path-text.tsx";
+import {
+  AgentPageHeader as AgentPageHeaderOfKit,
+  heldRowsOf,
+  type AgentPageHeaderProps,
+  type MindFace,
+} from "#/components/agent-chat/agent-page-header.tsx";
 import {
   DashNote,
   DashScroll,
@@ -54,7 +58,6 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
-import { isPresenceEvent } from "#/lib/presence.ts";
 import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
 import { go, hrefOf, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
@@ -480,7 +483,17 @@ async function integrationsNeedingYou(itx: Itx): Promise<Attention[]> {
  *  cannot be pressed yet: the kinds, the catalog and the chat's part are all read behind it. When
  *  the member's store remembers the view that drew the saved rows, that view is drawn at once,
  *  and the kinds and the catalog only correct it. */
-function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps & { path: string }) {
+function AgentView({
+  itx,
+  mind,
+  mindFace,
+  principal,
+  page,
+  agents,
+  path,
+}: DashPageProps & { path: string }) {
+  // the mind's own face in the header, named by its hostname where the Dash has no name for it
+  const face = useMemo(() => mindFace || { name: mind }, [mindFace, mind]);
   // the member's saved rows, once the mind has said who the member is: none are read or saved
   // before, so one member never sees another's
   // not known yet who that is: the store is pending, and the view's read waits for it
@@ -499,7 +512,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
   // when `saved` is known, so its memory holds the view.
   const remembered = saved && tails && tails !== "pending" ? tails.peek(path)?.view : undefined;
   return (
-    <>
+    <PageMind value={face}>
       <Suspense
         fallback={
           <AgentPageReading
@@ -539,7 +552,7 @@ function AgentView({ itx, mind, principal, page, agents, path }: DashPageProps &
           tools={page.pageTools === true ? undefined : page.pageTools.tools}
         />
       ) : null}
-    </>
+    </PageMind>
   );
 }
 
@@ -561,93 +574,14 @@ function AgentPageTools(props: Omit<ComponentProps<PageToolsPart["PageTools"]>, 
 }
 type PageToolsPart = Awaited<ReturnType<typeof toolsPart>>;
 
-/** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
- *  cut at its end where it does not fit, then, at the right and never wrapped, the call's controls,
- *  who is here, Share, and Chat | Events: Meet's order. With no `tabs`, the tabs are drawn as they
- *  will be and cannot be pressed: the view is not there yet. With `presence`, a place before Share
- *  as wide as one face, from the first paint: the chat draws the stack of who is here in it
- *  (`AgentChat`'s `asideIn`, which `aside` receives), which grows to its left, so the tabs do not
- *  move when it comes or when people arrive. With `call`, the call's controls; with `share`, Share.
- *  Each has no box of its own: while the page reads, the header draws their buttons, which cannot
- *  be pressed yet; then its places are `contents`, which the call's part fills in the same paint
- *  (`callIn` and `shareIn` receive them). So the header never shows an empty place for them. */
-function AgentPageHeader({
-  path,
-  agents,
-  tabs,
-  presence,
-  aside,
-  call,
-  callIn,
-  share = false,
-  shareIn,
-}: {
-  path: string;
-  agents: readonly AgentRow[] | undefined;
-  tabs?: Omit<ComponentProps<typeof AgentTabs>, "className">;
-  presence: boolean;
-  /** Receives the place's element. */
-  aside?: (element: HTMLElement | null) => void;
-  call: boolean;
-  /** Receives the call's place. */
-  callIn?: (element: HTMLElement | null) => void;
-  share?: boolean;
-  /** Receives Share's place. */
-  shareIn?: (element: HTMLElement | null) => void;
-}) {
-  const title = agents?.find((agent) => agent.path === path)?.title;
-  return (
-    <AppShellPageHeader>
-      <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        {title ? (
-          <span className="hidden max-w-1/2 shrink-0 truncate text-sm font-medium md:block">
-            {title}
-          </span>
-        ) : null}
-        <ContextPathText
-          path={path}
-          truncate
-          className={title ? "text-sm md:text-xs md:text-muted-foreground" : "text-sm"}
-        />
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {call ? (
-          <span ref={callIn} data-slot="agent-header-call" className="contents">
-            {callIn ? null : <CallHeaderWaiting member />}
-          </span>
-        ) : null}
-        {presence ? (
-          <span
-            ref={aside}
-            data-slot="agent-header-aside"
-            className="flex h-7 min-w-7 shrink-0 justify-end"
-          />
-        ) : null}
-        {share ? (
-          <span ref={shareIn} data-slot="agent-header-share" className="contents">
-            {shareIn ? null : <ShareButton disabled />}
-          </span>
-        ) : null}
-        {tabs ? (
-          <AgentTabs {...tabs} />
-        ) : (
-          <div inert>
-            <AgentTabs
-              view={undefined}
-              hasChat
-              held={undefined}
-              wholeLogHeld
-              onStateChange={nothingToChange}
-            />
-          </div>
-        )}
-      </span>
-    </AppShellPageHeader>
-  );
-}
+/** The mind of the agent page: the first face of the stack of who is here, in its header and in
+ *  the chat's. */
+const PageMind = createContext<MindFace | undefined>(undefined);
 
-/** Tabs that cannot be pressed have no state to change. */
-function nothingToChange() {}
+/** The kit's agent page header, with the mind's face. */
+function AgentPageHeader(props: Omit<AgentPageHeaderProps, "mind">) {
+  return <AgentPageHeaderOfKit {...props} mind={use(PageMind)} />;
+}
 
 /** The page while it does not know yet which view the agent has: the header, and the chat's
  *  loading line where the first row will stand. */
@@ -887,7 +821,7 @@ function IterateChat({
           view: shown.view,
           hasChat: true,
           // no count until the first read has answered
-          held: context.caughtUp || context.events.length ? rowsOf(context.events) : undefined,
+          held: context.caughtUp || context.events.length ? heldRowsOf(context.events) : undefined,
           wholeLogHeld: context.older.exhausted,
           onStateChange: patchView,
         }}
@@ -936,19 +870,15 @@ function IterateChat({
         me={me}
         presence={presence}
         inCall={inCall}
+        mind={use(PageMind)}
       />
     </>
   );
 }
 
-/** How many of the held events are rows of the log: a page's presence status is no row. */
 /** The join on arrival began: `call=join` leaves the address, in place. */
 function leaveTheJoinKey() {
   go(hrefOf({ call: undefined }), true);
-}
-
-function rowsOf(events: readonly { type: string }[]): number {
-  return events.filter((event) => !isPresenceEvent(event)).length;
 }
 
 /** The page's theme is the class on its root element: the frame follows it when it changes. */
@@ -1068,13 +998,14 @@ function KindChat({
           view: hasChat ? state.view : "events",
           hasChat,
           // no count until the first read has answered
-          held: loaded && !reading ? rowsOf(log.events) : undefined,
+          held: loaded && !reading ? heldRowsOf(log.events) : undefined,
           wholeLogHeld: log.older.exhausted,
           onStateChange: patchView,
         }}
-        // the places stay as the loading header had them, and empty: the kind's view runs in a
-        // frame, which draws nothing into this page
-        presence={presence}
+        // The call's and Share's places stay as the loading header had them: the kind's view runs
+        // in a frame, which draws nothing into this page. So who is here is the mind's face alone:
+        // the frame says nothing of the viewer to this page.
+        presence={false}
         call={call}
         share={share}
       />

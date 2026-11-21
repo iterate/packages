@@ -126,6 +126,10 @@ export type DashPageProps = {
   /** the mind's address, which is its control-plane hostname: `iterate.example.com`. Its sign-in, its
    *  keys and its approvals pages are there. */
   mind: string;
+  /** the mind as its owner named it, the Dash's `name` and `logo` (no logo: iterate's mark):
+   *  the first face of who is here on an agent's page. Absent: the agent page names the mind by
+   *  `mind`. */
+  mindFace?: { name: string; logo?: ReactNode };
   /** who is signed in, as the session says; undefined while the Dash does not know yet (it
    *  draws before the mind has answered), which is not the same as nobody: a page that writes
    *  in the person's name waits for it */

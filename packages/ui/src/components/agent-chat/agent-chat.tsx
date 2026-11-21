@@ -67,7 +67,7 @@ import { InspectorSheet, type Inspected } from "./agent-inspectors.tsx";
 import { AgentComposer, type StreamInterrupt } from "./composer.tsx";
 import { AgentChoiceProvider, type AgentChoiceHandlers } from "./choice-in-words.tsx";
 import { useComposerDraft, type ComposerDraft } from "./use-composer-attachments.ts";
-import { ConversationAccess, TypingStatus, type InCall } from "./presence-line.tsx";
+import { ConversationAccess, TypingStatus, type InCall, type MindFace } from "./presence-line.tsx";
 import { QueuedMessagesPanel } from "./queued-messages.tsx";
 import { sentByMe, type MessageSender, type StreamEvent } from "./stream-event.ts";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
@@ -168,6 +168,7 @@ export function AgentChat({
   me,
   presence = false,
   inCall,
+  mind,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -236,6 +237,8 @@ export function AgentChat({
    *  state (the host's: the chat knows nothing else of a call). Their faces are marked, and the
    *  card says so. */
   inCall?: InCall;
+  /** With `presence`: the mind, the first face of the stack of who is here. */
+  mind?: MindFace;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -290,7 +293,7 @@ export function AgentChat({
       tabsInHeader={tabsInHeader}
       aside={
         presence ? (
-          <ConversationAccess present={here.present} wrote={wrote} inCall={inCall} />
+          <ConversationAccess present={here.present} wrote={wrote} inCall={inCall} mind={mind} />
         ) : null
       }
       asideIn={asideIn}

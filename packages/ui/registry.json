@@ -25,11 +25,13 @@
         "dropdown-menu",
         "empty",
         "iterate/packages/agent-summary",
+        "iterate/packages/app-shell",
         "iterate/packages/call",
         "iterate/packages/code-block",
         "iterate/packages/code-editor",
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
+        "iterate/packages/iterate-logo",
         "iterate/packages/presence",
         "iterate/packages/virtual-log",
         "popover",
@@ -90,6 +92,10 @@
         },
         {
           "path": "src/components/agent-chat/agent-shell.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-page-header.tsx",
           "type": "registry:component"
         },
         {
@@ -465,6 +471,7 @@
         "alert",
         "avatar",
         "button",
+        "button-group",
         "checkbox",
         "input",
         "iterate/packages/call-engine",

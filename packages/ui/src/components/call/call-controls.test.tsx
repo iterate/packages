@@ -2,7 +2,8 @@
 // The call's icon row: its buttons are there before the engine, and cannot be pressed; one press
 // before the join turns the call on when there is none and joins, then does what the button says;
 // a start that fails says why; a mind with no SFU app cannot be joined, and the tooltip says why;
-// the live dot says others are in the call; in the call, the devices and Leave come; a guest has no
+// the live dot says others are in the call; in the call, the devices (in the button group) and Leave
+// (apart from it) come; a guest has no
 // voice agent; and Share is the share icon and its word, with a tooltip.
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -87,7 +88,10 @@ test("others in the call: a live dot on the microphone, and its tooltip says so"
   const who = { actor: "/members/b", name: "B" };
   const live = CallLive.parse({ ...FRESH, inCall: { "b-page": { who, since: 1, tracks: {} } } });
   using row = await mount(<CallControls call={engine()} ui={IDLE} live={live} member />);
-  expect(row.element.querySelector("[data-slot=call-live-dot]")).not.toBe(null);
+  // the dot is in the microphone's own button, so the group's rounded ends stay its buttons'
+  expect(named(row.element, "Microphone").querySelector("[data-slot=call-live-dot]")).not.toBe(
+    null,
+  );
   expect(await tipOf(named(row.element, "Microphone"))).toBe("Join the call: others are in it");
 });
 
@@ -101,6 +105,12 @@ test("in the call: the devices and Leave come, and a guest has no voice agent", 
       "Voice agent",
       "Devices",
       "Leave the call",
+    ]);
+    // one button group holds the switches and the devices; Leave stands apart from it
+    const group = row.element.querySelector("[data-slot=button-group]")!;
+    expect([group.getAttribute("role"), labels(group)]).toEqual([
+      "group",
+      ["Microphone", "Camera", "Voice agent", "Devices"],
     ]);
     expect(await tipOf(named(row.element, "Microphone"))).toBe("Mute");
   }

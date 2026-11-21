@@ -5,7 +5,8 @@
 // the card (on a touch screen too), and so do the pointer resting on the stack and the keyboard's
 // focus. A press holds it open until the next press; the pointer leaving closes only a card the
 // pointer opened (`whyOpen`). It is always there, because what its card says is always true:
-// alone, it is the viewer's own face.
+// alone, it is the viewer's own face. With `mind`, the mind's own face (its logo, or iterate's
+// mark) is the stack's first: whoever is here is here in that mind (`MindFace`).
 //
 // WHO IS TYPING, in words for a screen reader only (`TypingStatus`), over the composer: the eye
 // sees who types at the end of the feed, as their face with dots (participant.tsx
@@ -19,10 +20,11 @@
 // ring on their face in the stack, and "in the call" (and "camera", "screen") beside them in the
 // card.
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { cn } from "cn";
 import type { MessageSender } from "./stream-event.ts";
 import { Face } from "#/components/call/face.tsx";
+import { IterateLogo } from "#/components/iterate-logo.tsx";
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -43,6 +45,10 @@ export type InCall = ReadonlyMap<string, { camera: boolean; screen: boolean }>;
 /** The mark of a face in the call: a ring outside the stack's own. */
 const IN_CALL_RING = "outline-2 outline-offset-1 outline-success";
 const NOBODY_IN_CALL: InCall = new Map();
+
+/** THE MIND whose page this is, as its owner named it: its name (its profile's, else its
+ *  hostname) and its logo (an element, such as an `<img>`; none: iterate's mark). */
+export type MindFace = { name: string; logo?: ReactNode };
 
 /** How many places the stack has for the others; with more here, the last place is "+n". The
  *  viewer's face comes after them, so the stack is at most five faces wide. */
@@ -113,6 +119,7 @@ export function ConversationAccess({
   present,
   wrote,
   inCall = NOBODY_IN_CALL,
+  mind,
 }: {
   /** Who is here now (`usePresence`), the viewer among them. */
   present: readonly PresentPrincipal[];
@@ -120,6 +127,8 @@ export function ConversationAccess({
   wrote: readonly MessageSender[];
   /** Who is in the agent's call; absent: the context has no call. */
   inCall?: InCall;
+  /** The mind: the stack's first face. Absent: the stack is the people alone. */
+  mind?: MindFace;
 }) {
   const [why, setWhy] = useState<Why | null>(null);
   const [handle] = useState(() => PopoverPrimitive.createHandle());
@@ -156,7 +165,12 @@ export function ConversationAccess({
         }}
         render={<Button variant="ghost" size="sm" className="shrink-0 rounded-full px-0.5" />}
       >
-        <FaceStack others={others} me={present.find((principal) => principal.me)} inCall={inCall} />
+        <FaceStack
+          mind={mind}
+          others={others}
+          me={present.find((principal) => principal.me)}
+          inCall={inCall}
+        />
       </PopoverTrigger>
       {/* the card holds words only: the focus stays on the button, which names it */}
       <PopoverContent side="bottom" align="end" initialFocus={false} className="w-80">
@@ -180,22 +194,60 @@ export function ConversationAccess({
   );
 }
 
-/** A FACE STACK: the others' faces, overlapping, the first `FACES` of them (the last place "+n"
- *  when more are here), and the viewer's last. Before the viewer's own row is known, a plain
- *  circle of the same size stands in their place. The faces are for the eye: the button that
- *  holds the stack says who is here in words. */
+/** WHO IS HERE BEFORE THE CHAT HAS SAID IT: the stack as `ConversationAccess` draws it while
+ *  nobody else is here, in the same place and size, which cannot be pressed. With `viewer`, a
+ *  plain circle stands in the viewer's place; without it (no presence), the stack is the mind's
+ *  face alone. A header draws it at its first paint, so the stack is never an empty place. */
+export function ConversationAccessWaiting({ mind, viewer }: { mind?: MindFace; viewer: boolean }) {
+  if (!mind && !viewer) return null;
+  return (
+    <span
+      data-conversation-access-waiting
+      className="inline-flex h-7 shrink-0 items-center rounded-full px-0.5"
+    >
+      <FaceStack mind={mind} others={[]} me={undefined} inCall={NOBODY_IN_CALL} viewer={viewer} />
+    </span>
+  );
+}
+
+/** THE MIND'S FACE: its logo in a circle of a face's size, or iterate's mark. Its name is its
+ *  tooltip and what a screen reader says. */
+function MindFaceMark({ mind, className }: { mind: MindFace; className?: string }) {
+  return (
+    <Avatar
+      data-mind-face
+      title={mind.name}
+      aria-label={mind.name}
+      role="img"
+      className={cn("size-6 overflow-hidden bg-background *:size-full! *:rounded-none!", className)}
+    >
+      {mind.logo ?? <IterateLogo alt="" />}
+    </Avatar>
+  );
+}
+
+/** A FACE STACK: the mind's face first (with `mind`), then the others' faces, overlapping, the
+ *  first `FACES` of them (the last place "+n" when more are here), and the viewer's last. Before
+ *  the viewer's own row is known, a plain circle of the same size stands in their place. The faces
+ *  are for the eye: the button that holds the stack says who is here in words. */
 function FaceStack({
+  mind,
   others,
   me,
   inCall,
+  viewer = true,
 }: {
+  mind: MindFace | undefined;
   others: readonly PresentPrincipal[];
   me: PresentPrincipal | undefined;
   inCall: InCall;
+  /** `false`: no place for the viewer (a stack with no presence). */
+  viewer?: boolean;
 }) {
   const shown = others.length > FACES ? others.slice(0, FACES - 1) : others;
   return (
     <AvatarGroup className="-space-x-1.5">
+      {mind ? <MindFaceMark mind={mind} /> : null}
       {shown.map((principal) => (
         <Face
           key={principal.actor}
@@ -213,18 +265,21 @@ function FaceStack({
           +{String(others.length - shown.length)}
         </AvatarGroupCount>
       ) : null}
-      {me ? (
-        <Face
-          small
-          {...faceOf(me)}
-          className={cn("size-6", inCall.has(me.actor) && IN_CALL_RING)}
-        />
-      ) : (
-        <Avatar className="size-6" aria-hidden="true" data-viewer-unknown>
-          <AvatarFallback />
-        </Avatar>
-      )}
+      {viewer ? <ViewerFace me={me} inCall={inCall} /> : null}
     </AvatarGroup>
+  );
+}
+
+/** The viewer's own face, or a plain circle of its size while their row is not known yet. */
+function ViewerFace({ me, inCall }: { me: PresentPrincipal | undefined; inCall: InCall }) {
+  if (!me)
+    return (
+      <Avatar className="size-6" aria-hidden="true" data-viewer-unknown>
+        <AvatarFallback />
+      </Avatar>
+    );
+  return (
+    <Face small {...faceOf(me)} className={cn("size-6", inCall.has(me.actor) && IN_CALL_RING)} />
   );
 }
 
