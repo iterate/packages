@@ -88,7 +88,7 @@ export type DashPage = {
 
 /** A CALL ON AN AGENT, as a Dash page turns it on. The facet's spec is the mind's config's, which
  *  the kit does not know: `enable` turns the call on for the agent at `path`, at the first press
- *  of "Start a call", and the page then joins it:
+ *  of the call's controls, and the page then joins it:
  *  `enable: (itx, path) => itx.cd(path).processors.enable("call", { …the config's CALL_FACET })`. */
 export type DashCall = {
   enable: (itx: Itx, path: string) => Promise<unknown>;

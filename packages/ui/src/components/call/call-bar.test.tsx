@@ -106,7 +106,9 @@ test("a mind with no SFU app cannot be joined", async () => {
 test("in the call, a member can add a voice agent and a guest cannot", async () => {
   const ui = { ...IDLE, joined: true };
   const labels = (element: HTMLElement) =>
-    [...element.querySelectorAll("button")].map((one) => one.title);
+    [...element.querySelectorAll("button")].map(
+      (one) => one.title || one.getAttribute("aria-label"),
+    );
   {
     using bar = await mount(<CallBar call={engine()} ui={ui} live={FRESH} member />);
     expect(labels(bar.element)).toEqual([

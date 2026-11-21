@@ -675,10 +675,10 @@ test("with the Agents page's `call` off, an agent page has no call: no place, no
   await using page = await draw(DashAgents, itx, { waiting: 0, presence: true });
   expect({
     place: page.host.querySelector("[data-slot=agent-header-call]")?.outerHTML,
-    start: page.host.textContent?.includes("Start a call"),
+    start: page.host.querySelector('[aria-label="Microphone"]')?.outerHTML,
     tiles: page.host.querySelector("[data-slot=agent-call-tiles]")?.outerHTML,
     facet: invoked.filter((one) => Array.isArray(one.call)),
-  }).toEqual({ place: undefined, start: false, tiles: undefined, facet: [] });
+  }).toEqual({ place: undefined, start: undefined, tiles: undefined, facet: [] });
 });
 
 test("with `call` on and `share` off, an agent page has no Share: no place, no button", async () => {
@@ -686,13 +686,53 @@ test("with `call` on and `share` off, an agent page has no Share: no place, no b
   history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx } = mind({ row: "a-page" });
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
-  await act(() =>
-    vi.waitFor(() =>
-      buttonOf(page.host.querySelector("[data-slot=agent-header-call]"), "Start a call"),
-    ),
-  );
+  await act(() => vi.waitFor(() => goIn(page.host.querySelector("[data-slot=agent-header-call]"))));
   expect(page.host.querySelector("[data-slot=agent-header-share]")).toBeNull();
-  expect(page.host.querySelector('button[title="Share this agent"]')).toBeNull();
+  expect(page.host.querySelector('button[aria-label="Share this agent"]')).toBeNull();
+});
+
+test("the header's call and Share are buttons from the first paint, never an empty place, in Meet's order: call, who is here, Share, the tabs", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  history.replaceState(null, "", "/agents/agents/onboarding");
+  const held = mind({ row: "a-page" });
+  held.holdKinds();
+  const share = { make: vi.fn(), end: vi.fn() };
+  const options = { waiting: 0, presence: true, call: { enable: async () => {} }, share };
+  await using page = await draw(DashAgents, held.itx, options);
+  const header = () => page.host.querySelector("[data-page-header]")!;
+  /** The header's places at the right, in order, and the buttons each holds. */
+  const places = () =>
+    [...header().querySelectorAll("[data-slot^=agent-header-]")].map((place) => [
+      place.getAttribute("data-slot"),
+      buttonsOf(place).filter((one) => one !== "Here: you"),
+    ]);
+  // the view is not there yet: the buttons are, and cannot be pressed
+  expect(page.host.querySelector("[role=log]")).toBe(null);
+  expect(places()).toEqual([
+    ["agent-header-call", ["Microphone", "Camera", "Voice agent"]],
+    ["agent-header-aside", []],
+    ["agent-header-share", ["Share this agent"]],
+  ]);
+  expect(
+    [...header().querySelectorAll("[aria-disabled=true]")].map((one) =>
+      one.getAttribute("aria-label"),
+    ),
+  ).toEqual(["Microphone", "Camera", "Voice agent", "Share this agent"]);
+  // the call's and Share's places have no box of their own: nothing is drawn where they are empty
+  expect(
+    [
+      ...header().querySelectorAll("[data-slot=agent-header-call], [data-slot=agent-header-share]"),
+    ].map((place) => place.className),
+  ).toEqual(["contents", "contents"]);
+  held.releaseKinds();
+  await page.settle();
+  await act(() => vi.waitFor(() => goIn(header().querySelector("[data-slot=agent-header-call]"))));
+  await shareOf(page.host);
+  expect(places().map(([slot]) => slot)).toEqual([
+    "agent-header-call",
+    "agent-header-aside",
+    "agent-header-share",
+  ]);
 });
 
 test("Share: a link made once and shown once, the call's live links with their guests, End, and an invite to the page or the link", async () => {
@@ -722,10 +762,7 @@ test("Share: a link made once and shown once, the call's live links with their g
   const enable = vi.fn(async () => {});
   const share = { make: vi.fn(async () => made), end: vi.fn(async () => {}) };
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable }, share });
-  const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-share]");
-  await act(async () =>
-    (await act(() => vi.waitFor(() => buttonOf(place, "Share this agent")))).click(),
-  );
+  await act(async () => (await shareOf(page.host)).click());
   const pane = await act(() =>
     vi.waitFor(() => {
       const found = document.querySelector("[data-slot=share-pane]");
@@ -763,17 +800,14 @@ test("Share on an agent with no call turns the call on once, at its first open",
   const enable = vi.fn(async () => {});
   const share = { make: vi.fn(), end: vi.fn() };
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable }, share });
-  const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-share]");
-  await act(async () =>
-    (await act(() => vi.waitFor(() => buttonOf(place, "Share this agent")))).click(),
-  );
+  await act(async () => (await shareOf(page.host)).click());
   await act(() => vi.waitFor(() => expect(enable).toHaveBeenCalledTimes(1)));
   expect(enable).toHaveBeenCalledWith(itx, "/agents/onboarding");
   await page.settle();
   expect(enable).toHaveBeenCalledTimes(1);
 });
 
-test("with `call` on and no call on the agent: one Start a call, whose press turns the call on once, then joins", async () => {
+test("with `call` on and no call on the agent: the microphone's press turns the call on once, then joins", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   history.replaceState(null, "", "/agents/agents/onboarding");
@@ -781,14 +815,15 @@ test("with `call` on and no call on the agent: one Start a call, whose press tur
   const enable = vi.fn(async () => void steps.push("enable"));
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable } });
   const place = page.host.querySelector("[data-page-header] [data-slot=agent-header-call]");
-  const start = await act(() => vi.waitFor(() => buttonOf(place, "Start a call")));
-  expect(buttonsOf(page.host).filter((one) => one === "Start a call")).toHaveLength(1);
+  const mic = await act(() => vi.waitFor(() => goIn(place)));
+  // one row in the header
+  expect(buttonsOf(page.host).filter((one) => one === "Microphone")).toHaveLength(1);
   // no call facet: its live state is never asked for, so no entry of it fails
   expect(invoked.filter((one) => String(one.call).includes("'call'"))).toEqual([]);
-  await act(async () => start.click());
-  await pressInLobby();
+  await act(async () => mic.click());
   await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
   expect(enable).toHaveBeenCalledExactlyOnceWith(itx, "/agents/onboarding");
+  await act(() => vi.waitFor(() => expect(isOn(place, "Microphone")).toBe(true)));
 });
 
 test("`call=join` on an agent with no call: the lobby opens and turns nothing on, the key leaves the address, and Start the call starts and joins listening", async () => {
@@ -816,7 +851,7 @@ test("`call=join` on an agent with no call: the lobby opens and turns nothing on
   await act(() => vi.waitFor(() => expect(steps.slice(0, 2)).toEqual(["enable", "join"])));
   expect(enable).toHaveBeenCalledOnce();
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
+  await act(() => vi.waitFor(() => expect(isOn(place, "Microphone")).toBe(false)));
   expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
 });
 
@@ -851,17 +886,17 @@ test("`call=join` opens the lobby and joins nothing; its microphone and camera h
   expect(steps).not.toContain("join");
   await pressInLobby();
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(() => vi.waitFor(() => buttonOf(place, "Mute")));
-  await act(() => vi.waitFor(() => buttonOf(place, "Turn the camera off")));
+  await act(() => vi.waitFor(() => expect(isOn(place, "Microphone")).toBe(true)));
+  await act(() => vi.waitFor(() => expect(isOn(place, "Camera")).toBe(true)));
   expect(enable).not.toHaveBeenCalled();
   // the lobby's tracks are the call's: the browser was not asked again
   expect(capturedNothing(media)).toMatchObject({ opened: ["audio", "video"] });
   expect(document.body.querySelector("[data-slot=call-lobby]")).toBe(null);
 });
 
-test("a microphone the browser refuses in the lobby: the lobby says why, and Join joins listening", async () => {
+test("a microphone the browser refuses: the call says why and joins nothing, and the camera's press joins listening", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  using media = browserMedia({ refuse: "NotAllowedError" });
+  using media = browserMedia();
   history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx, steps } = mind({
     row: "a-page",
@@ -870,28 +905,25 @@ test("a microphone the browser refuses in the lobby: the lobby says why, and Joi
   });
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(async () => (await vi.waitFor(() => buttonOf(place, "Join"))).click());
-  const lobby = await act(() =>
-    vi.waitFor(() => {
-      const found = document.body.querySelector("[data-slot=call-lobby]");
-      if (!found?.querySelector("[role=alert]")) throw new Error("no refusal yet");
-      return found;
-    }),
-  );
-  expect(lobby.querySelector("[role=alert]")?.textContent).toContain(
-    "The browser did not give this page the microphone. Allow it for this site to talk; you can still join and listen.",
+  media.refuseNext("NotAllowedError");
+  await act(async () => (await vi.waitFor(() => goIn(place))).click());
+  await act(() =>
+    vi.waitFor(() =>
+      expect(place?.querySelector("[role=alert]")?.textContent).toContain(
+        "The browser did not give this page the microphone.",
+      ),
+    ),
   );
   expect(steps).not.toContain("join");
-  await pressInLobby({ mic: false });
-  await act(() => vi.waitFor(() => expect(steps).toContain("join")));
-  await act(() => vi.waitFor(() => buttonOf(place, "Unmute")));
-  // the camera and the screen are off, and nothing was captured or sent
-  expect(buttonOf(place, "Share video")).toBeTruthy();
-  expect(buttonOf(place, "Share the screen")).toBeTruthy();
-  expect(capturedNothing(media)).toEqual({ opened: [], tracksSent: [] });
+  await act(async () => buttonOf(place, "Camera").click());
+  await act(() => vi.waitFor(() => expect(isOn(place, "Camera")).toBe(true)));
+  // the page listens: no microphone was opened, the camera alone was
+  expect(isOn(place, "Microphone")).toBe(false);
+  expect(steps).toContain("join");
+  expect(media.opened.map((track) => track.kind)).toEqual(["video"]);
 });
 
-test("a start that fails says why in words, and Start a call can be pressed again", async () => {
+test("a start that fails says why in words, and the row can be pressed again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   history.replaceState(null, "", "/agents/agents/onboarding");
   const { itx, steps } = mind({ row: "a-page" });
@@ -904,9 +936,7 @@ test("a start that fails says why in words, and Start a call can be pressed agai
     },
   });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(async () => (await vi.waitFor(() => buttonOf(place, "Start a call"))).click());
-  // this browser has no media: the lobby says so, and Start stays possible
-  await pressInLobby({ mic: false });
+  await act(async () => (await vi.waitFor(() => goIn(place))).click());
   await act(() =>
     vi.waitFor(() =>
       expect(place?.querySelector("[role=alert]")?.textContent).toBe(
@@ -914,7 +944,7 @@ test("a start that fails says why in words, and Start a call can be pressed agai
       ),
     ),
   );
-  expect(buttonOf(place, "Start a call")).toMatchObject({ disabled: false });
+  expect(goIn(place)).toBeTruthy();
   expect(steps).toEqual([]);
 });
 
@@ -932,8 +962,9 @@ test("a call another member is in: Join in the header, a ring on their face, and
     call: { enable: async () => {} },
   });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  await act(() => vi.waitFor(() => buttonOf(place, "Join")));
-  expect(page.host.textContent).not.toContain("Start a call");
+  await act(() => vi.waitFor(() => goIn(place)));
+  // others are in it: the live dot on the microphone
+  expect(place?.querySelector("[data-slot=call-live-dot]")).not.toBe(null);
   const access = page.host.querySelector<HTMLElement>("button[data-conversation-access]");
   await act(() =>
     vi.waitFor(() =>
@@ -958,7 +989,7 @@ test("a call another member is in: Join in the header, a ring on their face, and
   );
 });
 
-test("in the call: the bar's buttons and Leave in the same place, the voice agent's too, and the tiles over the feed", async () => {
+test("in the call: the row's buttons and Leave in the same place, the voice agent's too, and the tiles over the feed", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   history.replaceState(null, "", "/agents/agents/onboarding");
@@ -971,25 +1002,24 @@ test("in the call: the bar's buttons and Leave in the same place, the voice agen
   });
   await using page = await draw(DashAgents, itx, { waiting: 0, call: { enable: async () => {} } });
   const place = page.host.querySelector("[data-slot=agent-header-call]");
-  const before = place?.getAttribute("class");
-  await act(async () => (await vi.waitFor(() => buttonOf(place, "Join"))).click());
-  await pressInLobby();
-  // a member's bar: the voice agent's button is there (a guest's bar has none: call-bar.test.tsx)
+  const mic = await act(() => vi.waitFor(() => goIn(place)));
+  await act(async () => mic.click());
+  // a member's row: the voice agent's button is there (a guest's has none: call-controls.test.tsx)
   await act(() =>
     vi.waitFor(() =>
-      expect([...(place?.querySelectorAll("button") || [])].map((one) => one.title)).toEqual([
-        "Mute",
-        "Share video",
-        "Share the screen",
+      expect(buttonsOf(place!)).toEqual([
+        "Microphone",
+        "Camera",
+        "Share screen",
+        "Voice agent",
         "Devices",
-        "Add a voice agent",
         "Leave the call",
       ]),
     ),
   );
-  // the place is the one the header drew first, as it was: the faces and the tabs did not move
+  // the microphone is the same element out of the call and in it: the focus stays on it
+  expect(buttonOf(place, "Microphone")).toBe(mic);
   expect(page.host.querySelector("[data-slot=agent-header-call]")).toBe(place);
-  expect(place?.getAttribute("class")).toBe(before);
   // the tiles stand over the feed, out of the header; the path each connection takes is read at
   // the engine's next look
   const tiles = page.host.querySelector("[data-slot=agent-call-tiles]");
@@ -999,7 +1029,7 @@ test("in the call: the bar's buttons and Leave in the same place, the voice agen
   ]).toEqual([null, expect.stringContaining("Connecting…")]);
 });
 
-test("a start whose call's live state comes before the join ends: Starting… alone, never Join, then the joined bar; one join", async () => {
+test("a start whose call's live state comes before the join ends: the row waits, never goes in again, then the joined row; one join", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   const facet = callFacet();
@@ -1008,28 +1038,23 @@ test("a start whose call's live state comes before the join ends: Starting… al
     // the call is on: its row and its live state come before `enable` answers
     page.update({ facetOn: true, live: callLive({}) });
   });
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join"] })));
-  expect(buttonsOf(page.place)).toEqual(["Starting…"]);
+  expect(waits(page.place)).toBe(true);
   await act(async () => joining.release());
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
-  expect(page.seen.filter((buttons) => buttons.includes("Join the call"))).toEqual([]);
   expect(facet.steps.filter((step) => step === "join")).toEqual(["join"]);
 });
 
-test("a start whose call's live state comes after the join ended: the joined bar at once, never an empty header", async () => {
+test("a start whose call's live state comes after the join ended: the joined row at once, never an empty header", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
-  expect(buttonOf(page.place, "Leave the call")).toMatchObject({
-    disabled: false,
-  });
+  expect(buttonOf(page.place, "Leave the call").getAttribute("aria-disabled")).toBe(null);
   expect(page.seen.filter((buttons) => buttons.length === 0)).toEqual([]);
 });
 
@@ -1040,8 +1065,7 @@ test("Leave wins against the live state: one that says 'not in the call' while t
   vi.spyOn(Date, "now").mockImplementation(() => now);
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   now += 6_000;
@@ -1050,11 +1074,11 @@ test("Leave wins against the live state: one that says 'not in the call' while t
   // the call already took the page out: its live state says so before the leave answers
   await act(async () => page.update({ facetOn: true, live: callLive({}) }));
   await act(async () => leaving.release());
-  await act(() => vi.waitFor(() => buttonOf(page.place, "Join the call")));
+  await act(() => vi.waitFor(() => goIn(page.place)));
   now += 10_000;
   await act(async () => page.update({ facetOn: true, live: callLive({ "b-page": ["mic"] }) }));
   expect(facet.steps.filter((step) => step === "join")).toEqual(["join"]);
-  expect(buttonOf(page.place, "Join the call")).toBeTruthy();
+  expect(goIn(page.place)).toBeTruthy();
 });
 
 test("no live state says nothing of who is in the call: a joined page does not join again for it", async () => {
@@ -1064,8 +1088,7 @@ test("no live state says nothing of who is in the call: a joined page does not j
   vi.spyOn(Date, "now").mockImplementation(() => now);
   const facet = callFacet();
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(async () => page.update({ facetOn: true, live: callLive({ "a-page": ["mic"] }) }));
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   now += 6_000;
@@ -2431,32 +2454,28 @@ test("a Start whose page went into the back-forward cache while the call came on
     facet,
     () => new Promise<void>((resolve) => (enabled = resolve)),
   );
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(async () => {
     dispatchEvent(new Event("pagehide"));
     dispatchEvent(new Event("pageshow"));
   });
   await act(async () => enabled());
-  // the lobby's microphone went with the page: stopped, never sent
-  expect(facet).toMatchObject({ steps: [] });
-  expect(media.opened.map((track) => track.readyState)).toEqual(["ended"]);
-  expect(buttonsOf(page.place)).not.toContain("Starting…");
+  // the microphone opens with the join, which never came: nothing was opened or sent
+  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
+  expect(waits(page.place)).toBe(false);
 });
 
-test("a Start whose page went away while the call came on joins nothing and keeps no microphone", async () => {
+test("a Start whose page went away while the call came on joins nothing and opens no microphone", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using media = browserMedia();
   const facet = callFacet();
   let enabled = () => {};
   const page = await drawCall(facet, () => new Promise<void>((resolve) => (enabled = resolve)));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await page[Symbol.asyncDispose]();
   enabled();
   await act(async () => {});
-  expect(facet).toMatchObject({ steps: [] });
-  expect(media.opened.map((track) => track.readyState)).toEqual(["ended"]);
+  expect({ steps: facet.steps, opened: media.opened }).toEqual({ steps: [], opened: [] });
 });
 
 test("someone watching an empty call hears the first arrival, and a page alone sees its notice", async () => {
@@ -2472,8 +2491,7 @@ test("someone watching an empty call hears the first arrival, and a page alone s
   );
   // this page alone in the call, then a new row after a reconnect: the notice says how to come back
   await act(async () => page.update({ facetOn: true, live: callLive({}) }));
-  await act(async () => buttonOf(page.place, "Join the call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() => vi.waitFor(() => buttonOf(page.place, "Leave the call")));
   await act(async () => page.update({ facetOn: true, live: callLive({}), row: "a-page-2" }));
   expect(tiles()?.querySelector("[data-slot=call-tiles]")?.textContent).toContain(
@@ -2481,27 +2499,23 @@ test("someone watching an empty call hears the first arrival, and a page alone s
   );
 });
 
-test("a start whose microphone is open while it publishes: Mute and Leave show, not Starting… alone", async () => {
+test("a start whose microphone is open while it publishes: the microphone and Leave show at once", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   const facet = callFacet();
   const publishing = facet.hold("signal");
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() => vi.waitFor(() => expect(facet).toMatchObject({ steps: ["join", "signal"] })));
-  expect([buttonOf(page.place, "Mute"), buttonOf(page.place, "Leave the call")]).toMatchObject([
-    { disabled: false },
-    { disabled: false },
-  ]);
-  // a Leave before the join has ended: Join stands, not a Starting… that nothing ends
+  expect(isOn(page.place, "Microphone")).toBe(true);
+  expect(buttonOf(page.place, "Leave the call").getAttribute("aria-disabled")).toBe(null);
+  // a Leave before the join has ended: the row can go in again, and waits for nothing
   await act(async () => buttonOf(page.place, "Leave the call").click());
-  expect(buttonOf(page.place, "Join the call")).toBeTruthy();
-  expect(page.place.textContent).not.toContain("Starting…");
+  expect(goIn(page.place)).toBeTruthy();
   await act(async () => publishing.release());
 });
 
-test("on a phone, a start outlives the bar's popover, and the call's button says when the page is in the call", async () => {
+test("on a phone, a start outlives the row's popover, and the call's button says when the page is in the call", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   using _media = browserMedia();
   const facet = callFacet();
@@ -2513,13 +2527,11 @@ test("on a phone, a start outlives the bar's popover, and the call's button says
   );
   const trigger = page.place.querySelector("button")!;
   await act(async () => trigger.click());
-  await act(async () => buttonOf(document.body, "Start a call").click());
-  await pressInLobby();
-  // the popover closes for the lobby, and opens again while the start runs
-  if (document.body.querySelector("[data-slot=call-bar]")) await act(async () => trigger.click());
+  await act(async () => goIn(document.body.querySelector("[data-slot=call-bar]")).click());
+  // the popover closed and opened again while the start runs: the row waits for it
   await act(async () => trigger.click());
-  expect(buttonOf(document.body, "Starting…")).toBeTruthy();
-  expect(buttonsOf(document.body)).not.toContain("Start a call");
+  if (!document.body.querySelector("[data-slot=call-bar]")) await act(async () => trigger.click());
+  expect(waits(document.body.querySelector("[data-slot=call-bar]"))).toBe(true);
   await act(async () => {
     page.update({ facetOn: true });
     enabled();
@@ -2537,11 +2549,7 @@ test("on a phone, a page in the call with an error: the call's button says both"
   await act(async () => page.update({ facetOn: true, live: callLive({}) }));
   const trigger = page.place.querySelector("button")!;
   await act(async () => trigger.click());
-  await act(async () => buttonOf(document.body, "Join the call").click());
-  await pressInLobby();
-  if (!document.body.querySelector("[data-slot=call-bar]")) await act(async () => trigger.click());
-  await act(() => vi.waitFor(() => buttonOf(document.body, "Add a voice agent")));
-  await act(async () => buttonOf(document.body, "Add a voice agent").click());
+  await act(async () => buttonOf(document.body, "Voice agent").click());
   await act(() =>
     vi.waitFor(() =>
       expect(trigger.getAttribute("aria-label")).toBe("Call: you are in it, and an error"),
@@ -2559,9 +2567,7 @@ test("a mind with no SFU app: the tiles over the feed say why Join cannot be pre
       live: { ...callLive({}), setup: { sfu: false, turn: false, voice: false } },
     }),
   );
-  expect(buttonOf(page.place, "This mind has no call service yet")).toMatchObject({
-    disabled: true,
-  });
+  expect(buttonOf(page.place, "Microphone").getAttribute("aria-disabled")).toBe("true");
   expect(document.querySelector("[data-slot=agent-call-tiles]")?.textContent).toContain(
     "This mind has no Cloudflare Realtime SFU app yet",
   );
@@ -2572,16 +2578,13 @@ test("a start whose call came on but whose join failed: the call's words, and Jo
   using _media = browserMedia();
   const facet = callFacet({ join: new Error("the call has no SFU app") });
   await using page = await drawCall(facet, async () => page.update({ facetOn: true }));
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() =>
     vi.waitFor(() =>
       expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
     ),
   );
-  expect(buttonOf(page.place, "Join the call")).toMatchObject({
-    disabled: false,
-  });
+  expect(goIn(page.place)).toBeTruthy();
   expect(page.seen.filter((buttons) => buttons.length === 0)).toEqual([]);
 });
 
@@ -2591,15 +2594,14 @@ test("a start whose join fails before the table shows the call: Join, never Star
   const facet = callFacet({ join: new Error("the call has no SFU app") });
   // the call came on, but neither its row nor its live state has reached the page yet
   await using page = await drawCall(facet, async () => {});
-  await act(async () => buttonOf(page.place, "Start a call").click());
-  await pressInLobby();
+  await act(async () => goIn(page.place).click());
   await act(() =>
     vi.waitFor(() =>
       expect(page.place.querySelector("[role=alert]")?.textContent).toBe("the call has no SFU app"),
     ),
   );
-  expect(buttonsOf(page.place)).toContain("Join the call");
-  expect(buttonsOf(page.place)).not.toContain("Start a call");
+  // Join: the call is on, so a press joins and turns nothing on again
+  expect(goIn(page.place)).toBeTruthy();
 });
 
 /** A mind whose logs are empty but for `logs`: what the page appends to a log is kept in
@@ -3137,7 +3139,44 @@ async function drawCall(
 /** The text of every button in `element`, its title where it has one. */
 function buttonsOf(element: Element) {
   return [...element.querySelectorAll("button")].map(
-    (one) => one.title || one.textContent?.trim() || "",
+    (one) => one.title || one.getAttribute("aria-label") || one.textContent?.trim() || "",
+  );
+}
+
+/** Share in the agent's header, once it can be pressed. */
+async function shareOf(host: Element) {
+  return await act(() =>
+    vi.waitFor(() => {
+      const share = buttonOf(
+        host.querySelector("[data-page-header] [data-slot=agent-header-share]"),
+        "Share this agent",
+      );
+      if (share.getAttribute("aria-disabled") === "true") throw new Error("Share waits");
+      return share;
+    }),
+  );
+}
+
+/** The call's microphone in a row out of the call, which a press takes in; throws while the page
+ *  is in the call, or while the row cannot be pressed (a start under way, no call service). */
+function goIn(place: Element | null | undefined) {
+  if (place?.querySelector('[aria-label="Leave the call"]')) throw new Error("in the call");
+  const mic = buttonOf(place, "Microphone");
+  if (mic.getAttribute("aria-disabled") === "true") throw new Error("the row waits");
+  return mic;
+}
+
+/** The page is in the call, and its switch `label` is on; throws while the page is out of it. */
+function isOn(place: Element | null | undefined, label: string) {
+  buttonOf(place, "Leave the call");
+  return buttonOf(place, label).getAttribute("aria-pressed") === "true";
+}
+
+/** The row waits: out of the call, and its microphone cannot be pressed. */
+function waits(place: Element | null | undefined) {
+  return (
+    !place?.querySelector('[aria-label="Leave the call"]') &&
+    buttonOf(place, "Microphone").getAttribute("aria-disabled") === "true"
   );
 }
 
@@ -3165,7 +3204,10 @@ async function pressInLobby({ mic = true, text }: { mic?: boolean; text?: string
 
 function buttonOf(element: Element | null | undefined, text: string) {
   const found = [...(element?.querySelectorAll("button") || [])].find(
-    (one) => one.title === text || one.textContent?.trim() === text,
+    (one) =>
+      one.title === text ||
+      one.getAttribute("aria-label") === text ||
+      one.textContent?.trim() === text,
   );
   if (!found) throw new Error(`no button "${text}"`);
   return found;

@@ -1,5 +1,6 @@
-// call-bar.tsx — THE CALL'S CONTROLS, compact enough for an agent's header, in one row that does not
-// wrap: join, leave, mute, the camera, the screen, the devices, and the voice agent (a member's
+// call-bar.tsx — THE CALL'S CONTROLS WITH A MAIN BUTTON in words (Start a call, Join, Leave), for a
+// page that wants one; an agent's header has the icon row of call-controls.tsx. In one row that does
+// not wrap: join, leave, mute, the camera, the screen, the devices, and the voice agent (a member's
 // alone). Each switch is an icon button with its name in words for a screen reader and a pointer.
 // What goes wrong is said in words under the buttons, from the engine's state, so a bar drawn again
 // still says it: a start that failed, a join that failed, a voice agent that did not come. What the
@@ -15,18 +16,14 @@ import {
   MonitorUpIcon,
   PhoneIcon,
   PhoneOffIcon,
-  Settings2Icon,
   VideoIcon,
   VideoOffIcon,
-  XIcon,
 } from "lucide-react";
 import { cn } from "cn";
-import type { CallEngine, CallUi, VoiceRefusal } from "#/lib/call-engine.ts";
-import { joinable, type CallLive, type DeviceKind } from "#/lib/call-rules.ts";
-import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
+import { CallDevices, CallWords } from "./call-controls.tsx";
+import type { CallEngine, CallUi } from "#/lib/call-engine.ts";
+import { joinable, type CallLive } from "#/lib/call-rules.ts";
 import { Button } from "#/components/ui/button.tsx";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 
 /**
  * `call`, `ui`, `live`: what `useCall` answers; in the call, the bar draws before `live` has come.
@@ -68,7 +65,7 @@ export function CallBar({
         {ui.joined ? <JoinedControls call={call} ui={ui} live={live} member={member} /> : null}
         <MainButton call={call} ui={ui} live={live} start={start} starting={starting} join={join} />
       </div>
-      <Words call={call} ui={ui} />
+      <CallWords call={call} ui={ui} />
     </div>
   );
 }
@@ -110,7 +107,7 @@ function JoinedControls({
         icon={ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
         onPress={() => void call.toggleScreen()}
       />
-      <Devices call={call} ui={ui} />
+      <CallDevices call={call} ui={ui} />
       {member ? <VoiceAgentToggle call={call} ui={ui} live={live} /> : null}
     </>
   );
@@ -222,20 +219,6 @@ function MainButton({
   );
 }
 
-/** What went wrong, in words, in one element a host may place: the call's error (a start or a
- *  join that failed), and why the voice agent did not come. */
-function Words({ call, ui }: { call: CallEngine; ui: CallUi }) {
-  if (!ui.error && !ui.aiRefusal) return null;
-  return (
-    <div data-slot="call-bar-words" className="flex flex-col gap-1">
-      {ui.error ? <Said text={ui.error} onClose={() => call.dismiss()} /> : null}
-      {ui.aiRefusal ? (
-        <Said text={<VoiceRefusalText refusal={ui.aiRefusal} />} onClose={() => call.dismiss()} />
-      ) : null}
-    </div>
-  );
-}
-
 /** One of the call's switches: an icon, a fixed name for a screen reader, what a press does for a
  *  pointer, and whether it is on. The name never changes with the state: `aria-pressed` says it. */
 function Toggle({
@@ -265,86 +248,5 @@ function Toggle({
     >
       {icon}
     </Button>
-  );
-}
-
-/** An error in words, with a button that closes it. */
-function Said({ text, onClose }: { text: ReactNode; onClose: () => void }) {
-  return (
-    <Alert variant="destructive" role="alert">
-      <AlertDescription className="flex items-start justify-between gap-2">
-        <span>{text}</span>
-        <Button size="icon-xs" variant="ghost" title="Close" onClick={onClose}>
-          <XIcon />
-        </Button>
-      </AlertDescription>
-    </Alert>
-  );
-}
-
-/** Why the voice agent did not come, and what a member can do about it: a spent credit or no key
- *  has two ways out, in the call's own marks; anything else is the call's own words. */
-function VoiceRefusalText({ refusal }: { refusal: VoiceRefusal }) {
-  if (refusal.credit)
-    return (
-      <>
-        The mind&apos;s voice credit at iterate Cloud is spent. Two ways to pay: connect your
-        ChatGPT plan in iterate Cloud, or save your own OpenAI key as /secrets/openai on the
-        Dash&apos;s Secrets page.
-      </>
-    );
-  if (refusal.noKey)
-    return (
-      <>
-        This mind has no OpenAI key for the voice agent yet. iterate Cloud gives one with its
-        credit, or save your own as /secrets/openai on the Dash&apos;s Secrets page.
-      </>
-    );
-  return <>{refusal.message}</>;
-}
-
-const PICKERS: [DeviceKind, string][] = [
-  ["mic", "Microphone"],
-  ["camera", "Camera"],
-  ["speaker", "Speaker"],
-];
-
-/** The microphone, the camera and the speaker, each a picker; the browser lists them when the
- *  pickers open. */
-function Devices({ call, ui }: { call: CallEngine; ui: CallUi }) {
-  return (
-    <Popover onOpenChange={(open) => open && void call.listDevices()}>
-      <PopoverTrigger
-        nativeButton
-        render={
-          <Button size="icon-sm" variant="outline" aria-label="Devices" title="Devices">
-            <Settings2Icon />
-          </Button>
-        }
-      />
-      <PopoverContent className="flex w-72 flex-col gap-3">
-        {PICKERS.map(([kind, label]) =>
-          kind === "speaker" && !ui.devices.speakerSupported ? (
-            <p key={kind} className="text-xs text-muted-foreground">
-              This browser cannot choose a speaker.
-            </p>
-          ) : (
-            <label key={kind} className="flex flex-col gap-1 text-xs text-muted-foreground">
-              {label}
-              <NativeSelect
-                value={ui.devices.chosen[kind]}
-                onChange={(event) => void call.chooseDevice(kind, event.target.value)}
-              >
-                {ui.devices[kind].map((option) => (
-                  <NativeSelectOption key={option.id} value={option.id}>
-                    {option.label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-          ),
-        )}
-      </PopoverContent>
-    </Popover>
   );
 }

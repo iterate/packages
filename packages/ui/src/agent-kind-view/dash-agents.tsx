@@ -9,7 +9,7 @@
 //               in the config repo) is that kind's view, in a sandboxed frame (./host.ts). Its
 //               header is one row: the agent's title and path, the call's controls (with `call`
 //               on: ./dash-call.tsx, an iterate agent's chat alone), who is here and can use the
-//               conversation (with presence on), and Chat | Events. The row's
+//               conversation (with presence on), Share (with `share` on), and Chat | Events. The row's
 //               `openers` are what the mind says first in an empty chat.
 //
 // They live here, out of the shadcn registry, because they host kinds' frames: a registry item may
@@ -38,6 +38,8 @@ import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/save
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
 import { AgentReading } from "#/components/agent-chat/agent-reading.tsx";
 import { AgentTabs } from "#/components/agent-chat/agent-strip.tsx";
+import { CallHeaderWaiting } from "#/components/call/call-controls.tsx";
+import { ShareButton } from "#/components/call/call-share.tsx";
 import { AppShellPageHeader } from "#/components/app-shell.tsx";
 import { ContextPathText } from "#/components/context-path-text.tsx";
 import {
@@ -560,14 +562,15 @@ function AgentPageTools(props: Omit<ComponentProps<PageToolsPart["PageTools"]>, 
 type PageToolsPart = Awaited<ReturnType<typeof toolsPart>>;
 
 /** THE AGENT PAGE'S HEADER: the agent's title (on a wide screen, when it has one) and its path,
- *  cut at its end where it does not fit, and Chat | Events at the right, which never wrap. With no
- *  `tabs`, the tabs are drawn as they will be and cannot be pressed: the view is not there yet.
- *  With `presence`, a place before the tabs as wide as one face, from the first paint: the chat
- *  draws the stack of who is here in it (`AgentChat`'s `asideIn`, which `aside` receives), which
- *  grows to its left, so the tabs do not move when it comes or when people arrive. With `call`,
- *  a place before that one, as wide as one button, from the first paint: the call's controls
- *  (`callIn` receives it), which grow to their left as well, so the path gives up the room. With
- *  `share`, a place as wide as one button beside the call's: Share (`shareIn` receives it). */
+ *  cut at its end where it does not fit, then, at the right and never wrapped, the call's controls,
+ *  who is here, Share, and Chat | Events: Meet's order. With no `tabs`, the tabs are drawn as they
+ *  will be and cannot be pressed: the view is not there yet. With `presence`, a place before Share
+ *  as wide as one face, from the first paint: the chat draws the stack of who is here in it
+ *  (`AgentChat`'s `asideIn`, which `aside` receives), which grows to its left, so the tabs do not
+ *  move when it comes or when people arrive. With `call`, the call's controls; with `share`, Share.
+ *  Each has no box of its own: while the page reads, the header draws their buttons, which cannot
+ *  be pressed yet; then its places are `contents`, which the call's part fills in the same paint
+ *  (`callIn` and `shareIn` receive them). So the header never shows an empty place for them. */
 function AgentPageHeader({
   path,
   agents,
@@ -609,18 +612,9 @@ function AgentPageHeader({
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {call ? (
-          <span
-            ref={callIn}
-            data-slot="agent-header-call"
-            className="flex h-7 min-w-7 shrink-0 items-center justify-end"
-          />
-        ) : null}
-        {share ? (
-          <span
-            ref={shareIn}
-            data-slot="agent-header-share"
-            className="flex size-7 shrink-0 items-center justify-center"
-          />
+          <span ref={callIn} data-slot="agent-header-call" className="contents">
+            {callIn ? null : <CallHeaderWaiting member />}
+          </span>
         ) : null}
         {presence ? (
           <span
@@ -628,6 +622,11 @@ function AgentPageHeader({
             data-slot="agent-header-aside"
             className="flex h-7 min-w-7 shrink-0 justify-end"
           />
+        ) : null}
+        {share ? (
+          <span ref={shareIn} data-slot="agent-header-share" className="contents">
+            {shareIn ? null : <ShareButton disabled />}
+          </span>
         ) : null}
         {tabs ? (
           <AgentTabs {...tabs} />
@@ -666,9 +665,9 @@ function AgentPageReading({
   quiet: boolean;
   /** The header keeps the place of who is here and can use the conversation. */
   presence: boolean;
-  /** The header keeps the place of the call's controls. */
+  /** The header draws the call's controls, which cannot be pressed yet. */
   call: boolean;
-  /** The header keeps Share's place. */
+  /** The header draws Share, which cannot be pressed yet. */
   share: boolean;
 }) {
   return (

@@ -456,7 +456,7 @@
     {
       "name": "call",
       "type": "registry:component",
-      "description": "A call on an agent's context: its lobby before a join, its controls for a header and its tiles beside the chat, the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
+      "description": "A call on an agent's context: its lobby before a join, its controls and Share for a header, its tiles beside the chat, the quiet caption strip, the transcript, and one feed row for a run of lines said, with each speaker's face.",
       "dependencies": [
         "cn",
         "lucide-react"
@@ -465,12 +465,17 @@
         "alert",
         "avatar",
         "button",
+        "checkbox",
+        "input",
         "iterate/packages/call-engine",
         "iterate/packages/call-rules",
+        "iterate/packages/copy-text",
         "iterate/packages/iterate-logo",
         "iterate/packages/virtual-log",
+        "label",
         "native-select",
-        "popover"
+        "popover",
+        "tooltip"
       ],
       "cssVars": {
         "theme": {
@@ -501,6 +506,18 @@
         },
         {
           "path": "src/components/call/transcript-rollup.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/calendar-invite.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-controls.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/call/call-share.tsx",
           "type": "registry:component"
         },
         {
