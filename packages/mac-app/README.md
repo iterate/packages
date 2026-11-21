@@ -78,7 +78,10 @@ npx @iterate-com/mac-app uninstall                                    # quit and
 ### Several minds, one lent at a time
 
 This Mac can know several minds, each with its own key (`keys/<mind>.key`). The app lends it to
-one of them, the active one. The panel's mind menu does the same as these commands:
+one of them, the active one. The top of the panel is the mind switcher: the active mind's icon
+(with the lend's dot), its name, its address and this Mac's name there. A click lists the minds,
+with a check mark on the active one, then **Add a Mind…** and **Remove a Mind…**. It does the same
+as these commands:
 
 ```sh
 npx @iterate-com/mac-app list                                      # the minds; * marks the active one
@@ -89,6 +92,12 @@ npx @iterate-com/mac-app remove example.org                        # forget it a
 
 `add` offers the minds of the iterate CLI's profiles (`iterate login`). `remove` deletes the key on
 this Mac only: it stays listed on the mind's /keys page until a member removes it there.
+
+A mind's name and icon are what its website answers to anyone at `/.well-known/iterate-profile`:
+the app reads them with no key, at most once in five minutes while a view shows the mind, and keeps
+them in `faces/` of its folder, so the panel draws them at once and with no network. A mind with no
+icon is the first letter of its name on a colour that its address gives. The name is the owner's
+own words, unsigned, so the address is always shown beside it.
 
 ### The lend's state
 
@@ -122,7 +131,9 @@ Three parts are what a thing lent to a mind from a Mac needs; keep them:
   `description` is the line they read next to the name: keep it under 500 characters, or the mind
   refuses the lend and it never goes live.
 - **The switches**: `Permissions.swift` (Off, Ask, Shared for each thing, and macOS's permissions)
-  and `Approval.swift` (Touch ID for Ask). The panel (`Panel.swift`) shows them.
+  and `Approval.swift` (Touch ID for Ask). The panel (`Panel.swift`) shows them, under its mind
+  switcher (`MindSwitcher.swift`). `MindFace.swift` is a mind's name and icon for any view
+  (`MindAvatar`, `MindLabel`).
 
 For a minimal app, delete the things it shares and their methods in `AppModel.swift` and the
 bridge: `Camera.swift` and `CameraState.swift`, `AudioOwner.swift`, `AudioDevices.swift` and
@@ -326,4 +337,5 @@ A script can also draw a mark in the capture that runs, for a test with no hand:
 anything. A third word draws the lend in one phase: `live`, `reconnecting`, `stopped` or
 `not-allowed`; `ringing` draws a call's banner at the top. `--render-banner banner.png ring`
 draws a banner (`ring`, `request` or `notice`; add `dark` for the dark appearance);
-`--render-ring ring.png` is the ring's.
+`--render-ring ring.png` is the ring's. `--render-switcher <folder>` draws the mind switcher,
+closed and open, light and dark, four files.

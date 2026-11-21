@@ -288,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         camerasHeldByThePanel.forEach(model.releaseCamera)
         camerasHeldByThePanel = []
         panelState.displayPictures = [:]
+        panelState.isSwitcherOpen = false
     }
 
     private func choiceChanged() {

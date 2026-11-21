@@ -16,6 +16,8 @@ final class PanelState: ObservableObject {
     @Published var banner: Banner?
     /// How the person's last capture (⌥⇧S) ended.
     @Published var captureLine: String?
+    /// The mind switcher shows its list of minds. It closes with the panel.
+    @Published var isSwitcherOpen = false
 }
 
 /// What the panel shows of the lend.
@@ -128,57 +130,29 @@ struct Panel: View {
         .frame(width: 430)
     }
 
-    /// The mind this Mac is lent to, a menu of the others, and the lend's state in words.
+    /// The mind this Mac is lent to (`MindSwitcher`), and the lend's state in words.
     private var lendSection: some View {
         let lend = state.lend
         let active = lend.minds.first { $0.mind == lend.active }
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                // a spinner while it connects or reconnects, a dot otherwise
+            MindSwitcher(lend: lend, isOpen: $state.isSwitcherOpen, actions: lendActions, dot: Self.color(of: lend.phase))
+                // the rows' own inset: the avatar stands in line with the panel's other rows
+                .padding(.horizontal, -8)
+                .padding(.top, -4)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if lend.phase == "connecting" || lend.phase == "reconnecting" {
-                    ProgressView().controlSize(.mini).frame(width: 9, height: 9)
-                } else {
-                    Circle()
-                        .fill(Self.color(of: lend.phase))
-                        .frame(width: 9, height: 9)
+                    ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 }
-                Menu {
-                    ForEach(lend.minds) { mind in
-                        Button {
-                            lendActions.use(mind.mind)
-                        } label: {
-                            if mind.mind == lend.active {
-                                Label("\(mind.mind) · itx.\(mind.name)", systemImage: "checkmark")
-                            } else {
-                                Text("\(mind.mind) · itx.\(mind.name)")
-                            }
-                        }
-                        .disabled(mind.mind == lend.active)
-                    }
-                    if !lend.minds.isEmpty { Divider() }
-                    Button("Add a Mind…", action: lendActions.add).disabled(!lend.isSetUp || lend.isCommandRunning)
-                    if !lend.minds.isEmpty {
-                        Menu("Remove") {
-                            ForEach(lend.minds) { mind in Button("\(mind.mind)…") { lendActions.remove(mind.mind) } }
-                        }
-                    }
-                } label: {
-                    Text(active.map { "\($0.mind) · itx.\($0.name)" } ?? (lend.minds.isEmpty ? "No mind yet" : "Lent to no mind"))
-                        .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("The mind this Mac is lent to: one at a time")
+                Text(lend.isSetUp ? lend.status : "Not set up: run npx @iterate-com/mac-app in a terminal")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button("Reconnect Now", action: lendActions.reconnect)
                     .controlSize(.small)
                     .disabled(active == nil)
                     .help("Ends the wait or the attempt, and starts the lend at once")
             }
-            Text(lend.isSetUp ? lend.status : "Not set up: run npx @iterate-com/mac-app in a terminal")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             if let link = lend.link {
                 Button("Open the Link to Allow This Mac") { lendActions.open(link) }.controlSize(.small)
             }

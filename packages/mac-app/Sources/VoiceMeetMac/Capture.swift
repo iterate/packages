@@ -30,6 +30,8 @@ enum CaptureHotKey {
 @MainActor
 final class CapturePill: ObservableObject {
     @Published var text = ""
+    /// The mind the capture goes into, by its address: the pill shows its face.
+    @Published var mind: String?
     @Published var startedAt: Date?
     /// The part of the bytes that went up, while the capture is sent.
     @Published var progress: Double?
@@ -726,11 +728,15 @@ final class Capture: NSObject, SCStreamDelegate, SCStreamOutput, SCRecordingOutp
     /// The pill at the top of the display: what the capture does now. With `seconds`, it goes away after them.
     private func say(_ text: String, startedAt: Date? = nil, progress: Double? = nil, for seconds: Double? = nil) {
         pill.text = text
+        pill.mind = destination()?.mind
         pill.startedAt = startedAt
         pill.progress = progress
         let screen = self.screen ?? NSScreen.main
         // room for the dot, the clock and the two buttons while it records
-        let width = min(CGFloat((startedAt == nil ? 60 : 250) + (progress == nil ? 0 : 110) + text.count * 8), 760)
+        let controls: CGFloat = startedAt == nil ? 60 : 250
+        let face: CGFloat = pill.mind == nil ? 0 : 26
+        let bar: CGFloat = progress == nil ? 0 : 110
+        let width = min(controls + face + bar + CGFloat(text.count * 8), 760)
         let frame = NSRect(x: (screen?.frame.midX ?? 400) - width / 2, y: (screen?.visibleFrame.maxY ?? 800) - 48, width: width, height: 36)
         let panel = pillPanel ?? self.panel(frame, level: NSWindow.Level.statusBar.rawValue + 1)
         if pillPanel == nil {
@@ -758,6 +764,7 @@ private struct CapturePillView: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if let mind = pill.mind { MindAvatar(mind: mind, size: 22) }
             if let startedAt = pill.startedAt {
                 Circle().fill(.red).frame(width: 9, height: 9)
                 Text(startedAt, style: .timer).monospacedDigit()
@@ -771,7 +778,8 @@ private struct CapturePillView: View {
         }
         .font(.system(size: 13, weight: .medium))
         .controlSize(.small)
-        .padding(.horizontal, 14)
+        .padding(.leading, pill.mind == nil ? 14 : 7)
+        .padding(.trailing, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.separator))
