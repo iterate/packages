@@ -241,18 +241,65 @@ A lent Mac has a context of its own in the mind, `/devices/<name>`, with the nam
 (`itx.<name>`). The app adds events there, through `bridge/device-events.mjs`, as you (the iterate
 CLI's own sign-in; the Mac's key lends and does nothing else):
 
-| Event                     | When                                                                                       | Payload                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `device/presence-changed` | Always while the Mac is lent: it goes idle (120 s with no input), active, locked or asleep | `state`, `idleSeconds`, `was`                            |
-| `device/key-pressed`      | While **Keyboard and mouse** is on in the panel                                            | `key`, `text`, `keyCode`, `modifiers`, `app`, `isRepeat` |
-| `device/mouse-pressed`    | The same                                                                                   | `x`, `y`, `button`, `clicks`, `app`                      |
-| `device/mouse-moved`      | The same, at most 10 a second                                                              | `x`, `y`                                                 |
-| `device/scrolled`         | The same, at most 10 a second                                                              | `x`, `y`, `dx`, `dy`                                     |
+| Event                     | When                                                                                                                                                                    | Payload                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `device/presence-changed` | Always while the Mac is lent: it goes idle (120 s with no input), active, locked or asleep                                                                              | `state`, `idleSeconds`, `was`                                 |
+| `device/key-pressed`      | While **Keyboard and mouse** is on in the panel                                                                                                                         | `key`, `text`, `keyCode`, `modifiers`, `app`, `isRepeat`      |
+| `device/mouse-pressed`    | The same                                                                                                                                                                | `x`, `y`, `button`, `clicks`, `app`                           |
+| `device/mouse-moved`      | The same, at most 10 a second                                                                                                                                           | `x`, `y`                                                      |
+| `device/scrolled`         | The same, at most 10 a second                                                                                                                                           | `x`, `y`, `dx`, `dy`                                          |
+| `device/app-focused`      | Always while the Mac is lent: the front app or its window's title changed                                                                                               | `app`, `bundle`, `title`                                      |
+| `device/window-read`      | While **Window text** is ticked under Record: on a new app or window, a click, a pause after typing, the end of a scroll; at most every 2 s, only when the text changed | `app`, `title`, `text` (at most 20,000 characters), `trigger` |
+| `record/slot-stored`      | While a switch under **Record** is on: once for each 30 seconds, after its files are in the mind                                                                        | `t`, `tracks` (below)                                         |
 
 A key event holds the key itself, so what you type goes to the mind, a password too. Keyboard and
 mouse is off until you turn it on. Its events are ephemeral: they reach whoever listens at that
 moment and are in no log, unless you tick **Keep these events in the mind's log**. Keys need the
 Accessibility permission of macOS. A presence event is always kept.
+
+A password manager in front (1Password, Keychain Access, Passwords) is told as `app` and `bundle`
+with no title, so that the app before it is seen to end; its window's title and text are never
+read. A window's title and text need the Accessibility permission of macOS, and the app asks for
+them away from its main thread, so an app that does not answer holds nothing up.
+
+## The record: what the Mac saw and heard, in the mind
+
+The panel's **Record** group has a switch for each of **Screens**, **Camera**, **Microphone** and
+**Speakers**: all off until you turn one on, and remembered. The Mac records only while it is lent
+to a mind, into that mind, and starts again by itself when the app starts. A source whose
+permission macOS has not given says so in its row and stays off. Screens and cameras pause as
+soon as the Mac is locked or its displays sleep, and start again by themselves: a paused camera is
+off, its light too. Microphones and speakers go on. The line under the
+switches says what happens ("Recording 4 tracks · 2 slots waiting"), and the 𝑖 in the menu bar is
+orange while the Mac records.
+
+Time is cut into **slots** of 30 seconds on the UTC clock. For each slot each **track**
+(`screen-<display>`, `camera-0`, `mic-0`, `speaker-0`) is one file in the mind's files, named by
+the clock, that plays by itself, and a video track has a small picture of the slot's start:
+
+```
+/devices/<name>/record/<track>/<YYYY-MM-DD>/<HH>/<MM>-<SS>.mp4   HEVC or AAC, fragmented MP4, time zero at the slot's start
+/devices/<name>/record/<track>/<YYYY-MM-DD>/<HH>/<MM>-<SS>.jpg   640 px wide
+```
+
+Screens are 10 frames a second at the display's own pixels (only frames that changed), cameras
+720p at 15, both HEVC at quality 0.45 with a keyframe at the slot's start and every 10 s. Sound is
+AAC at 48 kHz, on the same clock as the picture. Windows of password managers are left out of
+the screens.
+
+The recorder (`Sources/Record`) writes each slot's files into a spool on this Mac first
+(`~/Library/Application Support/iterate-mac-app/record/<mind>/`, a file's path there is its path
+in the mind), and `slots/<t>.json` once every track of the slot has closed. `bridge/record-upload.mjs`
+takes the slots oldest first: it puts each file into the mind by a signed upload link
+(`itx.r2.presign`, the links of a slot asked for in one go; the file streams from disk, so no
+byte of it passes through the connection), then appends `record/slot-stored`
+to `/devices/<name>` with the idempotency key `record/slot-stored/<t>`, then deletes the slot from
+the spool. So an event never names a file that is not there. With no network the spool waits (up
+to 5 GB; then the oldest slots go). The event's payload is `{ t, tracks: { <track>: { kind, file,
+bytes, codec, … } } }`: a video track also has `width`, `height`, `frames`, `parts` (`[[byte
+offset, ms from the slot's start], …]`, one per fragment), `picture`, and a screen's `x`, `y`,
+`scale`; an audio track has `rate`, `channels`, `rms`, `peak` and `levels` (60 half seconds, in
+dBFS).
 
 ## Capture: show an agent what you mean
 
@@ -357,7 +404,7 @@ Notes from the first runs (macOS 15.7.4, a MacBook Pro):
 ./run-on-mac.sh               # build, install in /Applications, open, follow the logs
 ./run-on-mac.sh --build-only  # build and sign .build/iterate.app only
 ./run-on-mac.sh --logs        # follow the app's log
-swift test                    # the state machines' tests (needs Xcode): microphone, camera, lend, banner
+swift test                    # the state machines' tests (needs Xcode): microphone, camera, lend, banner, the record
 npx .                         # the installer from this folder
 npx . init /tmp/mac --no-install   # a copy, without building or installing it
 ```
@@ -367,6 +414,12 @@ does what ⌥⇧S does, from a script on this Mac; the bridge lends no such call
 
 A script can also draw a mark in the capture that runs, for a test with no hand:
 `{"method":"capture.mark","points":[[x,y],…]}` (points of the display from its top left).
+
+`swift build --product record-run`, then `.build/debug/record-run --spool /tmp/spool --device test.mac
+--synthetic --seconds 70` records a test picture and a beep each second into a spool, with no
+permission; `--screens --cameras --mics --speakers` record the real sources, which need the app's
+permissions (run it through the app's `run` method). `node bridge/record-upload.mjs /tmp/spool
+--name test.mac --iterate <iterate.js> --mind <address>` sends a spool to a mind.
 
 `.build/release/VoiceMeetMac --render-panel panel.png` draws the panel to a file without opening
 anything. A third word draws the lend in one phase: `live`, `reconnecting`, `stopped` or

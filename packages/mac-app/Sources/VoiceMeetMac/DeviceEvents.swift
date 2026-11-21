@@ -55,17 +55,33 @@ final class DeviceEvents: ObservableObject {
     private var timer: Timer?
     private var monitors: [Any] = []
     private var lastMoveAt = Date.distantPast
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     func start() {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // A lock, an unlock, and displays that sleep or wake count at once, not at the next tick:
+        // the recorder pauses the screens on this value. Again after half a second, in case the
+        // session's dictionary says it a little later than the notification.
+        let workspace = NSWorkspace.shared.notificationCenter, distributed = DistributedNotificationCenter.default()
+        for (center, name) in [
+            (distributed as NotificationCenter, Notification.Name("com.apple.screenIsLocked")),
+            (distributed, Notification.Name("com.apple.screenIsUnlocked")),
+            (workspace, NSWorkspace.screensDidSleepNotification), (workspace, NSWorkspace.screensDidWakeNotification),
+        ] {
+            observers.append((center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self?.tick() } }
+            }))
+        }
         watchInput()
         tick()
     }
 
     func stop() {
         timer?.invalidate()
+        for (center, observer) in observers { center.removeObserver(observer) }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         endPublisher()

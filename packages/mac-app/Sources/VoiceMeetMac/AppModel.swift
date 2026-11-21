@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import Combine
 import VoiceMeetCore
 
 /// Answers the local endpoint's callers (a mind, through `iterate provide`) from the Mac's screen,
@@ -31,6 +32,11 @@ final class AppModel {
     let acts = ActivityLog()
     /// What this Mac tells its mind about itself: presence, and keyboard and mouse when shared.
     let deviceEvents = DeviceEvents()
+    /// The record of the screens, cameras, microphones and speakers, into the mind (`DeviceRecord`).
+    let record = DeviceRecord()
+    /// The window in front, as events: `device/app-focused`, `device/window-read` (`DeviceWindow`).
+    let deviceWindow = DeviceWindow()
+    private var presenceWatch: AnyCancellable?
     private var activity: NSObjectProtocol?
     private var microphoneHolders = 0
     private var isListening = false
@@ -52,12 +58,24 @@ final class AppModel {
         endpoint.start()
         deviceEvents.readPresence = { Self.presence() }
         deviceEvents.start()
+        deviceWindow.publish = { [weak self] type, payload in self?.deviceEvents.publish(type, payload, ephemeral: false) }
+        deviceWindow.isLent = { [weak self] in self?.deviceEvents.path != nil }
+        deviceWindow.start()
+        record.presence = { [weak self] in self?.deviceEvents.presence }
+        // a lock pauses the screens at once: the record looks again as soon as presence changes
+        // (on the next turn: `@Published` tells before it sets)
+        presenceWatch = deviceEvents.$presence.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.record.tick() } }
+        }
+        record.start()
     }
 
     func shutDown() {
         endpoint.stop()
         acts.stop()
         deviceEvents.stop()
+        deviceWindow.stop()
+        record.stop()
         audioOwner.stop()
         speaker.stop()
         banners.stop()

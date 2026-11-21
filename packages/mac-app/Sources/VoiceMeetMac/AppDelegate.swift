@@ -64,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let publisher = URL(fileURLWithPath: config.bridge).deletingLastPathComponent().appendingPathComponent("device-events.mjs").path
             return DeviceEvents.Destination(node: config.node, iterateBin: config.iterateBin, publisher: publisher, mind: mind.mind, name: mind.name)
         }
+        model.record.destination = { [weak self] in
+            guard let config = self?.lend.config, let mind = config.activeMind else { return nil }
+            let uploader = URL(fileURLWithPath: config.bridge).deletingLastPathComponent().appendingPathComponent("record-upload.mjs").path
+            return DeviceRecord.Destination(node: config.node, iterateBin: config.iterateBin, uploader: uploader, mind: mind.mind, name: mind.name)
+        }
+        model.record.onChange = { [weak self] in self?.stateDidChange() }
         model.banners.onChange = { [weak self] in self?.stateDidChange() }
         model.start()
         lend.isBusy = { [weak self] in
@@ -240,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if isInUse {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in self?.updateStatusButton() }
         }
-        let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning || self.isCapturing
+        let isCapturing = model.microphone.isRunning || model.isAnyCameraRunning || self.isCapturing || model.record.isRecording
         let banner = model.banners.state.showing
         let glance = lend.state.phase.glance
         let shown = banner != nil ? "green" : isInUse ? "red" : isCapturing ? "orange" : glance.rawValue
@@ -254,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         let label =
             banner.map { $0.isCall ? "iterate: \($0.title) calls" : "iterate: \($0.title)" }
-            ?? (isInUse ? "iterate: a mind uses this Mac now" : self.isCapturing ? "iterate: your capture runs" : isCapturing ? "iterate: microphone or camera on" : lendWords)
+            ?? (isInUse ? "iterate: a mind uses this Mac now" : self.isCapturing ? "iterate: your capture runs" : model.record.isRecording ? "iterate: recording into the mind" : isCapturing ? "iterate: microphone or camera on" : lendWords)
         button.toolTip = label
         button.setAccessibilityLabel(label)
         if shown != shownStatusIcon {

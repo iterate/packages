@@ -86,6 +86,7 @@ struct Panel: View {
                 section("Cameras", of: .camera)
                 section("This Mac", of: .microphone, .speaker, .banners, .accessibility, .commands)
                 DeviceEventsSection(events: model.deviceEvents)
+                RecordSection(record: model.record, window: model.deviceWindow, allow: allow)
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)

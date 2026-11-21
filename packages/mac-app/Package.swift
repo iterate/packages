@@ -13,7 +13,12 @@ var targets: [Target] = [
 // the package is VoiceMeetCore and its tests.
 #if os(macOS)
 products.append(.executable(name: "VoiceMeetMac", targets: ["VoiceMeetMac"]))
-targets.append(.executableTarget(name: "VoiceMeetMac", dependencies: ["VoiceMeetCore"]))
+targets.append(.executableTarget(name: "VoiceMeetMac", dependencies: ["VoiceMeetCore", "Record"]))
+// The recorder: screens, cameras, microphones and speakers into 30-second files in a spool
+// (README.md, "The record"). `record-run` drives it from a terminal, for tests.
+targets.append(.target(name: "Record"))
+targets.append(.executableTarget(name: "record-run", dependencies: ["Record"]))
+targets.append(.testTarget(name: "RecordTests", dependencies: ["Record"]))
 #endif
 
 let package = Package(
