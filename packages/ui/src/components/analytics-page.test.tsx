@@ -93,7 +93,8 @@ test("a mind with telemetry off gets something to do: where to turn it on, with 
 
 test("when telemetry tables are off, the page explains how to turn them on instead of showing zeros and stops polling", async () => {
   using _clock = ownClock();
-  const notice = "telemetry tables are off: add a telemetry token";
+  const notice =
+    "telemetry tables are off: your mind can turn them on itself (onboarding/telemetry.md)";
   let liveCalls = 0;
   const query: TelemetryQuery = async (sql) => {
     if (sql.includes("FROM metrics") && sql.includes("subscription.delivered")) liveCalls += 1;
@@ -104,11 +105,9 @@ test("when telemetry tables are off, the page explains how to turn them on inste
   await act(() => root.render(<AnalyticsPage query={query} />));
   await act(() => vi.advanceTimersByTimeAsync(1_000));
   expect(host.querySelector("[data-telemetry-off]")).not.toBeNull();
-  expect(host.textContent).toContain(
-    "Telemetry is off for this mind: its deploy had no telemetry token",
-  );
-  expect(host.textContent).toContain(notice);
-  expect(host.textContent).toContain("npx iterate deploy --telemetry-token");
+  expect(host.textContent).toContain("Telemetry tables are off for this mind");
+  expect(host.textContent).not.toContain(notice);
+  expect(host.textContent).toContain("Ask your mind's agent to turn on telemetry.");
   expect(host.textContent).not.toContain("Rows reach the warehouse");
   expect(host.textContent).not.toContain("No data yet");
   expect(host.textContent).not.toContain("Unavailable:");

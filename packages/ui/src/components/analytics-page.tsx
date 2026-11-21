@@ -283,22 +283,9 @@ function Analytics({
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-8" data-telemetry-off>
         <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm">
-          Telemetry is off for this mind: its deploy had no telemetry token ({live.notice}).
-        </p>
+        <p className="text-sm">Telemetry tables are off for this mind.</p>
         <p className="text-sm text-muted-foreground">
-          To turn it on, run{" "}
-          <code className="whitespace-nowrap">npx iterate deploy --telemetry-token</code> (or pass{" "}
-          <code className="whitespace-nowrap">CLOUDFLARE_TELEMETRY_API_TOKEN</code>).{" "}
-          <a
-            href="https://github.com/iterate/core/blob/main/core/lib/src/cli/README.md#deploy-a-mind"
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-4"
-          >
-            The README has the steps
-          </a>
-          .
+          Ask your mind&apos;s agent to turn on telemetry.
         </p>
       </div>
     );
