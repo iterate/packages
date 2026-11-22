@@ -1,8 +1,8 @@
-// THE ANALYTICS PAGE OF A DASH: the mind's telemetry (`itx.telemetry.query`, docs/telemetry.md):
-// live, its last hour of custom metrics a minute a point; its last day in the warehouse an hour a
-// column; its busiest context paths and event types; how much each context stores; a search of its
-// log lines; and a box that runs any SELECT over the same tables, cut to this mind. Every row of a
-// result opens the raw data under it in the page's sheet.
+// THE ANALYTICS PAGE OF A DASH: the mind's telemetry (`itx.telemetry.query`, docs/telemetry.md),
+// read from Cloudflare's own datasets, which need no token: live, its last hour of custom metrics
+// a minute a point; its last day an hour a column; its busiest context paths and event types; how
+// much each context stores; a search of its log lines; and a box that runs any SELECT over one
+// dataset, cut to this mind. Every row of a result opens the data under it in the page's sheet.
 //
 // WHAT IT ASKS, AND WHEN. Every read is one `query` of the mind's telemetry: the day's charts, the
 // storage table and the Activity section once when the page mounts, a result row's events when
@@ -10,9 +10,16 @@
 // after each read answers, one read at a time, and none while the tab is hidden. It asks nothing
 // of the vault.
 //
-// It knows no router, and it is for a mind that HAS telemetry: the page that hosts it asks first
-// (`itx.rewriteRules.get("itx.telemetry")`) and draws `TelemetryOff` in its place, which says what
-// turns telemetry on and asks the mind nothing.
+// THE DIALECT. Cloudflare's SQL over one dataset, with no JOIN and no subquery, and the
+// telemetry Worker refuses some marks anywhere, strings included (`REFUSED_MARKS`). The datasets
+// sample, each its own way (measured 22 Nov 2026): the logs sample as they are read, and their
+// `count()` is weighted already; `metrics` and `events.workersInvocations` sample as they are
+// written, so their count is `sum(sampleInterval)` and a sum is weighted by it. `max` is
+// `APPROX_MAX`. The Worker adds the time bound; the page asks `{ hours }` alone.
+//
+// It knows no router. The page that hosts it asks first whether the mind serves telemetry at all
+// (`itx.rewriteRules.get("itx.telemetry")`) and draws `TelemetryOff` in its place, which says
+// what turns it on and asks the mind nothing.
 //
 //   <AnalyticsPage query={telemetryQueryOf(itx)} />
 //   <TelemetryOff mind="example.com" />
@@ -64,66 +71,79 @@ type Rows = Row[];
 type Answer = { rows: Rows; sql?: string; error?: string; notice?: string };
 
 /** The live charts' one query: the delivery loop's metrics (core/itx/src/metrics.ts), a minute a
- *  row each. The Analytics SQL API weights `sum` by each data point's sample. */
+ *  row each, each point weighted by its sample. */
 const LIVE_SQL =
-  "SELECT intDiv(toUInt32(timestamp), 60) * 60 AS t, blob1 AS name, sum(double1) AS total, quantileWeighted(0.99, double1, sampleInterval) AS p99 FROM metrics WHERE blob1 IN ('subscription.delivered', 'subscription.lag_ms', 'subscription.retries') GROUP BY t, name ORDER BY t";
+  "SELECT intDiv(toUInt32(timestamp), 60) * 60 AS t, blob1 AS name, sum(double1 * sampleInterval) AS total, quantileWeighted(0.99, double1, sampleInterval) AS p99 FROM metrics WHERE blob1 IN ('subscription.delivered', 'subscription.lag_ms', 'subscription.retries') GROUP BY t, name ORDER BY t";
 const LIVE = [
   { title: "Events delivered", unit: "a minute", name: "subscription.delivered", column: "total" },
   { title: "Delivery lag, p99", unit: "ms", name: "subscription.lag_ms", column: "p99" },
   { title: "Retries", unit: "a minute", name: "subscription.retries", column: "total" },
 ] as const;
 
-const HOURLY = "date_part('epoch', date_trunc('hour', timestamp)) AS t";
-/** The rows that happened in the last day: `itx.telemetry` reads the rows that LANDED in it. */
-const TODAY = "timestamp > now() - interval '24 hours'";
-/** The spans of invocations that failed: a server's or a consumer's, whose outcome is not a success
- *  or the caller leaving, or whose response is a 5xx. A failure counts once, where it was invoked,
- *  and a canceled call, a WebSocket upgrade or an outbound 4xx counts not at all. */
+/** Each row's hour, in seconds since the epoch. */
+const HOURLY = "intDiv(toUInt32(timestamp), 3600) * 3600 AS t";
+/** The metric point of each committed event: its context path in `blob2`, its type in `blob3`, 1 in
+ *  `double1` and its payload's bytes in `double2`. */
+const COMMITTED = "blob1 = 'event.committed'";
+/** The invocations that failed: whose status is not a success or the caller leaving, or whose
+ *  response is a 5xx. A canceled call and a WebSocket upgrade count not at all. A Worker's
+ *  invocation counts once, where it ran, as `events.workersInvocations` has one row of each. */
 const FAILED_INVOCATION =
-  "kind IN ('server', 'consumer') AND (outcome NOT IN ('ok', 'canceled', 'responseStreamDisconnected', 'aborted') OR http_status >= 500)";
-/** The last day's charts: each scans the day's files of one table (`itx.telemetry` reads 24 hours
- *  unless asked for more). A row delivered twice counts twice (docs/telemetry.md). */
+  "status NOT IN ('success', 'clientDisconnected', 'responseStreamDisconnected') OR httpResponseStatus >= 500";
+/** The last day's charts, each over one dataset. */
 const DAY = [
   {
     title: "Events committed",
     unit: "an hour",
     column: "events",
-    sql: `SELECT ${HOURLY}, count(*) AS events FROM events WHERE ${TODAY} GROUP BY t ORDER BY t`,
+    sql: `SELECT ${HOURLY}, sum(double1 * sampleInterval) AS events FROM metrics WHERE ${COMMITTED} GROUP BY t ORDER BY t`,
   },
   {
     title: "Errors and warnings logged",
     unit: "an hour",
     column: "lines",
-    sql: `SELECT ${HOURLY}, count(*) AS lines FROM logs WHERE level IN ('error', 'warn') AND ${TODAY} GROUP BY t ORDER BY t`,
+    sql: `SELECT ${HOURLY}, count() AS lines FROM logs.workersLogs WHERE level IN ('error', 'warn') GROUP BY t ORDER BY t`,
   },
   {
     title: "Failed invocations",
     unit: "an hour",
     column: "invocations",
-    sql: `SELECT ${HOURLY}, count(*) AS invocations FROM spans WHERE ${FAILED_INVOCATION} AND ${TODAY} GROUP BY t ORDER BY t`,
+    sql: `SELECT ${HOURLY}, sum(sampleInterval) AS invocations FROM events.workersInvocations WHERE ${FAILED_INVOCATION} GROUP BY t ORDER BY t`,
   },
 ];
 
 /** What the Activity section groups the day's events by: their context path or their type. */
 type Dimension = "path" | "type";
+/** Each dimension's blob in an `event.committed` point. */
+const BLOB = { path: "blob2", type: "blob3" } as const;
 
-/** The day's events an hour of the 20 values of `column` with the most events, with each one's
- *  latest. Ties go by value. 20 values of 25 hours are well under the 1,000 rows a query answers. */
-const busiest = (column: Dimension) =>
-  `SELECT ${HOURLY}, ${column} AS key, count(*) AS events, max(timestamp) AS last FROM events WHERE ${TODAY} AND ${column} IN (SELECT ${column} FROM events WHERE ${TODAY} GROUP BY ${column} ORDER BY count(*) DESC, ${column} LIMIT 20) GROUP BY t, ${column}`;
+/** The day's 20 values of `dimension` with the most events, each with its latest event's time in
+ *  seconds (`APPROX_MAX`: the point that a sample kept). The alias is `name`: Cloudflare reads an
+ *  alias `key` or `value` as a column and refuses it (measured 22 Nov 2026). */
+const busiestSql = (dimension: Dimension) =>
+  `SELECT ${BLOB[dimension]} AS name, sum(double1 * sampleInterval) AS events, APPROX_MAX(toUInt32(timestamp)) AS last FROM metrics WHERE ${COMMITTED} GROUP BY name ORDER BY events DESC LIMIT 20`;
 
-/** The Activity section's two queries, oldest hour first: the busiest event types, and the busiest
- *  context paths, each hour's row with its path's log lines and failed invocations of the day. */
-const ACTIVITY = {
-  path: `SELECT e.*, l.lines, l.problems, f.failed FROM (${busiest("path")}) e LEFT JOIN (SELECT path, count(*) AS lines, sum(CASE WHEN level IN ('error', 'warn') THEN 1 ELSE 0 END) AS problems FROM logs WHERE ${TODAY} GROUP BY path) l ON l.path = e.key LEFT JOIN (SELECT path, count(*) AS failed FROM spans WHERE ${FAILED_INVOCATION} AND ${TODAY} GROUP BY path) f ON f.path = e.key ORDER BY e.t`,
-  type: `${busiest("type")} ORDER BY t`,
-};
+/** The day's events an hour of `names`, oldest hour first. A second query, after `busiestSql`
+ *  answers: the dialect has no subquery to pick the busiest in one. */
+const hourlySql = (dimension: Dimension, names: string[]) =>
+  `SELECT ${HOURLY}, ${BLOB[dimension]} AS name, sum(double1 * sampleInterval) AS events FROM metrics WHERE ${COMMITTED} AND ${BLOB[dimension]} IN (${names.map(quoted).join(", ")}) GROUP BY t, name ORDER BY t`;
 
 /** The 20 largest contexts of the last 30 days (`context.size`, core/itx `#measureSize`; a data
- *  point's blobs are its name, its path and its label). `max`: the Analytics Engine SQL API, which
- *  the telemetry Worker asks over HTTP, has no `approx_max` (422, measured 2026-11-10). */
+ *  point's blobs are its name, its path and its label). `APPROX_MAX`: Cloudflare refuses `max` on
+ *  a sampled dataset. */
 const STORAGE_SQL =
-  "SELECT blob2 AS path, max(double1) AS bytes, max(double2) AS events FROM metrics WHERE blob1 = 'context.size' GROUP BY path ORDER BY bytes DESC LIMIT 20";
+  "SELECT blob2 AS path, APPROX_MAX(double1) AS bytes, APPROX_MAX(double2) AS events FROM metrics WHERE blob1 = 'context.size' GROUP BY path ORDER BY bytes DESC LIMIT 20";
+
+/** What the mind's telemetry refuses anywhere in a query, strings included
+ *  (core/telemetry-worker/src/store-query.ts): text a person types that holds one is refused here,
+ *  before any query. */
+const REFUSED_MARKS = [";", "--", "/*", "#", "\\", "`", "$"];
+
+/** The first refused mark in `text`, if any. */
+const refusedMark = (text: string) => REFUSED_MARKS.find((mark) => text.includes(mark));
+
+/** `text` as an SQL string. */
+const quoted = (text: string) => `'${text.replaceAll("'", "''")}'`;
 
 /** What a Durable Object can store, so what a context can: Cloudflare's 10 GB, read as 10^10 bytes. */
 const CONTEXT_STORAGE_LIMIT = 10e9;
@@ -279,17 +299,6 @@ function Analytics({
   const [opened, setOpened] = useState<{ target: RowTarget; open: boolean }>();
   const openRow = useCallback((next: RowTarget) => setOpened({ target: next, open: true }), []);
   const target = opened?.target;
-  if (live?.notice) {
-    return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-8" data-telemetry-off>
-        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm">Telemetry tables are off for this mind.</p>
-        <p className="text-sm text-muted-foreground">
-          Ask your mind&apos;s agent to turn on telemetry.
-        </p>
-      </div>
-    );
-  }
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
       <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
@@ -314,7 +323,6 @@ function Analytics({
                 title={title}
                 unit={unit}
                 error={live?.error}
-                notice={live?.notice}
                 headline={
                   live &&
                   (counts
@@ -341,7 +349,8 @@ function Analytics({
       <section className="flex flex-col gap-3">
         <h2 className="font-medium">The last 24 hours</h2>
         <p className="text-sm text-muted-foreground">
-          Rows reach the warehouse a minute or two after they happen.
+          From Cloudflare&apos;s own datasets, which sample a busy hour: each count is weighted by
+          its sample.
         </p>
         <div className="grid gap-4 md:grid-cols-3">
           {DAY.map(({ title, unit, column }, index) => (
@@ -352,18 +361,16 @@ function Analytics({
               unit={unit}
               headline={
                 <Awaited promise={day[index]!} fallback={<Spinner />}>
-                  {({ rows, error, notice }) =>
-                    error || notice ? null : `${format(sum(rows, column))} in the last 24 hours`
+                  {({ rows, error }) =>
+                    error ? null : `${format(sum(rows, column))} in the last 24 hours`
                   }
                 </Awaited>
               }
             >
               <Awaited promise={day[index]!} fallback={<div className="h-40" />}>
-                {({ rows, error, notice }) =>
+                {({ rows, error }) =>
                   error ? (
                     <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
-                  ) : notice ? (
-                    <p className="text-sm text-muted-foreground">{notice}</p>
                   ) : (
                     <TimeChart
                       rows={rows}
@@ -387,11 +394,14 @@ function Analytics({
         <QueryPanel
           title="Search logs"
           testId="log-search"
-          description="The last 24 hours of this mind's log lines, newest first. A row opens all its fields."
+          description="The last 24 hours of this mind's log lines whose message holds the text, in any case, newest first. A row opens all its fields."
           verbs={["Search", "Searching…"]}
-          sql={(text) =>
-            `SELECT timestamp, level, path, body FROM logs WHERE body ILIKE '%${text.replaceAll("'", "''")}%' ORDER BY timestamp DESC LIMIT 100`
-          }
+          sql={(text) => {
+            const mark = refusedMark(text);
+            return mark
+              ? { refused: `A search cannot hold ${mark}: the mind's telemetry refuses it.` }
+              : `SELECT timestamp, level, scriptName, message FROM logs.workersLogs WHERE message ILIKE ${quoted(`%${text}%`)} ORDER BY timestamp DESC LIMIT 100`;
+          }}
           input={(field) => (
             <Input
               aria-label="Log text"
@@ -405,12 +415,16 @@ function Analytics({
           testId="query"
           description={
             <>
-              One SELECT over <code>events</code>, <code>logs</code> and <code>spans</code>, or{" "}
-              <code>metrics</code> alone: this mind's rows of the last 24 hours. A row opens all its
-              fields.
+              One SELECT in Cloudflare&apos;s SQL over one dataset: <code>logs.workersLogs</code>,{" "}
+              <code>logs.traces</code>, <code>logs.issues</code>,{" "}
+              <code>events.workersInvocations</code> or <code>metrics</code>, this mind&apos;s rows
+              of the last 24 hours. No JOIN or subquery. Count the logs with <code>count()</code>,
+              and <code>metrics</code> and the invocations with <code>sum(sampleInterval)</code>.
+              The examples are in <code>docs/telemetry.md</code> of the iterate repository. A row
+              opens all its fields.
             </>
           }
-          initial="SELECT type, count(*) AS n FROM events GROUP BY type ORDER BY n DESC LIMIT 10"
+          initial="SELECT blob3 AS type, sum(double1 * sampleInterval) AS events FROM metrics WHERE blob1 = 'event.committed' GROUP BY type ORDER BY events DESC LIMIT 10"
           verbs={["Run", "Running…"]}
           sql={(text) => text}
           input={(field) => (
@@ -452,14 +466,12 @@ function Chart({
   unit,
   headline,
   error,
-  notice,
   children,
 }: {
   title: string;
   unit: string;
   headline?: ReactNode;
   error?: string;
-  notice?: string;
   children: ReactNode;
 }) {
   return (
@@ -467,26 +479,17 @@ function Chart({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{unit}</CardDescription>
-        {headline && !error && !notice && (
-          <p className="text-xl font-semibold tabular-nums">{headline}</p>
-        )}
+        {headline && !error && <p className="text-xl font-semibold tabular-nums">{headline}</p>}
       </CardHeader>
       <CardContent>
-        {error ? (
-          <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
-        ) : notice ? (
-          <p className="text-sm text-muted-foreground">{notice}</p>
-        ) : (
-          children
-        )}
+        {error ? <p className="text-sm text-muted-foreground">Unavailable: {error}</p> : children}
       </CardContent>
     </Card>
   );
 }
 
 /** The live query's rows and when they were read, again thirty seconds after each read answers,
- *  while the page is shown: a hidden tab reads nothing, no two reads overlap, and a telemetry-off
- *  notice stops polling until the page reloads. */
+ *  while the page is shown: a hidden tab reads nothing, and no two reads overlap. */
 function useLive() {
   const query = useTelemetry();
   const [live, setLive] = useState<Answer & { at: number }>();
@@ -497,7 +500,7 @@ function useLive() {
         const at = Date.now();
         const next = await query(LIVE_SQL, 1);
         if (!stopped()) setLive({ ...next, at });
-        return !next.notice;
+        return true;
       }),
     [query],
   );
@@ -520,16 +523,39 @@ function repeatAfter(ms: number, read: (stopped: () => boolean) => Promise<boole
   };
 }
 
+/** One dimension's read: its 20 busiest values, and the five busiest of them an hour. */
+type BusiestRead = { top: Answer; hourly: Answer };
+
+/** `busiestSql`, then `hourlySql` of its five busiest values. A value that holds a refused mark
+ *  has no line: its query would be refused whole. */
+async function busiestOf(query: TelemetryQuery, dimension: Dimension): Promise<BusiestRead> {
+  const top = await query(busiestSql(dimension));
+  const names = ranked(top.rows)
+    .slice(0, 5)
+    .map((row) => row.name)
+    .filter((name) => !refusedMark(name));
+  const hourly =
+    top.error || names.length === 0 ? { rows: [] } : await query(hourlySql(dimension, names));
+  return { top, hourly };
+}
+
+/** Rows of `name` and `events`, the most events first; ties go by name. */
+function ranked(rows: Rows) {
+  return rows
+    .map((row) => ({ ...row, name: String(row.name), events: Number(row.events) }))
+    .sort((x, y) => y.events - x.events || String(x.name).localeCompare(String(y.name)));
+}
+
 /** The day's events by context path or by event type, both read at once so the toggle reads
  *  nothing. */
 function Activity() {
   const query = useTelemetry();
-  const [read, setRead] = useState<{ at: number; path: Answer; type: Answer }>();
+  const [read, setRead] = useState<{ at: number; path: BusiestRead; type: BusiestRead }>();
   useEffect(() => {
     // an answer for a page that has gone, or for an earlier `query`, changes nothing
     let current = true;
     const at = Date.now();
-    void Promise.all([query(ACTIVITY.path), query(ACTIVITY.type)]).then(([path, type]) => {
+    void Promise.all([busiestOf(query, "path"), busiestOf(query, "type")]).then(([path, type]) => {
       if (current) setRead({ at, path, type });
     });
     return () => {
@@ -554,7 +580,7 @@ function Activity() {
           {read ? (
             (["path", "type"] as const).map((dimension) => (
               <TabsContent key={dimension} value={dimension}>
-                <Busiest dimension={dimension} at={read.at} answer={read[dimension]} />
+                <Busiest dimension={dimension} at={read.at} read={read[dimension]} />
               </TabsContent>
             ))
           ) : (
@@ -566,60 +592,54 @@ function Activity() {
   );
 }
 
-/** One dimension's 20 busiest values from `ACTIVITY`: the five busiest an hour, as lines, and all
- *  20 in a table, a path's with its log lines and failed invocations. */
-function Busiest({ dimension, at, answer }: { dimension: Dimension; at: number; answer: Answer }) {
-  if (answer.error)
-    return <p className="text-sm text-muted-foreground">Unavailable: {answer.error}</p>;
-  if (answer.notice) return <p className="text-sm text-muted-foreground">{answer.notice}</p>;
-  // the rows come oldest hour first, so a value's last row has its latest event
-  const totals = new Map<string, Row & { events: number }>();
-  const hourly = new Map<string, number>();
-  for (const row of answer.rows) {
-    const key = String(row.key);
-    totals.set(key, { ...row, events: (totals.get(key)?.events ?? 0) + Number(row.events) });
-    hourly.set(`${Number(row.t)} ${key}`, Number(row.events));
-  }
-  if (totals.size === 0)
+/** One dimension's 20 busiest values: the five busiest an hour, as lines, and all 20 in a table.
+ *  A path's log lines and failed invocations of the day, which the table once had, went with the
+ *  telemetry tables: the datasets have no JOIN, and a log line or an invocation knows its Worker,
+ *  not its context path. */
+function Busiest({ dimension, at, read }: { dimension: Dimension; at: number; read: BusiestRead }) {
+  if (read.top.error)
+    return <p className="text-sm text-muted-foreground">Unavailable: {read.top.error}</p>;
+  const rows = ranked(read.top.rows);
+  if (rows.length === 0)
     return <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>;
-  const ranked = [...totals.values()].sort(
-    (x, y) => y.events - x.events || String(x.key).localeCompare(String(y.key)),
+  const hourly = new Map(
+    read.hourly.rows.map((row) => [`${Number(row.t)} ${String(row.name)}`, Number(row.events)]),
   );
   // every hour of the window, so a quiet hour is a zero in the line, not a gap
   const first = Math.floor((at - 86_400_000) / 3_600_000);
-  const top = ranked.slice(0, 5).map((row) => String(row.key));
+  const top = rows.slice(0, 5).map((row) => row.name);
   const chart = Array.from({ length: Math.floor(at / 3_600_000) - first + 1 }, (_, i) => {
     const t = (first + i) * 3600;
-    return { t, ...Object.fromEntries(top.map((key) => [key, hourly.get(`${t} ${key}`) ?? 0])) };
+    return { t, ...Object.fromEntries(top.map((name) => [name, hourly.get(`${t} ${name}`) ?? 0])) };
   });
   const paths = dimension === "path";
   return (
     <div className="flex flex-col gap-3 pt-2">
-      <TimeChart
-        rows={chart}
-        from={first * 3_600_000}
-        to={at}
-        label={`Events an hour of the five busiest ${paths ? "context paths" : "event types"}`}
-        height={220}
-        initialWidth={880}
-      />
+      {read.hourly.error ? (
+        <p className="text-sm text-muted-foreground">Unavailable: {read.hourly.error}</p>
+      ) : (
+        <TimeChart
+          rows={chart}
+          from={first * 3_600_000}
+          to={at}
+          label={`Events an hour of the five busiest ${paths ? "context paths" : "event types"}`}
+          height={220}
+          initialWidth={880}
+        />
+      )}
       <ResultTable
-        rows={ranked}
-        target={(row) => ({ column: dimension, value: String(row.key) })}
+        rows={rows}
+        target={(row) => ({ column: dimension, value: String(row.name) })}
         columns={[
-          { head: paths ? "Context path" : "Event type", cell: (row) => String(row.key) },
+          { head: paths ? "Context path" : "Event type", cell: (row) => String(row.name) },
           count("Events", "events"),
-          ...(paths
-            ? [
-                count("Log lines", "lines"),
-                count("Errors and warnings", "problems"),
-                count("Failed invocations", "failed"),
-              ]
-            : []),
           {
             head: "Last event",
             numeric: true,
-            cell: (row) => <span title={String(row.last)}>{ago(String(row.last), at)}</span>,
+            cell: (row) => {
+              const last = Number(row.last) * 1000;
+              return <span title={new Date(last).toISOString()}>{ago(last, at)}</span>;
+            },
           },
         ]}
       />
@@ -643,11 +663,9 @@ function Storage({ answer }: { answer: Promise<Answer> }) {
       </CardHeader>
       <CardContent>
         <Awaited promise={answer} fallback={<Spinner />}>
-          {({ rows, error, notice }) =>
+          {({ rows, error }) =>
             error ? (
               <p className="text-sm text-muted-foreground">Unavailable: {error}</p>
-            ) : notice ? (
-              <p className="text-sm text-muted-foreground">{notice}</p>
             ) : (
               <ResultTable
                 rows={rows}
@@ -689,8 +707,9 @@ function Share({ bytes }: { bytes: number }) {
   );
 }
 
-/** A query the person runs from a form: `sql` of what they typed into `input`, its answer with the
- *  SQL that ran, which shows the mind's cut, and the first 100 rows, each opening its fields. */
+/** A query the person runs from a form: `sql` of what they typed into `input`, or why that text is
+ *  refused before any query; its answer with the SQL that ran, which shows the mind's cut, and the
+ *  first 100 rows, each opening its fields. A query of the telemetry tables may answer a notice. */
 function QueryPanel({
   title,
   testId,
@@ -706,7 +725,7 @@ function QueryPanel({
   initial?: string;
   /** The button's label, idle and while the query runs. */
   verbs: [string, string];
-  sql: (text: string) => string;
+  sql: (text: string) => string | { refused: string };
   input: (field: {
     value: string;
     onChange: (event: { target: { value: string } }) => void;
@@ -715,10 +734,10 @@ function QueryPanel({
   const query = useTelemetry();
   const [text, setText] = useState(initial);
   // the form's action: `pending` while it runs, and no answer shown meanwhile
-  const [answer, run, pending] = useActionState<Answer | undefined>(
-    async () => query(sql(text)),
-    undefined,
-  );
+  const [answer, run, pending] = useActionState<Answer | undefined>(async () => {
+    const asked = sql(text);
+    return typeof asked === "string" ? query(asked) : { rows: [], error: asked.refused };
+  }, undefined);
   const shown = pending ? undefined : answer;
   return (
     <Card data-testid={testId}>
@@ -820,15 +839,18 @@ function ResultTable({
   );
 }
 
-/** The latest 50 events of a context path or an event type in the last 24 hours, newest first,
- *  read when the sheet opens, with the SQL that ran. */
+/** The latest 50 points of a context path or an event type in the last 24 hours, newest first:
+ *  one point for each path and type of a batch that a context committed, with how many events and
+ *  how many payload bytes it holds. Read when the sheet opens, with the SQL that ran. The events
+ *  themselves are in each context's own log: `metrics` holds counts, not payloads. */
 function LatestEvents({ column, value }: { column: Dimension; value: string }) {
   const query = useTelemetry();
-  const sql = `SELECT * FROM events WHERE ${column} = '${value.replaceAll("'", "''")}' ORDER BY timestamp DESC LIMIT 50`;
+  const mark = refusedMark(value);
+  const sql = `SELECT timestamp, blob2 AS path, blob3 AS type, double1 AS events, double2 AS bytes FROM metrics WHERE ${COMMITTED} AND ${BLOB[column]} = ${quoted(value)} ORDER BY timestamp DESC LIMIT 50`;
   const [read, setRead] = useState<{ sql: string; answer: Answer }>();
   useEffect(() => {
-    void query(sql).then((answer) => setRead({ sql, answer }));
-  }, [query, sql]);
+    if (!mark) void query(sql).then((answer) => setRead({ sql, answer }));
+  }, [query, sql, mark]);
   // an answer to an earlier row's query is not this row's
   const answer = read?.sql === sql ? read.answer : undefined;
   return (
@@ -836,20 +858,25 @@ function LatestEvents({ column, value }: { column: Dimension; value: string }) {
       <SheetHeader>
         <SheetTitle className="pr-8 font-mono break-all">{value}</SheetTitle>
         <SheetDescription>
-          The latest 50 events of this {column === "path" ? "context path" : "event type"} in the
-          last 24 hours, newest first.
+          The latest 50 batches of this {column === "path" ? "context path" : "event type"} in the
+          last 24 hours, newest first: when each was committed, its type, how many events it held
+          and the bytes of their payloads. Analytics Engine keeps a sample of them.
         </SheetDescription>
       </SheetHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        {!answer && <p className="text-sm text-muted-foreground">Reading its events…</p>}
+        {mark && (
+          <p className="text-sm text-muted-foreground">
+            The mind&apos;s telemetry refuses a query that holds {mark}, so this one has none.
+          </p>
+        )}
+        {!mark && !answer && <p className="text-sm text-muted-foreground">Reading its events…</p>}
         {answer?.error && <p className="text-sm text-destructive">{answer.error}</p>}
-        {answer?.notice && <p className="text-sm text-muted-foreground">{answer.notice}</p>}
-        {answer?.sql && !answer.notice && (
+        {answer?.sql && (
           <pre className="rounded-md bg-muted p-2 text-xs break-all whitespace-pre-wrap">
             {answer.sql}
           </pre>
         )}
-        {answer?.sql && !answer.notice && answer.rows.length === 0 && (
+        {answer?.sql && answer.rows.length === 0 && (
           <p className="text-sm text-muted-foreground">No events in the last 24 hours.</p>
         )}
         {keyedRows(answer?.rows || []).map(({ key, row }) => (
@@ -896,9 +923,9 @@ function format(value: number) {
   return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
-/** How long before `now` a timestamp was: "now", "12 min ago", "5 h ago". */
-function ago(timestamp: string, now: number) {
-  const minutes = Math.floor((now - Date.parse(timestamp)) / 60_000);
+/** How long before `now` a time in milliseconds was: "now", "12 min ago", "5 h ago". */
+function ago(time: number, now: number) {
+  const minutes = Math.floor((now - time) / 60_000);
   if (minutes < 1) return "now";
   return minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`;
 }

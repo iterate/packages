@@ -47,8 +47,8 @@ test("everything else is asked once when the page mounts: a page that renders te
     await act(() => root.render(<AnalyticsPage query={telemetry.query} />));
   await act(() => vi.advanceTimersByTimeAsync(1_000));
   const once = telemetry.others();
-  // the day's charts, the storage table, and the Activity section's two
-  expect(once).toBeGreaterThan(3);
+  // the day's charts, the storage table, and the Activity section's two (no rows: no hourly reads)
+  expect(once).toBe(6);
   await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
   expect(telemetry.others()).toBe(once);
   await act(() => root.unmount());
@@ -72,8 +72,6 @@ test("a page that is handed another query function asks that one for the day's c
   await act(() => root.unmount());
 });
 
-/** The test's own clock and a tab that is shown, until the test ends. The charts measure their own
- *  width, which jsdom does not do, so the observer they ask for does nothing. */
 test("a mind with telemetry off gets something to do: where to turn it on, with a link to its own card, and what a mind deployed by hand needs", async () => {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
@@ -91,33 +89,73 @@ test("a mind with telemetry off gets something to do: where to turn it on, with 
   await act(() => root.unmount());
 });
 
-test("when telemetry tables are off, the page explains how to turn them on instead of showing zeros and stops polling", async () => {
+test("every query the page asks is one SELECT over one of Cloudflare's datasets, with no mark the mind's telemetry refuses", async () => {
   using _clock = ownClock();
-  const notice =
-    "telemetry tables are off: your mind can turn them on itself (onboarding/telemetry.md)";
-  let liveCalls = 0;
+  const asked: string[] = [];
+  // a dataset answers rows, so the Activity section asks its second query too
   const query: TelemetryQuery = async (sql) => {
-    if (sql.includes("FROM metrics") && sql.includes("subscription.delivered")) liveCalls += 1;
-    return { rows: [], sql, notice };
+    asked.push(sql);
+    const row = { name: "/agents/it's", events: 3, last: 1_795_349_705, t: 1_795_348_800 };
+    return { rows: [{ ...row, path: row.name, bytes: 4096 }], sql };
   };
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   await act(() => root.render(<AnalyticsPage query={query} />));
   await act(() => vi.advanceTimersByTimeAsync(1_000));
-  expect(host.querySelector("[data-telemetry-off]")).not.toBeNull();
-  expect(host.textContent).toContain("Telemetry tables are off for this mind");
-  expect(host.textContent).not.toContain(notice);
-  expect(host.textContent).toContain("Ask your mind's agent to turn on telemetry.");
-  expect(host.textContent).not.toContain("Rows reach the warehouse");
-  expect(host.textContent).not.toContain("No data yet");
-  expect(host.textContent).not.toContain("Unavailable:");
-  expect(host.querySelector(".text-destructive")).toBeNull();
-  expect(liveCalls).toBe(1);
-  await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
-  expect(liveCalls).toBe(1);
+  await search(host, "o'clock 100%");
+  // the live charts, the day's three, storage, two Activity queries of each dimension, the search
+  expect(asked).toHaveLength(10);
+  expect(asked.at(-1)).toContain("message ILIKE '%o''clock 100%%'");
+  for (const sql of asked) {
+    expect(sql).toMatch(/^SELECT /);
+    expect(sql.match(DATASET)?.length, sql).toBe(1);
+    expect(sql).not.toMatch(/\bJOIN\b|\(\s*SELECT\b|\bUNION\b/i);
+    for (const mark of REFUSED) expect(sql, mark).not.toContain(mark);
+    // Cloudflare refuses `max` on a sampled dataset
+    expect(sql).not.toMatch(/(?<!APPROX_)\bmax\(/i);
+  }
+  // no notice of telemetry tables, nor a page that says telemetry is off
+  expect(host.querySelector("[data-telemetry-off]")).toBeNull();
   await act(() => root.unmount());
 });
 
+test("a search that holds a mark the mind's telemetry refuses is refused with a sentence, and asks nothing", async () => {
+  using _clock = ownClock();
+  const telemetry = fakeTelemetry();
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  await act(() => root.render(<AnalyticsPage query={telemetry.query} />));
+  await act(() => vi.advanceTimersByTimeAsync(1_000));
+  const once = telemetry.others();
+  await search(host, "issue #42");
+  expect(telemetry.others()).toBe(once);
+  expect(host.querySelector("[data-testid=log-search]")?.textContent).toContain(
+    "A search cannot hold #: the mind's telemetry refuses it.",
+  );
+  await act(() => root.unmount());
+});
+
+/** Cloudflare's datasets, as `FROM` names them (docs/telemetry.md). */
+const DATASET =
+  /\bFROM (logs\.workersLogs|logs\.traces|logs\.issues|events\.workersInvocations|metrics)\b/g;
+/** What core/telemetry-worker/src/store-query.ts refuses anywhere in a query. */
+const REFUSED = [";", "--", "/*", "#", "\\", "`", "$"];
+
+/** Types `text` into the log search and submits it. */
+async function search(host: HTMLElement, text: string) {
+  const input = host.querySelector<HTMLInputElement>("[aria-label='Log text']")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.form!.requestSubmit();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
+/** The test's own clock and a tab that is shown, until the test ends. The charts measure their own
+ *  width, which jsdom does not do, so the observer they ask for does nothing. */
 function ownClock() {
   vi.useFakeTimers();
   vi.stubGlobal(
