@@ -4,8 +4,9 @@
 // turns the call on when there is none and joins with the microphone, and a refused microphone
 // joins listening; a start that fails says why; a mind with no SFU app cannot be joined, and the
 // tooltip says why; in the call, the switches and the devices in one button group, and Leave apart
-// from it; a guest has no voice agent; on a phone, Start call is its icon alone; and Share is the
-// share icon and its word, with a tooltip.
+// from it; a guest has no voice agent; on a phone, Start call is its icon alone; in a header, what
+// went wrong stands over the page; the screen and the voice agent keep their icon, and their fill
+// says on; and Share is the share icon and its word, with a tooltip.
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -158,6 +159,39 @@ test("on a phone: Start call is its icon alone, and in the call the controls are
   }
 });
 
+test("in a header on a wide screen, what went wrong stands over the page: the header's row does not grow", async () => {
+  using _wide = wideScreen();
+  const ui = { ...IDLE, joined: true, error: "The microphone was refused" };
+  using row = await mount(<CallHeaderControls call={engine()} ui={ui} live={FRESH} member />);
+  const bar = row.element.querySelector("[data-slot=call-bar]")!;
+  expect(bar.querySelector("[data-slot=call-bar-words]")?.textContent).toContain(
+    "The microphone was refused",
+  );
+  expect(bar.className).toContain("*:data-[slot=call-bar-words]:absolute");
+  expect(bar.className).toContain("*:data-[slot=call-bar-words]:top-full");
+});
+
+test("the screen and the voice agent keep their icon: their fill says they are on", async () => {
+  using _share = screenShare();
+  const ui = { ...IDLE, joined: true, screen: true };
+  const here = {
+    ...FRESH,
+    voiceAgent: { host: { actor: "a", name: "Jonas" }, page: "p", since: 0, until: 1 },
+  };
+  using row = await mount(<CallControls call={engine()} ui={ui} live={here} member />);
+  for (const [label, icon] of [
+    ["Share screen", "lucide-monitor-up"],
+    ["Voice agent", "lucide-bot"],
+  ]) {
+    const button = named(row.element, label);
+    expect([
+      button.getAttribute("aria-pressed"),
+      button.querySelector("svg")?.getAttribute("class"),
+    ]).toEqual(["true", expect.stringMatching(new RegExp(`\\b${icon}(\\s|$)`))]);
+  }
+  expect(await tipOf(named(row.element, "Voice agent"))).toBe("Send the voice agent away");
+});
+
 test("Share: the share icon and its word, named for a screen reader, with a tooltip", async () => {
   using row = await mount(<ShareButton />);
   const share = named(row.element, "Share this agent");
@@ -166,6 +200,15 @@ test("Share: the share icon and its word, named for a screen reader, with a tool
   expect(share.querySelector("svg")?.getAttribute("class")).not.toContain("lucide-share-2");
   expect(await tipOf(share)).toBe("Share this agent");
 });
+
+/** A browser that can share a screen (jsdom cannot): the row draws Share screen. */
+function screenShare() {
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getDisplayMedia: () => Promise.reject(new Error("not in a test")) },
+  });
+  return { [Symbol.dispose]: () => void Reflect.deleteProperty(navigator, "mediaDevices") };
+}
 
 /** A wide screen: the header draws the row, not its button. */
 function wideScreen() {

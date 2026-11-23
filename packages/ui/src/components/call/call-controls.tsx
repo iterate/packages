@@ -15,15 +15,17 @@
 //   whether it is on. Its tooltip says what a press does, or why it cannot be pressed.
 // - WHAT GOES WRONG is said in words under the buttons, from the engine's state, so a row drawn
 //   again still says it: a start that failed, a join that failed, a voice agent that did not come.
+//   In a header (`CallHeaderControls`) the words stand over the page below it: the row keeps its
+//   height.
+// - A SWITCH SAYS ON BY ITS FILL. The microphone and the camera are struck through when off, as in
+//   every call app; the screen and the voice agent keep one icon.
 // - ON A PHONE (`CallHeaderControls`) Start or Join is its icon alone, and in the call the controls
 //   are behind one button, so the path and the tabs keep the header.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   BotIcon,
-  BotOffIcon,
   MicIcon,
   MicOffIcon,
-  MonitorOffIcon,
   MonitorUpIcon,
   PhoneIcon,
   PhoneOffIcon,
@@ -157,7 +159,7 @@ export function CallControls({
               tip={ui.screen ? "Stop sharing the screen" : "Share the screen"}
               onClick={() => void call.toggleScreen()}
             >
-              {ui.screen ? <MonitorOffIcon /> : <MonitorUpIcon />}
+              <MonitorUpIcon />
             </Switch>
           ) : null}
           {member ? (
@@ -172,10 +174,9 @@ export function CallControls({
                     : "Add a voice agent"
               }
               disabled={!voiceHere && ui.ai !== "off"}
-              className={voiceHere ? "border-success text-success" : undefined}
               onClick={() => void (voiceHere ? call.aiDismiss() : call.aiInvite())}
             >
-              {voiceHere ? <BotOffIcon /> : <BotIcon />}
+              <BotIcon />
             </Switch>
           ) : null}
           <CallDevices call={call} ui={ui} variant="outline" />
@@ -281,8 +282,14 @@ function watchNarrow(changed: () => void) {
   return () => query.removeEventListener("change", changed);
 }
 
-/** THE CALL'S CONTROLS IN A HEADER: as they are on a wide screen, and out of the call. On a phone
- *  in the call they are behind one button, which marks an error that the closed row holds. */
+/** In a header's row, of one height, what went wrong stands over the page below it, so the row
+ *  does not grow. */
+const WORDS_OVER_THE_PAGE =
+  "relative items-end *:data-[slot=call-bar-words]:absolute *:data-[slot=call-bar-words]:top-full *:data-[slot=call-bar-words]:right-0 *:data-[slot=call-bar-words]:z-20 *:data-[slot=call-bar-words]:mt-1 *:data-[slot=call-bar-words]:w-80 *:data-[slot=call-bar-words]:*:shadow-md";
+
+/** THE CALL'S CONTROLS IN A HEADER: as they are on a wide screen, and out of the call, with what
+ *  went wrong over the page below the header. On a phone in the call they are behind one button,
+ *  which marks an error that the closed row holds. */
 export function CallHeaderControls(props: CallControlsProps) {
   const narrow = useSyncExternalStore(
     watchNarrow,
@@ -290,7 +297,8 @@ export function CallHeaderControls(props: CallControlsProps) {
     () => false,
   );
   const { ui } = props;
-  if (!narrow || !ui.joined || !props.call) return <CallControls {...props} />;
+  if (!narrow || !ui.joined || !props.call)
+    return <CallControls {...props} className={cn(WORDS_OVER_THE_PAGE, props.className)} />;
   const wrong = Boolean(ui.error || ui.aiRefusal);
   return (
     <Popover>

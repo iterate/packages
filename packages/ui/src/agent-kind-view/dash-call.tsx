@@ -155,7 +155,6 @@ export function AgentCall({
               member
               start={turnOn}
               starting={starting}
-              className={WORDS_OVER_THE_PAGE}
             />,
             barIn,
           )
@@ -202,8 +201,3 @@ const NOT_READ_YET: CallLive = {
   delegation: null,
   links: [],
 };
-
-/** The row says what went wrong under its buttons. In the header's row, of one height, those words
- *  stand over the page below it, so the row does not grow. */
-const WORDS_OVER_THE_PAGE =
-  "relative items-end *:data-[slot=call-bar-words]:absolute *:data-[slot=call-bar-words]:top-full *:data-[slot=call-bar-words]:right-0 *:data-[slot=call-bar-words]:z-20 *:data-[slot=call-bar-words]:mt-1 *:data-[slot=call-bar-words]:w-80 *:data-[slot=call-bar-words]:*:shadow-md";
