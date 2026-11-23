@@ -3,13 +3,14 @@
 //
 //   host → frame  `update(delta)`: what changed of the view's inputs since the last update. Events
 //                 go as the pages added at either end, never the whole log again.
+//   host → frame  `start(input)`: the kind's `newAgent.start`, for the Dash's New agent.
 //   frame → host  `loaded(…)` once (what the live read should include), then the verbs: message,
-//                 append, fileUrl, setState, loadOlder. Each acts on the one agent the host shows;
+//                 append, fileUrl, storeFiles, setState, loadOlder. Each acts on the one agent the host shows;
 //                 the host never hands over its context stub, whose `invoke` and `cd` reach the
 //                 whole mind.
 import type { AgentChatState } from "../components/agent-chat/agent-chat-search.ts";
 import type { ContextViewSource } from "../components/context-view/context-view.tsx";
-import type { AgentKindViewProps } from "./types.ts";
+import type { AgentKindNewAgent, AgentKindViewProps } from "./types.ts";
 
 type Event = ContextViewSource["events"][number];
 
@@ -54,9 +55,13 @@ export type AgentKindViewUpdate = Partial<Omit<AgentKindViewInputs, "events">> &
   events?: { reset: Event[] } | { prepend: Event[]; append: Event[] };
 };
 
+/** What a kind file says of how its agents start (types.ts `AgentKindNewAgent`), as data: its
+ *  `start` runs in the frame (`AgentKindViewFrameApi.start`). */
+export type AgentKindNewAgentSummary = Omit<AgentKindNewAgent, "start" | "describe">;
+
 /** What the frame reports once it has read the kind file. */
 export type AgentKindViewLoaded =
-  | { ephemeralEvents: string[] }
+  | { ephemeralEvents: string[]; newAgent?: AgentKindNewAgentSummary }
   | { error: string }
   /** The agent's kind has no file: the frame shows the Events tab. */
   | { none: true };
@@ -66,12 +71,19 @@ export interface AgentKindViewHostApi {
   message(input: Parameters<AgentKindViewProps["onMessage"]>[0]): Promise<void>;
   append(events: unknown[]): Promise<void>;
   fileUrl(path: string): Promise<string>;
+  storeFiles(
+    files: Parameters<NonNullable<AgentKindViewProps["storeFiles"]>>[0],
+    key?: string,
+  ): ReturnType<NonNullable<AgentKindViewProps["storeFiles"]>>;
   setState(patch: Partial<AgentChatState>): void;
   loadOlder(): void;
 }
 
 export interface AgentKindViewFrameApi {
   update(update: AgentKindViewUpdate): void;
+  /** The kind's `newAgent.start(input)`, run in the frame: the events that start an agent of the
+   *  kind at `input.path`. The page appends them; the kind file never runs in the page. */
+  start(input: Parameters<AgentKindNewAgent["start"]>[0]): unknown[] | Promise<unknown[]>;
 }
 
 /** The update from `previous` (what the frame holds) to `next`, or `null` when nothing changed. */

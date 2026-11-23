@@ -11,6 +11,12 @@ import { AgentChat, AgentProgress } from "./agent-chat.tsx";
 import { AgentReading } from "./agent-reading.tsx";
 import { LogReading } from "#/components/virtual-log/read-progress.tsx";
 
+// jsdom lays nothing out; the composer's CodeMirror measures text ranges after each change
+Object.assign(Range.prototype, {
+  getClientRects: () => [],
+  getBoundingClientRect: () => new DOMRect(),
+});
+
 test("shared-conversation progress shows work and its public summary without response or script content", () => {
   const context: Context = {
     events: [
@@ -189,6 +195,42 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
       },
     },
     status: "Reading the script's result",
+  },
+  {
+    // the agent of the kind `agent` (agent-facts.ts): its live state has its own shape
+    name: "the agent's live state has an open answer request",
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({
+      llmRequests: [
+        { requestOffset: 4, purpose: "summary", model: "openai/gpt-6.2-sol" },
+        { requestOffset: 7, purpose: "answer", model: "anthropic/claude-opus-5.5" },
+      ],
+    }),
+    status: "Thinking · anthropic/claude-opus-5.5",
+  },
+  {
+    name: "the agent's live state has inputs that wait for a request",
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({ pendingTriggerOffsets: [9] }),
+    status: "About to think",
+  },
+  {
+    name: "the agent's live state has a script it asked to run",
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({ scriptCalls: [{ answered: true }, { answered: false }] }),
+    status: "About to run a script",
+  },
+  {
+    name: "the agent's live state is paused",
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({ paused: { reason: "3 requests in a row failed" } }),
+    status: "Paused — 3 requests in a row failed",
+  },
+  {
+    name: "the agent's live state holds nothing",
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({}),
+    status: "Idle",
   },
 ])("the strip when $name: $status", async ({ processors, liveState, status }) => {
   using chat = await mount({ processors, liveState });
@@ -474,6 +516,45 @@ test("a page's loading state before there is a view is the view's own: the same 
   });
 });
 
+test("the agent's composer appends the words as ONE `agent-ui/message-received`, and calls no message()", async () => {
+  const appended: unknown[][] = [];
+  const onMessage = vi.fn(async () => {});
+  using _chat = await mount(
+    { processors: { rows: [], loaded: true }, liveState: agentLive({}) },
+    { onMessage, onAppend: async (events) => appended.push(events) },
+  );
+  const composer = await vi.waitFor(() => {
+    const found = document.querySelector("[aria-placeholder]");
+    expect(found).not.toBe(null);
+    return found!;
+  });
+  // the words, as a paste puts them in the editor (jsdom has no DataTransfer)
+  const paste = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [],
+      items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+      getData: (format: string) => (format === "text/plain" ? "hello" : ""),
+    },
+  });
+  await act(async () => composer.dispatchEvent(paste));
+  const send = document.querySelector<HTMLButtonElement>('button[title="Send message"]');
+  await act(async () => send!.click());
+  await vi.waitFor(() => expect(appended).toHaveLength(1));
+  expect({ appended, messages: onMessage.mock.calls.length }).toMatchObject({
+    appended: [
+      [
+        {
+          type: "events.iterate.com/agent-ui/message-received",
+          idempotencyKey: expect.stringMatching(/^agent-ui\/message-received:/),
+          payload: { message: "hello", client: "web" },
+        },
+      ],
+    ],
+    messages: 0,
+  });
+});
+
 test("the page's own text for an empty composer", async () => {
   using _chat = await mount(
     { processors: { rows: [], loaded: true }, liveState: {} },
@@ -723,6 +804,23 @@ type LogCase = {
   hostError?: string;
   shown: "reading" | "empty" | "rows" | "error";
 };
+
+/** The live state of the agent of the kind `agent` (agent-facts.ts), with nothing open but what
+ *  `state` names. */
+function agentLive(state: Record<string, unknown>): Context["liveState"] {
+  return {
+    agent: {
+      status: "live",
+      value: {
+        paused: null,
+        llmRequests: [],
+        pendingTriggerOffsets: [],
+        scriptCalls: [],
+        ...state,
+      },
+    },
+  };
+}
 
 /** A person's words in the log. */
 function said(offset: number, content: string) {

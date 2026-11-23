@@ -52,9 +52,11 @@ export function AgentsHome({
   );
 }
 
-/** THE COMPOSER WHOSE FIRST MESSAGE STARTS A NEW AGENT: an iterate agent. */
+/** THE COMPOSER WHOSE FIRST MESSAGE STARTS A NEW AGENT: an iterate agent, or the agent at the
+ *  path that `pathFor` makes. */
 export function NewAgentComposer({
   person,
+  pathFor,
   onCreate,
   onMessage,
   agentHref,
@@ -65,6 +67,10 @@ export function NewAgentComposer({
    *  page that does not know yet who is signed in: it is asked when a first message is sent, and
    *  the agent is born once it has answered. */
   person?: string | (() => Promise<string | undefined>);
+  /** The new agent's path, for the person signed in and the moment, asked when a first message is
+   *  sent: a page whose New agent starts another kind of agent puts it in that kind's folder.
+   *  None: an iterate agent's path (`newAgentPath("web", …)`). */
+  pathFor?: (person: string | undefined, date: Date) => Promise<string>;
   /** Births an agent at `path`. */
   onCreate: (path: string) => Promise<unknown>;
   /** Says the first message to the agent at `path`. */
@@ -90,11 +96,8 @@ export function NewAgentComposer({
         // An agent is its path; a new one is born at this moment's path.
         let path = born.current;
         if (!path) {
-          path = newAgentPath(
-            "web",
-            new Date(),
-            typeof person === "function" ? await person() : person,
-          );
+          const who = typeof person === "function" ? await person() : person;
+          path = pathFor ? await pathFor(who, new Date()) : newAgentPath("web", new Date(), who);
           await onCreate(path);
           born.current = path;
         }

@@ -34,8 +34,30 @@ import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import { facetSnapshotOf } from "iterate/react";
 import type { AgentKindViewInputs, AgentKindViewLoaded } from "./bridge.ts";
-import { appendEvents, fileUrl, messageAgent, withAgents } from "./dash-agent-calls.ts";
-import { AgentKindViewFrame, useAgentKindViewLink, type AgentKindViewVerbs } from "./host.ts";
+import {
+  appendEvents,
+  appendTo,
+  fileUrl,
+  messageAgent,
+  storeAgentFiles,
+  withAgents,
+} from "./dash-agent-calls.ts";
+import {
+  AgentKindStarterFrame,
+  AgentKindViewFrame,
+  AgentKindViewLink,
+  useAgentKindViewLink,
+  type AgentKindViewVerbs,
+} from "./host.ts";
+import {
+  defaultKindCandidates,
+  defaultKindOf,
+  newAgentStartOf,
+  sendFirstMessage,
+  type DefaultKind,
+  type KindFile,
+  type KindStarter,
+} from "./default-kind.ts";
 import { useHeldContext } from "#/hooks/use-itx-session.ts";
 import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
@@ -56,7 +78,13 @@ import {
 } from "#/components/dash/dash.tsx";
 import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
-import { agentGroups, findAgents, personOf, type AgentRow } from "#/lib/agent-summary.ts";
+import {
+  agentGroups,
+  findAgents,
+  newAgentPath,
+  personOf,
+  type AgentRow,
+} from "#/lib/agent-summary.ts";
 import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
 import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
 import { go, hrefOf, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
@@ -85,10 +113,6 @@ const callPart = once(async () => {
 });
 
 // ── the kinds ──
-
-/** A kind of agent with a file of its own: the file's path in the config repo, and its source
- *  (null when it cannot be read: its view then shows the agent's events). */
-type KindFile = { kind: string; name: string; source: string | null };
 
 const KindPaths = z.record(z.string(), z.string());
 
@@ -256,10 +280,11 @@ function useAgentLinks(pages: DashPage[]) {
 
 // ── a new agent ──
 
-/** THE COMPOSER whose first message starts a new iterate agent, in the folder of the person
- *  signed in. While the Dash does not know yet who that is (`principal` undefined), a first
- *  message asks the mind before the agent is born: no agent lands outside its person's folder
- *  because the page drew before the account was there. */
+/** THE COMPOSER whose first message starts a new agent, in the folder of the person signed in: an
+ *  iterate agent, or an agent of the mind's default kind (default-kind.ts). While the Dash does
+ *  not know yet who that is (`principal` undefined), a first message asks the mind before the
+ *  agent is born: no agent lands outside its person's folder because the page drew before the
+ *  account was there. */
 function NewAgent({
   itx,
   principal,
@@ -270,19 +295,86 @@ function NewAgent({
   links: ReturnType<typeof useAgentLinks>;
 }) {
   const { NewAgentComposer } = use(homePart());
+  const { frames, resolve, chosen } = useDefaultKind(itx);
   return (
-    <NewAgentComposer
-      person={
-        // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone with no address
-        principal === undefined
-          ? async () => personOf((await itx.whoami()).principal?.email)
-          : personOf(principal?.email)
-      }
-      onCreate={(path) => withAgents(itx).agents.create(path)}
-      onMessage={(path, { message, files }) => messageAgent(itx, path, { message, files })}
-      {...links}
-    />
+    <>
+      {frames}
+      <NewAgentComposer
+        person={
+          // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone with no address
+          principal === undefined
+            ? async () => personOf((await itx.whoami()).principal?.email)
+            : personOf(principal?.email)
+        }
+        pathFor={async (person, date) => {
+          const found = await resolve();
+          if (!found) return newAgentPath("web", date, person);
+          const start = newAgentStartOf(found, person, date);
+          chosen.set(start.path, { found, start });
+          return start.path;
+        }}
+        onCreate={async (path) => {
+          const kind = chosen.get(path);
+          if (!kind) return await withAgents(itx).agents.create(path);
+          await appendTo(itx, path, await kind.found.starter.start(kind.start));
+        }}
+        onMessage={(path, { message, files }) =>
+          chosen.has(path)
+            ? sendFirstMessage(
+                path,
+                { message, files },
+                {
+                  storeFiles: (at, stored) => storeAgentFiles(itx, at, stored),
+                  append: (at, events) => appendTo(itx, at, events),
+                },
+              )
+            : messageAgent(itx, path, { message, files })
+        }
+        {...links}
+      />
+    </>
   );
+}
+
+/** THE MIND'S DEFAULT KIND, for New agent: a hidden starter frame for each kind file that may be
+ *  it (default-kind.ts), the way to find it when a first message is sent, and the kind each new
+ *  path was born of. A link is kept for each file and source, so its frame loads once. */
+function useDefaultKind(itx: Itx) {
+  const { files, kinds } = useKindFiles(itx);
+  const [links] = useState(() => new Map<string, AgentKindViewLink>());
+  const [chosen] = useState(
+    () => new Map<string, { found: DefaultKind; start: ReturnType<typeof newAgentStartOf> }>(),
+  );
+  const linkOf = useCallback(
+    (file: KindFile) => {
+      const key = `${file.name}\n${file.source || ""}`;
+      const held = links.get(key);
+      if (held) return held;
+      const link = new AgentKindViewLink(file.name, file.source);
+      links.set(key, link);
+      return link;
+    },
+    [links],
+  );
+  const candidates = useMemo(() => defaultKindCandidates(kinds || []), [kinds]);
+  const frames = candidates.map((file) => (
+    <AgentKindStarterFrame key={file.name} link={linkOf(file)} frameScript={frameScriptOfPage()} />
+  ));
+  const resolve = useCallback(async () => {
+    const read = await files.catch((): KindFile[] => []);
+    return defaultKindOf(defaultKindCandidates(read).map((file) => starterOf(file, linkOf(file))));
+  }, [files, linkOf]);
+  return { frames, resolve, chosen };
+}
+
+/** A starter frame's link as default-kind.ts reads it. */
+function starterOf(file: KindFile, link: AgentKindViewLink): KindStarter {
+  return {
+    file,
+    loaded: link.loaded,
+    subscribe: link.subscribe,
+    start: (input) => link.start(input),
+  };
 }
 
 // ── what waits for the member ──
@@ -1068,6 +1160,8 @@ function kindViewVerbs({
       if (!filePath.startsWith(`${path}/`)) throw new Error(`${filePath} is not a file of ${path}`);
       return fileUrl(itx, filePath);
     },
+    // under this agent's path alone: the frame names no path
+    storeFiles: (files, key) => storeAgentFiles(itx, path, files, key),
     setState,
     loadOlder,
   };

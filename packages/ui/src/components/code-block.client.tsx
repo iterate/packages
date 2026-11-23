@@ -70,6 +70,8 @@ export interface SerializedObjectCodeBlockProps {
   className?: string;
   /** The YAML/JSON switch; YAML first. */
   showToggle?: boolean;
+  /** The form it opens in: `json` for a body that a provider took as JSON. YAML by default. */
+  initialFormat?: "yaml" | "json";
 }
 
 /** Any value as YAML or JSON, with a button to copy each. */
@@ -77,8 +79,9 @@ export function SerializedObjectCodeBlock({
   data,
   className,
   showToggle = true,
+  initialFormat = "yaml",
 }: SerializedObjectCodeBlockProps) {
-  const [format, setFormat] = useState<"yaml" | "json">("yaml");
+  const [format, setFormat] = useState<"yaml" | "json">(initialFormat);
   const code = useMemo(() => serializeData(data, format), [data, format]);
   return (
     <CodeBlock

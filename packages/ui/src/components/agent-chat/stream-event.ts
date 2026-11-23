@@ -8,6 +8,8 @@ import { shortLabelOf, type ShownPrincipal } from "#/lib/principal-label.ts";
  * Validation happens at the transport layer, not in the view reducer.
  */
 export type StreamEventSource = {
+  /** The context whose code wrote it: every commit carries it (core/lib stream/processor.ts). */
+  origin?: string;
   processor?: {
     slug: string;
     version: string;
@@ -85,6 +87,8 @@ export type StreamEvent<Type extends string = string, Payload = unknown> = {
   idempotencyKey?: string;
   offset: number;
   createdAt: string;
+  /** The context the event is on: every committed event names it. */
+  path?: string;
 };
 
 /** The `agent/message-received` an event relays, if iterate's loop wrote it for one. */

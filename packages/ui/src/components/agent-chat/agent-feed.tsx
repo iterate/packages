@@ -12,10 +12,13 @@ import {
   ChevronRightIcon,
   CircleAlertIcon,
   CodeIcon,
+  HashIcon,
   InboxIcon,
   PaperclipIcon,
   PauseIcon,
   PlayIcon,
+  WorkflowIcon,
+  ZapIcon,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "cn";
@@ -35,6 +38,7 @@ import {
   type AgentUiItem,
   type AgentUiLlmStep,
   type AgentUiMessageItem,
+  type AgentUiNoteItem,
   type AgentUiState,
   type AgentUiStep,
 } from "./agent-ui-reducer.ts";
@@ -176,6 +180,8 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
       return (
         <BackgroundRow item={item} expanded={expanded} onToggle={onToggle} signedUrl={signedUrl} />
       );
+    case "note":
+      return <NoteRow item={item} expanded={expanded} onToggle={onToggle} />;
     case "stream-paused":
     case "stream-resumed": {
       const Icon = item.kind === "stream-paused" ? PauseIcon : PlayIcon;
@@ -278,6 +284,58 @@ function ReportRow({
   );
 }
 
+// ── the agent's other facts: one plain row each ──
+
+const NOTE_ICON: Record<AgentUiNoteItem["about"], LucideIcon> = {
+  request: ZapIcon,
+  subagent: WorkflowIcon,
+  slack: HashIcon,
+};
+
+/** One plain row: a request for an answer and its reason, a subagent, a Slack message. With more
+ *  words (an error, the words sent) it opens into them. */
+function NoteRow({
+  item,
+  expanded,
+  onToggle,
+}: {
+  item: AgentUiNoteItem;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+}) {
+  const Icon = item.failed ? CircleAlertIcon : NOTE_ICON[item.about];
+  const line = (
+    <span
+      className={cn(item.failed && "text-destructive")}
+      title={formatDateTime(item.timestampMs)}
+    >
+      {item.text}
+    </span>
+  );
+  if (!item.detail)
+    return (
+      <div
+        className="flex h-8 min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
+        data-kind="note"
+      >
+        <Icon className="size-4 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+        <span className="min-w-0 truncate">{line}</span>
+      </div>
+    );
+  return (
+    <FoldedRow
+      kind="note"
+      icon={Icon}
+      title={item.text}
+      expanded={expanded}
+      onToggle={() => onToggle(item.id)}
+      line={line}
+    >
+      <p className="whitespace-pre-wrap wrap-break-word">{item.detail}</p>
+    </FoldedRow>
+  );
+}
+
 /** A quiet row the reader opens: its line, and under it, while open, what it folds. */
 function FoldedRow({
   kind,
@@ -288,7 +346,7 @@ function FoldedRow({
   onToggle,
   children,
 }: {
-  kind: "background" | "report";
+  kind: "background" | "report" | "note";
   icon: LucideIcon;
   title: string;
   line: ReactNode;

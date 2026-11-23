@@ -88,12 +88,16 @@ function propsOf(
 /** What the view's props call back over the port. */
 function verbsOf(
   host: Host,
-): Pick<AgentKindViewProps, "onStateChange" | "onMessage" | "onAppend" | "signedUrl"> {
+): Pick<
+  AgentKindViewProps,
+  "onStateChange" | "onMessage" | "onAppend" | "signedUrl" | "storeFiles"
+> {
   return {
     onStateChange: (patch) => void host.setState(patch),
     onMessage: async (input) => await host.message(input),
     onAppend: async (events) => await host.append(events),
     signedUrl: async (path) => await host.fileUrl(path),
+    storeFiles: async (files, key) => await host.storeFiles(files, key),
   };
 }
 

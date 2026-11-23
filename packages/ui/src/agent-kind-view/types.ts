@@ -10,6 +10,19 @@
 //     view: ({ html, useMemo, ui }) => (props) => html`<${ui.AgentShell} ...${props} />`,
 //   } satisfies AgentKind;
 //
+// THE AGENT (the kind `agent`: its facts are agent-chat/agent-facts.ts) needs no adapter: `AgentChat`
+// reads its facts, its live state and its request traces, and its composer appends the Dash's
+// words and files as one `agent-ui/message-received` (`storeFiles`, then `onAppend`). Its file:
+//
+//   export default {
+//     kind: "agent",
+//     processEvent,
+//     // the streamed windows of an answer, which a wildcard never matches
+//     ephemeralEvents: ["events.iterate.com/llm-request/response-frame-received"],
+//     newAgent: { default: true, choices: [{ id: "agent", label: "Agent", byPerson: true }], start },
+//     view: ({ html, ui }) => (props) => html`<${ui.AgentChat} ...${props} />`,
+//   } satisfies AgentKind;
+//
 // Types only: nothing here runs.
 // Self-contained (React, react-query and iterate's types only), so a mind's config repo, a test
 // program or a package without JSX can name them.
@@ -68,6 +81,14 @@ export type AgentKindViewProps = {
   }) => Promise<void>;
   /** Append events to the agent's context, as a person wrote them. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
+  /** Stores a message's files under the agent's path, as `message()` stores them (the same path
+   *  form), and answers each as the mind's file store holds it: a view then names them in a fact
+   *  it appends. `key`: the message's own key, so the same files sent again go to the same paths.
+   *  None: the host cannot store files (a page older than this verb). */
+  storeFiles?: (
+    files: { contentType: string; filename: string; data: string }[],
+    key?: string,
+  ) => Promise<{ contentType: string; filename: string; path: string; size: number }[]>;
   /** A signed download URL for a file under the agent's path. */
   signedUrl: (path: string) => Promise<string>;
   /** The viewer's actor id or address, when the page knows it: `AgentChat` draws no sender line
@@ -106,9 +127,13 @@ export type AgentKindViewKit = {
 };
 
 /** How one of a kind's agents is started: its `choices`, the `fields` each choice takes, and
- *  `start`, the events appended to the new agent's path before its first message. No page of
- *  @iterate-com/ui offers these: New agent starts iterate agents only. */
+ *  `start`, the events appended to the new agent's path before its first message. The Dash's New
+ *  agent starts iterate agents, or the kind that says `default: true`. */
 export type AgentKindNewAgent = {
+  /** `true`: the Dash's New agent starts this kind's agent, on its first choice, with each
+   *  field at its `defaultValue`: it appends `start(…)` to the new path, then the first message as
+   *  `agent-ui/message-received`. One kind of a mind says it; with two, the first by kind name. */
+  default?: true;
   /** `byPerson: true`: this choice's new agents may be born in the folder of the person who
    *  starts them, `/agents/people/<person>/<kind>/<moment>` (lib/agent-summary.ts
    *  `newAgentPath`). A kind says it when its own file takes that path. Without it they are born at

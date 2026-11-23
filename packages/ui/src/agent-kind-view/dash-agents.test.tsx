@@ -9,7 +9,13 @@ import { act, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { BotIcon } from "lucide-react";
+import { newMessagePortRpcSession, RpcTarget } from "capnweb";
 import { codedError } from "iterate/lib";
+import {
+  AGENT_KIND_VIEW_READY,
+  type AgentKindNewAgentSummary,
+  type AgentKindViewHostApi,
+} from "./bridge.ts";
 import { DashAgents, DashHome } from "./dash-agents.tsx";
 import { AgentCall } from "./dash-call.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
@@ -465,6 +471,73 @@ test("New agent is the composer alone, on the home and the Agents page, whatever
     expect(page.host.querySelector("select")).toBe(null);
     expect(page.host.querySelector("iframe")).toBe(null);
   }
+});
+
+test("a mind whose kind says `default: true`: New agent starts that kind by its own facts, with no agent made and no message()", async () => {
+  const { itx, born, appended } = mind({
+    kinds: { agent: "agent-kinds/agent.ts", claude: "agent-kinds/claude.ts" },
+    source: "export default { newAgent: { default: true } };",
+  });
+  history.replaceState(null, "", "/");
+  await using page = await draw(DashHome, itx, { waiting: 0 });
+  const composer = await composerOf(page.host);
+  // the kind file runs in a hidden frame of its own, never in the page
+  const frames = await act(() =>
+    vi.waitFor(() => {
+      const found = [...page.host.querySelectorAll("iframe")];
+      expect(
+        found.map((frame) => [frame.title, frame.hidden, frame.getAttribute("sandbox")]),
+      ).toEqual([
+        ["agent-kinds/agent.ts", true, "allow-scripts"],
+        ["agent-kinds/claude.ts", true, "allow-scripts"],
+      ]);
+      return found;
+    }),
+  );
+  // the frame of agent-kinds/agent.ts says its kind is the default; it starts with one fact
+  const started: unknown[] = [];
+  await act(() =>
+    starterFrame(frames[0]!, {
+      newAgent: { default: true, choices: [{ id: "agent", label: "Agent", byPerson: true }] },
+      start: (input) => {
+        started.push(input);
+        return [{ type: "events.iterate.com/agent-ui/agent-requested", payload: {} }];
+      },
+    }),
+  );
+  await act(() => starterFrame(frames[1]!, { newAgent: undefined, start: () => [] }));
+  await pasteAndSend(page.host, composer!, "hello");
+  await act(() => vi.waitFor(() => expect(appended).toHaveLength(2)));
+  const path = appended[0]!.path;
+  expect(path).toMatch(/^\/agents\/people\/jo\/agent\//);
+  expect({ born, started, appended }).toMatchObject({
+    born: [],
+    started: [{ choice: "agent", fields: {}, path }],
+    appended: [
+      { path, events: [{ type: "events.iterate.com/agent-ui/agent-requested" }] },
+      {
+        path,
+        events: [
+          {
+            type: "events.iterate.com/agent-ui/message-received",
+            payload: { message: "hello", client: "web" },
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test("a mind whose kinds say no default: New agent makes an iterate agent, as it did", async () => {
+  const { itx, born, appended } = mind({ kinds: { claude: "agent-kinds/claude.ts" } });
+  history.replaceState(null, "", "/");
+  await using page = await draw(DashHome, itx, { waiting: 0 });
+  const composer = await composerOf(page.host);
+  await pasteAndSend(page.host, composer!, "hello");
+  await act(() => vi.waitFor(() => expect(born).toHaveLength(1)));
+  expect(born[0]).toMatch(/^\/agents\/people\/jo\/web\//);
+  expect(appended).toEqual([]);
+  expect(page.host.querySelector("iframe")).toBe(null);
 });
 
 test("an iterate agent's view drawn a second time shows the saved rows while the mind has not answered", async () => {
@@ -3309,6 +3382,51 @@ function laidOut() {
         else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
     },
   };
+}
+
+/** Words into a composer as a paste puts them in the editor (jsdom has no DataTransfer), then a
+ *  press of Send. */
+async function pasteAndSend(host: HTMLElement, composer: Element, words: string) {
+  const paste = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [],
+      items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+      getData: (format: string) => (format === "text/plain" ? words : ""),
+    },
+  });
+  await act(async () => composer.dispatchEvent(paste));
+  const send = host.querySelector<HTMLButtonElement>('button[title="Send message"]');
+  await act(async () => send!.click());
+}
+
+/** THE FRAME'S SIDE OF A STARTER FRAME, as frame.ts plays it: it says it is ready, takes the
+ *  page's port, reports the kind's `newAgent`, and answers `start`. jsdom runs no frame script. */
+async function starterFrame(
+  iframe: HTMLIFrameElement,
+  kind: {
+    newAgent: AgentKindNewAgentSummary | undefined;
+    start: (input: { choice: string; fields: Record<string, string>; path: string }) => unknown[];
+  },
+) {
+  const window = iframe.contentWindow!;
+  const port = new Promise<MessagePort>((resolve) => {
+    // the cast: the page calls `postMessage(hello, "*", [port])`, the overload the spy's type omits
+    vi.spyOn(window, "postMessage").mockImplementation((...args: unknown[]) =>
+      resolve((args[2] as MessagePort[])[0]!),
+    );
+  });
+  globalThis.dispatchEvent(
+    new MessageEvent("message", { source: window, data: { type: AGENT_KIND_VIEW_READY } }),
+  );
+  class Frame extends RpcTarget {
+    update() {}
+    start(input: Parameters<typeof kind.start>[0]) {
+      return kind.start(input);
+    }
+  }
+  const host = newMessagePortRpcSession<AgentKindViewHostApi>(await port, new Frame());
+  await host.loaded({ ephemeralEvents: [], newAgent: kind.newAgent });
 }
 
 /** The new-agent composer of a drawn page. Its editor is a part that loads after the page drew,

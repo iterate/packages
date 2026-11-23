@@ -11,10 +11,13 @@ import type { StreamEvent } from "./stream-event.ts";
 import {
   formatAgentUiDuration,
   type AgentUiActivity,
+  type AgentUiItem,
   type AgentUiLlmStep,
 } from "./agent-ui-reducer.ts";
 import { sliceText, type StreamText } from "./chunked-text.ts";
 import { formatDateTime, llmTrace, scriptTrace, type LlmTrace } from "./agent-events.ts";
+import { llmRequestTrace } from "./llm-request-trace.ts";
+import { LlmRequestTraceContent } from "./llm-request-trace-view.tsx";
 import { MessageResponse } from "./message.tsx";
 import { StreamingCursor, StreamingText } from "./streaming-text.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
@@ -42,6 +45,7 @@ export type Inspected =
 export function InspectorSheet({
   events,
   live,
+  items,
   inspected,
   readProgress,
   onInspect,
@@ -49,6 +53,9 @@ export function InspectorSheet({
   events: readonly StreamEvent[];
   /** The reduced live activity, so an in-flight request's trace streams its raw response. */
   live: AgentUiActivity | null;
+  /** The feed's settled rows, so a settled request of the agent (agent-facts.ts) shows the
+   *  thinking that streamed while the page was open. */
+  items?: readonly AgentUiItem[];
   inspected: Inspected;
   /** How much of the log is held, from 0 to 1, while older pages are read for this trace: what it
    *  shows may yet grow. */
@@ -83,6 +90,7 @@ export function InspectorSheet({
             events={events}
             llmRequestOffset={inspected.llmRequestOffset}
             liveStep={liveStep}
+            items={items}
             reading={reading}
             onInspect={onInspect}
           />
@@ -104,18 +112,33 @@ function LlmTraceContent({
   events,
   llmRequestOffset,
   liveStep,
+  items,
   reading,
   onInspect,
 }: {
   events: readonly StreamEvent[];
   llmRequestOffset: number;
   liveStep: AgentUiLlmStep | undefined;
+  items: readonly AgentUiItem[] | undefined;
   reading: boolean;
   onInspect: (next: Inspected) => void;
 }) {
   const trace = useMemo(() => llmTrace(events, llmRequestOffset), [events, llmRequestOffset]);
+  // a request of the agent (agent-facts.ts): its own trace, for every LLM
+  const requestTrace = useMemo(
+    () => (trace ? null : llmRequestTrace(events, llmRequestOffset)),
+    [trace, events, llmRequestOffset],
+  );
   const [renderMode, setRenderMode] = useState<"markdown" | "plain">("markdown");
   const [copied, setCopied] = useState(false);
+  if (requestTrace)
+    return (
+      <LlmRequestTraceContent
+        trace={requestTrace}
+        step={liveStep || settledStepOf(items, llmRequestOffset)}
+        onScript={(requestOffset) => onInspect({ kind: "scriptRun", requestOffset })}
+      />
+    );
   if (!trace)
     return (
       <>
@@ -186,6 +209,22 @@ function LlmTraceContent({
       </TraceLog>
     </>
   );
+}
+
+/** The settled llm step of the request at `llmRequestOffset` in the feed's rows, newest first. */
+function settledStepOf(
+  items: readonly AgentUiItem[] | undefined,
+  llmRequestOffset: number,
+): AgentUiLlmStep | undefined {
+  for (const item of items?.toReversed() ?? []) {
+    if (item.kind !== "activity") continue;
+    const step = item.steps.find(
+      (candidate): candidate is AgentUiLlmStep =>
+        candidate.kind === "llm" && candidate.llmRequestOffset === llmRequestOffset,
+    );
+    if (step) return step;
+  }
+  return undefined;
 }
 
 const TRACE_ROWS: VirtualLogRowInfo<LlmTrace["messages"][number]> = {

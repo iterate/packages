@@ -8,6 +8,7 @@
 //     verbs={{ message, append, fileUrl, setState }} />
 import { createElement, useEffect, useMemo, useSyncExternalStore } from "react";
 import { newMessagePortRpcSession, RpcTarget, type RpcStub } from "capnweb";
+import { z } from "zod";
 import {
   AGENT_KIND_VIEW_READY,
   updateBetween,
@@ -18,8 +19,10 @@ import {
   type AgentKindViewLoaded,
 } from "./bridge.ts";
 
-/** What the frame may do, all of it to the one agent the page shows. */
-export type AgentKindViewVerbs = Omit<AgentKindViewHostApi, "loaded">;
+/** What the frame may do, all of it to the one agent the page shows. A page that does not give
+ *  `storeFiles` refuses a message with files that a kind appends itself. */
+export type AgentKindViewVerbs = Omit<AgentKindViewHostApi, "loaded" | "storeFiles"> &
+  Partial<Pick<AgentKindViewHostApi, "storeFiles">>;
 
 /** One frame's link to the page: its handshake, its session, what it reported, what it holds. */
 export class AgentKindViewLink {
@@ -81,6 +84,14 @@ export class AgentKindViewLink {
     };
   };
 
+  /** The kind's `newAgent.start(input)`, run in the frame: the events that start an agent of the
+   *  kind. Refused until the frame has said it is ready. */
+  async start(input: Parameters<AgentKindViewFrameApi["start"]>[0]): Promise<unknown[]> {
+    if (!this.#frame) throw new Error(`${this.name} has not loaded yet`);
+    // the frame runs a config repo's code: what it answers is checked to be a list here
+    return z.array(z.unknown()).parse(await this.#frame.start(input));
+  }
+
   setLoaded(result: AgentKindViewLoaded) {
     this.#loaded = result;
     for (const listener of this.#listeners) listener();
@@ -115,6 +126,11 @@ class HostTarget extends RpcTarget implements AgentKindViewHostApi {
   }
   fileUrl(path: string) {
     return this.#verbs().fileUrl(path);
+  }
+  storeFiles(...[files, key]: Parameters<AgentKindViewHostApi["storeFiles"]>) {
+    const { storeFiles } = this.#verbs();
+    if (!storeFiles) throw new Error("This page cannot store files for this agent.");
+    return storeFiles(files, key);
   }
   setState(patch: Parameters<AgentKindViewHostApi["setState"]>[0]) {
     this.#verbs().setState(patch);
@@ -159,6 +175,29 @@ export function AgentKindViewFrame({
     sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads",
     srcDoc,
     className: "min-h-0 w-full flex-1 border-0",
+  });
+}
+
+/** A FRAME THAT ONLY LOADS A KIND FILE, drawn nowhere: what it reports (`link.loaded()`: the
+ *  kind's `newAgent`) and its `start` (`link.start`), for the Dash's New agent. It is sent no
+ *  inputs, and has no verbs: it cannot read or change any agent. */
+export function AgentKindStarterFrame({
+  link,
+  frameScript,
+}: {
+  link: AgentKindViewLink;
+  frameScript: string;
+}) {
+  link.verbs = undefined;
+  const srcDoc = useMemo(() => frameDocument(frameScript), [frameScript]);
+  return createElement("iframe", {
+    ref: link.attach,
+    title: link.name,
+    sandbox: "allow-scripts",
+    srcDoc,
+    hidden: true,
+    "aria-hidden": true,
+    tabIndex: -1,
   });
 }
 

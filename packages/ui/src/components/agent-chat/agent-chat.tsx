@@ -50,6 +50,13 @@ import { ChatReading } from "./agent-reading.tsx";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { AgentFootStatus } from "./agent-strip.tsx";
 import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
+import {
+  AGENT_FACT,
+  agentLiveStateOf,
+  isAgentLog,
+  sendToAgent,
+  type StoreFiles,
+} from "./agent-facts.ts";
 import type { AgentProgressData } from "./agent-progress.ts";
 import { AgentTurnStatus } from "./agent-feed.tsx";
 import {
@@ -153,6 +160,7 @@ export function AgentChat({
   onStateChange,
   onMessage,
   onAppend,
+  storeFiles,
   signedUrl,
   itemFooter,
   strip = true,
@@ -189,6 +197,11 @@ export function AgentChat({
    *  the interrupt, and the Events tab's composer. The events are as a person wrote them, and the
    *  platform parses each. `undefined` until the host holds the context: nothing can be appended. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
+  /** Stores a message's files under the agent's path, as `message()` does (a kind's host has it:
+   *  agent-kind-view/types.ts). With it, the composer of the agent whose kind is `agent`
+   *  (agent-facts.ts) sends words and files as ONE `agent-ui/message-received` through
+   *  `onAppend`. Without it, words with files to that agent go through `onMessage`. */
+  storeFiles?: StoreFiles;
   /** A signed download URL for a file under the agent's path, asked of the mind's root and not
    *  of the agent's context (`mind.files.get(path).url()`): only an iterate agent's context has
    *  `files`. */
@@ -255,6 +268,15 @@ export function AgentChat({
     context.caughtUp && !older.exhausted && feed.items.length === 0 && !feed.state.live;
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
+  // THE AGENT (agent-facts.ts) takes the Dash's words as a fact of its own, not as `message()`
+  const agentLog = isAgentLog(context.liveState, fold.events);
+  const send = useMemo<SendMessage>(
+    () =>
+      agentLog && onAppend
+        ? (input) => sendToAgent(input, { onAppend, onMessage, storeFiles })
+        : onMessage,
+    [agentLog, onAppend, onMessage, storeFiles],
+  );
   // in a voice call the agent is spoken to, not idle: the strip says nothing then
   const status = chatStatus(turn, feed.state, (inCall?.size ?? 0) > 0);
   const here = usePresence({
@@ -302,6 +324,7 @@ export function AgentChat({
         <InspectorSheet
           events={fold.events}
           live={feed.state.live}
+          items={feed.items}
           inspected={inspected}
           readProgress={readingForTrace ? logShare : undefined}
           onInspect={onInspect}
@@ -330,7 +353,7 @@ export function AgentChat({
           placeholder={placeholder}
           draft={draft}
           keys={keys}
-          onMessage={onMessage}
+          onMessage={send}
           onAppend={onAppend}
           attach={attach}
           typingStatus={presence ? <TypingStatus typing={typing} /> : null}
@@ -349,7 +372,12 @@ export function AgentChat({
  *  pages as the reader scrolls up: the fold needs nothing older than the turns it shows
  *  (agent-ui-reducer.ts). */
 AgentChat.contextOptions = {
-  consumes: ["*", "events.iterate.com/agent/llm-response-frame", ...PRESENCE_EVENT_TYPES],
+  consumes: [
+    "*",
+    "events.iterate.com/agent/llm-response-frame",
+    AGENT_FACT.llmResponseFrame,
+    ...PRESENCE_EVENT_TYPES,
+  ],
 };
 
 /** The person's words and files, as the composer hands them over. */
@@ -417,6 +445,23 @@ const AgentLive = z.object({
   unnotedRun: z.number().nullable().default(null),
 });
 
+/** THE AGENT'S LIVE STATE (agent-facts.ts) as the fields the strip reads: its pause, its open
+ *  answer request (or any open request), the inputs that wait for a request, and a script that it
+ *  asked for and that has not settled. */
+function agentFacetOf(value: unknown): z.infer<typeof AgentLive> | undefined {
+  const state = agentLiveStateOf(value);
+  if (!state) return undefined;
+  const open =
+    state.llmRequests.find((request) => request.purpose === "answer") ?? state.llmRequests[0];
+  return {
+    paused: state.paused,
+    openRequest: open ? { model: open.model } : null,
+    pendingLlmRequestTrigger: state.pendingTriggerOffsets.length > 0 ? {} : null,
+    awaitingRun: state.scriptCalls.some((call) => !call.answered) ? {} : null,
+    unnotedRun: null,
+  };
+}
+
 /** What the agent facet says of the turn. Its live state rides the context's subscription, and its
  *  entry appears once the processors table has loaded, so there is no live state to wait for when
  *  the table could not be read, or loaded without the facet. The turn is over when the facet holds
@@ -430,7 +475,7 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
     : Boolean(processors.error) ||
       (processors.loaded && !processors.rows.some((row) => row.hostedFacet?.name === "agent"));
   const parsed = AgentLive.safeParse(live?.value);
-  const facet = parsed.success ? parsed.data : undefined;
+  const facet = parsed.success ? parsed.data : agentFacetOf(live?.value);
   const facetIdle =
     facet &&
     !facet.openRequest &&

@@ -55,11 +55,11 @@
       },
       "files": [
         {
-          "path": "src/components/agent-chat/agent-chat.tsx",
+          "path": "src/components/agent-chat/agent-chat-search.ts",
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-chat-search.ts",
+          "path": "src/components/agent-chat/agent-chat.tsx",
           "type": "registry:component"
         },
         {
@@ -71,11 +71,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-feed-list.tsx",
+          "path": "src/components/agent-chat/agent-facts.ts",
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-traces.ts",
+          "path": "src/components/agent-chat/agent-feed-list.tsx",
           "type": "registry:component"
         },
         {
@@ -87,15 +87,15 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/agent-reading.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/agent-chat/agent-shell.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/agent-chat/agent-page-header.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-progress.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-reading.tsx",
           "type": "registry:component"
         },
         {
@@ -103,7 +103,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/agent-chat/agent-shell.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/agent-chat/agent-strip.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/agent-traces.ts",
           "type": "registry:component"
         },
         {
@@ -112,6 +120,14 @@
         },
         {
           "path": "src/components/agent-chat/chat-parts.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/choice-in-words.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/choice-syntax.ts",
           "type": "registry:component"
         },
         {
@@ -127,14 +143,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/agent-chat/choice-in-words.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/agent-chat/choice-syntax.ts",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/agent-chat/composer-textarea.tsx",
           "type": "registry:component"
         },
@@ -144,6 +152,14 @@
         },
         {
           "path": "src/components/agent-chat/full-text-snapshot.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/llm-request-trace-view.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/agent-chat/llm-request-trace.ts",
           "type": "registry:component"
         },
         {
@@ -176,10 +192,6 @@
         },
         {
           "path": "src/components/agent-chat/use-ticking-now-ms.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/agent-chat/agent-progress.ts",
           "type": "registry:component"
         }
       ]

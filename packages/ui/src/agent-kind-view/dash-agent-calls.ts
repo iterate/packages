@@ -4,6 +4,7 @@
 // the other side until the socket closes.
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
+import type { OutgoingFile, StoredFile } from "#/components/agent-chat/agent-facts.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -48,6 +49,17 @@ export async function appendEvents(
   await context.append(...AppendedEvents.parse(events));
 }
 
+/** Appends `events` to the context at `path` (after the check above), then lets go of its handle,
+ *  whatever the answer. */
+export async function appendTo(itx: Itx, path: string, events: unknown[]): Promise<void> {
+  const context = await itx.cd(path);
+  try {
+    await appendEvents(context, events);
+  } finally {
+    context[Symbol.dispose]();
+  }
+}
+
 /** Says `input` to the agent at `path` (`itx.agents.get(path).message`), then lets go of the
  *  agent's handle, whatever the answer. With `key`, the message's own key from the chat, the
  *  same message sent again lands once (a mind whose platform does not know keys yet ignores it). */
@@ -77,4 +89,47 @@ export async function fileUrl(itx: Itx, filePath: string): Promise<string> {
   } finally {
     file[Symbol.dispose]();
   }
+}
+
+/** STORES A MESSAGE'S FILES under the agent's path, as the platform's `message()` stores them
+ *  (core/lib agents/message.ts `appendMessage`): `<path>/<stem>-<name>`, where the stem, for a
+ *  message with a key, is made from the key, the file's place, its type and the SHA-256 of its
+ *  content, so the same file sent again goes to the same path; with no key, 8 characters of a
+ *  random id. Answers each file as the store holds it. Lets go of each file's handle. */
+export async function storeAgentFiles(
+  itx: Itx,
+  path: string,
+  files: readonly OutgoingFile[],
+  key?: string,
+): Promise<StoredFile[]> {
+  const stored: StoredFile[] = [];
+  for (const [index, file] of files.entries()) {
+    const filename = file.filename.replace(/[^A-Za-z0-9._-]+/g, "-");
+    const stem = key
+      ? (
+          await sha256Hex(
+            `${key}\n${String(index)}\n${file.contentType}\n${await sha256Hex(file.data)}`,
+          )
+        ).slice(0, 16)
+      : crypto.randomUUID().slice(0, 8);
+    const handle = itx.files.get(`${path}/${stem}-${filename}`);
+    try {
+      const record = await handle.put({ contentType: file.contentType, data: file.data });
+      stored.push({
+        contentType: record.contentType,
+        filename: file.filename,
+        path: record.path,
+        size: record.size,
+      });
+    } finally {
+      handle[Symbol.dispose]();
+    }
+  }
+  return stored;
+}
+
+/** The SHA-256 of a text, in hex. */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

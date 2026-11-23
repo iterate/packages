@@ -17,13 +17,14 @@ import {
   type AgentKindViewFrameApi,
   type AgentKindViewHello,
   type AgentKindViewHostApi,
+  type AgentKindNewAgentSummary,
   type AgentKindViewInputs,
   type AgentKindViewUpdate,
 } from "./bridge.ts";
 import { FrameView } from "./frame-view.tsx";
 import { agentKindViewKit } from "./kit.ts";
 import { importAgentKind } from "./load.ts";
-import type { AgentKindViewProps } from "./types.ts";
+import type { AgentKindNewAgent, AgentKindViewProps } from "./types.ts";
 
 export function startAgentKindViewFrame(root: HTMLElement) {
   const onHello = (event: MessageEvent) => {
@@ -43,13 +44,19 @@ export function startAgentKindViewFrame(root: HTMLElement) {
 async function open(hello: AgentKindViewHello, port: MessagePort, root: HTMLElement) {
   const inputs = new InputsStore();
   const loading = viewOf(hello);
-  const host = newMessagePortRpcSession<AgentKindViewHostApi>(port, new FrameTarget(inputs));
+  const host = newMessagePortRpcSession<AgentKindViewHostApi>(
+    port,
+    new FrameTarget(inputs, loading),
+  );
   const view = await loading;
   void host.loaded(
     "error" in view
       ? { error: view.error }
       : view.component
-        ? { ephemeralEvents: view.ephemeralEvents }
+        ? {
+            ephemeralEvents: view.ephemeralEvents,
+            newAgent: view.newAgent && newAgentSummary(view.newAgent),
+          }
         : { none: true },
   );
   createRoot(root).render(
@@ -66,6 +73,7 @@ export type LoadedView =
   | {
       component: ComponentType<AgentKindViewProps>;
       ephemeralEvents: string[];
+      newAgent?: AgentKindNewAgent;
     }
   | { component: null }
   | { error: string };
@@ -77,6 +85,7 @@ async function viewOf({ name, source }: AgentKindViewHello): Promise<LoadedView>
     return {
       component: kind.view(agentKindViewKit),
       ephemeralEvents: kind.ephemeralEvents || [],
+      newAgent: kind.newAgent,
     };
   } catch (error) {
     return { error: `${name}: ${error instanceof Error ? error.message : String(error)}` };
@@ -102,11 +111,28 @@ export class InputsStore {
 
 class FrameTarget extends RpcTarget implements AgentKindViewFrameApi {
   #inputs: InputsStore;
-  constructor(inputs: InputsStore) {
+  #view: Promise<LoadedView>;
+  constructor(inputs: InputsStore, view: Promise<LoadedView>) {
     super();
     this.#inputs = inputs;
+    this.#view = view;
   }
   update(update: Parameters<AgentKindViewFrameApi["update"]>[0]) {
     this.#inputs.apply(update);
   }
+  async start(input: Parameters<AgentKindViewFrameApi["start"]>[0]) {
+    const view = await this.#view;
+    const newAgent = "newAgent" in view ? view.newAgent : undefined;
+    if (!newAgent) throw new Error("this kind has no newAgent: its agents are not started here");
+    return newAgent.start(input);
+  }
+}
+
+/** A kind's `newAgent` as data: what crosses to the page. */
+function newAgentSummary(newAgent: AgentKindNewAgent): AgentKindNewAgentSummary {
+  return {
+    default: newAgent.default,
+    choices: newAgent.choices,
+    fields: newAgent.fields,
+  };
 }
