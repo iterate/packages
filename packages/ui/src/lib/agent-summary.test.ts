@@ -229,6 +229,9 @@ test("an agent and the agents below its path are one group, as recent as its new
     agent("/agents/c", "2026-01-04"),
     { ...row("/agents/c/box", "2026-01-01", null), parent: "/agents/c" },
     agent("/agents/c/box/x", "2026-01-01", "/agents/c/box"),
+    // auxiliary non-agent leaf contexts under an agent (like /call or /sandbox/coding) are not counted as subagents
+    { ...row("/agents/c/call", "2026-01-01", null), parent: "/agents/c" },
+    { ...row("/agents/c/box/x/coding", "2026-01-01", null), parent: "/agents/c/box/x" },
     // a person's folder is no agent, and its agents are at the top
     row("/agents/people/jo/web", "2026-01-01", null),
     { ...row("/agents/people/jo/web/x", "2026-01-01", "2026-01-03"), title: "Pays a bill" },

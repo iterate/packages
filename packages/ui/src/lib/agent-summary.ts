@@ -91,6 +91,19 @@ function folderTest(rows: readonly AgentRow[]): (row: AgentRow) => boolean {
   return (row) => !row.kind && !row.title && (holders.has(row.path) || isPeopleFolder(row.path));
 }
 
+/** Whether a child row under an agent is an auxiliary non-agent context (such as a `/call` or
+ *  sandbox sub-context that never emitted any agent metadata) rather than a real subagent. */
+function isAuxiliaryChild(row: AgentRow): boolean {
+  return (
+    !row.kind &&
+    !row.title &&
+    !row.status &&
+    !row.activity &&
+    !row.description &&
+    !row.lastActivityAt
+  );
+}
+
 /** An agent at the top and every agent below its path. */
 export type AgentGroup = { row: AgentRow; subagents: AgentRow[] };
 
@@ -106,7 +119,9 @@ export function agentGroups(rows: readonly AgentRow[]): AgentGroup[] {
     .filter((row) => !top.some((other) => row.path.startsWith(`${other.path}/`)))
     .map((row) => ({
       row,
-      subagents: byRecentActivity(agents.filter((other) => other.path.startsWith(`${row.path}/`))),
+      subagents: byRecentActivity(
+        agents.filter((other) => other.path.startsWith(`${row.path}/`) && !isAuxiliaryChild(other)),
+      ),
     }));
   const at = new Map(
     groups.map((group) => [

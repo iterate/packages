@@ -80,7 +80,7 @@ test("a row that gains a title moves the rows after it down at once", async () =
   document.body.replaceChildren();
 });
 
-test("a subagent has a row only while it is at work: one that stopped is in its agent's count and no more", async () => {
+test("all subagents have rows under their parent, with active ones shown first", async () => {
   using _ = laidOut();
   const nowMs = Date.parse("2026-11-16T16:00:00Z");
   const agent = (path: string, status: AgentRow["status"], lastActivityAt: string): AgentRow => ({
@@ -107,7 +107,12 @@ test("a subagent has a row only while it is at work: one that stopped is in its 
     root.render(<AllAgents agents={agents} nowMs={nowMs} agentHref={(path) => path || "/"} />),
   );
   const rows = [...document.querySelectorAll<HTMLElement>("[data-agent-path]")];
-  expect(rows.map((row) => row.dataset.agentPath)).toEqual(["/agents/a", "/agents/a/at-work"]);
+  expect(rows.map((row) => row.dataset.agentPath)).toEqual([
+    "/agents/a",
+    "/agents/a/at-work",
+    "/agents/a/stopped",
+    "/agents/a/stale",
+  ]);
   expect(rows[0]!.textContent).toContain("and 3 subagents");
   act(() => root.unmount());
   document.body.replaceChildren();

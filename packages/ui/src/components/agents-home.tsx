@@ -181,11 +181,10 @@ export function RecentAgents({
 }
 
 /** EVERY AGENT, as a virtual list: the agents at the top, the most recently active first, each
- *  followed by its subagents that are at work now (`agentAtWork`), indented. A row is the agent's
- *  title when it has one, its path, and its summary while it is at work, else its description
- *  (`ListRowText`). A subagent that is not at work is in its agent's "and 5 subagents" only. Only
- *  the rows in view are in the DOM. It fills its parent, a flex column with a bounded height, and
- *  scrolls itself. */
+ *  followed by its subagents, indented (active ones first, then by recent activity). A row is the
+ *  agent's title when it has one, its path, and its summary while it is at work, else its
+ *  description (`ListRowText`). Only the rows in view are in the DOM. It fills its parent, a flex
+ *  column with a bounded height, and scrolls itself. */
 export function AllAgents({
   agents,
   nowMs,
@@ -204,9 +203,8 @@ export function AllAgents({
     () =>
       agentGroups(agents).flatMap(({ row, subagents }) => [
         { row, subagents: subagents.length, depth: 0 },
-        // a subagent has a row of its own only while it is at work: the others are in the count
         ...subagents
-          .filter((sub) => agentAtWork(sub, nowMs))
+          .toSorted((a, b) => Number(agentAtWork(b, nowMs)) - Number(agentAtWork(a, nowMs)))
           .map((sub) => ({ row: sub, subagents: 0, depth: 1 })),
       ]),
     [agents, nowMs],
