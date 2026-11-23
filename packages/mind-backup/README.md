@@ -77,17 +77,23 @@ value. The key is the deployment's: type it only into a page whose code you trus
    published: `.github/workflows/pkg-pr-new.yml`, which lists what pkg.pr.new and npm publish,
    does not name `packages/mind-backup`.
 
-2. In `worker.ts`, the import, one element of the `integrations` array (iterate/sdk
-   `Integration`: the worker hands it every event, and the requests on its hostname in a case of
-   `fetch`: `case "backup": return backup.fetch(request, this)`), and a
+2. In `integrations.ts`, the import and one element of the `integrations` array (iterate/sdk
+   `Integration`: the worker hands it every event). In `worker.ts`, the requests on its hostname
+   in a case of `fetch` (`case "backup": return backup.fetch(request, this)`), and a
    `backup()` method for `itx.config.backup()`:
 
    ```ts
-   import { backupToFiles, mindBackup } from "@iterate-com/mind-backup";
+   // integrations.ts
+   import { mindBackup } from "@iterate-com/mind-backup";
 
-   const integrations: Integration[] = [mindBackup()];
+   export const backup = mindBackup();
+   export const integrations: Integration[] = [backup];
 
-   export default class extends IterateConfigEntrypoint {
+   // worker.ts
+   import { backupToFiles } from "@iterate-com/mind-backup";
+   import { backup } from "./integrations.ts";
+
+   export default class extends ConfigApi {
      /** `itx.config.backup()`: a backup kept in the mind's files, at /backups/<time>.zip. */
      async backup() {
        using itx = this.getItx();
