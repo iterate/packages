@@ -407,6 +407,7 @@ const ORDINARY: RuleRow[] = [
   "append",
   "appendOffsets",
   "abort",
+  "newVersion",
   "readEvents",
   "waitForEvent",
   "cd",
