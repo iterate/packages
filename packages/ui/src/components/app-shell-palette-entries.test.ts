@@ -6,7 +6,6 @@ import {
   filterPaletteEntries,
   readSidebarNav,
   UNLABELLED_NAV_GROUP,
-  withoutMindLinks,
   type PaletteEntry,
 } from "./app-shell-palette-entries.ts";
 
@@ -141,20 +140,6 @@ test("reads menu buttons and sub-buttons with their group, parent, active state 
       href: "http://localhost:3000/minds/acme?agent=/agents/web/a",
     },
   ]);
-});
-
-test("a sidebar link to a mind under its slug is its mind row; a page at its URL stays", () => {
-  const content = document.createElement("div");
-  content.innerHTML = `
-    <a data-slot="sidebar-menu-button" href="/minds/acme-site"><span>Overview</span></a>
-    <a data-slot="sidebar-menu-sub-button" href="/minds/acme-site"><span>acme-site</span></a>
-    <a data-slot="sidebar-menu-sub-button" href="/minds/globex"><span>globex</span></a>
-  `;
-  expect(
-    withoutMindLinks(readSidebarNav(content), [
-      { label: "acme-site", href: "http://localhost:3000/minds/acme-site" },
-    ]).map((item) => item.label),
-  ).toEqual(["Overview", "globex"]);
 });
 
 test("a phone's sidebar sheet, closed (not mounted) or open: nothing to list", () => {

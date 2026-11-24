@@ -19,6 +19,7 @@ export {
   ChartLineIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronsUpDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronUpIcon,

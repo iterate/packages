@@ -211,7 +211,6 @@ export function Dash({
       <AppShell
         app={app}
         mind={mind}
-        mindHref={() => pageHref(undefined)}
         switcher={
           <AppShellBrand
             app={name || app}

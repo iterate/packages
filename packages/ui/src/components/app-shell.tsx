@@ -1,11 +1,10 @@
-// The one shell for the client apps (dash, agents, notes, docs, voice, admin): the sidebar (the
-// mind switcher in its header, the app's own navigation in its body, the collapse button and the
+// The one shell for the client apps (dash, docs, tasks, voice, admin): the sidebar (the brand or
+// app switcher in its header, the app's own navigation in its body, the collapse button and the
 // account menu in its footer, the rail) and the page beside it under a header row (on a phone, over
 // it: `phoneHeader`) that carries the phone's sidebar trigger, a page's own row
-// (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the minds
-// and the sidebar's pages (app-shell-palette.tsx), or the app's own (`palette`). Router-agnostic
-// on purpose: the app hands over hrefs and its current location, nothing from TanStack comes in
-// here.
+// (`AppShellPageHeader`) and its menu (`AppShellPageMenu`) — and ⌘K, a palette over the sidebar's
+// pages (app-shell-palette.tsx), or the app's own (`palette`). Router-agnostic on purpose: the app
+// hands over hrefs and its current location, nothing from TanStack comes in here.
 import {
   createContext,
   useCallback,
@@ -29,7 +28,6 @@ import {
   ChevronsUpDownIcon,
   EllipsisIcon,
   LogOutIcon,
-  PlusIcon,
   SearchIcon,
 } from "lucide-react";
 import { cn } from "cn";
@@ -45,7 +43,6 @@ import {
   type AppPaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import { useConnectedMinds } from "./connected-minds.ts";
 import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -77,10 +74,6 @@ import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { resetPosthog } from "#/components/posthog.tsx";
 import { wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
 
-/** Where the switcher's "Connect another mind" goes: every app's connect page
- *  (iterate/app-server `CONNECT_PAGE_PATH`). */
-const CONNECT_PAGE = "/connect";
-
 /** Nothing to subscribe to: the cookie has no change event, and `SidebarProvider` reads
  *  `defaultOpen` once, when it mounts. */
 const subscribeToNothing = () => () => {};
@@ -104,8 +97,6 @@ const HEADER_MOVE_PX = 16;
 export function AppShell({
   app,
   mind,
-  mindHref,
-  onNavigate,
   switcher,
   nav,
   paletteEntries,
@@ -121,20 +112,13 @@ export function AppShell({
   locationKey,
   children,
 }: {
-  /** the app's name, on top of the switcher: "Agents", "Notes", "Voice" */
+  /** the app's name, shown in the default sidebar header: "Dash", "Docs", "Tasks" */
   app: string;
-  /** the mind the page shows, by its address; the switcher lists the others this browser is
-   *  connected to (`useConnectedMinds`) */
+  /** the mind the page serves, by its address (used for Sign out and as the default header's
+   *  subtitle) */
   mind: string | null;
-  /** where the app shows a mind (`/minds/<address>` by convention) — a same-origin href;
-   *  switching is a full navigation unless
-   *  `onNavigate` takes it (an app with a client router prevents the default and navigates itself).
-   *  Only a plain left click is handed over: a modified or middle click keeps the anchor's own
-   *  behaviour (a new tab). */
-  mindHref: (address: string) => string;
-  onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
-  /** what heads the sidebar instead of the mind switcher, for an app that is not about one
-   *  mind (the Cloud: a person and their deployments) — `AppShellBrand` is the plain one */
+  /** what heads the sidebar instead of the default plain brand (`AppShellBrand` or
+   *  `AppShellSwitcher`) */
   switcher?: ReactNode;
   /** the app's own navigation, its `SidebarGroup`s */
   nav?: ReactNode;
@@ -178,19 +162,6 @@ export function AppShell({
   locationKey: string;
   children: ReactNode;
 }) {
-  const connected = useConnectedMinds();
-  // the switcher's and the palette's list: every connected mind, the shown one too while the
-  // gate has not answered, by address
-  const minds = useMemo(
-    () =>
-      [
-        ...new Set([
-          ...(mind ? [mind] : []),
-          ...(connected?.minds.map((item) => item.address) || []),
-        ]),
-      ].sort(),
-    [connected, mind],
-  );
   const defaultOpen = useSyncExternalStore(
     subscribeToNothing,
     () => sidebarCookie() ?? sidebarDefaultOpen,
@@ -227,18 +198,10 @@ export function AppShell({
       <CloseMobileSidebarOnNavigate locationKey={locationKey} />
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          {switcher ?? (
-            <MindSwitcher
-              app={app}
-              minds={minds}
-              mind={mind}
-              mindHref={mindHref}
-              onNavigate={onNavigate}
-            />
-          )}
+          {switcher ?? <AppShellBrand app={app} line={mind} />}
           {commandPalette && searchRow ? <PaletteSidebarButton onOpen={openPalette} /> : null}
         </SidebarHeader>
-        {/* ⌘K lists what the sidebar shows here — on a desktop; a phone's lists the minds alone */}
+        {/* ⌘K lists what the sidebar shows here — on a desktop */}
         <SidebarNav navRef={navRef}>{nav}</SidebarNav>
         <SidebarFooter>
           <CollapseButton />
@@ -247,7 +210,6 @@ export function AppShell({
             <AccountMenu
               name={account?.email || account?.actor || mind || app}
               mind={mind}
-              showMindOnSignOut={!switcher}
               actions={accountActions}
             />
           ) : (
@@ -281,10 +243,6 @@ export function AppShell({
           nav={palette}
           entries={paletteEntries || []}
           onClose={closePalette}
-          minds={minds}
-          mind={mind}
-          mindHref={mindHref}
-          onNavigate={onNavigate}
         />
       ) : null}
     </SidebarProvider>
@@ -637,29 +595,44 @@ function SidebarNav({
   );
 }
 
-/** The mind the page shows, and a menu of the minds this browser is connected to, by
- *  address, ending with "Connect another mind": the app's connect page. */
-function MindSwitcher({
+/** The sidebar's head for an app that switches between items (such as a mind's repos in Tasks or
+ *  Docs): the logo, the app's name, and the active item under it. When there is only one item,
+ *  shows the plain `AppShellBrand` with no dropdown. */
+export type AppShellSwitcherItem = {
+  value: string;
+  label?: string;
+  href?: string;
+};
+
+export function AppShellSwitcher({
   app,
-  minds,
-  mind,
-  mindHref,
-  onNavigate,
+  logo,
+  value,
+  items,
+  label,
+  href,
+  onSelect,
 }: {
   app: string;
-  minds: string[];
-  mind: string | null;
-  mindHref: (address: string) => string;
-  onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
+  logo?: ReactNode;
+  value: string;
+  items: readonly (string | AppShellSwitcherItem)[];
+  /** optional heading above the menu items (e.g. "Repos") */
+  label?: string;
+  /** link target for the plain brand when there is at most one item */
+  href?: string;
+  onSelect?: (value: string, event: MouseEvent<HTMLElement>) => void;
 }) {
-  const { isMobile } = useSidebar();
-  const navigate = (href: string) =>
-    onNavigate
-      ? (event: MouseEvent<HTMLAnchorElement>) => {
-          if (!plainLeftClick(event)) return;
-          onNavigate(href, event);
-        }
-      : undefined;
+  const { isMobile, setOpenMobile } = useSidebar();
+  const normalized = items.map((item) =>
+    typeof item === "string"
+      ? { value: item, label: item, href: undefined }
+      : { value: item.value, label: item.label || item.value, href: item.href },
+  );
+  const current = normalized.find((item) => item.value === value)?.label || value;
+  if (normalized.length <= 1) {
+    return <AppShellBrand app={app} line={current} logo={logo} href={href} />;
+  }
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -669,16 +642,14 @@ function MindSwitcher({
               <SidebarMenuButton
                 size="lg"
                 className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
-                aria-label="Switch mind"
+                aria-label={label ? `${label}: ${current}` : `Switch ${app}`}
               >
                 <span className="flex aspect-square size-8 items-center justify-center rounded-md bg-black">
-                  <IterateLogo alt="" className="size-6" />
+                  {logo ?? <IterateLogo alt="" className="size-6" />}
                 </span>
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{app}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {mind || "(select mind)"}
-                  </span>
+                  <span className="truncate text-xs text-muted-foreground">{current}</span>
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
               </SidebarMenuButton>
@@ -688,49 +659,48 @@ function MindSwitcher({
             align="start"
             side={isMobile ? "bottom" : "right"}
             sideOffset={4}
-            className="min-w-60 rounded-lg"
+            className="min-w-56 rounded-lg"
           >
-            {minds.length > 0 ? (
-              <DropdownMenuGroup>
-                {minds.map((address) => (
-                  <DropdownMenuItem
-                    key={address}
-                    className="gap-2 p-2"
-                    render={
-                      <a
-                        href={mindHref(address)}
-                        aria-label={`Switch to ${address}`}
-                        aria-current={address === mind ? "page" : undefined}
-                        onClick={navigate(mindHref(address))}
-                      />
-                    }
-                  >
-                    <span className="flex size-6 items-center justify-center rounded-md border text-xs font-medium text-muted-foreground">
-                      {address.slice(0, 1)}
-                    </span>
-                    <span className="truncate">{address}</span>
-                    {address === mind ? <CheckIcon className="ml-auto" /> : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            ) : null}
-            {minds.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                className="gap-2 p-2"
-                render={
-                  <a
-                    href={CONNECT_PAGE}
-                    aria-label="Connect another mind"
-                    onClick={navigate(CONNECT_PAGE)}
-                  />
+              {label ? <DropdownMenuLabel>{label}</DropdownMenuLabel> : null}
+              {normalized.map((item) => {
+                const active = item.value === value;
+                if (item.href) {
+                  return (
+                    <DropdownMenuItem
+                      key={item.value}
+                      className="gap-2"
+                      render={
+                        <a
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          onClick={(event) => {
+                            if (!plainLeftClick(event)) return;
+                            onSelect?.(item.value, event);
+                            if (isMobile) setOpenMobile(false);
+                          }}
+                        />
+                      }
+                    >
+                      <span className="truncate">{item.label}</span>
+                      {active ? <CheckIcon className="ml-auto" /> : null}
+                    </DropdownMenuItem>
+                  );
                 }
-              >
-                <span className="flex size-6 items-center justify-center rounded-md border text-muted-foreground">
-                  <PlusIcon className="size-3.5" />
-                </span>
-                <span>Connect another mind</span>
-              </DropdownMenuItem>
+                return (
+                  <DropdownMenuItem
+                    key={item.value}
+                    className="gap-2"
+                    onClick={(event) => {
+                      onSelect?.(item.value, event);
+                      if (isMobile) setOpenMobile(false);
+                    }}
+                  >
+                    <span className="truncate">{item.label}</span>
+                    {active ? <CheckIcon className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -793,12 +763,10 @@ function CollapseButton() {
 function AccountMenu({
   name,
   mind,
-  showMindOnSignOut = true,
   actions,
 }: {
   name: string;
   mind: string | null;
-  showMindOnSignOut?: boolean;
   actions?: ReactNode;
 }) {
   const { isMobile, state } = useSidebar();
@@ -855,9 +823,7 @@ function AccountMenu({
                     }}
                   >
                     <LogOutIcon />
-                    <span className="truncate">
-                      {showMindOnSignOut ? `Sign out of ${mind}` : "Sign out"}
-                    </span>
+                    <span className="truncate">Sign out</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </>

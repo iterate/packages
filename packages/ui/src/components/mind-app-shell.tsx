@@ -5,14 +5,11 @@ import type { AppPaletteEntry } from "#/components/app-shell-palette-entries.ts"
 import { AppShell } from "#/components/app-shell.tsx";
 import { DefaultErrorComponent, DefaultPendingComponent } from "#/components/route-defaults.tsx";
 
-/** A mind's page in an app that shows one mind at a time (Notes, Voice): the shared
- *  `AppShell` with that mind picked in its switcher, each mind at `/minds/<address>` under
- *  the page's `basePath`. The switcher names the app and the mind, so the header row adds
- *  nothing of its own: a desktop shows it only for a page's own row (`AppShellPageHeader`). */
+/** A mind's page in an app that shows one mind at a time: the shared `AppShell` with that mind's
+ *  brand in its header. */
 export function MindAppShell({
   app,
   mind,
-  basePath = "",
   account,
   locationKey,
   nav,
@@ -40,7 +37,6 @@ export function MindAppShell({
     <AppShell
       app={app}
       mind={mind}
-      mindHref={(address) => `${basePath}/minds/${address}`}
       nav={nav}
       paletteEntries={paletteEntries}
       account={account}

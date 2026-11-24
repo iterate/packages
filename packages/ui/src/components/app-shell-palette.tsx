@@ -1,7 +1,7 @@
-// ⌘K in the AppShell: one dialog to switch mind or jump to any page the sidebar offers, by
-// typing. The rows and the filter are app-shell-palette-entries.ts; this is the dialog, the
-// shortcut and the buttons that open it (the sidebar's "Search" row, and the header's on a phone,
-// where the sidebar is a sheet).
+// ⌘K in the AppShell: one dialog to jump to any page the sidebar offers, by typing. The rows and
+// the filter are app-shell-palette-entries.ts; this is the dialog, the shortcut and the buttons
+// that open it (the sidebar's "Search" row, and the header's on a phone, where the sidebar is a
+// sheet).
 //
 // command.tsx is vendored shadcn (packages/ui/src/components/ui/AGENTS.md), so the palette's own look lives
 // here, in the classNames it passes: flush rows edge to edge instead of upstream's inset, rounded
@@ -10,17 +10,15 @@
 // that takes no className; and the dialog is Dialog's parts, because upstream's CommandDialog puts
 // its sr-only title outside the popup, where a screen reader finds a "Search" heading on every page
 // even while the palette is closed.
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { CheckIcon, SearchIcon } from "lucide-react";
 import {
   filterPaletteEntries,
-  withoutMindLinks,
   type AppPaletteEntry,
   type PaletteEntry,
   type SidebarNavItem,
 } from "./app-shell-palette-entries.ts";
-import { plainLeftClick } from "#/lib/plain-left-click.ts";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Command,
@@ -40,7 +38,6 @@ import {
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "#/components/ui/sidebar.tsx";
 
 type PaletteRow =
-  | (PaletteEntry & { kind: "mind"; href: string })
   | (PaletteEntry & { kind: "nav"; element: HTMLElement })
   | (PaletteEntry & { kind: "app"; onSelect: () => void });
 
@@ -106,27 +103,16 @@ export function PaletteHeaderButton({ onOpen }: { onOpen: () => void }) {
 }
 
 /** The dialog. `nav` is the sidebar's navigation as it read when the palette opened, null while
- *  closed. A mind row is a real link to `mindHref(mind)` — a plain click (or Enter) goes
- *  through `onNavigate` when the app has a client router, a modified or middle click opens a tab —
- *  a nav row clicks the sidebar's own element, and an entry the app handed over runs its
+ *  closed. A nav row clicks the sidebar's own element, and an entry the app handed over runs its
  *  `onSelect`. */
 export function AppShellPalette({
   nav,
   entries,
   onClose,
-  minds,
-  mind,
-  mindHref,
-  onNavigate,
 }: {
   nav: SidebarNavItem[] | null;
   entries: AppPaletteEntry[];
   onClose: () => void;
-  /** the connected minds, by address */
-  minds: string[];
-  mind: string | null;
-  mindHref: (address: string) => string;
-  onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   return (
     <Dialog
@@ -142,19 +128,9 @@ export function AppShellPalette({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Search</DialogTitle>
-          <DialogDescription>Switch mind or go to a page</DialogDescription>
+          <DialogDescription>Go to a page</DialogDescription>
         </DialogHeader>
-        {nav ? (
-          <PaletteBody
-            nav={nav}
-            entries={entries}
-            onClose={onClose}
-            minds={minds}
-            mind={mind}
-            mindHref={mindHref}
-            onNavigate={onNavigate}
-          />
-        ) : null}
+        {nav ? <PaletteBody nav={nav} entries={entries} onClose={onClose} /> : null}
       </DialogContent>
     </Dialog>
   );
@@ -165,38 +141,13 @@ function PaletteBody({
   nav,
   entries,
   onClose,
-  minds,
-  mind,
-  mindHref,
-  onNavigate,
 }: {
   nav: SidebarNavItem[];
   entries: AppPaletteEntry[];
   onClose: () => void;
-  /** the connected minds, by address */
-  minds: string[];
-  mind: string | null;
-  mindHref: (address: string) => string;
-  onNavigate: ((href: string, event: MouseEvent<HTMLAnchorElement>) => void) | undefined;
 }) {
   const [query, setQuery] = useState("");
-  const links = useRef(new Map<string, HTMLAnchorElement>());
-  const mindRows = minds.map((address): PaletteRow => ({
-    kind: "mind",
-    id: `mind:${address}`,
-    label: address,
-    group: "Minds",
-    detail: undefined,
-    active: address === mind,
-    href: mindHref(address),
-  }));
-  const navRows = withoutMindLinks(
-    nav,
-    minds.map((address) => ({
-      label: address,
-      href: new URL(mindHref(address), location.href).href,
-    })),
-  ).map(({ element, label, group, detail, active }, index): PaletteRow => ({
+  const navRows = nav.map(({ element, label, group, detail, active }, index): PaletteRow => ({
     kind: "nav",
     id: `nav:${index}`,
     label,
@@ -210,7 +161,7 @@ function PaletteBody({
     id: `app:${index}`,
     ...entry,
   }));
-  const groups = filterPaletteEntries([...navRows, ...appRows, ...mindRows], query);
+  const groups = filterPaletteEntries([...navRows, ...appRows], query);
   return (
     <Command shouldFilter={false} loop className="p-0">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -218,8 +169,8 @@ function PaletteBody({
         <CommandPrimitive.Input
           data-slot="command-input"
           className="flex h-8 w-full min-w-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
-          placeholder="Search minds and pages…"
-          aria-label="Search minds and pages"
+          placeholder="Search…"
+          aria-label="Search"
           value={query}
           onValueChange={setQuery}
         />
@@ -238,41 +189,12 @@ function PaletteBody({
                 value={row.id}
                 className="rounded-none px-3 py-2 in-data-[slot=dialog-content]:rounded-none!"
                 onSelect={() => {
-                  if (row.kind === "mind") {
-                    links.current.get(row.id)?.click();
-                    return;
-                  }
-                  if (row.kind === "app") {
-                    onClose();
-                    row.onSelect();
-                    return;
-                  }
                   onClose();
-                  row.element.click();
+                  if (row.kind === "app") row.onSelect();
+                  else row.element.click();
                 }}
               >
-                {row.kind === "mind" ? (
-                  <a
-                    ref={(link) => {
-                      if (link) links.current.set(row.id, link);
-                      else links.current.delete(row.id);
-                    }}
-                    href={row.href}
-                    tabIndex={-1}
-                    className="flex min-w-0 flex-1 items-center gap-2"
-                    onClick={(event) => {
-                      // the row's own onSelect would click this again
-                      event.stopPropagation();
-                      if (!plainLeftClick(event)) return;
-                      onClose();
-                      onNavigate?.(row.href, event);
-                    }}
-                  >
-                    <PaletteRowLabel row={row} />
-                  </a>
-                ) : (
-                  <PaletteRowLabel row={row} />
-                )}
+                <PaletteRowLabel row={row} />
               </CommandItem>
             ))}
           </CommandGroup>

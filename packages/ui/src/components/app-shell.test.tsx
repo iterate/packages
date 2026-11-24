@@ -8,7 +8,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { AppShell, AppShellBrand, AppShellPageMenu } from "./app-shell.tsx";
+import { AppShell, AppShellBrand, AppShellPageMenu, AppShellSwitcher } from "./app-shell.tsx";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -145,7 +145,7 @@ test("Sign out wipes the saved rows, then posts the form that ends the sign-in",
     account.click();
   });
   const signOut = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
-    item.textContent?.includes("Sign out of example.com"),
+    item.textContent?.includes("Sign out"),
   )!;
   await act(async () => signOut.click());
   await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
@@ -178,7 +178,8 @@ test("AccountMenu shows the email once on the trigger and not again in the expan
     expect(account.textContent).not.toContain("iterate.example.com");
     const menu = document.querySelector('[role="menu"]');
     expect(menu?.textContent).not.toContain("jo@example.com");
-    expect(menu?.textContent).toContain("Sign out of iterate.example.com");
+    expect(menu?.textContent).toContain("Sign out");
+    expect(menu?.textContent).not.toContain("Sign out of iterate.example.com");
   }
   {
     using _shell = await mount(
@@ -188,11 +189,78 @@ test("AccountMenu shows the email once on the trigger and not again in the expan
     await openAccountMenu();
     const menu = document.querySelector('[role="menu"]');
     expect(menu?.textContent).toContain("jo@example.com");
-    expect(menu?.textContent).toContain("Sign out of iterate.example.com");
+    expect(menu?.textContent).toContain("Sign out");
   }
 });
 
-test("AppShellBrand with href and logo links without MindSwitcher, and Sign out drops the hostname", async () => {
+test("default AppShell renders plain AppShellBrand with no MindSwitcher", async () => {
+  using _shell = await mount({ app: "Tasks", mind: "iterate.example.com" }, {});
+  expect(document.querySelector('[aria-label="Switch mind"]')).toBeNull();
+  expect(document.body.textContent).not.toContain("Connect another mind");
+  const header = document.querySelector('[data-slot="sidebar-header"]')!;
+  expect(header.textContent).toContain("Tasks");
+  expect(header.textContent).toContain("iterate.example.com");
+});
+
+test("AppShellSwitcher renders a plain brand for one item and a dropdown for multiple items", async () => {
+  {
+    using _shell = await mount(
+      {
+        switcher: (
+          <AppShellSwitcher
+            app="Tasks"
+            value="config"
+            items={["config"]}
+            logo={<span data-custom-logo>M</span>}
+            href="./"
+          />
+        ),
+      },
+      {},
+    );
+    expect(document.querySelector('[data-slot="sidebar-header"] button[aria-haspopup]')).toBeNull();
+    const link = document.querySelector<HTMLAnchorElement>('[data-slot="sidebar-header"] a')!;
+    expect(link.textContent).toContain("Tasks");
+    expect(link.textContent).toContain("config");
+    expect(link.querySelector("[data-custom-logo]")?.textContent).toBe("M");
+  }
+  {
+    const selected = vi.fn();
+    using _shell = await mount(
+      {
+        switcher: (
+          <AppShellSwitcher
+            app="Tasks"
+            label="Repos"
+            value="config"
+            items={["config", "tasks"]}
+            logo={<span data-custom-logo>M</span>}
+            onSelect={selected}
+          />
+        ),
+      },
+      {},
+    );
+    const trigger = document.querySelector<HTMLElement>('[aria-label="Repos: config"]')!;
+    expect(trigger.textContent).toContain("Tasks");
+    expect(trigger.textContent).toContain("config");
+    await act(async () => {
+      trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      trigger.click();
+    });
+    const menu = document.querySelector('[role="menu"]')!;
+    expect(menu.textContent).toContain("Repos");
+    expect(menu.textContent).toContain("config");
+    expect(menu.textContent).toContain("tasks");
+    const tasksItem = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.includes("tasks"),
+    )!;
+    await act(async () => tasksItem.click());
+    expect(selected).toHaveBeenCalledWith("tasks", expect.anything());
+  }
+});
+
+test("AppShellBrand with href and logo links without any switcher dropdown", async () => {
   const clicked = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
   using _shell = await mount(
     {
@@ -318,14 +386,7 @@ async function mount(
   const render = ({ children, ...drawn }: Partial<ComponentProps<typeof AppShell>>) =>
     act(async () =>
       root.render(
-        <AppShell
-          app="Cloud"
-          mind={null}
-          mindHref={() => "/"}
-          account={false}
-          locationKey="/"
-          {...drawn}
-        >
+        <AppShell app="Cloud" mind={null} account={false} locationKey="/" {...drawn}>
           {children}
           <div data-testid="feed" style={{ overflowY: "auto" }}>
             <p>a row</p>

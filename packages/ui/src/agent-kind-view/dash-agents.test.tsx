@@ -3615,13 +3615,7 @@ async function draw(
   const drawWith = async (rows: typeof agents | undefined) => {
     await act(() =>
       root.render(
-        <AppShell
-          app="Dash"
-          mind="iterate.example.com"
-          mindHref={() => "./"}
-          account={null}
-          locationKey="/"
-        >
+        <AppShell app="Dash" mind="iterate.example.com" account={null} locationKey="/">
           <Suspense fallback="Loading the page…">
             <Page
               itx={itx}

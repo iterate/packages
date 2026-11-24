@@ -979,7 +979,7 @@ async function draw(itx: Parameters<typeof DashAgents>[0]["itx"]) {
   const root = createRoot(host);
   await act(() =>
     root.render(
-      <AppShell app="Dash" mind="example.com" mindHref={() => "./"} account={null} locationKey="/">
+      <AppShell app="Dash" mind="example.com" account={null} locationKey="/">
         <Suspense fallback="Loading the page…">
           <DashAgents
             itx={itx}

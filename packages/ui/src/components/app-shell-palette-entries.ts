@@ -115,15 +115,3 @@ function textBlocks(element: Element | null | undefined) {
   }
   return [...blocks.values()].map((text) => text.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
-
-/** The sidebar's items less those that are only a link to a mind — the dash's organization tree
- *  lists each mind by its slug, and the mind's own row already offers it. A page at a
- *  mind's URL under its own label (the dash's "Overview" is `/minds/<slug>`) stays.
- *  `minds` carry absolute hrefs, as the reader's do. */
-export function withoutMindLinks(
-  nav: SidebarNavItem[],
-  minds: { label: string; href: string }[],
-): SidebarNavItem[] {
-  const links = new Set(minds.map((mind) => `${mind.label} ${mind.href}`));
-  return nav.filter((item) => !links.has(`${item.label} ${item.href}`));
-}

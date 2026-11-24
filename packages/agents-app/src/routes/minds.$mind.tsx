@@ -139,7 +139,6 @@ function AgentsPage() {
     <AppShell
       app="Agents"
       mind={mind}
-      mindHref={(address) => `/minds/${address}`}
       nav={
         <AgentsNav
           mind={mind}

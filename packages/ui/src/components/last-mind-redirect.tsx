@@ -1,5 +1,5 @@
 import { Navigate } from "@tanstack/react-router";
-import { useConnectedMinds } from "#/components/connected-minds.ts";
+import { useConnectedMinds } from "./connected-minds.ts";
 import { DefaultPendingComponent } from "#/components/route-defaults.tsx";
 
 /** `/` in an app that shows one mind at a time: the mind this browser used last

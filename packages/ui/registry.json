@@ -362,13 +362,12 @@
     {
       "name": "app-shell",
       "type": "registry:component",
-      "description": "The client apps' shell: the sidebar with the mind switcher, the app's pages, the account menu and the platform the app is connected to, and ⌘K over the minds and pages.",
+      "description": "The client apps' shell: the sidebar with brand or item switcher, the app's pages, the account menu, and ⌘K over the sidebar's pages.",
       "dependencies": [
         "cmdk",
         "cn",
         "iterate",
-        "lucide-react",
-        "zod"
+        "lucide-react"
       ],
       "registryDependencies": [
         "avatar",
@@ -402,10 +401,6 @@
         },
         {
           "path": "src/components/app-shell-palette-entries.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/connected-minds.ts",
           "type": "registry:component"
         }
       ]
@@ -1109,15 +1104,19 @@
       "type": "registry:component",
       "description": "/ in an app that shows one mind at a time: the mind used last, or the connect page.",
       "dependencies": [
-        "@tanstack/react-router"
+        "@tanstack/react-router",
+        "zod"
       ],
       "registryDependencies": [
-        "iterate/packages/app-shell",
         "iterate/packages/route-defaults"
       ],
       "files": [
         {
           "path": "src/components/last-mind-redirect.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/connected-minds.ts",
           "type": "registry:component"
         }
       ]
