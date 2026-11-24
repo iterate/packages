@@ -11,7 +11,7 @@
 // same context is `/contexts/<path>` (`/contexts?contextPath=/` for root); both share `dashPaths`
 // (#/lib/page-url.ts). The agent view takes any path: what makes an agent is its view, not where it
 // lives.
-import { ListIcon } from "lucide-react";
+import { ListIcon, PlusIcon } from "lucide-react";
 import { agentViewHref } from "./dash-href.ts";
 import { kindIcon } from "#/components/agent-look.ts";
 import { AgentTooltip, StatusDot } from "#/components/agents-nav.tsx";
@@ -19,6 +19,7 @@ import { ContextPathText } from "#/components/context-path-text.tsx";
 import { SidebarRowSkeleton } from "#/components/app-shell.tsx";
 import {
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
@@ -76,9 +77,28 @@ export function DashAgentsNav({
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
+  const newLink = linkTo(overview);
   return (
     <SidebarGroup className={shrink ? "min-h-0 overflow-hidden" : undefined}>
-      <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>Agents</SidebarGroupLabel>
+      <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>
+        Other Conversations
+      </SidebarGroupLabel>
+      <SidebarGroupAction
+        title="New conversation"
+        aria-label="New conversation"
+        render={
+          <a
+            {...newLink}
+            onClick={(event) => {
+              newLink.onClick(event);
+              event.currentTarget.blur();
+              document.querySelector<HTMLElement>('[aria-label="Message a new agent"]')?.focus();
+            }}
+          />
+        }
+      >
+        <PlusIcon aria-hidden />
+      </SidebarGroupAction>
       <SidebarGroupContent className={shrink ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <SidebarMenu
           className={
@@ -110,7 +130,7 @@ export function DashAgentsNav({
           )}
           {groups?.length === 0 ? (
             <p className="px-2 py-1 font-readme text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              No agents yet.
+              No other conversations yet.
             </p>
           ) : null}
           {!shrink ? viewAll : null}
@@ -118,6 +138,52 @@ export function DashAgentsNav({
         {shrink ? <SidebarMenu className="mt-1 shrink-0">{viewAll}</SidebarMenu> : null}
       </SidebarGroupContent>
     </SidebarGroup>
+  );
+}
+
+/** The mind's main conversation row at the top of the sidebar: always links to `/agents/main` and
+ *  shows its live status dot, subagent count and current activity once the catalog has it. */
+export function DashMainAgentRow({
+  path,
+  name = "Main conversation",
+  group,
+  active,
+}: {
+  path: string;
+  name?: string;
+  group: AgentGroup | undefined;
+  active: boolean;
+}) {
+  const row = group?.row;
+  const KindIcon = kindIcon(row?.kind || null);
+  const line = group
+    ? [subagentsLine(group.subagents.length), agentDoing(group.row)].filter(Boolean).join(" · ")
+    : "";
+  return (
+    <SidebarMenuItem data-agent-path={path} data-main-agent="">
+      <SidebarMenuButton
+        size="lg"
+        isActive={active}
+        className="focus-visible:ring-inset group-data-[collapsible=icon]:p-2!"
+        tooltip={{ children: <AgentTooltip title={name} line={line} path={path} /> }}
+        render={<a aria-label={name} {...linkTo(agentViewHref(path))} />}
+      >
+        <span className="relative">
+          <KindIcon data-agent-kind={row?.kind || undefined} />
+          {row?.status ? <StatusDot status={row.status} /> : null}
+        </span>
+        <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
+          <span className="truncate text-sm font-medium">{name}</span>
+          {line ? (
+            <span className="truncate text-2xs text-muted-foreground" data-agent-line>
+              {line}
+            </span>
+          ) : (
+            <ContextPathText path={path} truncate className="text-2xs text-muted-foreground" />
+          )}
+        </span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 

@@ -285,7 +285,7 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
     ),
   };
   await using dash = await draw("/", [], { pages: withAgentPages, agents });
-  const rows = [...dash.host.querySelectorAll("[data-agent-path]")];
+  const rows = [...dash.host.querySelectorAll("[data-agent-path]:not([data-main-agent])")];
   expect(rows.map((row) => row.getAttribute("data-agent-path"))).toEqual([
     "/agents/a",
     "/agents/t7",
@@ -301,7 +301,9 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   expect(linksNamed(dash.host, "Agents page")).toHaveLength(0);
   // agents sit above the foot group (any remaining page rows follow View all)
   const sidebarLinks = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')];
-  const firstAgent = sidebarLinks.findIndex((link) => link.closest("[data-agent-path]"));
+  const firstAgent = sidebarLinks.findIndex((link) =>
+    link.closest("[data-agent-path]:not([data-main-agent])"),
+  );
   const viewAll = sidebarLinks.findIndex((link) => link.textContent?.includes("View all"));
   const analytics = sidebarLinks.findIndex((link) => link.textContent?.includes("Analytics"));
   expect(firstAgent).toBeGreaterThanOrEqual(0);
@@ -312,7 +314,7 @@ test("the sidebar's agents: one row per agent and the agents below its path, new
   expect(location).toMatchObject({ pathname: "/agents/agents/t7", search: "" });
   expect(dash.host.textContent).toContain("agent view of /agents/t7");
   expect(
-    [...dash.host.querySelectorAll("[data-agent-path] a")].map((row) =>
+    [...dash.host.querySelectorAll("[data-agent-path]:not([data-main-agent]) a")].map((row) =>
       row.hasAttribute("data-active"),
     ),
   ).toEqual([false, true, false, false, false, false]);
@@ -355,7 +357,7 @@ test("in the icon rail an agent row is its icon alone: its words hide by the sid
   ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
 });
 
-test("conversations tagged pinned-in-dash in the context catalog sit right under New conversation and are skipped below", async () => {
+test("Main conversation sits at the top, followed by pinned-in-dash conversations, then Other Conversations with +", async () => {
   const now = new Date().toISOString();
   await using dash = await draw("/agents/agents/main/researcher", [], {
     pages: [
@@ -371,6 +373,14 @@ test("conversations tagged pinned-in-dash in the context catalog sit right under
         recentTypes: [],
         processors: [],
         metadata: { title: "Main conversation", tags: ["pinned-in-dash"] },
+      },
+      {
+        path: "/agents/sysadmin",
+        eventCount: 1,
+        eventTypes: {},
+        recentTypes: [],
+        processors: [],
+        metadata: { title: "Sysadmin", tags: ["pinned-in-dash"] },
       },
       {
         path: "/agents/side-1",
@@ -401,6 +411,12 @@ test("conversations tagged pinned-in-dash in the context catalog sit right under
         parent: "/agents/main",
         lastActivityAt: now,
       },
+      "/agents/sysadmin": {
+        createdAt: now,
+        kind: "iterate",
+        status: "idle",
+        lastActivityAt: now,
+      },
       "/agents/side-1": {
         createdAt: now,
         kind: "iterate",
@@ -410,9 +426,9 @@ test("conversations tagged pinned-in-dash in the context catalog sit right under
     },
   });
   const { host } = dash;
-  await until(() => host.querySelector('[data-pinned-agent][data-agent-path="/agents/main"]'));
-  // /agents/main is pinned under New conversation, active for its subagent, and not duplicated below
-  const mainRow = host.querySelector('[data-pinned-agent][data-agent-path="/agents/main"]');
+  await until(() => host.querySelector('[data-pinned-agent][data-agent-path="/agents/sysadmin"]'));
+  // /agents/main is anchored at the top, active for its subagent, and not duplicated below
+  const mainRow = host.querySelector('[data-main-agent][data-agent-path="/agents/main"]');
   expect(mainRow).not.toBeNull();
   expect(mainRow?.querySelector("a")?.getAttribute("href")).toBe("/agents/agents/main");
   expect(mainRow?.querySelector("a")?.hasAttribute("data-active")).toBe(true);
@@ -426,13 +442,21 @@ test("conversations tagged pinned-in-dash in the context catalog sit right under
     [...host.querySelectorAll("[data-agent-path]")].map((row) =>
       row.getAttribute("data-agent-path"),
     ),
-  ).toEqual(["/agents/main", "/agents/side-1"]);
-  const navOrder = [...host.querySelectorAll('[data-slot="sidebar-content"] a')].map((a) =>
-    a.textContent?.trim(),
+  ).toEqual(["/agents/main", "/agents/sysadmin", "/agents/side-1"]);
+  // Other Conversations label + inline "+" action button linking to /agents
+  expect(host.querySelector('[data-slot="sidebar-group-label"]')?.textContent).toBe(
+    "Other Conversations",
+  );
+  const plus = host.querySelector<HTMLAnchorElement>('[data-slot="sidebar-group-action"]');
+  expect(plus?.getAttribute("href")).toBe("/agents");
+  expect(plus?.getAttribute("aria-label")).toBe("New conversation");
+  const navOrder = [...host.querySelectorAll('[data-slot="sidebar-content"] a')].map(
+    (a) => a.textContent?.trim() || a.getAttribute("aria-label"),
   );
   expect(navOrder).toEqual([
-    "New conversation",
     "Main conversationand 2 subagents · setting up",
+    "Sysadmin/agents/sysadmin",
+    "New conversation",
     "Side one/agents/side-1",
     "View all",
     "Settings",
@@ -501,25 +525,26 @@ test("sidebar order is alert, New agent & pinned, agents (skipping pinned), then
   expect(dash.host.querySelector("[data-sidebar-alert]")).not.toBeNull();
   // pinned agent is skipped from DashAgentsNav so it is not listed twice
   expect(
-    [...dash.host.querySelectorAll("[data-agent-path]")].map((r) =>
+    [...dash.host.querySelectorAll("[data-agent-path]:not([data-main-agent])")].map((r) =>
       r.getAttribute("data-agent-path"),
     ),
   ).toEqual(["/agents/other"]);
   // row: false hides Analytics from the sidebar while keeping /analytics routable
   expect(linksNamed(dash.host, "Analytics")).toHaveLength(0);
-  // exact order in sidebar content: alert -> New agent -> Chief of staff -> Other agent -> View all -> Approvals (with badge 2) -> Settings
+  // exact order in sidebar content: alert -> Main conversation -> Chief of staff -> + -> Other agent -> View all -> Approvals (with badge 2) -> Settings
   const alertEl = dash.host.querySelector("[data-approvals-alert]")!;
   expect(alertEl).toMatchObject({
     textContent: "2 requests wait",
     title: "2 requests wait for approval",
   });
-  const navOrder = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map((a) =>
-    a.textContent?.trim(),
+  const navOrder = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map(
+    (a) => a.textContent?.trim() || a.getAttribute("aria-label"),
   );
   expect(navOrder).toEqual([
     "2 requests wait",
-    "New conversation",
+    "Main conversation/agents/main",
     "Chief of staff",
+    "New conversation",
     "Other agent/agents/other",
     "View all",
     "Approvals",
@@ -665,11 +690,20 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
     pinned: [{ name: "Pinned helper", href: "/agents/agents/helper", icon: BotIcon }],
   });
   const names = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map(
-    (link) => link.textContent,
+    (link) => link.textContent || link.getAttribute("aria-label"),
   );
   expect(
-    names.slice(names.indexOf("New conversation"), names.indexOf("New conversation") + 4),
-  ).toEqual(["New conversation", "Pinned helper", "View all", "Analytics"]);
+    names.slice(
+      names.indexOf("Main conversation/agents/main"),
+      names.indexOf("Main conversation/agents/main") + 5,
+    ),
+  ).toEqual([
+    "Main conversation/agents/main",
+    "Pinned helper",
+    "New conversation",
+    "View all",
+    "Analytics",
+  ]);
   const row = linksNamed(dash.host, "Pinned helper")[0]!;
   expect(row.getAttribute("href")).toBe("/agents/agents/helper");
   await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
@@ -686,7 +720,9 @@ test("New agent is never marked or boxed, and a pinned row is marked while its o
   });
   /** [is it marked as the current row, is it drawn as a box] of the sidebar row with this name */
   const look = (name: string) => {
-    const row = linksNamed(dash.host, name)[0]!;
+    const row =
+      linksNamed(dash.host, name)[0] ||
+      dash.host.querySelector<HTMLAnchorElement>(`a[aria-label="${name}"]`)!;
     return [row.hasAttribute("data-active"), /bg-background|shadow-\[/.test(row.className)];
   };
   const marked = () => ({ newAgent: look("New conversation"), pinned: look("Pinned helper") });
@@ -744,17 +780,21 @@ test("each page and each agent has its canonical address: deep link, click, Back
       agents: { "/agents/t1": { createdAt: "2026-01-01T00:00:00.000Z", kind: "iterate" } },
     });
     const { host } = dash;
-    const hrefOf = (name: string) => linksNamed(host, name)[0]?.getAttribute("href");
+    const hrefOf = (name: string) =>
+      (
+        linksNamed(host, name)[0] ||
+        host.querySelector<HTMLAnchorElement>(`a[aria-label="${name}"]`)
+      )?.getAttribute("href");
     expect(host.textContent).toContain("agent view of /agents/canvas2/ada@example.com/notes.md");
     // every link is a path from the root, so it leads to the same place from any page
-    await until(() => host.querySelector("[data-agent-path] a"));
+    await until(() => host.querySelector("[data-agent-path]:not([data-main-agent]) a"));
     expect({
       brand: headerBrandLink(host)?.getAttribute("href"),
       analytics: hrefOf("Analytics"),
       newAgent: hrefOf("New conversation"),
       all: hrefOf("View all"),
       pinned: hrefOf("Pinned helper"),
-      agent: host.querySelector("[data-agent-path] a")?.getAttribute("href"),
+      agent: host.querySelector("[data-agent-path]:not([data-main-agent]) a")?.getAttribute("href"),
     }).toEqual({
       brand: "/",
       analytics: "/analytics",

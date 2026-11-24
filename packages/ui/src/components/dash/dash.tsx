@@ -35,12 +35,11 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { SquarePenIcon } from "lucide-react";
 import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
-import { AgentsNavRow, DashAgentsNav } from "./dash-agents-nav.tsx";
+import { AgentsNavRow, DashAgentsNav, DashMainAgentRow } from "./dash-agents-nav.tsx";
 import {
   DashNote,
   DashPlaceholder,
@@ -90,8 +89,11 @@ export {
 
 type Itx = AuthenticatedApp["itx"];
 
-/** Context catalog tag (`itx/described` `metadata.tags`) that pins a conversation at the top of
- *  the Dash sidebar, right under "New conversation". */
+/** The mind's main conversation path, always anchored at the top of the Dash sidebar. */
+const MAIN_AGENT = "/agents/main";
+
+/** Context catalog tag (`itx/described` `metadata.tags`) that pins a conversation right under
+ *  Main conversation in the Dash sidebar. */
 const PINNED_IN_DASH_TAG = "pinned-in-dash";
 
 export function Dash({
@@ -174,30 +176,37 @@ export function Dash({
   const account = useAccount(itx, principal, connection.epoch);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
-  // Conversations tagged `pinned-in-dash` in the context catalog (`itx/described` `metadata.tags`)
-  // sit right under "New conversation" and are skipped from the list below.
+  // `/agents/main` is always anchored at the top; any other conversations tagged `pinned-in-dash`
+  // in the context catalog (`itx/described` `metadata.tags`) sit right below it and are skipped
+  // from "Other Conversations" below.
+  const allGroups = useMemo(() => (agents ? agentGroups(agents) : undefined), [agents]);
+  const mainGroup = useMemo(
+    () => allGroups?.find((group) => group.row.path === MAIN_AGENT),
+    [allGroups],
+  );
   const catalogPinned = useMemo(() => {
     const tagged = new Map<string, string | undefined>();
     for (const row of catalog.rows || []) {
-      if (contextTags(row).includes(PINNED_IN_DASH_TAG)) tagged.set(row.path, contextTitle(row));
+      if (row.path !== MAIN_AGENT && contextTags(row).includes(PINNED_IN_DASH_TAG))
+        tagged.set(row.path, contextTitle(row));
     }
     return tagged;
   }, [catalog.rows]);
   const pinnedGroups = useMemo(
     () =>
-      agents && catalogPinned.size > 0
-        ? agentGroups(agents)
+      allGroups && catalogPinned.size > 0
+        ? allGroups
             .filter((group) => catalogPinned.has(group.row.path))
             .map((group) => ({ group, fallbackTitle: catalogPinned.get(group.row.path) }))
         : [],
-    [agents, catalogPinned],
+    [allGroups, catalogPinned],
   );
   const pinnedAgents = useMemo(() => {
-    const excluded = new Set(
-      (pinned || [])
-        .map((row) => inPlaceOf(row.href, pages).agent)
-        .filter((path): path is string => Boolean(path)),
-    );
+    const excluded = new Set<string>([MAIN_AGENT]);
+    for (const row of pinned || []) {
+      const path = inPlaceOf(row.href, pages).agent;
+      if (path) excluded.add(path);
+    }
     for (const { group } of pinnedGroups) excluded.add(group.row.path);
     return excluded;
   }, [pinned, pages, pinnedGroups]);
@@ -228,13 +237,14 @@ export function Dash({
             mind={mind}
             pages={pages}
             links={links}
+            hasAgents={Boolean(agentsPage)}
+            mainGroup={mainGroup}
             pinned={pinned}
             pinnedGroups={pinnedGroups}
             foot={foot}
             page={page}
             agent={agent}
             waiting={waiting}
-            newAgent={agentsOverviewHref}
             agents={
               agentsPage ? (
                 <DashAgentsNav
@@ -555,19 +565,22 @@ function DashNav({
   mind,
   pages,
   links,
+  hasAgents,
+  mainGroup,
   pinned = [],
   pinnedGroups = [],
   foot = [],
   page,
   agent,
   waiting,
-  newAgent,
   agents,
 }: {
   itx: Itx;
   mind: string;
   pages: DashPage[];
   links: DashLinks[];
+  hasAgents: boolean;
+  mainGroup?: AgentGroup;
   pinned?: DashLink[];
   pinnedGroups?: { group: AgentGroup; fallbackTitle?: string }[];
   foot?: DashLink[];
@@ -576,9 +589,7 @@ function DashNav({
   agent: string | undefined;
   /** Undefined until the mind has answered: the alert draws for a count that is known. */
   waiting: number | undefined;
-  /** Where a new conversation starts: the Agents page, whose composer's first message starts one. */
-  newAgent?: string;
-  /** The Agents section, above the foot group, for a Dash with an Agents page. */
+  /** The Other Conversations section, above the foot group, for a Dash with an Agents page. */
   agents: ReactNode;
 }) {
   // the header brand links to pages[0] (Home); with an Agents section, its "View all" is the Agents page's row
@@ -599,34 +610,17 @@ function DashNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      {newAgent || pinned.length > 0 || pinnedGroups.length > 0 ? (
+      {hasAgents || pinned.length > 0 || pinnedGroups.length > 0 ? (
         // in the icon rail, the same gap below it as between the other groups
         <SidebarGroup className="shrink-0 pb-0 group-data-[collapsible=icon]:pb-2">
           <SidebarGroupContent>
             <SidebarMenu>
-              {newAgent ? (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip="New conversation"
-                    render={
-                      <RowLink
-                        href={newAgent}
-                        inPage
-                        onClick={(event) => {
-                          // the composer takes the caret: at once when the page is shown already,
-                          // and when it draws otherwise, which it does only while nothing has focus
-                          event.currentTarget.blur();
-                          document
-                            .querySelector<HTMLElement>('[aria-label="Message a new agent"]')
-                            ?.focus();
-                        }}
-                      />
-                    }
-                  >
-                    <SquarePenIcon />
-                    <span>New conversation</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+              {hasAgents ? (
+                <DashMainAgentRow
+                  path={MAIN_AGENT}
+                  group={mainGroup}
+                  active={isAgentActive(agent, MAIN_AGENT)}
+                />
               ) : null}
               {pinned.map((row) => {
                 const place = inPlaceOf(row.href, pages);
