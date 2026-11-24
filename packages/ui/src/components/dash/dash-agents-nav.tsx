@@ -11,7 +11,7 @@
 // same context is `/contexts/<path>` (`/contexts?contextPath=/` for root); both share `dashPaths`
 // (#/lib/page-url.ts). The agent view takes any path: what makes an agent is its view, not where it
 // lives.
-import { ListIcon, SquarePenIcon } from "lucide-react";
+import { ListIcon } from "lucide-react";
 import { agentViewHref } from "./dash-href.ts";
 import { kindIcon } from "#/components/agent-look.ts";
 import { AgentTooltip, StatusDot } from "#/components/agents-nav.tsx";
@@ -45,9 +45,6 @@ export function DashAgentsNav({
   overview,
   overviewShown,
   shrink = false,
-  label = "Agents",
-  newAgent,
-  emptyText,
 }: {
   /** The catalog's rows, live; undefined while the first answer is on its way. */
   agents: readonly AgentRow[] | undefined;
@@ -61,12 +58,6 @@ export function DashAgentsNav({
   overviewShown: boolean;
   /** Let this group shrink on short viewports so the foot group stays in view. */
   shrink?: boolean;
-  /** The section heading ("Side conversations" when a main conversation sits above it, else "Agents"). */
-  label?: string;
-  /** When set, renders a "New conversation" action at the top of this section. */
-  newAgent?: string;
-  /** Empty-state note when no rows belong in this section. */
-  emptyText?: string;
 }) {
   const groups = agents
     ? agentGroups(agents)
@@ -85,31 +76,9 @@ export function DashAgentsNav({
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
-  const newConversation = newAgent ? (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        tooltip="New conversation"
-        render={
-          <a
-            {...linkTo(newAgent)}
-            onClick={(event) => {
-              linkTo(newAgent).onClick(event);
-              event.currentTarget.blur();
-              document.querySelector<HTMLElement>('[aria-label="Message a new agent"]')?.focus();
-            }}
-          />
-        }
-      >
-        <SquarePenIcon />
-        <span>New conversation</span>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  ) : null;
-  const noRowsText =
-    emptyText || (label === "Side conversations" ? "No side conversations yet." : "No agents yet.");
   return (
     <SidebarGroup className={shrink ? "min-h-0 overflow-hidden" : undefined}>
-      <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>{label}</SidebarGroupLabel>
+      <SidebarGroupLabel className={shrink ? "shrink-0" : undefined}>Agents</SidebarGroupLabel>
       <SidebarGroupContent className={shrink ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <SidebarMenu
           className={
@@ -118,7 +87,6 @@ export function DashAgentsNav({
               : undefined
           }
         >
-          {newConversation}
           {groups ? (
             groups.map((group, index) => (
               <AgentsNavRow
@@ -142,7 +110,7 @@ export function DashAgentsNav({
           )}
           {groups?.length === 0 ? (
             <p className="px-2 py-1 font-readme text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              {noRowsText}
+              No agents yet.
             </p>
           ) : null}
           {!shrink ? viewAll : null}
@@ -153,82 +121,47 @@ export function DashAgentsNav({
   );
 }
 
-/** The mind's main conversation row at the top of the sidebar: always links to `path` (e.g.
- *  `/agents/main`) and shows its live status dot, subagent count and current activity once the
- *  catalog has it. */
-export function DashMainAgentRow({
-  path,
-  name = "Main conversation",
-  group,
-  active,
-}: {
-  path: string;
-  name?: string;
-  group: AgentGroup | undefined;
-  active: boolean;
-}) {
-  const row = group?.row;
-  const KindIcon = kindIcon(row?.kind || null);
-  const line = group
-    ? [subagentsLine(group.subagents.length), agentDoing(group.row)].filter(Boolean).join(" · ")
-    : "";
-  return (
-    <SidebarMenuItem data-agent-path={path} data-main-agent="">
-      <SidebarMenuButton
-        size="lg"
-        isActive={active}
-        className="focus-visible:ring-inset group-data-[collapsible=icon]:p-2!"
-        tooltip={{ children: <AgentTooltip title={name} line={line} path={path} /> }}
-        render={<a aria-label={name} {...linkTo(agentViewHref(path))} />}
-      >
-        <span className="relative">
-          <KindIcon data-agent-kind={row?.kind || undefined} />
-          {row?.status ? <StatusDot status={row.status} /> : null}
-        </span>
-        <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-          <span className="truncate text-sm font-medium">{name}</span>
-          {line ? (
-            <span className="truncate text-2xs text-muted-foreground" data-agent-line>
-              {line}
-            </span>
-          ) : (
-            <ContextPathText path={path} truncate className="text-2xs text-muted-foreground" />
-          )}
-        </span>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  );
-}
-
 /** A row's room while the catalog is read; in the icon rail, the icon's room alone. */
 const SKELETON_ROW =
   "h-12 group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:[&>:last-child]:hidden";
 
 /** One agent: its kind's icon with its status on the corner, its title, and its one line. In the
  *  icon rail, the icon alone, with the words in its tooltip. */
-function AgentsNavRow({
+export function AgentsNavRow({
   group,
   active,
   className,
+  fallbackTitle,
+  pinned = false,
 }: {
   group: AgentGroup;
   active: boolean;
   className?: string;
+  /** Title from the context catalog (`metadata.title`) when the agent row itself has no title yet. */
+  fallbackTitle?: string;
+  /** Marks a row pinned via context catalog tag (`pinned-in-dash`). */
+  pinned?: boolean;
 }) {
   const { row, subagents } = group;
   const KindIcon = kindIcon(row.kind);
+  const title = row.title || fallbackTitle || "";
+  const label = title || agentTitle(row);
   const line = [subagentsLine(subagents.length), agentDoing(row)].filter(Boolean).join(" · ");
   return (
-    <SidebarMenuItem data-agent-path={row.path} className={className}>
+    <SidebarMenuItem
+      data-agent-path={row.path}
+      data-pinned-agent={pinned ? "" : undefined}
+      className={className}
+    >
       <SidebarMenuButton
         size="lg"
         isActive={active}
         // in the rail the large row is the same square as the pages' rows, its icon centred;
         // ring-inset keeps the focus ring inside the scrolling list's overflow box in open and rail
         className="focus-visible:ring-inset group-data-[collapsible=icon]:p-2!"
-        tooltip={{ children: <AgentTooltip title={agentTitle(row)} line={line} path={row.path} /> }}
+        tooltip={{ children: <AgentTooltip title={label} line={line} path={row.path} /> }}
         // the link's name, also in the rail, where the row's words are not drawn
-        render={<a aria-label={agentTitle(row)} {...linkTo(agentViewHref(row.path))} />}
+        render={<a aria-label={label} {...linkTo(agentViewHref(row.path))} />}
       >
         <span className="relative">
           <KindIcon data-agent-kind={row.kind || undefined} />
@@ -236,8 +169,8 @@ function AgentsNavRow({
         </span>
         {/* an agent with no title is its path, once, on line one */}
         <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-          {row.title ? (
-            <span className="truncate text-sm">{agentTitle(row)}</span>
+          {title ? (
+            <span className="truncate text-sm">{title}</span>
           ) : (
             <ContextPathText path={row.path} truncate className="text-xs" />
           )}
@@ -245,7 +178,7 @@ function AgentsNavRow({
             <span className="truncate text-2xs text-muted-foreground" data-agent-line>
               {line}
             </span>
-          ) : row.title ? (
+          ) : title ? (
             <ContextPathText path={row.path} truncate className="text-2xs text-muted-foreground" />
           ) : null}
         </span>

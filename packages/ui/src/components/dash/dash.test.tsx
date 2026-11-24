@@ -355,7 +355,7 @@ test("in the icon rail an agent row is its icon alone: its words hide by the sid
   ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
 });
 
-test("mainAgent pins the main conversation at the top with its live status and subagents, and puts the rest under Side conversations", async () => {
+test("conversations tagged pinned-in-dash in the context catalog sit right under New conversation and are skipped below", async () => {
   const now = new Date().toISOString();
   await using dash = await draw("/agents/agents/main/researcher", [], {
     pages: [
@@ -363,12 +363,28 @@ test("mainAgent pins the main conversation at the top with its live status and s
       { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents</p> },
       { id: "settings", name: "Settings", icon: SettingsIcon, component: DashSettings },
     ],
-    mainAgent: "/agents/main",
+    contexts: [
+      {
+        path: "/agents/main",
+        eventCount: 1,
+        eventTypes: {},
+        recentTypes: [],
+        processors: [],
+        metadata: { title: "Main conversation", tags: ["pinned-in-dash"] },
+      },
+      {
+        path: "/agents/side-1",
+        eventCount: 1,
+        eventTypes: {},
+        recentTypes: [],
+        processors: [],
+        metadata: { tags: ["other-tag"] },
+      },
+    ],
     agents: {
       "/agents/main": {
         createdAt: now,
         kind: "iterate",
-        title: "Main",
         status: "working",
         activity: "setting up",
         lastActivityAt: now,
@@ -394,8 +410,9 @@ test("mainAgent pins the main conversation at the top with its live status and s
     },
   });
   const { host } = dash;
-  // Main conversation is anchored at the top, active for its subagent, and not duplicated below
-  const mainRow = host.querySelector('[data-main-agent][data-agent-path="/agents/main"]');
+  await until(() => host.querySelector('[data-pinned-agent][data-agent-path="/agents/main"]'));
+  // /agents/main is pinned under New conversation, active for its subagent, and not duplicated below
+  const mainRow = host.querySelector('[data-pinned-agent][data-agent-path="/agents/main"]');
   expect(mainRow).not.toBeNull();
   expect(mainRow?.querySelector("a")?.getAttribute("href")).toBe("/agents/agents/main");
   expect(mainRow?.querySelector("a")?.hasAttribute("data-active")).toBe(true);
@@ -410,16 +427,12 @@ test("mainAgent pins the main conversation at the top with its live status and s
       row.getAttribute("data-agent-path"),
     ),
   ).toEqual(["/agents/main", "/agents/side-1"]);
-  // Section heading is "Side conversations" with "New conversation" above the side rows and "View all" below
-  expect(host.querySelector('[data-slot="sidebar-group-label"]')?.textContent).toBe(
-    "Side conversations",
-  );
   const navOrder = [...host.querySelectorAll('[data-slot="sidebar-content"] a')].map((a) =>
     a.textContent?.trim(),
   );
   expect(navOrder).toEqual([
-    "Main conversationand 2 subagents · setting up",
     "New conversation",
+    "Main conversationand 2 subagents · setting up",
     "Side one/agents/side-1",
     "View all",
     "Settings",
@@ -505,7 +518,7 @@ test("sidebar order is alert, New agent & pinned, agents (skipping pinned), then
   );
   expect(navOrder).toEqual([
     "2 requests wait",
-    "New agent",
+    "New conversation",
     "Chief of staff",
     "Other agent/agents/other",
     "View all",
@@ -654,12 +667,9 @@ test("a row the mind pins sits right under New agent, and an agent's view opens 
   const names = [...dash.host.querySelectorAll('[data-slot="sidebar-content"] a')].map(
     (link) => link.textContent,
   );
-  expect(names.slice(names.indexOf("New agent"), names.indexOf("New agent") + 4)).toEqual([
-    "New agent",
-    "Pinned helper",
-    "View all",
-    "Analytics",
-  ]);
+  expect(
+    names.slice(names.indexOf("New conversation"), names.indexOf("New conversation") + 4),
+  ).toEqual(["New conversation", "Pinned helper", "View all", "Analytics"]);
   const row = linksNamed(dash.host, "Pinned helper")[0]!;
   expect(row.getAttribute("href")).toBe("/agents/agents/helper");
   await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
@@ -679,7 +689,7 @@ test("New agent is never marked or boxed, and a pinned row is marked while its o
     const row = linksNamed(dash.host, name)[0]!;
     return [row.hasAttribute("data-active"), /bg-background|shadow-\[/.test(row.className)];
   };
-  const marked = () => ({ newAgent: look("New agent"), pinned: look("Pinned helper") });
+  const marked = () => ({ newAgent: look("New conversation"), pinned: look("Pinned helper") });
   // home, the pinned agent's own view, a subagent under its path, another agent, and the overview
   expect(marked()).toEqual({ newAgent: [false, false], pinned: [false, false] });
   await act(() => go("/agents/agents/helper"));
@@ -741,7 +751,7 @@ test("each page and each agent has its canonical address: deep link, click, Back
     expect({
       brand: headerBrandLink(host)?.getAttribute("href"),
       analytics: hrefOf("Analytics"),
-      newAgent: hrefOf("New agent"),
+      newAgent: hrefOf("New conversation"),
       all: hrefOf("View all"),
       pinned: hrefOf("Pinned helper"),
       agent: host.querySelector("[data-agent-path] a")?.getAttribute("href"),
@@ -940,7 +950,6 @@ async function draw(
     whoami,
     session,
     sidebarDefaultOpen,
-    mainAgent,
     pinned,
     foot,
     accountLinks,
@@ -950,7 +959,6 @@ async function draw(
     logo?: ReactNode;
     pages?: DashPage[];
     links?: DashLinks[];
-    mainAgent?: string | { path: string; name?: string };
     pinned?: DashLink[];
     foot?: DashLink[];
     accountLinks?: DashLink[];
@@ -1039,7 +1047,6 @@ async function draw(
         principal={principal === "ask" ? undefined : principal}
         pages={drawn}
         links={drawnLinks}
-        mainAgent={mainAgent}
         pinned={pinned}
         foot={foot}
         accountLinks={accountLinks}

@@ -86,6 +86,13 @@ export function formatBytes(bytes: number): string {
 /** The longest title a row shows. */
 const TITLE_LIMIT = 80;
 
+/** The tags on a context's newest `itx/described` (`metadata.tags`, non-empty strings only). */
+export function contextTags(row: Pick<ContextListing, "metadata">): string[] {
+  const tags = row.metadata?.tags;
+  if (!Array.isArray(tags)) return [];
+  return tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0);
+}
+
 /** A context's short stable title: `metadata.title` of its newest `itx/described`, trimmed and cut
  *  to 80 characters; undefined when it has none. Its description says what it is for. */
 export function contextTitle(row: ContextListing): string | undefined {
