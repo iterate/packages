@@ -430,7 +430,7 @@ export function AppShellBrand({
   onClick,
 }: {
   app: string;
-  line?: string | null;
+  line?: ReactNode;
   logo?: ReactNode;
   href?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -611,6 +611,7 @@ export function AppShellSwitcher({
   items,
   label,
   href,
+  mono = false,
   onSelect,
 }: {
   app: string;
@@ -621,6 +622,8 @@ export function AppShellSwitcher({
   label?: string;
   /** link target for the plain brand when there is at most one item */
   href?: string;
+  /** render the active item and menu items in a fixed-width font (e.g. context paths `/repos/tasks`) */
+  mono?: boolean;
   onSelect?: (value: string, event: MouseEvent<HTMLElement>) => void;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
@@ -631,7 +634,14 @@ export function AppShellSwitcher({
   );
   const current = normalized.find((item) => item.value === value)?.label || value;
   if (normalized.length <= 1) {
-    return <AppShellBrand app={app} line={current} logo={logo} href={href} />;
+    return (
+      <AppShellBrand
+        app={app}
+        line={mono ? <span className="font-mono">{current}</span> : current}
+        logo={logo}
+        href={href}
+      />
+    );
   }
   return (
     <SidebarMenu>
@@ -649,7 +659,11 @@ export function AppShellSwitcher({
                 </span>
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{app}</span>
-                  <span className="truncate text-xs text-muted-foreground">{current}</span>
+                  <span
+                    className={cn("truncate text-xs text-muted-foreground", mono && "font-mono")}
+                  >
+                    {current}
+                  </span>
                 </span>
                 <ChevronsUpDownIcon className="ml-auto" />
               </SidebarMenuButton>
@@ -682,7 +696,7 @@ export function AppShellSwitcher({
                         />
                       }
                     >
-                      <span className="truncate">{item.label}</span>
+                      <span className={cn("truncate", mono && "font-mono")}>{item.label}</span>
                       {active ? <CheckIcon className="ml-auto" /> : null}
                     </DropdownMenuItem>
                   );
@@ -696,7 +710,7 @@ export function AppShellSwitcher({
                       if (isMobile) setOpenMobile(false);
                     }}
                   >
-                    <span className="truncate">{item.label}</span>
+                    <span className={cn("truncate", mono && "font-mono")}>{item.label}</span>
                     {active ? <CheckIcon className="ml-auto" /> : null}
                   </DropdownMenuItem>
                 );
