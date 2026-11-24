@@ -1,16 +1,16 @@
 /**
  * A device's GPT-Live calls as a facet processor on the device's own context, `/voice/<device>`:
  * it holds the provider socket, forwards microphone frames in and speaker frames out, and folds
- * the transcript. The device's agent is a context of its own, `/agents/voice/<device>`
- * (worker.ts `ensureVoiceDevice` provisions both, before any press): each delegation the live
- * model raises is handed to that agent as a message (`itx.agents.get(path).message(words)`), and
- * the agent's answers, which a row on its context copies here, go back to the live model to
+ * the transcript. The device's agent is the mind's own agent on a context of its own,
+ * `/agents/voice/<device>` (worker.ts `ensureVoiceDevice` provisions both, before any press): each
+ * delegation the live model raises is handed to that agent as a message
+ * (`itx.agents.get(path).message(words)`). The words its scripts send (`agent-ui/message-sent`),
+ * its status and a pause, which a row on its context copies here, go back to the live model to
  * speak. A call is one activation: the device's `call-started` opens it, and the relay dials in
  * the batch that carries it.
  */
-// registers `itx.agents` on InstalledAppRoots
+// registers `itx.agents` on InstalledAppRoots, for `IterateContextApiWith<"agents">` below
 import type {} from "iterate/agents";
-import { AgentContract } from "iterate/agents/contract";
 import type { IterateContextApiWith } from "iterate/api";
 import { bytesToBase64 } from "iterate/lib";
 import { StreamProcessorDurableObject } from "iterate/sdk";
@@ -82,9 +82,10 @@ const IDLE_STAMP_STEP_MS = 5_000;
 /** Socket creation and `session.started` must both finish within this bound. */
 const OPENING_DEADLINE_MS = 5_000;
 
-/** An agent answer ending in this token (voice-context.md asks for it after a goodbye) arms a
- * hang-up before GPT-Live speaks the goodbye: the call ends at the first answer ending after that,
- * or after this grace when no answer arrives. The token itself is never spoken. */
+/** A message of the agent's that holds this token (voice-context.md asks for it at the end of a
+ * goodbye) arms a hang-up before GPT-Live speaks the goodbye: the call ends at the first spoken
+ * answer ending after that, or after this grace when none arrives. The token itself is never
+ * spoken. */
 const HANG_UP_TOKEN = "HANG_UP";
 export const HANG_UP_GOODBYE_GRACE_MS = 8_000;
 
@@ -241,6 +242,32 @@ export type VoiceLiveView = {
   lastEnd: { activation: string; reason: string } | null;
 };
 
+/** THE DEVICE AGENT'S FACTS THAT THE RELAY READS. The mind's own agent owns them
+ *  (core/configs/default/agent/contract.ts, and agent-ui.ts for the words), and a row on the
+ *  agent's context copies them to the relay's (worker.ts `ensureVoiceDevice`). This package can
+ *  import no catalog of the mind's config, so their shape is restated here, each payload only as
+ *  far as the relay reads it. They stand in `processorDeps`, as the agent's contract restates the
+ *  scheduler's facts (`ScheduleEventCatalog`): the relay reads them and does not own them. */
+const DeviceAgentEventCatalog = {
+  events: {
+    "events.iterate.com/agent/summary-updated": {
+      description:
+        "What the device's agent says about itself: `activity` is what it does now, which its script appends as its first line. The agent's row copies it here.",
+      payloadSchema: z.looseObject({ activity: z.string().optional() }),
+    },
+    "events.iterate.com/agent-ui/message-sent": {
+      description:
+        "Words for the person, which a script of the device's agent appends. The agent's row copies them here.",
+      payloadSchema: z.looseObject({ message: z.string() }),
+    },
+    "events.iterate.com/agent/paused": {
+      description:
+        "The device's agent starts no new request until it is resumed, and `reason` says why. The agent's row copies it here.",
+      payloadSchema: z.looseObject({ reason: z.string() }),
+    },
+  },
+};
+
 const VoiceAgentContract = defineProcessorContract({
   slug: "voice-agent",
   version: "3.0.0",
@@ -349,11 +376,6 @@ const VoiceAgentContract = defineProcessorContract({
         lastFrameOfAnswer: z.boolean().optional(),
       }),
     },
-    "events.iterate.com/voice-agent/script-failed": {
-      description:
-        "A script of the device's agent failed: the agent's context copies its own report of the failure (the `context-added` that begins \"Your script failed\") here, which the voice must be able to say.",
-      payloadSchema: z.looseObject({ report: z.string() }),
-    },
     "events.iterate.com/voice-agent/words-typed": {
       description:
         "Words a caller typed into the call instead of saying them (voice-call.ts `--say`): the relay hands them to the agent as a hand-over of this call.",
@@ -365,14 +387,13 @@ const VoiceAgentContract = defineProcessorContract({
       payloadSchema: z.looseObject({ activation: Activation, text: z.string().min(1) }),
     },
   },
-  /* The device's agent owns its events, and a row on its context copies the ones a call needs
+  /* The device's agent owns its facts, and a row on its context copies the ones a call needs
    * here: its messages are what the live model speaks. */
-  processorDeps: [AgentContract],
+  processorDeps: [DeviceAgentEventCatalog],
   consumes: [
     "events.iterate.com/agent/summary-updated",
-    "events.iterate.com/agent/web-message-sent",
+    "events.iterate.com/agent-ui/message-sent",
     "events.iterate.com/agent/paused",
-    "events.iterate.com/voice-agent/script-failed",
     "events.iterate.com/voice-agent/words-typed",
     "events.iterate.com/voice-agent/words-given",
     "events.iterate.com/voice-agent/device-provisioned",
@@ -471,9 +492,9 @@ interface Dial {
   firstHandOver: boolean;
   /** `words-given` that arrived before the session started: said once it does. */
   wordsBeforeReady: { text: string; offset: number }[];
-  /** Each hand-over, oldest first: the live model's delegation id and the offset of the
-   *  `agent/message-received` that carried it (the loop's own `context-added` for it lands just
-   *  after). An answer speaks for the newest one its request read. */
+  /** Each hand-over, oldest first: the live model's delegation id (none for typed words) and the
+   *  offset of the `agent/message-received` that carried it, on the agent's context. A message of
+   *  the agent's names no hand-over, so it speaks for the newest one. */
   delegations: { delegationId: string | null; offset: number }[];
   /** A hand-over the agent has not answered yet: progress is spoken only while one is. */
   awaitingAnswer: boolean;
@@ -528,8 +549,9 @@ type VoiceAgentDeps = {
   /** The only way this processor waits, injected so tests can use a fake clock. */
   sleep(ms: number): Promise<void>;
   dialProvider(): Promise<WebSocket>;
-  /** Hand words to the device's agent through the agents app
-   *  (`itx.agents.get(path).message(words)`), answered with the `message-received` it appended. */
+  /** Hand words to the device's agent through `itx.agents`
+   *  (`itx.agents.get(path).message(words)`), answered with the `agent/message-received` it
+   *  appended. */
   messageAgent(path: string, words: string): Promise<{ offset: number }>;
   /** The mind's live model, read when the session is prepared: the facet class's `liveModel`. */
   liveModel?: () => string | undefined;
@@ -772,18 +794,6 @@ export class VoiceAgentProcessor extends StreamProcessor<
         return;
       }
 
-      case "events.iterate.com/voice-agent/script-failed": {
-        /* A failed script is progress the voice must be able to say, never paper over. */
-        const dial = this.#dialWithHandOvers();
-        if (!dial) return;
-        this.#relayProgress(
-          dial,
-          `a script failed${event.payload.report.replace(/^Your script failed/, "").replace(/\s+/g, " ")}`,
-          event.offset,
-        );
-        return;
-      }
-
       case "events.iterate.com/voice-agent/words-typed": {
         const dial = this.#dial;
         if (dial?.activation !== event.payload.activation) return;
@@ -802,30 +812,17 @@ export class VoiceAgentProcessor extends StreamProcessor<
         return;
       }
 
-      case "events.iterate.com/agent/web-message-sent": {
-        /* An answer to one of the agent's model requests is spoken, unless it was written beside a
-         * script: those words can guess at a result the script has not produced yet. */
+      case "events.iterate.com/agent-ui/message-sent": {
+        /* Words a script of the agent chose to send the person: spoken at once, for the newest
+         * hand-over, since a message names none. Each one is THE ANSWER: the hand-over is no
+         * longer waiting, so progress after it is not said aloud, and it is the latest thing the
+         * person was told. Before this call has handed anything over, the words are an earlier
+         * call's (`#dialWithHandOvers`), and so is their goodbye. */
         const dial = this.#dialWithHandOvers();
-        const { message, llmRequestOffset, besideScript } = event.payload;
-        if (!dial || besideScript) return;
-        if (!llmRequestOffset) {
-          /* Words a script sent while it ran (`sendMessage`): the agent chose to tell the person
-           * now, so they are spoken — and count as the latest thing the person was told. */
-          dial.lastSpokenProgressAtFacetMs = this.deps.nowAtFacetMs();
-          this.#sendToLiveModel(dial, {
-            kind: "commentary",
-            delegationId: dial.delegations.at(-1)?.delegationId ?? null,
-            content: message,
-            offset: event.offset,
-          });
-          return;
-        }
-        /* The request read every context item before its own offset, so its answer is for the
-         * newest hand-over among them; a request that read none of this call's is an earlier
-         * call's, and its words (a goodbye included) are not for this one. */
-        const delegation = dial.delegations.findLast((row) => row.offset < llmRequestOffset);
-        if (!delegation) return;
+        if (!dial) return;
+        const { message } = event.payload;
         dial.awaitingAnswer = false;
+        dial.lastSpokenProgressAtFacetMs = this.deps.nowAtFacetMs();
         if (message.includes(HANG_UP_TOKEN)) {
           dial.hangUpReason = "the Agent hung up";
           dial.hangUpArmedAtFacetMs = this.deps.nowAtFacetMs();
@@ -838,7 +835,7 @@ export class VoiceAgentProcessor extends StreamProcessor<
         }
         this.#sendToLiveModel(dial, {
           kind: "commentary",
-          delegationId: delegation.delegationId,
+          delegationId: dial.delegations.at(-1)?.delegationId ?? null,
           content: message.replace(HANG_UP_TOKEN, "").trim(),
           offset: event.offset,
         });
@@ -846,8 +843,9 @@ export class VoiceAgentProcessor extends StreamProcessor<
       }
 
       case "events.iterate.com/agent/paused": {
-        /* The agent takes no more turns until the person's next words resume it: say so, rather
-         * than leave the voice waiting on an answer that is not coming. */
+        /* The agent starts no new request until it is resumed (its own pause ends at the person's
+         * next words): say so, rather than leave the voice waiting on an answer that is not
+         * coming. */
         const dial = this.#dialWithHandOvers();
         if (!dial) return;
         dial.awaitingAnswer = false;
@@ -1632,7 +1630,8 @@ export class VoiceAgentDurableObject extends StreamProcessorDurableObject<VoiceS
       // `itx.agents` is the collection of the context that provisioned the device, which this
       // context reaches through the parent link provisioning wrote (worker.ts
       // `ensureVoiceDevice`); the scope's own type names no installed app. For a device the
-      // mind provisioned it is the root's, so the agent reads the words as a person's.
+      // mind provisioned it is the root's. The mind transcribes the `agent/message-received` it
+      // appends into the agent's input, as words of role `user`.
       using itx = this.getItx() as IterateContextApiWith<"agents"> & Disposable;
       return await itx.agents.get(path).message(words);
     },

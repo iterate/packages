@@ -16,6 +16,7 @@ import { InputsStore, type LoadedView } from "./frame.ts";
 import { FrameView } from "./frame-view.tsx";
 import { agentKindViewKit } from "./kit.ts";
 import type { AgentKindViewProps } from "./types.ts";
+import { versionOf } from "#/lib/itx-session.ts";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -155,6 +156,33 @@ test("the frame hands the view the viewer the page names: a kind that draws Agen
   // a page that does not say who looks: the view is told nothing
   using _view = await mount({ caughtUp: true, older: null }, view);
   expect(seen.at(-1)).toBeUndefined();
+});
+
+test("the frame hands the view the version a read said: a kind that draws AgentChat closes the trace of the earlier version through the host", async () => {
+  using _layout = laidOut();
+  const { html, ui } = agentKindViewKit;
+  const view: LoadedView = {
+    // as the kind `agent` writes its view
+    component: (props: AgentKindViewProps) => html`<${ui.AgentChat} ...${props} />`,
+    ephemeralEvents: [],
+  };
+  using frame = await mount(
+    {
+      caughtUp: true,
+      older: null,
+      events: [event(1, "test/said")],
+      version: 1,
+      state: { llmRequest: 1 },
+    },
+    view,
+  );
+  expect(frame.host.setState).not.toHaveBeenCalled();
+  await act(async () =>
+    frame.inputs.apply({ version: 2, events: { reset: [event(5, "test/said")] } }),
+  );
+  expect(frame.host.setState.mock).toMatchObject({
+    calls: [[{ llmRequest: undefined, scriptRun: undefined, event: undefined }]],
+  });
 });
 
 test("the view's verbs stay the same functions while the host sends updates, so its rows stay drawn and an image is signed once", async () => {
@@ -301,6 +329,7 @@ function PageSide({
       processors: log.processors,
       presence: log.presence,
       liveState: log.liveState,
+      version: versionOf(log),
       hostError: undefined,
       state: {},
       documentClass: "",

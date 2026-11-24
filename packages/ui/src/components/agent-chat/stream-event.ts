@@ -10,13 +10,7 @@ import { shortLabelOf, type ShownPrincipal } from "#/lib/principal-label.ts";
 export type StreamEventSource = {
   /** The context whose code wrote it: every commit carries it (core/lib stream/processor.ts). */
   origin?: string;
-  processor?: {
-    slug: string;
-    version: string;
-    /** The event the processor was handling when it appended this one (the processor engine,
-     *  core/lib src/stream/processor.ts, stamps it): how a script request is tied back to the assistant item that wrote it. */
-    whileProcessing?: { offset: number; type: string };
-  };
+  processor?: { slug: string; version: string };
   /** Who appended it, and the mind host whose page held their session, if one did. */
   principal?: { actor: string; email?: string };
   via?: { appPage: string };
@@ -43,10 +37,10 @@ export type StreamEventSource = {
  *  may be no member gave and whether they are a guest, and whether their script wrote it. */
 export type MessageSender = ShownPrincipal & { script: boolean };
 
-/** The sender a message's event names, by the platform's stamp, as the agent's own loop reads it
- *  (iterate/agents message.ts `speakerOf`). None when it names nobody who said the words: the
- *  mind's own code, mail, another agent, a schedule's occurrence, a row's copy, a platform fact, a
- *  statement that no mind's key signed. Another mind is named by its domain. */
+/** The sender a message's event names, by the platform's stamp, as the Dash's channel words it for
+ *  the model (core/configs/default agent-ui.ts `senderWords`). None when it names nobody who said
+ *  the words: the mind's own code, mail, another agent, a schedule's occurrence, a row's copy, a
+ *  platform fact, a statement that no mind's key signed. Another mind is named by its domain. */
 export function senderOf(source: StreamEventSource | undefined): MessageSender | undefined {
   if (source?.schedule || source?.copiedFrom || source?.platform) return undefined;
   if (source?.signer) {
@@ -90,9 +84,3 @@ export type StreamEvent<Type extends string = string, Payload = unknown> = {
   /** The context the event is on: every committed event names it. */
   path?: string;
 };
-
-/** The `agent/message-received` an event relays, if iterate's loop wrote it for one. */
-export function relayedMessageOffset(event: Pick<StreamEvent, "source">): number | undefined {
-  const from = event.source?.processor?.whileProcessing;
-  return from?.type === "events.iterate.com/agent/message-received" ? from.offset : undefined;
-}

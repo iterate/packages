@@ -243,6 +243,39 @@ test("a saved tail of a log made again under the same path: its rows go, and the
   });
 });
 
+test("a reload over a saved copy of an earlier version: the copy goes once the read says the version, and the new version's tail is saved in its place", async () => {
+  await database();
+  const mind = context([1, 2, 3]);
+  await saved(mind);
+  // the path takes a new version: its border, and the new version's first words
+  mind.events.push(
+    borderEvent(4, "itx/version-ended", { version: 1 }),
+    borderEvent(5, "itx/created", { path, version: 2 }),
+    stampedEvent(6),
+  );
+  mind.version = { version: 2, startedAt: 5 };
+  mind.reads.splice(0);
+  mind.hold();
+  const second = await page();
+  await using view = await draw(second, { mind });
+  await view.until((shown) => shown.events.length > 0);
+  // before the mind answers, nothing says the version: the copy is drawn, as a copy
+  expect(view.last()).toMatchObject({ savedCopy: true, version: 1 });
+  mind.release();
+  await view.until((shown) => shown.caughtUp && !shown.savedCopy);
+  // from the read's first answer on, no row of the earlier version
+  const copied = view.drawn.findIndex((shown) => shown.savedCopy);
+  const answered = view.drawn.slice(copied).filter((shown) => !shown.savedCopy);
+  expect(answered.flatMap((shown) => shown.events).every((event) => event.offset >= 5)).toBe(true);
+  expect(view.last()).toMatchObject({ version: 2, older: { exhausted: true } });
+  expect(view.last().events.map((event) => event.offset)).toEqual([5, 6]);
+  // the store holds the new version's tail
+  await second.tails(owner).flush();
+  const read = await (await page()).tails(owner).read(path);
+  expect(read).toMatchObject({ version: 2 });
+  expect(read?.events.map((event) => event.offset)).toEqual([5, 6]);
+});
+
 const options = { consumes: ["*"], liveState: [] };
 
 /** The stores that tests loaded and that were not ended yet. */
@@ -344,15 +377,23 @@ function reopening(): ItxSession & { open(): void } {
 }
 
 /** A context whose log holds events at `offsets`. `hold()` keeps every read unanswered until
- *  `release()`; `refuse` refuses every read; `reads` are the reads asked, as (after, limit). */
+ *  `release()`; `refuse` refuses every read; `reads` are the reads asked, as (after, limit).
+ *  `version`: the version that each page says, and the offset it started at. */
 function context(offsets: number[]) {
   const reads: [number, number][] = [];
   let gate = Promise.resolve();
   let open = () => {};
   const mind = {
-    events: offsets.map((offset) => stampedEvent(offset)),
+    events: offsets.map((offset) => stampedEvent(offset)) as {
+      offset: number;
+      type: string;
+      createdAt: string;
+      path: string;
+      payload: object;
+    }[],
     reads,
     refuse: false,
+    version: undefined as { version: number; startedAt: number } | undefined,
     hold() {
       gate = new Promise((resolve) => (open = resolve));
     },
@@ -367,6 +408,8 @@ function context(offsets: number[]) {
           events: newer,
           atHead: true,
           scannedThroughOffset: newer.at(-1)?.offset || mind.events.at(-1)?.offset || 0,
+          version: mind.version?.version,
+          versionStartedAtOffset: mind.version?.startedAt,
         };
       },
       subscribe: async () => ({ [Symbol.dispose]() {} }),
@@ -377,6 +420,17 @@ function context(offsets: number[]) {
     } as unknown as Parameters<typeof useIterateContext>[0] & object,
   };
   return mind;
+}
+
+/** The kernel's event of a version's border, `type` under `events.iterate.com/`. */
+function borderEvent(offset: number, type: string, payload: object) {
+  return {
+    offset,
+    type: `events.iterate.com/${type}`,
+    createdAt: `2026-11-16T00:00:0${offset}.000Z`,
+    path,
+    payload,
+  };
 }
 
 function stampedEvent(offset: number) {

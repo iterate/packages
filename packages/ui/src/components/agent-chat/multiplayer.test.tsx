@@ -18,6 +18,17 @@ import {
 } from "./agent-ui-reducer.ts";
 import type { StreamEvent } from "./stream-event.ts";
 import type { ShownPrincipal } from "#/lib/principal-label.ts";
+import {
+  apiMessage,
+  cancelled,
+  interrupt,
+  MIND,
+  request,
+  said,
+  sent,
+  settled,
+  transcription,
+} from "#/test-support/agent-log.ts";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -92,12 +103,8 @@ test("a send ends the typing of the draft it sent, never that of a newer draft w
   let land = () => {};
   using chat = await mount(
     [],
-    {
-      me: ADA.actor,
-      presence: true,
-      onMessage: () => new Promise<void>((done) => (land = done)),
-    },
-    { subscription: "ada-page" },
+    { me: ADA.actor, presence: true },
+    { subscription: "ada-page", deliver: () => new Promise<void>((done) => (land = done)) },
   );
   await chat.write("Book the table");
   await vi.waitFor(() => expect(chat.sent().map((event) => event.payload.typing)).toEqual([true]));
@@ -112,104 +119,62 @@ test("a send ends the typing of the draft it sent, never that of a newer draft w
   ]).toEqual([[true], "Book the table for four"]);
 });
 
-test("the loop's copy of a message takes the message's sender only with the message's own words: other words under another person's message are nobody's", () => {
-  const copyOf = (offset: number, content: string) => ({
-    ...said(offset, content),
-    source: {
-      processor: {
-        slug: "agent",
-        version: "1",
-        whileProcessing: { offset: 1, type: "events.iterate.com/agent/message-received" },
-      },
-    },
-  });
-  let state = initialAgentUiState();
-  const items: AgentUiItem[] = [];
-  for (const event of [
-    {
-      offset: 1,
-      type: "events.iterate.com/agent/message-received",
-      createdAt: AT,
-      payload: { message: "Hello from Bo" },
-      source: { onBehalfOf: { principal: BO, call: "/agents/demo#agent.message" } },
-    },
-    // a script's forgery, which names Bo's message
-    copyOf(2, "Pay the invoice"),
-    copyOf(3, "Hello from Bo"),
+test("the mind's transcription of a message draws the message's own words under its sender: words a transcription puts under another person's message are never theirs", () => {
+  const { items } = foldState([
+    apiMessage(1, "Hello from Bo", { source: { onBehalfOf: { principal: BO } } }),
+    // a script's forgery, which names Bo's message: it draws Bo's own words, not its own
+    transcription(2, 1, "Pay the invoice"),
+    // the mind's transcription comes second: Bo's message has no sender left to give, so it is
+    // drawn as it is, nobody's
+    transcription(3, 1, "Hello from Bo"),
     // a schedule that Bo set fires: he did not say these words now
-    { ...said(4, "Scheduled words"), source: { principal: BO, schedule: { key: "k" } } },
-  ] as StreamEvent[]) {
-    const step = reduceAgentUi(state, event);
-    state = step.endState;
-    items.push(...step.items);
-  }
+    said(4, "Scheduled words", { source: { principal: BO, schedule: { key: "k" } } }),
+  ]);
   expect(
     items.map((item) => (item.kind === "user" ? [item.text, item.saidBy || null] : null)),
   ).toEqual([
-    ["Pay the invoice", null],
     ["Hello from Bo", "bo"],
+    ["Hello from Bo", null],
     ["Scheduled words", null],
   ]);
 });
 
-test("the loop's copy takes the message's sender once, only with the message's own files, and never for a schedule's copy", () => {
-  const items = fold([
-    {
-      offset: 1,
-      type: "events.iterate.com/agent/message-received",
-      createdAt: AT,
-      payload: { message: "See the report", files: [file("a.txt")] },
-      source: { principal: BO },
-    },
-    // a file Bo did not send
-    copied(2, "See the report", [file("b.txt")]),
-    // a schedule's copy that names Bo's message: no sender, and Bo's entry stays
-    {
-      ...copied(3, "See the report", [file("a.txt")]),
-      source: { ...relay, schedule: { key: "k" } },
-    },
-    // Cy's own session names Bo's message: Cy said it, and Bo's entry stays
-    { ...copied(4, "See the report", [file("a.txt")]), source: { ...relay, principal: CY } },
-    // the loop's copy
-    copied(5, "See the report", [file("a.txt")]),
-    // a second copy
-    copied(6, "See the report", [file("a.txt")]),
-  ]);
-  expect(items.map(saidByOfItem)).toEqual([null, null, "cy", "bo", null]);
-});
+test.for<{ name: string; stamp: StreamEvent["source"]; files: ReturnType<typeof file>[] }>([
+  { name: "the mind's own, with the message's files", stamp: MIND, files: [file("a.txt")] },
+  { name: "with a file Bo did not send", stamp: MIND, files: [file("b.txt")] },
+  { name: "a schedule's copy", stamp: { ...MIND, schedule: { key: "k" } }, files: [] },
+  { name: "Cy's own session's", stamp: { origin: "/", principal: CY }, files: [] },
+])(
+  "a transcription ($name) is drawn from the message it names: the message's words, its files and its sender, and none of its own",
+  ({ stamp, files }) => {
+    const items = fold([
+      apiMessage(1, "See the report", { source: { principal: BO }, files: [file("a.txt")] }),
+      { ...transcription(2, 1, "Pay the invoice", { files }), source: stamp },
+    ]);
+    expect(items).toMatchObject([{ text: "See the report", files: [file("a.txt")], saidBy: "bo" }]);
+  },
+);
 
-test("an interrupt through a second copy of a person's message names nobody as who stopped the answer", () => {
+test("an interrupt through a second transcription of a person's message names nobody as who stopped the answer", () => {
   const { state, items } = foldState([
-    {
-      offset: 1,
-      type: "events.iterate.com/agent/message-received",
-      createdAt: AT,
-      payload: { message: "go" },
-      source: { principal: BO },
-    },
-    copied(2, "go"),
-    running(3, 2),
-    {
-      ...copied(4, "go"),
-      payload: {
-        ...said(4, "go").payload,
-        llmRequestPolicy: { behaviour: "interrupt-current-request" },
-      },
-    },
-    cancelled(5, 3),
+    apiMessage(1, "go", { source: { principal: BO } }),
+    transcription(2, 1, "go"),
+    request(3),
+    transcription(4, 1, "go", { llmRequestPolicy: { behaviour: "interrupt-current-request" } }),
+    stopped(5, 3),
   ]);
   expect(summaryOf(state, items)).toMatch(/interrupted$/);
 });
 
 test("the newest interrupt says who stopped the answer: one that code sent names nobody, also after a person's", () => {
   const { state, items } = foldState([
-    { ...said(1, "go"), source: { principal: ADA } },
-    running(2, 1),
+    said(1, "go", { source: { principal: ADA } }),
+    request(2),
     interrupt(3, { principal: BO }),
-    cancelled(4, 2),
-    running(5, 3),
+    stopped(4, 2),
+    request(5),
     interrupt(6, { origin: "/" }),
-    cancelled(7, 5),
+    stopped(7, 5),
   ]);
   expect(summaryOf(state, items)).toMatch(/2 requests · interrupted$/);
 });
@@ -284,8 +249,8 @@ test("with more than four others here the stack draws three, counts the rest, an
 test("a press opens the card: who can use the conversation, who is here now and who else wrote", async () => {
   using chat = await mount(
     [
-      { ...said(1, "mine"), source: { principal: ADA } },
-      { ...said(2, "an earlier word"), source: { principal: CY } },
+      said(1, "mine", { source: { principal: ADA } }),
+      said(2, "an earlier word", { source: { principal: CY } }),
     ],
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
@@ -377,7 +342,7 @@ test("the line over the composer is gone: no face stands there, and the typing s
 
 test("a page's status events are no row: the Events tab neither counts nor shows them, and the stack still hears them", async () => {
   using chat = await mount(
-    [{ ...said(1, "hello"), source: { principal: ADA } }, status(2, BO, "bo-page", { away: true })],
+    [said(1, "hello", { source: { principal: ADA } }), status(2, BO, "bo-page", { away: true })],
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
   );
@@ -394,9 +359,9 @@ test("a page's status events are no row: the Events tab neither counts nor shows
 test("each message says its author once to a screen reader, also a later bubble of a run; the faces beside a bubble and in the stack are for the eye, the stack's button says who", async () => {
   using chat = await mount(
     [
-      { ...said(1, "hello"), source: { principal: BO } },
-      { ...said(2, "and again"), source: { principal: BO } },
-      { ...said(3, "mine"), source: { principal: ADA } },
+      said(1, "hello", { source: { principal: BO } }),
+      said(2, "and again", { source: { principal: BO } }),
+      said(3, "mine", { source: { principal: ADA } }),
     ],
     { me: ADA.actor, presence: true },
     { pages: [page("bo-page", BO)] },
@@ -428,10 +393,10 @@ test("each waiting message says whose it is, and anyone may interrupt an answer,
   const onAppend = vi.fn(async (_events: unknown[]) => {});
   using _chat = await mount(
     [
-      { ...said(1, "go"), source: { principal: BO } },
-      running(2, 1),
-      { ...said(3, "and make it green"), source: { principal: BO } },
-      { ...said(4, "no, blue"), source: { principal: ADA } },
+      said(1, "go", { source: { principal: BO } }),
+      request(2),
+      said(3, "and make it green", { source: { principal: BO } }),
+      said(4, "no, blue", { source: { principal: ADA } }),
     ],
     { me: ADA.actor, onAppend },
   );
@@ -468,37 +433,12 @@ test("each waiting message says whose it is, and anyone may interrupt an answer,
 });
 
 test("the feed says who stopped an answer: the principal whose input carried the interrupt, or you", () => {
-  let state = initialAgentUiState();
-  const items: AgentUiItem[] = [];
-  for (const event of [
-    { ...said(1, "go"), source: { principal: ADA } },
-    running(2, 1),
-    {
-      offset: 3,
-      type: "events.iterate.com/agent/context-added",
-      createdAt: AT,
-      payload: {
-        role: "developer",
-        content: "The user interrupted the in-progress response from the web chat.",
-        actor: { type: "user" },
-        llmRequestPolicy: { behaviour: "interrupt-current-request" },
-      },
-      source: { principal: BO },
-    },
-    {
-      offset: 4,
-      type: "events.iterate.com/agent/llm-request-settled",
-      createdAt: AT,
-      payload: {
-        requestOffset: 2,
-        result: { status: "cancelled", reason: "interrupted-by-user-input" },
-      },
-    },
-  ] as StreamEvent[]) {
-    const step = reduceAgentUi(state, event);
-    state = step.endState;
-    items.push(...step.items);
-  }
+  const { state, items } = foldState([
+    said(1, "go", { source: { principal: ADA } }),
+    request(2),
+    interrupt(3, { principal: BO }),
+    stopped(4, 2),
+  ]);
   const activity = state.live || items.find((item) => item.kind === "activity");
   if (!activity || activity.kind !== "activity") throw new Error("no activity was folded");
   expect([
@@ -512,7 +452,7 @@ test("the feed says who stopped an answer: the principal whose input carried the
 
 test("a guest's message shows their name and that they are a guest, over the bubble and in the queue, on a face of their name's initials", async () => {
   using _chat = await mount(
-    [saidFor(1, "go", GUEST), running(2, 1), saidFor(3, "and make it green", GUEST)],
+    [saidFor(1, "go", GUEST), request(2), saidFor(3, "and make it green", GUEST)],
     { me: ADA.actor },
   );
   expect(labels("[data-said-by], [data-queued-by]")).toEqual([
@@ -524,10 +464,10 @@ test("a guest's message shows their name and that they are a guest, over the bub
 
 test("an interrupt by a guest reads as their name, marked a guest", () => {
   const { state, items } = foldState([
-    { ...said(1, "go"), source: { principal: ADA } },
-    running(2, 1),
+    said(1, "go", { source: { principal: ADA } }),
+    request(2),
     interrupt(3, { onBehalfOf: { principal: GUEST } }),
-    cancelled(4, 2),
+    stopped(4, 2),
   ]);
   expect(summaryOf(state, items)).toContain("interrupted by Bob Proof (guest)");
 });
@@ -585,12 +525,22 @@ test("a name with markup characters is drawn as its text", async () => {
 test("a message keeps its key while the same words are tried again, and the next message has another", async () => {
   const keys: string[] = [];
   let fail = true;
-  using chat = await mount([], {
-    onMessage: async ({ key }) => {
-      keys.push(key);
-      if (fail) throw new Error("the connection was lost");
+  using chat = await mount(
+    [],
+    {},
+    {
+      // the words go to the agent as one fact, whose idempotency key is the message's
+      deliver: async ([message]) => {
+        keys.push(
+          String((message as { idempotencyKey?: string }).idempotencyKey).replace(
+            "agent-ui/message-received:",
+            "",
+          ),
+        );
+        if (fail) throw new Error("the connection was lost");
+      },
     },
-  });
+  );
   await chat.write("Book the table");
   await chat.send(() => keys.length === 1);
   // the words stay in the box after a failure: sent again, they are the same message
@@ -629,10 +579,7 @@ test("the key is the draft's: it outlives a visit to the Events tab, and a file 
 
 test("a chat of one person is drawn as before: their bubble at the right with no face or name, the mind's answer full width", async () => {
   using _chat = await mount(
-    [
-      { ...said(1, "can you check the DNS"), source: { principal: ADA } },
-      answer(2, "The MX record"),
-    ],
+    [said(1, "can you check the DNS", { source: { principal: ADA } }), sent(2, "The MX record")],
     { me: ADA.actor },
   );
   // the classes are the point: the viewer's bubble and the answer keep every one they had
@@ -663,8 +610,8 @@ test("a chat of one person is drawn as before: their bubble at the right with no
 test("another person's message stands at the left under their face and short name, and no name is under any bubble", async () => {
   using _chat = await mount(
     [
-      { ...said(1, "can you check the DNS"), source: { principal: ADA } },
-      { ...said(2, "also the SPF record please"), source: { principal: BO } },
+      said(1, "can you check the DNS", { source: { principal: ADA } }),
+      said(2, "also the SPF record please", { source: { principal: BO } }),
     ],
     { me: ADA.actor },
   );
@@ -682,7 +629,7 @@ test("a run of one person's messages has one face and one name; the mind's answe
       saidFor(1, "also the SPF record please", BO),
       saidFor(2, "and DKIM", BO),
       saidFor(3, "and DMARC", BO),
-      answer(4, "On it"),
+      sent(4, "On it"),
       saidFor(5, "thanks", BO),
       saidFor(6, "me too", CY),
       saidFor(7, "and the TTL", BO),
@@ -704,13 +651,12 @@ test("a guest, a person's script and another mind each stand at the left under a
   using _chat = await mount(
     [
       saidFor(1, "hi", GUEST),
-      { ...said(2, "from the script"), source: { onBehalfOf: { principal: BO, run: "r1" } } },
-      { ...said(3, "and from me"), source: { principal: BO } },
-      {
-        ...said(4, "hello from a mind"),
+      said(2, "from the script", { source: { onBehalfOf: { principal: BO, run: "r1" } } }),
+      said(3, "and from me", { source: { principal: BO } }),
+      said(4, "hello from a mind", {
         source: { signer: { principal: { actor: "garple.com", kind: "mind" } } },
-      },
-    ] as Row[],
+      }),
+    ],
     { me: ADA.actor },
   );
   expect(feedRows()).toEqual([
@@ -748,7 +694,7 @@ test.for([
 ])(
   "the viewer's own message stays at the right with no face or name, known $name",
   async ({ me }) => {
-    using _chat = await mount([{ ...said(1, "mine"), source: { principal: ADA } }], { me });
+    using _chat = await mount([said(1, "mine", { source: { principal: ADA } })], { me });
     expect(feedRows()).toEqual([{ kind: "user", from: null, author: "You:", shows: ["mine"] }]);
     expect(labels("[role=log] [data-slot=avatar]")).toEqual([]);
   },
@@ -757,9 +703,9 @@ test.for([
 test("a page's own row under an item is the next element after the row, which keeps its kind", async () => {
   using _chat = await mount(
     [
-      { ...said(1, "mine"), source: { principal: ADA } },
-      { ...said(2, "theirs"), source: { principal: BO } },
-      answer(3, "On it"),
+      said(1, "mine", { source: { principal: ADA } }),
+      said(2, "theirs", { source: { principal: BO } }),
+      sent(3, "On it"),
     ],
     { me: ADA.actor, itemFooter: (item) => <span data-footer={item.id} /> },
   );
@@ -811,9 +757,8 @@ test("a person's dots go when their message lands, also beside a status of the s
   const seen = [typists()];
   await chat.append([
     {
-      ...said(2, "a table for four"),
+      ...said(2, "a table for four", { source: { principal: BO } }),
       createdAt: new Date(at - 1_000).toISOString(),
-      source: { principal: BO },
     },
   ]);
   seen.push(typists());
@@ -898,24 +843,15 @@ test("the feed draws three typists and counts the rest", async () => {
   ]);
 });
 
-/** The source of the loop's copy of the message at offset 1, as iterate's loop appends it. */
-const relay = {
-  processor: {
-    slug: "agent",
-    version: "1",
-    whileProcessing: { offset: 1, type: "events.iterate.com/agent/message-received" },
-  },
-};
-
 test('the live row says "interrupted by you" to who stopped the answer, when nothing runs and when the next request does', async () => {
-  const stopped = [
-    { ...said(1, "go"), source: { principal: ADA } },
-    running(2, 1),
+  const interrupted = [
+    said(1, "go", { source: { principal: ADA } }),
+    request(2),
     interrupt(3, { principal: BO }),
-    cancelled(4, 2),
+    stopped(4, 2),
   ];
   const texts: (string | null)[] = [];
-  for (const events of [stopped, [...stopped, running(5, 3)]]) {
+  for (const events of [interrupted, [...interrupted, request(5)]]) {
     const container = document.createElement("div");
     const root = createRoot(container);
     await act(async () =>
@@ -964,52 +900,21 @@ const labels = (selector: string) =>
     element.getAttribute("title"),
   ]);
 
-/** The loop's copy of the message at offset 1, with `content` and `files`. */
-function copied(offset: number, content: string, files: ReturnType<typeof file>[] = []) {
-  const words = said(offset, content);
-  return { ...words, payload: { ...words.payload, files }, source: relay };
-}
-
 /** A file as a message names it. */
 function file(name: string) {
   return { path: `/agents/demo/files/${name}`, filename: name, contentType: "text/plain", size: 3 };
 }
 
-/** A press of Interrupt, appended under `source`. */
-function interrupt(offset: number, source: Record<string, unknown>) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/context-added",
-    createdAt: AT,
-    payload: {
-      role: "developer",
-      content: "The user interrupted the in-progress response from the web chat.",
-      actor: { type: "user" },
-      llmRequestPolicy: { behaviour: "interrupt-current-request" },
-    },
-    source,
-  };
-}
-
-/** The request at `requestOffset`, stopped by an interrupt. */
-function cancelled(offset: number, requestOffset: number) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/llm-request-settled",
-    createdAt: AT,
-    payload: {
-      requestOffset,
-      result: { status: "cancelled", reason: "interrupted-by-user-input" },
-    },
-  };
+/** The request at `llmRequestOffset`, stopped by an interrupt. */
+function stopped(offset: number, llmRequestOffset: number) {
+  return settled(offset, llmRequestOffset, cancelled("interrupted-by-user-input"));
 }
 
 /** `events` through the chat's reducer: the end state and every item it made. */
-function foldState(events: unknown[]) {
+function foldState(events: StreamEvent[]) {
   let state = initialAgentUiState();
   const items: AgentUiItem[] = [];
-  // The cast: each row is built above in the shape of a committed event.
-  for (const event of events as StreamEvent[]) {
+  for (const event of events) {
     const step = reduceAgentUi(state, event);
     state = step.endState;
     items.push(...step.items);
@@ -1018,10 +923,8 @@ function foldState(events: unknown[]) {
 }
 
 /** The person's bubbles that `events` make. */
-const fold = (events: unknown[]) => foldState(events).items.filter((item) => item.kind === "user");
-
-/** Who a bubble says sent it, or null. */
-const saidByOfItem = (item: AgentUiItem) => (item.kind === "user" && item.saidBy) || null;
+const fold = (events: StreamEvent[]) =>
+  foldState(events).items.filter((item) => item.kind === "user");
 
 /** The answer's summary line, as Ada reads it. */
 function summaryOf(state: ReturnType<typeof initialAgentUiState>, items: AgentUiItem[]) {
@@ -1033,43 +936,11 @@ function summaryOf(state: ReturnType<typeof initialAgentUiState>, items: AgentUi
 type Row = ComponentProps<typeof AgentChat>["context"]["events"][number];
 /** A report to attach, with `content`. */
 const note = (content: string) => new File([content], "report.txt", { type: "text/plain" });
-const AT = "2026-11-18T12:00:00.000Z";
-
-/** A person's words in the log. */
-function said(offset: number, content: string) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/context-added",
-    createdAt: AT,
-    payload: { role: "user", content, actor: { type: "user" } },
-  };
-}
 
 /** A person's words, appended through a call into the agent on their behalf, as the platform
- *  names a person who may be no member. The cast: the context's event type does not name
- *  `onBehalfOf`. */
+ *  names a person who may be no member. */
 function saidFor(offset: number, content: string, principal: ShownPrincipal) {
-  return { ...said(offset, content), source: { onBehalfOf: { principal } } } as unknown as Row;
-}
-
-/** The agent's answer, as its loop sends it to the web chat. */
-function answer(offset: number, message: string) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/web-message-sent",
-    createdAt: AT,
-    payload: { message },
-  };
-}
-
-/** A request the agent is writing an answer to. */
-function running(offset: number, triggerOffset: number) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/llm-request-requested",
-    createdAt: AT,
-    payload: { model: "m", expiresAt: 9e12, triggerOffset },
-  };
+  return said(offset, content, { source: { onBehalfOf: { principal } } });
 }
 
 /** A page's `presence/status` as the platform commits it: ephemeral, stamped with whose session
@@ -1117,11 +988,21 @@ function page(name: string, principal: ShownPrincipal) {
 
 /** The chat over a log of `events`, with a page that has height (jsdom has none, and the
  *  virtual log draws no row without it), the `pages` open on the context, and the name of the
- *  chat's own row (`subscription`). Disposing unmounts it and clears the page. */
+ *  chat's own row (`subscription`). `deliver`: what an append that is no page's status does once
+ *  it is recorded, such as the composer's words to the agent (by default it lands at once).
+ *  Disposing unmounts it and clears the page. */
 async function mount(
   events: Row[],
   props: Partial<ComponentProps<typeof AgentChat>> = {},
-  { pages = [], subscription }: { pages?: ReturnType<typeof page>[]; subscription?: string } = {},
+  {
+    pages = [],
+    subscription,
+    deliver = async () => {},
+  }: {
+    pages?: ReturnType<typeof page>[];
+    subscription?: string;
+    deliver?: (events: unknown[]) => Promise<void>;
+  } = {},
 ) {
   const sizes = { clientHeight: 600, offsetHeight: 0 };
   const own = Object.keys(sizes).map(
@@ -1149,7 +1030,11 @@ async function mount(
           state={{ view }}
           onStateChange={() => {}}
           onMessage={async () => {}}
-          onAppend={async (sent) => void appended.push(sent as (typeof appended)[number])}
+          onAppend={async (events) => {
+            const batch = events as (typeof appended)[number];
+            appended.push(batch);
+            if (!batch.every((event) => event.ephemeral)) await deliver(events);
+          }}
           signedUrl={async () => ""}
           {...props}
         />,

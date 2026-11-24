@@ -6,8 +6,8 @@
 //
 //   const tails = savedLogTails({ mind, actor });   one store per owner, for the life of the page
 //   tails.peek(path)                                what this page knows, at once: { tail, view } or undefined
-//   await tails.read(path)                          the same, else the database's: { events, exhausted }
-//   tails.save(path, events, exhausted)             cheap on every change: the newest durable events
+//   await tails.read(path)                          the same, else the database's tail
+//   tails.save(path, events, exhausted, version)    cheap on every change: the newest durable events
 //   tails.saveView(path, { kind, file })            the view that draws the rows: a reload mounts it at once
 //   tails.drop(path)                                the mind refused the context: forget it
 //   await wipeSavedLogTails()                       the sign-in ended: forget everything
@@ -53,9 +53,10 @@ const TAILS = "tails";
 /** What a store reads of an event. The rest of it is saved as it is. */
 export type SavedEvent = { offset: number; createdAt?: string; ephemeral?: boolean };
 
-/** One context's saved tail: its newest durable events, oldest first, and whether they go back to
- *  the log's first event. */
-export type SavedTail = { events: readonly SavedEvent[]; exhausted: boolean };
+/** One context's saved tail: its newest durable events, oldest first, whether they go back to the
+ *  first event of their version, and the version of the context they are of. A read of the log
+ *  that says another version drops the tail (`keptContext`, #/lib/itx-session.ts). */
+export type SavedTail = { events: readonly SavedEvent[]; exhausted: boolean; version: number };
 
 /** The view that drew a context's rows: the agent's kind (none for a path that the mind's catalog
  *  does not list) and, for a kind with a file of its own, that file's path in the config repo and
@@ -84,9 +85,10 @@ export type SavedLogTails = {
   /** The saved tail of `path`, from memory first, else from the database; undefined when there is
    *  none, or the database has not answered within `ANSWER_WITHIN_MS`. */
   read(path: string): Promise<SavedTail | undefined>;
-  /** Keep the newest durable `events` of `path`, within the bounds. In memory at once, and in the
-   *  database at once when none was written for `WRITE_EVERY_MS`, else when that time is over. */
-  save(path: string, events: readonly SavedEvent[], exhausted: boolean): void;
+  /** Keep the newest durable `events` of `path`, of its `version`, within the bounds. In memory at
+   *  once, and in the database at once when none was written for `WRITE_EVERY_MS`, else when that
+   *  time is over. */
+  save(path: string, events: readonly SavedEvent[], exhausted: boolean, version: number): void;
   /** Keep the view that draws `path`'s rows, with its tail: written as `save` writes, and only
    *  when it is another view than the one kept. Before the store has read `path`, after the read. */
   saveView(path: string, view: SavedView): void;
@@ -96,10 +98,12 @@ export type SavedLogTails = {
   drop(path: string): void;
 };
 
-/** One context's record in the database. */
+/** One context's record in the database. A record with no version is not read: it may be of any
+ *  version of its path. */
 const StoredTail = z.object({
   savedAt: z.number(),
   exhausted: z.boolean(),
+  version: z.number(),
   events: z.array(
     z.looseObject({
       offset: z.number(),
@@ -201,8 +205,8 @@ function storeOf(mind: string, actor: string): Store {
     }
     const record = StoredTail.safeParse(await settled(asked));
     if (!record.success) return undefined;
-    const { events, exhausted, view } = record.data;
-    return { tail: { events, exhausted }, view: SavedView.safeParse(view).data };
+    const { events, exhausted, version, view } = record.data;
+    return { tail: { events, exhausted, version }, view: SavedView.safeParse(view).data };
   };
 
   const write = async () => {
@@ -301,14 +305,15 @@ function storeOf(mind: string, actor: string): Store {
       if (memory.has(path)) keep();
       else void read(path).then(keep);
     },
-    save(path, events, exhausted) {
+    save(path, events, exhausted, version) {
       if (wiped) return;
-      const tail = newestTail(events, exhausted);
+      const tail = newestTail(events, exhausted, version);
       const known = memory.get(path)?.tail;
       // the same rows as the memory holds: a streamed chunk changed only ephemeral events
       if (
         known &&
         tail &&
+        known.version === tail.version &&
         known.exhausted === tail.exhausted &&
         known.events.length === tail.events.length &&
         known.events[0] === tail.events[0] &&
@@ -337,7 +342,11 @@ function storeOf(mind: string, actor: string): Store {
 
 /** The newest durable events within the bounds, oldest first; undefined when none fits.
  *  `exhausted` stays only when no durable event was cut. */
-function newestTail(events: readonly SavedEvent[], exhausted: boolean): SavedTail | undefined {
+function newestTail(
+  events: readonly SavedEvent[],
+  exhausted: boolean,
+  version: number,
+): SavedTail | undefined {
   // an ephemeral event is never in the log again: a copy of one would show what a read cannot
   const durable = events.filter((event) => event.ephemeral !== true);
   let from = durable.length;
@@ -349,7 +358,7 @@ function newestTail(events: readonly SavedEvent[], exhausted: boolean): SavedTai
     from -= 1;
   }
   if (from === durable.length) return undefined;
-  return { events: durable.slice(from), exhausted: exhausted && from === 0 };
+  return { events: durable.slice(from), exhausted: exhausted && from === 0, version };
 }
 
 function charactersOf(event: SavedEvent) {

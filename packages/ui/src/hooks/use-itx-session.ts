@@ -67,7 +67,7 @@ export function useKept<T>(value: T, settled: boolean, key: string): T {
 
 /** What `useIterateContext` returns for the context `key` (its path), over reconnects
  *  (`keptContext`): the rows the view held stay, as the same objects, and a new session's newer
- *  rows come after them. */
+ *  rows come after them. A read of another version of the path keeps nothing. */
 export function useKeptContext<C extends Parameters<ReturnType<typeof keptContext>>[0]>(
   context: C,
   key: string,

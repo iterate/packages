@@ -41,6 +41,7 @@ function inputs(events: AgentKindViewInputs["events"]): AgentKindViewInputs {
     processors: { rows: [], loaded: true },
     presence: { actors: [], rpcStubs: [] },
     liveState: {},
+    version: undefined,
     hostError: undefined,
     state: {},
     documentClass: "dark",

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   agentGroups,
   agentRowsOf,
+  draftOfAddress,
   findAgents,
   mineFirst,
   newAgentPath,
@@ -12,6 +13,17 @@ import {
   topLevelAgents,
   type AgentRow,
 } from "./agent-summary.ts";
+
+test("the draft that an address brings: the hash's `draft`, at most 4,000 characters, and none for a hash that has none or does not decode", () => {
+  const draft = "Read tasks/a.md and tell me what is being decided.\nDo not answer it.";
+  expect(draftOfAddress(`#draft=${encodeURIComponent(draft)}`)).toBe(draft);
+  expect(draftOfAddress("")).toBe("");
+  expect(draftOfAddress(undefined)).toBe("");
+  expect(draftOfAddress("#other=1")).toBe("");
+  // a broken escape does not throw
+  expect(typeof draftOfAddress("#draft=%E0%A4%A")).toBe("string");
+  expect(draftOfAddress(`#draft=${"x".repeat(9_000)}`)).toHaveLength(4_000);
+});
 
 test("a row has what its agent said about itself, and nothing for what it hasn't", () => {
   expect(

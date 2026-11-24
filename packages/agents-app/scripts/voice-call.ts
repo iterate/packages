@@ -147,8 +147,8 @@ export default async function voiceCall(
           transcript.push(`assistant: ${fact.payload.text}`);
           console.log(`[${at()}ms] assistant: ${fact.payload.text}`);
           break;
-        case "events.iterate.com/agent/web-message-sent":
-          // The agent's answer, which the live model speaks, or words a script sent.
+        case "events.iterate.com/agent-ui/message-sent":
+          // Words a script of the device's agent sent the person: the live model speaks each one.
           console.log(`[${at()}ms] agent: ${fact.payload.message.slice(0, 300)}`);
           break;
         case "events.iterate.com/voice-agent/provider-error-reported":

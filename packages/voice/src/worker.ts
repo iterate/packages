@@ -4,11 +4,12 @@
  *
  *   await root.voice.ensureVoiceDevice({ client, screen? })   // → { path, agentPath }
  *
- * A device has two contexts, made once and kept: its agent (`/agents/voice/<client>`, normal agent
- * creation: the parent link to the context that asked, the catalog entry and the agents app's
- * processor, which answers every delegation) and its relay (`/voice/<client>`, the voice relay's
- * subscription and a parent link of its own). Two, because a context's birth restarts what it
- * runs, and an agent's cold build must never sit in front of the relay's dial. The press is then
+ * A device has two contexts, made once and kept: its agent (`/agents/voice/<client>`, made by
+ * `itx.agents` as every agent of the mind is: the parent link to the context that asked, the
+ * catalog entry and the mind's own agent, which answers every delegation) and its relay
+ * (`/voice/<client>`, the voice relay's subscription and a parent link of its own). Two, because a
+ * context's birth restarts what it runs, and an agent's cold build must never sit in front of the
+ * relay's dial. The press is then
  * the device's ONE append to the relay's context, `call-started`, with nothing created on it. The
  * device carries no source or class name: the relay is `voice.ts`'s class of the mind's
  * published config, the module this worker is (install.ts `voiceAgentFacetSpec`).
@@ -28,16 +29,15 @@ import VOICE_CONTEXT from "./voice-context.md";
  *  browser or the CLI keeps. */
 const VoiceDeviceName = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
-/** The device agent's `agent/configured` patch: no debounce, and an idle summary 15 minutes after
- *  its last request, while the provider still holds its history in cache, once 2,000 tokens are
- *  new since the last summary. A call adds a few hundred tokens, so the platform's default (30,000)
- *  never summarised a device and each press sent its whole history. The patch is keyed by its
- *  digest, so every device takes a changed patch at its next connect. */
-const DEVICE_AGENT_CONFIG = {
-  llmRequestDebounceMs: 0,
-  idleCompactionAfterMs: 15 * 60_000,
-  idleCompactionMinNewTokens: 2_000,
-};
+/** The device agent's `agent/configured` patch: no debounce, because a person on a call waits for
+ *  the answer. It names only keys of the agent's config (core/configs/default/agent/contract.ts
+ *  `AgentConfig`): the agent drops a key it does not know. When the history between calls is
+ *  summarised is the agent's own rule (`summary` there). The patch is keyed by its digest, so every
+ *  device takes a changed patch at its next connect. A known limit: when the template changes the
+ *  config of the agent's start (agent-start.ts), the next message lands a new start fact with the
+ *  template's debounce after this patch, and this patch's key, already written, does not put 0
+ *  back. */
+const DEVICE_AGENT_CONFIG = { llmRequestDebounceMs: 0 };
 
 /** The first 16 hex digits of the words' SHA-256: what keys an instruction to its words. */
 async function shortDigest(text: string): Promise<string> {
@@ -196,8 +196,8 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
     // every context linked to the root inherits `itx.voice`, and a device holds no more than the
     // context that provisioned it.
     const caller = this.callerPath();
-    // `itx.agents` is the rewrite rule the agents app mounts on the root, installed by the same init
-    // case, and this scope is the root's, so it is the root collection, `at` included.
+    // `itx.agents` is the rewrite rule the mind's init case mounts on the root (`installAgents`),
+    // and this scope is the root's, so it is the root collection, `at` included.
     using itx = this.getItx() as IterateContextApi & { agents: AgentsRootApi } & Disposable;
     await itx.agents.at(caller).create(agentPath);
     /* Each instruction is keyed by its words, so a build with new words adds them once. They start
@@ -223,44 +223,40 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
             ]
           : []),
         /* A person on a call is waiting: the agent answers a hand-over at once, with no window
-         * for more words. Between calls, the agent's history gets its idle summary. Keyed by
-         * its values, like the instructions, so a build with new ones patches them once. */
+         * for more words. Keyed by its values, like the instructions, so a build with new ones
+         * patches them once. */
         {
           type: "events.iterate.com/agent/configured",
           idempotencyKey: `voice-device/configured:${await shortDigest(JSON.stringify(DEVICE_AGENT_CONFIG))}`,
           payload: { config: DEVICE_AGENT_CONFIG },
         },
-        /* What the relay needs of the agent's log, copied to the relay's: its status, its
-         * messages, a pause, and each failed script. */
+        /* What the relay needs of the agent's log, copied to the relay's: its status, the words
+         * its scripts send the person, and a pause. A row of the same name replaces the one an
+         * earlier build wrote, and a key that was written once is not written again: a row with a
+         * new body takes a new key, so that a device provisioned before gets it. */
         {
           type: "events.iterate.com/itx/subscription-configured",
-          idempotencyKey: `voice-device/copy-to:${path}`,
+          idempotencyKey: `voice-device/copy-to:${path}:2`,
           payload: {
             name: "voice-relay",
             consumes: [
               "events.iterate.com/agent/summary-updated",
-              "events.iterate.com/agent/web-message-sent",
+              "events.iterate.com/agent-ui/message-sent",
               "events.iterate.com/agent/paused",
             ],
             target: { path, payload: "payload" },
           },
         },
-        /* The platform never copies an `itx/*` event, so a failed script reaches the relay as
-         * the agent's own report of it, the note its next turn reads (iterate/agents
-         * result-render.ts). */
+        /* An earlier build wrote a row of this name that copied the agent's report of each failed
+         * script to the relay. The mind's own agent keeps a script's result in its own state and
+         * writes no fact for it: its model reads the failure in its next request and says what
+         * matters in a message. So the row is switched off: a row of the same name with no
+         * target removes it. On a device that never had it, it changes nothing. This line can go
+         * once every device has connected once since. */
         {
           type: "events.iterate.com/itx/subscription-configured",
-          idempotencyKey: `voice-device/script-failures-to:${path}`,
-          payload: {
-            name: "voice-relay-script-failed",
-            consumes: ["events.iterate.com/agent/context-added"],
-            filter: `$substring(payload.content, 0, 18) = "Your script failed"`,
-            target: {
-              path,
-              type: "events.iterate.com/voice-agent/script-failed",
-              payload: `{ "report": $substring(payload.content, 0, 300) }`,
-            },
-          },
+          idempotencyKey: `voice-device/script-failures-off:${path}`,
+          payload: { name: "voice-relay-script-failed", target: null },
         },
       ),
       itx.cd(path).append(
@@ -288,16 +284,14 @@ export default class VoiceWorker extends IterateConfigEntrypoint implements Voic
             ],
           },
         },
-        /* The live model delegates within seconds of a press, so each press asks the agent to get
-         * ready. A row, not the relay's own code: nothing it does can delay the dial. */
+        /* An earlier build wrote a row of this name that copied each press to the agent as a
+         * request to get ready. The mind's own agent has no such fact, so the row is switched
+         * off: a row of the same name with no target removes it. On a device that never had it,
+         * it changes nothing. This line can go once every device has connected once since. */
         {
           type: "events.iterate.com/itx/subscription-configured",
-          idempotencyKey: `voice-device/warm-up:${agentPath}`,
-          payload: {
-            name: "voice-agent-warm-up",
-            consumes: ["events.iterate.com/voice-agent/call-started"],
-            target: { path: agentPath, type: "events.iterate.com/agent/warm-up-requested" },
-          },
+          idempotencyKey: `voice-device/warm-up-off:${agentPath}`,
+          payload: { name: "voice-agent-warm-up", target: null },
         },
         {
           type: "events.iterate.com/voice-agent/device-provisioned",

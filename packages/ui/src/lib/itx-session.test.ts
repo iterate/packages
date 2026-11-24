@@ -1,7 +1,8 @@
 // A context's log over reconnects (`keptContext`): the rows a view holds stay, as the same
-// objects, and a new session's newer rows come after them.
+// objects, and a new session's newer rows come after them. What is kept is of one version of the
+// path: a read of another version keeps nothing of the earlier one.
 import { expect, test } from "vitest";
-import { kept, keptContext } from "./itx-session.ts";
+import { kept, keptContext, versionOf } from "./itx-session.ts";
 
 test("a reader's older pages stay over a new session, as the same objects, with only the newer events added", () => {
   const keep = keptContext<Log>();
@@ -116,24 +117,34 @@ test.for([
     name: "a gap: the read starts above the copy's newest event",
     live: [9, 10],
     at7: "t7",
+    version: 1,
     another: false,
   },
   {
     name: "another event at the copy's newest offset (the log made again)",
     live: [7, 8],
     at7: "x",
+    version: 1,
     // the read began at that offset: what lies below it in the new log is not held yet
     another: true,
   },
-  { name: "a log shorter than the copy", live: [1, 2, 3], at7: "t7", another: false },
+  { name: "a log shorter than the copy", live: [1, 2, 3], at7: "t7", version: 1, another: false },
+  {
+    name: "a read of another version, though it holds the copy's newest event",
+    live: [7, 8],
+    at7: "t7",
+    version: 2,
+    // the read began at that offset too
+    another: true,
+  },
 ])(
-  "the saved rows go when the read does not hold the copy's newest event: $name",
-  ({ live, at7, another }) => {
+  "the saved rows go when the read does not hold the copy's newest event, or is of another version: $name",
+  ({ live, at7, version, another }) => {
     const keep = keptContext<Stamped>();
     const seed = tail([5, 6, 7], { exhausted: false });
     keep(stamped([], { caughtUp: false }), "/a", seed);
     expect(keep.anotherLog("/a")).toBe(false);
-    const read = stamped(live, { exhausted: false });
+    const read = stamped(live, { exhausted: false, version });
     for (const event of read.events) if (event.offset === 7) event.createdAt = at7;
     expect(keep(read, "/a", seed)).toBe(read);
     expect(keep.anotherLog("/a")).toBe(another);
@@ -172,24 +183,130 @@ test("a saved tail changes nothing once a read has caught up: the log is the liv
   expect(keep(live, "/a", tail([1, 2, 3, 4, 5], { exhausted: true }))).toBe(live);
 });
 
+test.for([
+  {
+    name: "a read before its first page",
+    context: { caughtUp: false, version: 1 },
+    said: undefined,
+  },
+  { name: "a read caught up", context: { caughtUp: true, version: 1 }, said: 1 },
+  { name: "a later version's border", context: { caughtUp: false, version: 3 }, said: 3 },
+  {
+    name: "a saved copy",
+    context: { caughtUp: true, version: 2, savedCopy: true },
+    said: undefined,
+  },
+])("the version a read says: $name", ({ context, said }) => {
+  expect(versionOf(context)).toBe(said);
+});
+
+test("a new version of the path shows its own log and live state alone, at once: nothing of the earlier version while it reads", () => {
+  const keep = keptContext<Stamped>();
+  // the earlier version, read, and the saved tail the page started from
+  const seed = tail([1, 2], { exhausted: true });
+  const first = stamped([1, 2, 3], { exhausted: true });
+  first.liveState = { agent: { status: "live" } };
+  keep(first, "/a", seed);
+  // the border: the log reads the new version from its start, and the facet waits for its seed
+  const border = {
+    ...stamped([5], { caughtUp: false, version: 2 }),
+    processors: { loaded: true },
+    liveState: { agent: { status: "connecting" } },
+  };
+  const reading = keep(border, "/a", seed);
+  expect(reading).toBe(border);
+  expect(reading).not.toHaveProperty("savedCopy");
+  // a facet that never comes back: its entry stays connecting, then fails, and the earlier
+  // version's state is never shown in its place
+  expect(keep({ ...border }, "/a", seed)).toMatchObject({ liveState: border.liveState });
+  const failed = { ...border, liveState: { agent: { status: "error" } } };
+  expect(keep(failed, "/a", seed)).toMatchObject({ liveState: failed.liveState });
+  // the new version read: its own rows alone
+  const read = stamped([5, 6], { exhausted: true, version: 2 });
+  expect(keep(read, "/a", seed)).toBe(read);
+  expect(keep.through("/a")).toBe(6);
+});
+
+test("a facet whose own border comes after the log's: its entry of the earlier version is never kept", () => {
+  const keep = keptContext<Log>();
+  const earlierEntry = { status: "live" };
+  keep({ ...log([1, 2], { exhausted: true }), liveState: { agent: earlierEntry } }, "/a");
+  // the log has its border; the facet's row has not delivered its own yet
+  const border = {
+    ...log([5], { caughtUp: false, version: 2 }),
+    liveState: { agent: earlierEntry },
+  };
+  expect(keep(border, "/a")).toMatchObject({ liveState: border.liveState });
+  // the facet's row: the store is cleared, and its entry connects again
+  const connecting = { ...border, liveState: { agent: { status: "connecting" } } };
+  expect(keep(connecting, "/a")).toMatchObject({ liveState: connecting.liveState });
+  // the new version's seed: kept from now on, over the next reconnect
+  const seeded = { ...log([5, 6], { version: 2 }), liveState: { agent: { status: "live" } } };
+  keep(seeded, "/a");
+  const reconnecting = { ...seeded, liveState: { agent: { status: "connecting" } } };
+  expect(keep(reconnecting, "/a")).toMatchObject({ liveState: seeded.liveState });
+});
+
+test("a reconnect whose read says another version: the rows kept stay until its first page, then go with the processors table and the live state", () => {
+  const keep = keptContext<Log>();
+  const first = log([10, 11], { exhausted: true, version: 2 });
+  keep(first, "/a");
+  // the new session: the SDK says 1 before its first page, which is no version yet
+  const fresh = {
+    ...log([], { caughtUp: false }),
+    processors: { loaded: false },
+    liveState: { agent: { status: "connecting" } },
+  };
+  expect(keep(fresh, "/a")).toMatchObject({
+    events: first.events,
+    processors: first.processors,
+    liveState: first.liveState,
+  });
+  // the first page says the version: the path took another one meanwhile
+  const read = {
+    ...log([20, 21], { version: 3 }),
+    processors: { loaded: false },
+    liveState: { agent: { status: "connecting" } },
+  };
+  expect(keep(read, "/a")).toBe(read);
+});
+
+test("a read that says another version before it has caught up drops a saved copy then", () => {
+  const keep = keptContext<Stamped>();
+  const seed = tail([5, 6, 7], { exhausted: false });
+  // before the first page, the version is not known: the copy is shown, as its own version
+  expect(keep(stamped([], { caughtUp: false }), "/a", seed)).toMatchObject({
+    savedCopy: true,
+    version: 1,
+  });
+  // a first page that is not the whole newest page says the version: the copy goes at once
+  const page = stamped([9], { caughtUp: false, version: 2 });
+  expect(keep(page, "/a", seed)).toBe(page);
+  const read = stamped([9, 10], { exhausted: true, version: 2 });
+  expect(keep(read, "/a", seed)).toBe(read);
+  expect(keep.anotherLog("/a")).toBe(false);
+});
+
 type Log = ReturnType<typeof log>;
 
-/** What `useIterateContext` returns, with events at `offsets`. */
-function log(offsets: number[], { caughtUp = true, exhausted = false }) {
+/** What `useIterateContext` returns, with events at `offsets`, of `version`. */
+function log(offsets: number[], { caughtUp = true, exhausted = false, version = 1 }) {
   return {
     events: offsets.map((offset) => ({ offset })),
     caughtUp,
     error: undefined as string | undefined,
     older: { loadOlder() {}, loading: !caughtUp, exhausted },
     processors: { loaded: true },
+    version,
     liveState: { agent: { status: "live" } } as Record<string, { status: string }>,
   };
 }
 
 type Stamped = ReturnType<typeof stamped>;
 
-/** What `useIterateContext` returns, with events at `offsets` that each have a `createdAt`. */
-function stamped(offsets: number[], { caughtUp = true, exhausted = false }) {
+/** What `useIterateContext` returns, with events at `offsets` that each have a `createdAt`, of
+ *  `version`. */
+function stamped(offsets: number[], { caughtUp = true, exhausted = false, version = 1 }) {
   return {
     events: offsets.map((offset) => stampedEvent(offset)),
     caughtUp,
@@ -197,13 +314,17 @@ function stamped(offsets: number[], { caughtUp = true, exhausted = false }) {
     head: offsets.at(-1) || 0,
     older: { loadOlder() {}, loading: !caughtUp, exhausted },
     processors: { loaded: caughtUp },
+    version,
     liveState: { agent: { status: "live" } } as Record<string, { status: string }>,
   };
 }
 
-/** A saved tail of events at `offsets`, as `#/lib/saved-log-tail.ts` reads it back. */
-function tail(offsets: number[], { exhausted }: { exhausted: boolean }) {
-  return { events: offsets.map((offset) => stampedEvent(offset)), exhausted };
+/** A saved tail of events at `offsets`, of `version`, as `#/lib/saved-log-tail.ts` reads it back. */
+function tail(
+  offsets: number[],
+  { exhausted, version = 1 }: { exhausted: boolean; version?: number },
+) {
+  return { events: offsets.map((offset) => stampedEvent(offset)), exhausted, version };
 }
 
 function stampedEvent(offset: number) {

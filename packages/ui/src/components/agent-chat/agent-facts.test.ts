@@ -1,14 +1,27 @@
 // The agent's facts (agent-facts.ts) through the shared reducer (agent-events.ts
 // `reduceAgentFeed`): a person's words, a request that streams, thinks and settles, a script tied to
 // its request, the agent's words, and one plain row for each other fact, as the person sees them.
-// And the composer's send. The facts and their order are the agent's (single-claude/processor.ts).
-// The platform agent's facts are agent-ui-reducer.test.ts's.
+// And the composer's send. The facts and their order are the agent's (core/configs/default
+// agent/processor.ts).
 import { expect, test } from "vitest";
 import { sliceText } from "./chunked-text.ts";
 import { foldAgentLog, reduceAgentFeed } from "./agent-events.ts";
 import { deriveAgentUiLiveStatus } from "./agent-ui-reducer.ts";
 import { sendToAgent } from "./agent-facts.ts";
-import type { StreamEvent } from "./stream-event.ts";
+import {
+  ADA,
+  fact,
+  frame,
+  MIND,
+  PATH,
+  runRequested,
+  runSettled,
+  sent,
+  summary,
+  transcription,
+  uiMessage,
+  type LoggedEvent,
+} from "#/test-support/agent-log.ts";
 
 test("one exchange: ONE bubble for the person, with their stamp and no transcription; then the request, its script, the words", () => {
   const { items } = reduceAgentFeed(exchange, true);
@@ -236,51 +249,12 @@ test("the composer: a host that cannot store files sends words with files throug
 
 // ── the log ──
 
-const PATH = "/agents/people/ada/agent/x";
-const ADA = { origin: PATH, principal: { actor: "usr_1", email: "ada@example.com" } };
-const MIND = { origin: "/" };
-const AGENT = { origin: PATH, processor: { slug: "agent", version: "3" } };
 const SCRIPT =
   'itx.append({ type: "events.iterate.com/agent-ui/message-sent", payload: { message: "Hello there." } });';
 const ANSWER = `<codemode>\n${SCRIPT}\n</codemode>`;
 const CODE = `async (__itx) => {\n//#region your script\n${SCRIPT}\n//#endregion your script\n}`;
 const PNG = { contentType: "image/png", filename: "a.png", path: `${PATH}/0123-a.png`, size: 3 };
 const OUTGOING = { contentType: "image/png", filename: "a.png", data: "AAAA" };
-
-/** A committed fact of the agent's log, at second `offset` of one minute. */
-function fact(
-  offset: number,
-  type: string,
-  payload: object,
-  source: StreamEvent["source"] = AGENT,
-  more: Partial<StreamEvent> = {},
-): StreamEvent {
-  return {
-    offset,
-    type: `events.iterate.com/${type}`,
-    createdAt: new Date(Date.UTC(2026, 10, 23, 12, 0, offset)).toISOString(),
-    path: PATH,
-    payload,
-    source,
-    ...more,
-  };
-}
-
-function frame(offset: number, payload: object) {
-  return fact(
-    offset,
-    "llm-request/response-frame-received",
-    {
-      llmRequestOffset: 3,
-      attempt: 0,
-      textDelta: "",
-      thinkingDelta: "",
-      thinking: false,
-      ...payload,
-    },
-    AGENT,
-  );
-}
 
 /** The live step of a fold. */
 function stepOf(state: ReturnType<typeof foldAgentLog>["state"]) {
@@ -290,17 +264,12 @@ function stepOf(state: ReturnType<typeof foldAgentLog>["state"]) {
 }
 
 /** The Dash's words, their transcription, and the exchange that answers them. */
-const exchange: StreamEvent[] = [
-  fact(1, "agent-ui/message-received", { message: "hello", client: "web" }, ADA),
-  fact(
+const exchange: LoggedEvent[] = [
+  uiMessage(1, "hello"),
+  transcription(
     2,
-    "agent/context-added",
-    {
-      role: "user",
-      content: `hello\n\n— Web UI: ada@example.com wrote this in the Dash. Raw event: offset 1 of ${PATH}.`,
-      source: { path: PATH, offset: 1 },
-    },
-    MIND,
+    1,
+    `hello\n\n— Web UI: ada@example.com wrote this in the Dash. Raw event: offset 1 of ${PATH}.`,
   ),
   fact(3, "llm-request/requested", {
     model: "openai/gpt-6.2-sol",
@@ -324,9 +293,9 @@ const exchange: StreamEvent[] = [
   }),
   fact(7, "itx/schedule-cancelled", { key: "llm-request/requested:answer/1/wait" }),
   fact(8, "openai-responses/request-started", { llmRequestOffset: 3, attempt: 0 }),
-  frame(9, { sequence: 0, thinking: true }),
-  frame(10, { sequence: 1, thinkingDelta: "Saying hello.", thinking: true }),
-  frame(11, { sequence: 2, textDelta: ANSWER }),
+  frame(9, 3, { sequence: 0, thinking: true }),
+  frame(10, 3, { sequence: 1, thinkingDelta: "Saying hello.", thinking: true }),
+  frame(11, 3, { sequence: 2, textDelta: ANSWER }),
   fact(12, "llm-request/settled", {
     llmRequestOffset: 3,
     attempt: 0,
@@ -338,15 +307,8 @@ const exchange: StreamEvent[] = [
       usage: { inputTokens: 1000, outputTokens: 20, cachedInputTokens: 400, costUsd: 0.00144 },
     },
   }),
-  fact(13, "itx/run-requested", { code: CODE }, AGENT, { idempotencyKey: "agent/script-run:3/0" }),
-  fact(14, "agent/summary-updated", { activity: "Saying hello" }, { origin: PATH }),
-  fact(15, "agent-ui/message-sent", { message: "Hello there." }, { origin: PATH }),
-  fact(
-    16,
-    "itx/run-settled",
-    { requestOffset: 13, settlement: { status: "succeeded" } },
-    {
-      origin: PATH,
-    },
-  ),
+  runRequested(13, 3, CODE),
+  summary(14, "Saying hello"),
+  sent(15, "Hello there."),
+  runSettled(16, 13),
 ];

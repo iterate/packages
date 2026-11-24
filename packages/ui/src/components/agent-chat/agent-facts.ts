@@ -1,11 +1,11 @@
-// THE AGENT'S FACTS, as the chat reads them: the agent whose kind is `agent` in the catalog. Its
-// facts are not the platform agent's (iterate/agents contract.ts): a person's words come in on a
-// channel (`agent-ui/message-received`) and the mind transcribes them for the model
-// (`agent/context-added` with `source`), a request is `llm-request/requested` and its facts, and
-// its words for a person are `agent-ui/message-sent`. The reducer (agent-ui-reducer.ts) folds them
-// into the same rows as the platform's agent: a bubble, an activity of rounds, a plain row. The
-// request trace (llm-request-trace.ts) reads the exact bodies. Nothing here imports the agent: the
-// names and fields are the ones the agent and the Dash agree on.
+// THE AGENT'S FACTS, as the chat reads them: the mind's own agent, whose code is in the mind's config
+// repo (core/configs/default/agent/). A person's words come in on a channel
+// (`agent-ui/message-received`, or the platform's `agent/message-received`) and the mind
+// transcribes them for the model (`agent/context-added` with `source`). A request is
+// `llm-request/requested` and its facts, and the agent's words for a person are
+// `agent-ui/message-sent`. The reducer (agent-ui-reducer.ts) folds them into rows: a bubble, an
+// activity of rounds, a plain row. The request trace (llm-request-trace.ts) reads the exact bodies.
+// Nothing here imports the agent: the names and fields are the ones the agent and the Dash agree on.
 import { z } from "zod";
 
 const T = "events.iterate.com/";
@@ -39,11 +39,18 @@ export const AGENT_FACT = {
  *  (`openai-responses/request-started`). The chat knows no API shape by name. */
 export const apiFactType = (api: string, event: string) => `${T}${api}/${event}`;
 
-/** The idempotency key of the run of a script that a response wrote: it names the request
- *  (`agent/script-run:<request offset>/<index>`). */
+/** The run of a script that a response wrote, by the run's idempotency key: the request, and the
+ *  script's place among the response's scripts (`agent/script-run:<request offset>/<index>`). */
+export function scriptCallOf(
+  idempotencyKey: string | undefined,
+): { requestOffset: number; index: number } | undefined {
+  const [, offset, index] = /^agent\/script-run:(\d+)\/(\d+)$/.exec(idempotencyKey || "") ?? [];
+  return offset && index ? { requestOffset: Number(offset), index: Number(index) } : undefined;
+}
+
+/** The request whose response wrote the script that a run runs, by the run's idempotency key. */
 export function scriptRequestOffsetOf(idempotencyKey: string | undefined): number | undefined {
-  const offset = /^agent\/script-run:(\d+)\//.exec(idempotencyKey || "")?.[1];
-  return offset ? Number(offset) : undefined;
+  return scriptCallOf(idempotencyKey)?.requestOffset;
 }
 
 /** THE AGENT'S LIVE STATE, the fields the chat reads (the facet `agent`). A pause, the open
@@ -63,22 +70,6 @@ export type AgentLiveState = z.infer<typeof AgentLiveState>;
 export function agentLiveStateOf(value: unknown): AgentLiveState | undefined {
   const parsed = AgentLiveState.safeParse(value);
   return parsed.success ? parsed.data : undefined;
-}
-
-/** WHETHER THE CHAT SHOWS THIS AGENT: its facet's live state has the agent's shape, or the log
- *  held has a fact that only the agent writes. Its composer then appends the Dash's words as a
- *  fact (`agent-ui/message-received`) and does not call the platform's `message()`. */
-export function isAgentLog(
-  liveState: Record<string, { value?: unknown } | undefined>,
-  events: readonly { type: string }[],
-): boolean {
-  if (agentLiveStateOf(liveState.agent?.value)) return true;
-  return events.some(
-    (event) =>
-      event.type === AGENT_FACT.uiAgentRequested ||
-      event.type === AGENT_FACT.uiMessageReceived ||
-      event.type === AGENT_FACT.llmRequested,
-  );
 }
 
 /** A file as the mind's file store holds it, which a fact names. */

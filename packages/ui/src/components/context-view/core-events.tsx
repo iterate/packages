@@ -4,25 +4,15 @@
 import { record, str } from "./payload-readers.ts";
 import type { ContextViewEvent, EventInspectors } from "./types.tsx";
 
-/** An agent keeping itself ready: a voice call's warm-ups, and the pings of an idle agent. Warming
- *  that stopped is not one of these: it says the cache was missed, or its budget ran out. */
-const KEEPING_WARM = new Set([
-  "events.iterate.com/agent/warm-up-requested",
-  "events.iterate.com/agent/cache-kept-warm",
-  "events.iterate.com/agent/idle-check",
-]);
-
 /** The stream's UPKEEP: what it does to keep itself running (waking, wiring a client's
- *  subscription, a live-state tick, a scheduled append, an agent keeping warm), never what anyone
- *  did. A run of these folds into one row, whatever their types. The birth, a pause and a script
- *  run are not upkeep. */
-export function isUpkeep({ type, payload }: Pick<ContextViewEvent, "type" | "payload">) {
+ *  subscription, a live-state tick, a scheduled append), never what anyone did. A run of these
+ *  folds into one row, whatever their types. The birth, a pause and a script run are not upkeep. */
+export function isUpkeep({ type }: Pick<ContextViewEvent, "type">) {
   return (
     type === "events.iterate.com/itx/woken" ||
     type.startsWith("events.iterate.com/itx/subscription-") ||
     type.startsWith("events.iterate.com/itx/schedule-") ||
-    type === "events.iterate.com/itx/live-state-changed" ||
-    (KEEPING_WARM.has(type) && !record(payload).stopped)
+    type === "events.iterate.com/itx/live-state-changed"
   );
 }
 

@@ -1,8 +1,9 @@
-// What the Events tab's inspector shows for an event of the agent loop (iterate/agents
-// contract.ts), above the event as JSON: the words themselves, whole. The rows of the log are the
-// context view's own, and the same for every type.
-import type { EventInspectors } from "#/components/context-view/types.tsx";
+// What the Events tab's inspector shows for a fact of the agent (agent-facts.ts), above the event
+// as JSON: the words themselves, whole. The rows of the log are the context view's own, and the
+// same for every type.
+import { AGENT_FACT } from "./agent-facts.ts";
 import { record, str } from "#/components/context-view/payload-readers.ts";
+import type { EventInspectors } from "#/components/context-view/types.tsx";
 
 /** The role a context item was added as (the model's conversation has four), as plain text. */
 const role = (name: string) => <span className="text-xs text-muted-foreground">{name}</span>;
@@ -21,8 +22,8 @@ export const agentEventInspectors: EventInspectors = {
       </div>
     );
   },
-  "events.iterate.com/agent/web-message-sent": (e) => prose(str(record(e.payload).message)),
-  "events.iterate.com/agent/llm-request-settled": (e) => {
+  [AGENT_FACT.uiMessageSent]: (e) => prose(str(record(e.payload).message)),
+  [AGENT_FACT.llmSettled]: (e) => {
     const result = record(record(e.payload).result);
     if (result.status === "succeeded") return prose(str(result.text));
     if (result.status === "failed")

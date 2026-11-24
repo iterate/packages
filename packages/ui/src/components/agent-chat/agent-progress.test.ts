@@ -1,18 +1,14 @@
 import { expect, test } from "vitest";
 import { agentMessagesOf, agentProgressOf, subagentActivitiesOf } from "./agent-progress.ts";
 import type { AgentRow } from "#/lib/agent-summary.ts";
+import { fact, frame, paused, request, runRequested, summary } from "#/test-support/agent-log.ts";
 
 test("progress data gives current work and public summary only", () => {
   const events = [
-    request,
-    row(12, "events.iterate.com/agent/summary-updated", { activity: "Checking the release" }),
-    row(14, "events.iterate.com/agent/llm-response-frame", {
-      llmRequestOffset: 10,
-      sequence: 0,
-      thinkingDelta: "PRIVATE_THINKING",
-      responseDelta: "PRIVATE_RESPONSE",
-    }),
-    row(20, "events.iterate.com/itx/run-requested", { code: "PRIVATE_SCRIPT" }),
+    request(10, { model: "test" }),
+    summary(12, "Checking the release"),
+    frame(14, 10, { thinkingDelta: "PRIVATE_THINKING", textDelta: "PRIVATE_RESPONSE" }),
+    runRequested(20, null, "PRIVATE_SCRIPT"),
   ];
   expect(agentProgressOf(events)).toEqual({
     text: "Running a script",
@@ -22,31 +18,30 @@ test("progress data gives current work and public summary only", () => {
   expect(JSON.stringify(agentProgressOf(events))).not.toMatch(/PRIVATE/);
 });
 test("progress does not carry a previous turn's summary into new work", () => {
-  const old = row(1, "events.iterate.com/agent/summary-updated", { activity: "Previous work" });
-  expect(agentProgressOf([old, request])).toEqual({
+  const asked = request(10, { model: "test" });
+  expect(agentProgressOf([summary(1, "Previous work"), asked])).toEqual({
     text: "Waiting for the model",
     working: true,
     activity: null,
   });
   expect(agentProgressOf([])).toEqual({ text: "Idle", working: false, activity: null });
-  expect(
-    agentProgressOf([request, row(40, "events.iterate.com/agent/paused", { reason: "Waiting" })]),
-  ).toEqual({ text: "Paused", working: false, activity: null });
+  expect(agentProgressOf([asked, paused(40, "Waiting")])).toEqual({
+    text: "Paused",
+    working: false,
+    activity: null,
+  });
 });
 test("only explicit messages with attributed senders become safe rows; sparse offsets survive", () => {
   const events = [
-    row(2, "events.iterate.com/agent/context-added", {
-      role: "assistant",
-      content: "PRIVATE_CONTEXT",
-    }),
-    row(17, "events.iterate.com/agent/message-received", {
+    fact(2, "agent/context-added", { role: "assistant", content: "PRIVATE_CONTEXT" }),
+    fact(17, "agent/message-received", {
       from: "/agents/release",
       message: "Published",
       files: [],
       privateField: "PRIVATE_FIELD",
     }),
-    row(91, "events.iterate.com/agent/message-received", { message: "Unknown source" }),
-    row(104, "events.iterate.com/agent/message-received", { from: "/agents/test", message: 42 }),
+    fact(91, "agent/message-received", { message: "Unknown source" }),
+    fact(104, "agent/message-received", { from: "/agents/test", message: 42 }),
   ];
   expect(agentMessagesOf(events)).toEqual([
     {
@@ -84,11 +79,3 @@ test("activity selects active rows and exposes only display fields", () => {
   ]);
   expect(JSON.stringify(subagentActivitiesOf([base]))).not.toContain("PRIVATE");
 });
-
-const row = (offset: number, type: string, payload: unknown) => ({
-  offset,
-  type,
-  payload,
-  createdAt: new Date(1000 + offset).toISOString(),
-});
-const request = row(10, "events.iterate.com/agent/llm-request-requested", { model: "test" });

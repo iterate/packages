@@ -162,9 +162,9 @@ test.for([
 
 test.for([
   {
-    name: "an iterate agent",
+    name: "the mind's own agent",
     path: "/agents/support",
-    types: ["events.iterate.com/agent/created"],
+    types: ["events.iterate.com/agent/configured"],
     agent: true,
   },
   {
@@ -188,7 +188,7 @@ test.for([
   {
     name: "a context outside /agents",
     path: "/repos/config",
-    types: ["events.iterate.com/agent/created"],
+    types: ["events.iterate.com/agent/configured"],
     agent: false,
   },
 ])("an agent's context: $name", ({ path, types, agent }) => {

@@ -1,57 +1,55 @@
-// agent-events.test.ts — a context's log through the shared reducer: the CONTEXT's runs
+// agent-events.test.ts: the agent's log through the shared reducer. The context's runs
 // (`itx/run-requested` / `run-settled`, the request's offset as identity) are the code steps, linked
-// to the assistant's message by the processor's `whileProcessing` stamp, so a turn renders as one
-// activity with its code step.
+// to the request whose response wrote them by the run's idempotency key, so a turn renders as one
+// activity with its code step. The fold reads the current version of the path alone.
 import { expect, test } from "vitest";
 import { RUN_DEADLINE_MS } from "iterate/stream/run";
-import { committedEvent } from "iterate/stream/test-support";
+import { foldAgentLog, reduceAgentFeed, scriptTrace } from "./agent-events.ts";
+import { llmRequestTrace } from "./llm-request-trace.ts";
 import {
-  foldAgentLog,
-  llmTrace,
-  reduceAgentFeed,
-  scriptTrace,
-  toAgentEvent,
-} from "./agent-events.ts";
+  created,
+  fact,
+  paused,
+  quiet,
+  request,
+  runRequested,
+  runSettled,
+  said,
+  scriptResult,
+  sent,
+  settled,
+  succeeded,
+  timeOf,
+  versionEnded,
+} from "#/test-support/agent-log.ts";
 
-test("the run the agent asked for while processing the assistant's item is that turn's code step: keyed by the request's offset, its deadline the request's time plus RUN_DEADLINE_MS", () => {
-  const events = turn().filter((e) => e.type !== "events.iterate.com/itx/run-settled");
+test("the run of the response's script is that turn's code step: keyed by the run's offset, its deadline the run's time plus RUN_DEADLINE_MS", () => {
+  const events = turn().filter((event) => event.offset < 10);
   const { state } = reduceAgentFeed(events, false);
-  const requested = events.find((e) => e.offset === 8)!;
   expect(state.live?.steps).toMatchObject([
-    { kind: "llm", llmRequestOffset: 4, status: "done" },
+    { kind: "llm", llmRequestOffset: 4, status: "done", interpreted: true },
     {
       kind: "code",
       id: "code-8",
       requestOffset: 8,
       status: "running",
       code: expect.stringContaining("itx.kv.put"),
-      deadlineAtMs: Date.parse(requested.createdAt) + RUN_DEADLINE_MS,
+      deadlineAtMs: timeOf(8) + RUN_DEADLINE_MS,
     },
   ]);
-  // a run nobody's processor asked for is a step too, by its own offset
-  const { state: unasked } = reduceAgentFeed(
-    [at(20, "events.iterate.com/itx/run-requested", { code: "async () => 1" })],
-    false,
-  );
+  // a run that no response of the agent wrote is a step too, by its own offset
+  const { state: unasked } = reduceAgentFeed([runRequested(20, null, "async () => 1")], false);
   expect(unasked.live?.steps).toMatchObject([{ kind: "code", requestOffset: 20 }]);
 });
 
 test("a failed settlement closes the step with the platform's error", () => {
   const { items } = reduceAgentFeed(
     [
-      at(
-        8,
-        "events.iterate.com/itx/run-requested",
-        { code: "async () => 1" },
-        { idempotencyKey: "agent/run-requested@6", source: byAgentWhile(6) },
-      ),
-      at(9, "events.iterate.com/itx/run-settled", {
-        requestOffset: 8,
-        settlement: {
-          status: "failed",
-          error: "the context restarted",
-          failureKind: "interrupted",
-        },
+      runRequested(8, 6, "async () => 1"),
+      runSettled(9, 8, {
+        status: "failed",
+        error: "the context restarted",
+        failureKind: "interrupted",
       }),
     ],
     true,
@@ -72,7 +70,7 @@ test("a failed settlement closes the step with the platform's error", () => {
   ]);
 });
 
-test("through the reducer: the person's message, then one activity whose code step is the run, settled with its result; the traces find the run by its request's offset", () => {
+test("through the reducer: the person's message, then one activity whose code step is the run, settled with its result; the traces find the run by the request whose response wrote it, and what the model saw of its result", () => {
   const events = turn();
   const { items } = reduceAgentFeed(events, true);
   const activity = items.find((item) => item.kind === "activity");
@@ -87,97 +85,52 @@ test("through the reducer: the person's message, then one activity whose code st
         success: true,
         result: { stored: true },
       }),
+      expect.objectContaining({ kind: "llm", llmRequestOffset: 11, status: "done" }),
     ],
   });
-  expect(llmTrace(events, 4)?.derived).toMatchObject({ scriptRequestOffset: 8 });
+  expect(llmRequestTrace(events, 4)).toMatchObject({ scriptRequestOffsets: [8] });
   expect(scriptTrace(events, 8)).toMatchObject({
     requestOffset: 8,
     code: expect.stringContaining("itx.kv.put"),
     settlement: { value: { status: "succeeded", result: { stored: true } } },
-    rendered: "Your script returned: …",
+    seen: 'Result of script 1:\n{"stored":true}',
   });
 });
 
-test("an intent the agent left unopened shows nothing running: its turn ends, and the next words go straight to the transcript", () => {
-  // the second message moved the trigger before the first one's debounce ran out, so the first
-  // intent lands as a fact the agent's reduce ignores, and nothing will ever settle it
-  const { state, items } = reduceAgentFeed(
-    [
-      person(1, "first"),
-      person(2, "second"),
-      intent(3, 1),
-      intent(4, 2),
-      at(5, "events.iterate.com/agent/llm-request-settled", {
-        requestOffset: 4,
-        result: { status: "succeeded", text: "ok" },
-      }),
-      at(6, "events.iterate.com/agent/web-message-sent", {
-        message: "Noted.",
-        llmRequestOffset: 4,
-      }),
-      person(7, "third"),
-    ],
-    true,
-  );
-  expect(state).toMatchObject({ live: null, queuedUserMessages: [] });
-  expect(items.map((item) => item.id)).toEqual([
-    "user-1",
-    "user-2",
-    "activity-4",
-    "assistant-6",
-    "user-7",
-  ]);
-  expect(items[2]).toMatchObject({ steps: [{ llmRequestOffset: 4, status: "done" }] });
-});
-
-test("an intent that lands after a later trigger's request opened never runs", () => {
-  const { state } = reduceAgentFeed(
-    [
-      person(1, "first"),
-      person(2, "second"),
-      intent(3, 2),
-      intent(4, 1),
-      at(5, "events.iterate.com/agent/llm-request-settled", {
-        requestOffset: 3,
-        result: { status: "succeeded", text: "ok" },
-      }),
-    ],
-    false,
-  );
-  expect(state.live?.steps).toMatchObject([{ llmRequestOffset: 3, status: "done" }]);
+test("a script's result that names another script of the same response, or another response, is not what this run's model saw", () => {
+  const events = [
+    ...turn().filter((event) => event.offset < 11),
+    request(11, {
+      itemsAdded: [
+        scriptResult(4, "the second script's", 1),
+        scriptResult(5, "another response's"),
+      ],
+    }),
+  ];
+  expect(scriptTrace(events, 8)).toMatchObject({ requestOffset: 8, seen: undefined });
 });
 
 test("a silent turn's activity ends when its last step did, not when the next words close it", () => {
   const { items } = reduceAgentFeed(
-    [
-      person(1, "first"),
-      intent(2, 1),
-      at(3, "events.iterate.com/agent/llm-request-settled", {
-        requestOffset: 2,
-        result: { status: "succeeded", text: "" },
-      }),
-      person(600, "much later"),
-    ],
+    [said(1, "first"), request(2), settled(3, 2, succeeded("")), said(600, "much later")],
     true,
   );
-  expect(items[1]).toMatchObject({ kind: "activity", startedAtMs: 2_000, endedAtMs: 3_000 });
+  expect(items[1]).toMatchObject({
+    kind: "activity",
+    startedAtMs: timeOf(2),
+    endedAtMs: timeOf(3),
+  });
 });
 
 test("the log folded piece by piece equals it folded whole, and a settled message keeps its identity when an older page arrives", () => {
   const log = [
-    person(1, "first"),
-    intent(2, 1),
-    at(3, "events.iterate.com/agent/llm-request-settled", {
-      requestOffset: 2,
-      result: { status: "succeeded", text: "" },
-    }),
-    person(4, "second"),
-    intent(5, 4),
-    at(6, "events.iterate.com/agent/llm-request-settled", {
-      requestOffset: 5,
-      result: { status: "succeeded", text: "" },
-    }),
-    person(7, "third"),
+    said(1, "first"),
+    request(2),
+    settled(3, 2, succeeded("")),
+    said(4, "second"),
+    request(5),
+    settled(6, 5, succeeded("")),
+    said(7, "third"),
   ];
   const whole = foldAgentLog(undefined, log);
   // the newest page, then what arrives, then the page below it
@@ -192,7 +145,7 @@ test("the log folded piece by piece equals it folded whole, and a settled messag
 
 test("inputs that start no turn are one row under the first one's id; words that start a turn end the run", () => {
   const { items } = reduceAgentFeed(
-    [read(1), read(2), read(3), person(4, "what came in?"), read(5)],
+    [input(1), input(2), input(3), said(4, "what came in?"), input(5)],
     true,
   );
   expect(items).toMatchObject([
@@ -207,7 +160,7 @@ test("inputs that start no turn are one row under the first one's id; words that
 });
 
 test("an input that starts no turn waits behind a request and queues nothing: it comes out where the log has it", () => {
-  const log = [person(1, "asked"), intent(2, 1), read(3), read(4)];
+  const log = [said(1, "asked"), request(2), input(3), input(4)];
   const working = reduceAgentFeed(log, false);
   expect(working.state).toMatchObject({
     queuedUserMessages: [],
@@ -215,17 +168,7 @@ test("an input that starts no turn waits behind a request and queues nothing: it
   });
   expect(working.items).toMatchObject([{ id: "user-1" }]);
 
-  const answered = reduceAgentFeed(
-    [
-      ...log,
-      at(5, "events.iterate.com/agent/llm-request-settled", {
-        requestOffset: 2,
-        result: { status: "succeeded", text: "ok" },
-      }),
-      at(6, "events.iterate.com/agent/web-message-sent", { message: "ok", llmRequestOffset: 2 }),
-    ],
-    false,
-  );
+  const answered = reduceAgentFeed([...log, settled(5, 2, succeeded("ok")), sent(6, "ok")], false);
   expect(answered.state.live).toBeNull();
   expect(answered.items.map((item) => item.id)).toEqual([
     "user-1",
@@ -237,18 +180,12 @@ test("an input that starts no turn waits behind a request and queues nothing: it
 
 test("an input between a turn's two requests leaves the turn whole, and shows once the agent is idle", () => {
   const log = [
-    person(1, "asked"),
-    intent(2, 1),
-    at(3, "events.iterate.com/agent/llm-request-settled", {
-      requestOffset: 2,
-      result: { status: "succeeded", text: "ok" },
-    }),
-    read(4),
-    intent(5, 3),
-    at(6, "events.iterate.com/agent/llm-request-settled", {
-      requestOffset: 5,
-      result: { status: "succeeded", text: "ok" },
-    }),
+    said(1, "asked"),
+    request(2),
+    settled(3, 2, succeeded("ok")),
+    input(4),
+    request(5),
+    settled(6, 5, succeeded("ok")),
   ];
   const { items } = reduceAgentFeed(log, true);
   expect(items).toMatchObject([
@@ -259,9 +196,9 @@ test("an input between a turn's two requests leaves the turn whole, and shows on
 });
 
 test("a run keeps its row's id as it grows, and every other row its identity", () => {
-  const log: unknown[] = [person(1, "asked"), read(2)];
+  const log: unknown[] = [said(1, "asked"), input(2)];
   const first = foldAgentLog(undefined, log);
-  const grown = foldAgentLog(first, [...log, read(3)]);
+  const grown = foldAgentLog(first, [...log, input(3)]);
   expect(grown.items[0]).toBe(first.items[0]);
   expect(grown.items[1]).toMatchObject({
     id: "background-2",
@@ -271,14 +208,14 @@ test("a run keeps its row's id as it grows, and every other row its identity", (
 
 test("a fold from a later offset gives the same rows, but for the one run its first page cut", () => {
   const whole = [
-    read(1),
-    read(2),
-    read(3),
-    person(4, "first"),
-    read(5),
-    person(6, "second"),
-    read(7),
-    read(8),
+    input(1),
+    input(2),
+    input(3),
+    said(4, "first"),
+    input(5),
+    said(6, "second"),
+    input(7),
+    input(8),
   ];
   const rows = (log: typeof whole) => reduceAgentFeed(log, true).items;
   expect(rows(whole.slice(3))).toEqual(rows(whole).slice(1));
@@ -296,104 +233,139 @@ test("a fold from a later offset gives the same rows, but for the one run its fi
 });
 
 test("a refold keeps a run that is the same, and takes one that grew", () => {
-  const log = [person(2, "asked"), read(3)];
+  const log = [said(2, "asked"), input(3)];
   const newest = foldAgentLog(undefined, log);
-  const older = foldAgentLog(newest, [person(1, "before"), ...log]);
+  const older = foldAgentLog(newest, [said(1, "earlier"), ...log]);
   expect(older.items[2]).toBe(newest.items[1]);
-  const both = foldAgentLog(newest, [person(1, "before"), ...log, read(4)]);
+  const both = foldAgentLog(newest, [said(1, "earlier"), ...log, input(4)]);
   expect(both.items[2]).toMatchObject({ id: "background-3", messages: [{}, {}] });
 });
 
-test("the newest intent with no open request in the agent's live state is not running; the log alone cannot tell", () => {
-  // a pause dropped the trigger that moved past this intent, so no later intent closes it
-  const events = [
-    person(1, "first"),
-    person(2, "second"),
-    intent(3, 1),
-    at(4, "events.iterate.com/agent/paused", { reason: "stop" }),
-  ];
+test("a request that the agent's live state does not hold open is not running; the log alone cannot tell", () => {
+  const events = [said(1, "first"), request(2), paused(3, "stop")];
   expect(reduceAgentFeed(events, false).state.live?.steps).toMatchObject([{ status: "running" }]);
   expect(reduceAgentFeed(events, true, false).state.live).toBeNull();
 });
 
-const at = (
-  offset: number,
-  type: string,
-  payload: Record<string, unknown>,
-  extra: { idempotencyKey?: string; source?: unknown } = {},
-) => toAgentEvent({ ...committedEvent(offset, type, payload), ...extra })!;
+// ── the border of a version ──
 
-/** A person's words at `offset`, which raise the agent's trigger. */
-const person = (offset: number, content: string) =>
-  at(offset, "events.iterate.com/agent/context-added", {
-    role: "user",
-    content,
-    actor: { type: "user" },
-  });
-
-/** An input at `offset` that starts no turn. */
-const read = (offset: number) =>
-  at(offset, "events.iterate.com/agent/context-added", {
-    role: "user",
-    content: `input ${String(offset)}`,
-    actor: { type: "user" },
-    llmRequestPolicy: { behaviour: "dont-trigger-request" },
-  });
-
-/** The agent's intent to request the model for the trigger at `triggerOffset`. */
-const intent = (offset: number, triggerOffset: number) =>
-  at(offset, "events.iterate.com/agent/llm-request-requested", {
-    model: "m",
-    expiresAt: 9e12,
-    triggerOffset,
-  });
-
-/** The engine's stamp on an event the agent processor appended while processing offset 6. */
-const byAgentWhile = (offset: number) => ({
-  processor: { slug: "agent", whileProcessing: { offset, type: "x" } },
+test("a log with an earlier version folds the current version alone: no bubble, no activity, no queued words and no running script of the earlier one", () => {
+  const current = [created(9, 2), said(10, "the new question"), request(11)];
+  const fold = foldAgentLog(undefined, [...earlierVersion(), versionEnded(8, 1), ...current]);
+  expect(fold).toMatchObject({ versionEndedAt: 8 });
+  expect(fold.events.map((event) => event.offset)).toEqual([9, 10, 11]);
+  expect(fold.items).toMatchObject([{ kind: "user", id: "user-10", text: "the new question" }]);
+  expect(fold.items).toHaveLength(1);
+  expect(fold.state).toMatchObject({ queuedUserMessages: [], deferredAssistantMessages: [] });
+  expect(fold.state.live?.steps).toMatchObject([
+    { kind: "llm", llmRequestOffset: 11, status: "running" },
+  ]);
+  expect(fold.state.live?.steps).toHaveLength(1);
+  // the same version folded on its own: the border changes nothing in the current version
+  const alone = foldAgentLog(undefined, current);
+  expect(fold).toMatchObject({ items: alone.items, state: alone.state });
 });
 
-/** One turn as the agent's own log lays it out: the person asks, the model answers with a codemode
- *  script, the CONTEXT runs the script, the message goes out, the result comes back as the
- *  developer item. */
-const turn = () => [
-  at(1, "events.iterate.com/agent/created", { path: "/agents/support" }),
-  at(2, "events.iterate.com/agent/context-added", { role: "system", content: "Be terse." }),
-  at(3, "events.iterate.com/agent/context-added", {
-    role: "user",
-    content: "store 42",
-    actor: { type: "user" },
-  }),
-  at(4, "events.iterate.com/agent/llm-request-requested", {
-    model: "m",
-    expiresAt: 9e12,
-    triggerOffset: 3,
-  }),
-  at(5, "events.iterate.com/agent/llm-request-settled", {
-    requestOffset: 4,
-    result: { status: "succeeded", text: "ok" },
-  }),
-  at(6, "events.iterate.com/agent/context-added", {
-    role: "assistant",
-    llmRequestOffset: 4,
-    content:
-      "Storing.\n<codemode status=\"Storing\">\nawait itx.kv.put('answer', '42')\n</codemode>",
-  }),
-  at(
-    8,
-    "events.iterate.com/itx/run-requested",
-    { code: "async (itx) => { await itx.kv.put('answer', '42'); return { stored: true } }" },
-    { idempotencyKey: "agent/run-requested@6", source: byAgentWhile(6) },
-  ),
-  // the visible message: the tag's prose, sent directly
-  at(9, "events.iterate.com/agent/web-message-sent", { message: "Storing.", llmRequestOffset: 4 }),
-  at(10, "events.iterate.com/itx/run-settled", {
-    requestOffset: 8,
-    settlement: { status: "succeeded", result: { stored: true } },
-  }),
-  at(11, "events.iterate.com/agent/context-added", {
-    role: "developer",
-    content: "Your script returned: …",
-    actor: { type: "script", requestOffset: 8 },
-  }),
+test("the border that arrives on a live log starts the fold over: the earlier version's rows and work go", () => {
+  const held = foldAgentLog(undefined, earlierVersion());
+  expect(held.items.length).toBeGreaterThan(0);
+  expect(held.state.live).not.toBeNull();
+  const bordered = [...earlierVersion(), versionEnded(8, 1), created(9, 2)];
+  const crossed = foldAgentLog(held, bordered);
+  expect(crossed).toMatchObject({ versionEndedAt: 8, items: [], events: [{ offset: 9 }] });
+  expect(crossed.state).toMatchObject({ live: null, queuedUserMessages: [] });
+
+  // the new version's facts go on from there, and the border stays held
+  const grown = foldAgentLog(crossed, [...bordered, said(10, "the new question")]);
+  expect(grown).toMatchObject({
+    versionEndedAt: 8,
+    items: [{ kind: "user", id: "user-10" }],
+    events: [{ offset: 9 }, { offset: 10 }],
+  });
+  expect(grown.items).toHaveLength(1);
+});
+
+test("an older page that arrives later and holds the border changes nothing in the current version", () => {
+  const current = [
+    created(9, 2),
+    said(10, "the new question"),
+    request(11),
+    settled(12, 11, succeeded("ok")),
+    sent(13, "the new answer"),
+  ];
+  const newest = foldAgentLog(undefined, current.slice(1));
+  const paged = foldAgentLog(newest, [...earlierVersion(), versionEnded(8, 1), ...current]);
+  expect(paged).toMatchObject({ versionEndedAt: 8, items: newest.items });
+  expect(paged.items.map((item) => item.id)).toEqual(["user-10", "activity-11", "assistant-13"]);
+  // a settled message keeps its identity across the page
+  expect(paged.items[0]).toBe(newest.items[0]);
+  expect(paged).toMatchObject({ state: foldAgentLog(undefined, current).state });
+});
+
+test("the newest border wins: two earlier versions leave the third alone", () => {
+  const log = [
+    said(1, "first version"),
+    versionEnded(2, 1),
+    created(3, 2),
+    said(4, "second version"),
+    versionEnded(5, 2),
+    created(6, 3),
+    said(7, "third version"),
+  ];
+  const fold = foldAgentLog(undefined, log);
+  expect(fold).toMatchObject({ versionEndedAt: 5, items: [{ text: "third version" }] });
+  expect(fold.items).toHaveLength(1);
+});
+
+test("with no border the fold reads the whole log, and holds no border", () => {
+  const fold = foldAgentLog(undefined, earlierVersion());
+  expect(fold.versionEndedAt).toBeNull();
+  expect(fold.events.map((event) => event.offset)).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(fold.items.map((item) => item.id)).toEqual(["user-1", "assistant-5"]);
+  expect(fold.state).toMatchObject({ queuedUserMessages: [{ text: "queued behind the script" }] });
+  expect(fold.state.live?.steps).toMatchObject([
+    { kind: "llm", status: "done" },
+    { kind: "code", status: "running" },
+  ]);
+});
+
+/** A conversation of the earlier version, still working: a script runs, and words queue behind it. */
+const earlierVersion = () => [
+  said(1, "the earlier question"),
+  request(2),
+  settled(3, 2, succeeded("<codemode>await work()</codemode>")),
+  runRequested(4, 2),
+  sent(5, "the earlier answer"),
+  said(6, "queued behind the script"),
 ];
+
+/** One turn as the agent's own log lays it out: the person asks, the model answers with a script,
+ *  the context runs the script, whose words go out, and the next request gives the model the
+ *  script's result. */
+const turn = () => [
+  fact(2, "agent/context-added", { role: "system", content: "Be terse." }),
+  said(3, "store 42"),
+  request(4),
+  settled(
+    5,
+    4,
+    succeeded(
+      "Storing.\n<codemode status=\"Storing\">\nawait itx.kv.put('answer', '42')\n</codemode>",
+    ),
+  ),
+  runRequested(
+    8,
+    4,
+    "async (itx) => { await itx.kv.put('answer', '42'); return { stored: true } }",
+  ),
+  // the visible message: the script sends it
+  sent(9, "Storing."),
+  runSettled(10, 8, { status: "succeeded", result: { stored: true } }),
+  request(11, { itemsAdded: [scriptResult(4, '{"stored":true}')] }),
+  settled(12, 11, succeeded("Stored.")),
+];
+
+/** An input at `offset` that starts no turn. */
+function input(offset: number) {
+  return quiet(offset, `input ${String(offset)}`);
+}

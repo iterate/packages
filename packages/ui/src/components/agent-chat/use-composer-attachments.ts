@@ -72,8 +72,8 @@ export function useComposerAttachments() {
 
 /** What a person has written and not sent. It outlives the composer, which goes while the Events
  *  tab is open. */
-export function useComposerDraft() {
-  const [message, setMessage] = useState("");
+export function useComposerDraft(initialMessage = "") {
+  const [message, setMessage] = useState(initialMessage);
   const attachments = useComposerAttachments();
   return { message, setMessage, attachments };
 }

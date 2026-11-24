@@ -364,6 +364,9 @@ function AgentKindView({
   );
   const inputs: AgentKindViewInputs = {
     path,
+    // the version of the path that the read holds, once it has said one (a read says 1 until its
+    // first page is in)
+    version: log.caughtUp || log.version > 1 ? log.version : undefined,
     events: log.events,
     caughtUp: log.caughtUp,
     error: log.error,

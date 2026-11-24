@@ -80,12 +80,13 @@ import { agentViewHref } from "#/components/dash/dash-href.ts";
 import { servesOf } from "#/components/dash/serves.ts";
 import {
   agentGroups,
+  draftOfAddress,
   findAgents,
   newAgentPath,
   personOf,
   type AgentRow,
 } from "#/lib/agent-summary.ts";
-import { itxSessionOf, keptRead, type KeptRead } from "#/lib/itx-session.ts";
+import { itxSessionOf, keptRead, versionOf, type KeptRead } from "#/lib/itx-session.ts";
 import { sameView, savedLogTails, type SavedView } from "#/lib/saved-log-tail.ts";
 import { go, hrefOf, linkTo, pageHref, usePageParam, useView } from "#/lib/page-url.ts";
 
@@ -296,10 +297,13 @@ function NewAgent({
 }) {
   const { NewAgentComposer } = use(homePart());
   const { frames, resolve, chosen } = useDefaultKind(itx);
+  // the draft that the address brought (`#draft=`), read once: the box holds it, unsent
+  const [initialDraft] = useState(() => draftOfAddress(globalThis.location?.hash));
   return (
     <>
       {frames}
       <NewAgentComposer
+        initialDraft={initialDraft}
         person={
           // oxlint-disable-next-line iterate/simple-truthiness-check -- undefined is not known yet, null is signed in as someone with no address
           principal === undefined
@@ -1059,6 +1063,9 @@ function KindChat({
     processors: log.processors,
     presence: log.presence,
     liveState: log.liveState,
+    // the version a read said, never a saved copy's: the frame's chat starts a new conversation
+    // at a new one
+    version: versionOf(log),
     hostError,
     // the chat's own keys checked, and a kind's own keys kept (AgentKindViewState): its controls
     // keep what was picked in them

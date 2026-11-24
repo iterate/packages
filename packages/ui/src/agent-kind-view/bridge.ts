@@ -36,6 +36,8 @@ export type AgentKindViewInputs = {
   processors: AgentKindViewProps["context"]["processors"];
   presence: ContextViewSource["presence"];
   liveState: ContextViewSource["liveState"];
+  /** The version of the agent's path that `events` are of, once a read has said it (`versionOf`). */
+  version: number | undefined;
   hostError: string | undefined;
   state: AgentChatState;
   /** The page's `<html>` classes (its theme), for the frame's own. */

@@ -12,8 +12,8 @@ export const TRACES_CLOSED: Partial<AgentChatState> = {
   scriptRun: undefined,
 };
 
-/** A trace reads what the chat does not: an LLM request's prompt is every context item before it,
- *  and a link can name a run below the pages held. */
+/** A trace reads what the chat does not: an LLM request's conversation is rebuilt along its chain
+ *  of bases, which can stand below the pages held, and a link can name a run below them. */
 export function traceWantsOlder(
   inspected: Inspected,
   older: OlderPages,

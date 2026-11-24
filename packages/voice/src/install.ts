@@ -26,8 +26,8 @@ export const voiceAgentFacetSpec: FacetSpec = {
 };
 
 /** Idempotent: the screen font a screen script embeds (screen-context.md), and the `itx.voice` rule
- *  to `voice.ts`'s default export. Voice runs on the agents app, every device an agent, which the same
- *  init case installs (`installAgents`). */
+ *  to `voice.ts`'s default export. Every device has an agent of the mind's own, made through
+ *  `itx.agents`, which the same init case installs (`installAgents`). */
 export async function installVoice(
   itx: Pick<IterateContextApi, "append"> & { kv: Pick<IterateContextApi["kv"], "put"> },
 ) {
@@ -185,7 +185,7 @@ export async function voiceVersion(mind: {
  * answers), then that commit's outcome on `/`, past any give-up for now (`unavailable`), which
  * leaves it owed. Published, each device's relay loads the new build at its next event
  * (`voiceAgentFacetSpec`); refused, main moving on included, it throws why and the person upgrades again. Answers the
- * commit. The agents app is the platform's own (iterate/agents) and upgrades with it.
+ * commit. The device's agent is the mind's own: its code is in the mind's config, and changes with it.
  */
 export async function upgradeVoice(
   mind: Pick<IterateContextApi, "waitForEvent"> & {

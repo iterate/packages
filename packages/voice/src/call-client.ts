@@ -113,11 +113,11 @@ const CallFact = z.discriminatedUnion("type", [
  *  whether it is ephemeral. */
 const StoredEvent = z.looseObject({ offset: z.number(), ephemeral: z.boolean().optional() });
 
-/** The device's agent's messages, which a row on its context copies to the relay's: they name no
- *  call, so each goes to the calls in progress. */
+/** The words the device's agent's scripts send the person, which a row on its context copies to
+ *  the relay's: they name no call, so each goes to the calls in progress. */
 const AgentMessage = z.object({
-  type: z.literal("events.iterate.com/agent/web-message-sent"),
-  payload: z.looseObject({ message: z.string(), llmRequestOffset: z.number().optional() }),
+  type: z.literal("events.iterate.com/agent-ui/message-sent"),
+  payload: z.looseObject({ message: z.string() }),
 });
 
 export type VoiceCallFact = z.infer<typeof CallFact> | z.infer<typeof AgentMessage>;

@@ -1,9 +1,9 @@
-// Reducer coverage for the browser-side agent UI fold: a full simulated
-// turn — user message, LLM request with streamed thinking + response deltas,
-// the context's script run, completion, assistant reply — must reduce into the
-// chat items and live active-work tail the agent feed renders.
+// The agent-UI reducer (agent-ui-reducer.ts) over the facts of the mind's own agent
+// (test-support/agent-log.ts): a person's words, a request whose windows stream and which settles,
+// the context's script run, the agent's words, must reduce into the chat items and the live tail
+// the agent feed renders.
 import { expect, test } from "vitest";
-import { RUN_DEADLINE_MS, type RunSettlement } from "iterate/stream/run";
+import { RUN_DEADLINE_MS } from "iterate/stream/run";
 import { appendText, sliceText } from "./chunked-text.ts";
 import type { StreamEvent } from "./stream-event.ts";
 import {
@@ -15,19 +15,35 @@ import {
   type AgentUiActivity,
   type AgentUiItem,
 } from "./agent-ui-reducer.ts";
+import {
+  apiMessage,
+  cancelled,
+  fact,
+  failed,
+  frame,
+  paused,
+  request,
+  resumed,
+  runRequested,
+  runSettled,
+  said,
+  sent,
+  settled,
+  succeeded,
+  summary,
+  timeOf,
+  transcription,
+} from "#/test-support/agent-log.ts";
 
 test("a person's message says who said it in a short name, and never the page it came through: their own append, their call into the agent's facet from an app's page, their script", () => {
   const principal = { actor: "user:1", email: "ada@example.com" };
-  const said = (source: StreamEvent["source"]) => ({
-    type: "events.iterate.com/agent/context-added",
-    payload: { role: "user", actor: { type: "user", origin: "web" }, content: "hello" },
-    source,
-  });
   const state = reduceAll([
-    said({ principal }),
-    said({ onBehalfOf: { principal, via: { appPage: "agents.example.com" } } }),
-    said({ onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } }),
-    said(undefined),
+    said(1, "hello", { source: { principal } }),
+    said(2, "hello", {
+      source: { onBehalfOf: { principal, via: { appPage: "agents.example.com" } } },
+    }),
+    said(3, "hello", { source: { onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } } }),
+    said(4, "hello", { source: {} }),
   ]);
   expect(state.items.map((item) => item.kind === "user" && item.saidBy)).toEqual([
     "ada",
@@ -38,15 +54,10 @@ test("a person's message says who said it in a short name, and never the page it
 });
 
 test("a person's message says who sent it as data: their actor, their address, and whether a script wrote it; an event that names nobody says no one", () => {
-  const said = (source: StreamEvent["source"]) => ({
-    type: "events.iterate.com/agent/context-added",
-    payload: { role: "user", actor: { type: "user" }, content: "hello" },
-    source,
-  });
   const state = reduceAll([
-    said({ principal: { actor: "user:1", email: "ada@example.com" } }),
-    said({ onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } }),
-    said(undefined),
+    said(1, "hello", { source: { principal: { actor: "user:1", email: "ada@example.com" } } }),
+    said(2, "hello", { source: { onBehalfOf: { principal: { actor: "user:2" }, run: "/@7" } } }),
+    said(3, "hello", { source: {} }),
   ]);
   expect(state.items.map((item) => item.kind === "user" && item.sender)).toEqual([
     { actor: "user:1", email: "ada@example.com", script: false },
@@ -55,64 +66,43 @@ test("a person's message says who sent it as data: their actor, their address, a
   ]);
 });
 
-test("a message sent with message() keeps who said it on the bubble the loop makes of it", () => {
+test("a message sent with message() keeps who said it on the bubble its transcription draws, in the message's own words", () => {
   const principal = { actor: "user:1", email: "ada@example.com" };
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/message-received",
-      offset: 7,
-      payload: { message: "hello" },
+    apiMessage(7, "hello", {
       source: { onBehalfOf: { principal, via: { appPage: "agents.example.com" } } },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      offset: 8,
-      payload: { role: "user", actor: { type: "user" }, content: "hello" },
-      source: {
-        processor: {
-          slug: "agent",
-          version: "1",
-          whileProcessing: { offset: 7, type: "events.iterate.com/agent/message-received" },
-        },
-      },
-    },
+    }),
+    transcription(8, 7, "hello\n\n— Agents API: ada@example.com sent this."),
   ]);
   expect(state.items).toMatchObject([
-    { kind: "user", text: "hello", saidBy: "ada", sender: { ...principal, script: false } },
+    {
+      kind: "user",
+      offset: 8,
+      text: "hello",
+      saidBy: "ada",
+      sender: { ...principal, script: false },
+    },
   ]);
 });
 
-test("a helper's report keeps the context that sent it on the user item the loop makes of it, and starts the same turn", () => {
+test("a subagent's report keeps the context that sent it on the bubble its transcription draws, and starts the same turn", () => {
   const report = [
-    {
-      type: "events.iterate.com/agent/message-received",
-      offset: 7,
-      payload: { message: "The site is up.", from: "/agents/onboarding/website" },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      offset: 8,
-      payload: { role: "user", actor: { type: "user" }, content: "The site is up." },
-      source: {
-        processor: {
-          slug: "agent",
-          version: "1",
-          whileProcessing: { offset: 7, type: "events.iterate.com/agent/message-received" },
-        },
-      },
-    },
-    { ...request, offset: 9, payload: { triggerOffset: 8 } },
+    apiMessage(7, "The site is up.", {
+      source: { origin: "/agents" },
+      from: "/agents/onboarding/website",
+    }),
+    transcription(8, 7, "[from /agents/onboarding/website] The site is up."),
+    request(9),
   ];
   const state = reduceAll(report);
   expect(state.items).toMatchObject([
     { kind: "user", id: "user-8", text: "The site is up.", from: "/agents/onboarding/website" },
   ]);
   // the same events with no `from` fold to the same turn: the sender changes the row, not the fold
-  const unsigned = reduceAll(
-    report.map((event) =>
-      event.offset === 7 ? { ...event, payload: { message: "The site is up." } } : event,
-    ),
-  );
+  const unsigned = reduceAll([
+    apiMessage(7, "The site is up.", { source: { origin: "/agents" } }),
+    ...report.slice(1),
+  ]);
   expect(state).toMatchObject({ live: unsigned.live });
   expect(state.items.map(({ id, kind }) => ({ id, kind }))).toEqual(
     unsigned.items.map(({ id, kind }) => ({ id, kind })),
@@ -125,26 +115,20 @@ test.for([
   { name: "no string", from: 7 },
 ])("a `from` of $name is a person's message, with no sender context", ({ from }) => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user" }, content: "hello", from },
-    },
+    fact(1, "agent/message-received", { message: "hello", from }, { origin: "/agents" }),
+    transcription(2, 1, "hello"),
   ]);
   expect(state.items).toMatchObject([{ kind: "user", text: "hello", from: undefined }]);
 });
 
 test("a message that starts no turn keeps the context that sent it on its background message", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user" },
-        content: "fyi",
-        from: "/agents/onboarding/look",
-        llmRequestPolicy: { behaviour: "dont-trigger-request" },
-      },
-    },
+    apiMessage(1, "fyi", {
+      source: { origin: "/agents" },
+      from: "/agents/onboarding/look",
+      trigger: false,
+    }),
+    transcription(2, 1, "fyi", { llmRequestPolicy: { behaviour: "dont-trigger-request" } }),
   ]);
   expect(state.items).toMatchObject([
     { kind: "background", messages: [{ text: "fyi", from: "/agents/onboarding/look" }] },
@@ -153,46 +137,11 @@ test("a message that starts no turn keeps the context that sent it on its backgr
 
 test("streams thinking and response deltas into the live llm step", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "count the inputs",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 0,
-        responseDelta: "",
-        thinkingDelta: "Reading the stream",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 1,
-        responseDelta: "const n = await ",
-        thinkingDelta: "",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 2,
-        responseDelta: "stream.count();",
-        thinkingDelta: "",
-      },
-    },
+    said(1, "count the inputs"),
+    request(10, { model: "gpt-test" }),
+    frame(11, 10, { thinkingDelta: "Reading the stream", thinking: true }),
+    frame(12, 10, { textDelta: "const n = await " }),
+    frame(13, 10, { textDelta: "stream.count();" }),
   ]);
 
   expect(state.items).toHaveLength(1);
@@ -210,37 +159,10 @@ test("streams thinking and response deltas into the live llm step", () => {
 
 test("a window that adds thinking and text at once streams both into the live llm step", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "count the inputs",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 0,
-        responseDelta: "const n = await ",
-        thinkingDelta: "Reading the stream",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 1,
-        responseDelta: "stream.count();",
-        thinkingDelta: "",
-      },
-    },
+    said(1, "count the inputs"),
+    request(10, { model: "gpt-test" }),
+    frame(11, 10, { textDelta: "const n = await ", thinkingDelta: "Reading the stream" }),
+    frame(12, 10, { textDelta: "stream.count();" }),
   ]);
 
   expect(state.live?.steps[0]).toMatchObject({
@@ -251,73 +173,31 @@ test("a window that adds thinking and text at once streams both into the live ll
   });
 });
 
-test("committed assistant text extends streamed windows when the tail flush was lost", () => {
+test("a succeeded settle's text extends streamed windows when the tail flush was lost", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "go" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 0,
-        responseDelta: "The lighthouse",
-        thinkingDelta: "",
-      },
-    },
-    // The tail flush was swallowed; the committed assistant item carries
-    // the full text the windows never received.
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "assistant", content: "The lighthouse keeper", llmRequestOffset: 10 },
-    },
+    said(1, "go"),
+    request(10, { model: "gpt-test" }),
+    frame(11, 10, { textDelta: "The lighthouse" }),
+    // The tail flush was swallowed; the settled result carries the full text the windows never
+    // received.
+    settled(12, 10, succeeded("The lighthouse keeper")),
   ]);
 
   expect(state.live?.steps[0]).toMatchObject({
     kind: "llm",
+    outcome: "completed",
     responseText: "The lighthouse keeper",
   });
 });
 
 test("a cancelled settle's partialText extends streamed windows with the unflushed tail", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "go" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 10,
-        sequence: 0,
-        responseDelta: "The lighthouse",
-        thinkingDelta: "",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 10,
-        result: {
-          status: "cancelled",
-          reason: "interrupted-by-user-input",
-          // The interrupt stranded " keeper" in the coalescing buffer — it
-          // never flushed, but the settled fact carries the full partial.
-          partialText: "The lighthouse keeper",
-        },
-      },
-    },
+    said(1, "go"),
+    request(10, { model: "gpt-test" }),
+    frame(11, 10, { textDelta: "The lighthouse" }),
+    // The interrupt stranded " keeper" in the coalescing buffer — it never flushed, but the
+    // settled fact carries the full partial.
+    settled(12, 10, cancelled("interrupted-by-user-input", "The lighthouse keeper")),
   ]);
 
   const step =
@@ -330,26 +210,16 @@ test("a cancelled settle's partialText extends streamed windows with the unflush
   });
 });
 
-test("the next key's answer replaces what a failed answer streamed, and a late window of the failed one shows nothing", () => {
-  const frame = (attempt: number | undefined, responseDelta: string, thinkingDelta = "") => ({
-    type: "events.iterate.com/agent/llm-response-frame",
-    payload: { llmRequestOffset: 10, sequence: 0, responseDelta, thinkingDelta, attempt },
-  });
+test("the next attempt's answer replaces what a failed attempt streamed, and a late window of the failed one shows nothing", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "go" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test" },
-    },
-    frame(undefined, "", "Weighing it"),
-    frame(undefined, "Half an ans"),
-    frame(1, "Counting"),
-    frame(0, "wer"), // the failed answer's last window, delivered late
-    frame(1, " now.", "Counted"),
+    said(1, "go"),
+    request(10, { model: "gpt-test" }),
+    frame(11, 10, { thinkingDelta: "Weighing it" }),
+    frame(12, 10, { textDelta: "Half an ans" }),
+    frame(13, 10, { attempt: 1, textDelta: "Counting" }),
+    // the failed attempt's last window, delivered late
+    frame(14, 10, { textDelta: "wer" }),
+    frame(15, 10, { attempt: 1, textDelta: " now.", thinkingDelta: "Counted" }),
   ]);
 
   const step = state.live?.steps[0];
@@ -363,33 +233,14 @@ test("the next key's answer replaces what a failed answer streamed, and a late w
 
 test("settles the activity into items when all work completes", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "hi" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    runRequested(3, "await stream.read()"),
-    runSettled(3, { status: "succeeded", result: 12 }),
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 5,
-        durationMs: 2100,
-        result: {
-          status: "succeeded",
-          text: "There are 12 inputs.",
-          usage: { inputTokens: 9400, outputTokens: 300 },
-        },
-      },
-    },
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "There are 12 inputs." },
-    },
+    said(1, "hi"),
+    request(2, { model: "gpt-test" }),
+    settled(3, 2, succeeded("…", { inputTokens: 9400, outputTokens: 300 }), {
+      durationMs: 2100,
+    }),
+    runRequested(4, 2, "await stream.read()"),
+    runSettled(5, 4, { status: "succeeded", result: 12 }),
+    sent(6, "There are 12 inputs."),
   ]);
 
   expect(state.live).toBeNull();
@@ -408,7 +259,7 @@ test("settles the activity into items when all work completes", () => {
   });
   expect(activity.steps[1]).toMatchObject({
     kind: "code",
-    requestOffset: 3,
+    requestOffset: 4,
     status: "done",
     code: "await stream.read()",
     result: 12,
@@ -418,24 +269,18 @@ test("settles the activity into items when all work completes", () => {
 });
 
 test("a run the context's restart interrupted shows the platform's error, not an invalid settlement", () => {
-  const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    runRequested(2, "await stream.read()"),
-    runSettled(2, {
-      status: "failed",
-      error: "the context restarted before the script finished",
-      failureKind: "interrupted",
-    }),
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: { requestOffset: 5, durationMs: 100, result: { status: "succeeded", text: "ok" } },
-    },
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "ok" } },
-  ]);
+  const state = settleAtIdle(
+    reduceAll([
+      request(1, { model: "gpt-test" }),
+      settled(2, 1, succeeded("ok"), { durationMs: 100 }),
+      runRequested(3, 1, "await stream.read()"),
+      runSettled(4, 3, {
+        status: "failed",
+        error: "the context restarted before the script finished",
+        failureKind: "interrupted",
+      }),
+    ]),
+  );
   const activity = state.items.find((item) => item.kind === "activity");
   if (activity?.kind !== "activity") throw new Error("expected activity item");
   expect(activity.steps[1]).toMatchObject({
@@ -447,16 +292,10 @@ test("a run the context's restart interrupted shows the platform's error, not an
 
 test("stamps the summary activity onto the running code step as it lands", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    runRequested(2),
-    {
-      type: "events.iterate.com/agent/summary-updated",
-      payload: { title: "FirstFT roundup", activity: "Searching the five most recent emails" },
-    },
+    request(1, { model: "gpt-test" }),
+    settled(2, 1),
+    runRequested(3, 1),
+    summary(4, "Searching the five most recent emails"),
   ]);
 
   expect(state).toMatchObject({ summaryActivity: "Searching the five most recent emails" });
@@ -469,61 +308,36 @@ test("stamps the summary activity onto the running code step as it lands", () =>
 
 test("a round that never updates the summary inherits the stream status as of that round", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    runRequested(2, "await round1()"),
-    {
-      type: "events.iterate.com/agent/summary-updated",
-      payload: { activity: "Running script 1 of 2" },
-    },
-    runSettled(2, { status: "succeeded", result: 1 }),
-    runRequested(5, "await round2()"),
-    runSettled(5, { status: "succeeded", result: 2 }),
-    runRequested(7, "await round3()"),
+    request(1, { model: "gpt-test" }),
+    settled(2, 1),
+    runRequested(3, 1, "await round1()"),
+    summary(4, "Running script 1 of 2"),
+    runSettled(5, 3, { status: "succeeded", result: 1 }),
+    runRequested(6, 1, "await round2()", 1),
+    runSettled(7, 6, { status: "succeeded", result: 2 }),
+    runRequested(8, 1, "await round3()", 2),
   ]);
 
   const codeSteps = state.live?.steps.filter((step) => step.kind === "code");
   expect(codeSteps).toMatchObject([
-    { requestOffset: 2, activitySummary: "Running script 1 of 2" },
+    { requestOffset: 3, activitySummary: "Running script 1 of 2" },
     // The second script appended no summary — the round's status is whatever
     // the stream's summary said as of that round.
-    { requestOffset: 5, activitySummary: "Running script 1 of 2" },
+    { requestOffset: 6, activitySummary: "Running script 1 of 2" },
     // The third inherits from BIRTH, so the live header carries the status
     // too — not only settled rounds.
-    { requestOffset: 7, status: "running", activitySummary: "Running script 1 of 2" },
+    { requestOffset: 8, status: "running", activitySummary: "Running script 1 of 2" },
   ]);
 });
 
-test("llm-request-settled succeeded closes the step", () => {
+test("a request that succeeded closes its step", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "hi" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 5,
-        durationMs: 2100,
-        result: {
-          status: "succeeded",
-          text: "done",
-          usage: { inputTokens: 9400, outputTokens: 300 },
-        },
-      },
-    },
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "There are 12 inputs." },
-    },
+    said(1, "hi"),
+    request(5, { model: "gpt-test" }),
+    settled(6, 5, succeeded("done", { inputTokens: 9400, outputTokens: 300 }), {
+      durationMs: 2100,
+    }),
+    sent(7, "There are 12 inputs."),
   ]);
 
   expect(state.live).toBeNull();
@@ -540,22 +354,12 @@ test("llm-request-settled succeeded closes the step", () => {
   });
 });
 
-test("llm-request-settled failed and cancelled map to step outcomes", () => {
-  const failed = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 5,
-        result: { status: "failed", errorMessage: "model exploded" },
-      },
-    },
+test("a request that failed or was cancelled settles its step with that outcome", () => {
+  const failedRequest = reduceAll([
+    request(5, { model: "gpt-test" }),
+    settled(6, 5, failed("model exploded")),
   ]);
-  expect(failed.live?.steps[0]).toMatchObject({
+  expect(failedRequest.live?.steps[0]).toMatchObject({
     kind: "llm",
     status: "done",
     outcome: "failed",
@@ -563,22 +367,8 @@ test("llm-request-settled failed and cancelled map to step outcomes", () => {
   });
 
   const interrupted = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 5,
-        result: {
-          status: "cancelled",
-          reason: "interrupted-by-user-input",
-          partialText: "Hel",
-        },
-      },
-    },
+    request(5, { model: "gpt-test" }),
+    settled(6, 5, cancelled("interrupted-by-user-input", "Hel")),
   ]);
   expect(interrupted.live?.steps[0]).toMatchObject({
     kind: "llm",
@@ -588,15 +378,8 @@ test("llm-request-settled failed and cancelled map to step outcomes", () => {
   });
 
   const expired = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: { requestOffset: 5, result: { status: "cancelled", reason: "expired" } },
-    },
+    request(5, { model: "gpt-test" }),
+    settled(6, 5, cancelled("expired")),
   ]);
   expect(expired.live?.steps[0]).toMatchObject({
     kind: "llm",
@@ -607,11 +390,13 @@ test("llm-request-settled failed and cancelled map to step outcomes", () => {
 });
 
 test("keeps running script source, start time and deadline in the live activity", () => {
-  const state = reduceAll([runRequested(1, "await itx.repo.readFile({ path: 'README.md' })")]);
+  const state = reduceAll([
+    runRequested(1, null, "await itx.repo.readFile({ path: 'README.md' })"),
+  ]);
 
   expect(state.items).toHaveLength(0);
   expect(state.live?.steps).toHaveLength(1);
-  const startedAtMs = Date.parse("2026-06-11T00:00:01.000Z");
+  const startedAtMs = timeOf(1);
   expect(state.live?.steps[0]).toMatchObject({
     kind: "code",
     id: "code-1",
@@ -626,11 +411,8 @@ test("keeps running script source, start time and deadline in the live activity"
 
 test("does not guess which script a settlement without its request's offset belongs to", () => {
   const state = reduceAll([
-    runRequested(1, "async () => mutate()"),
-    {
-      type: "events.iterate.com/itx/run-settled",
-      payload: { settlement: { status: "succeeded", result: "wrong target" } },
-    },
+    runRequested(1, null, "async () => mutate()"),
+    fact(2, "itx/run-settled", { settlement: { status: "succeeded", result: "wrong target" } }),
   ]);
 
   expect(state.live?.steps).toMatchObject([{ kind: "code", requestOffset: 1, status: "running" }]);
@@ -638,9 +420,9 @@ test("does not guess which script a settlement without its request's offset belo
 
 test("does not derive agent state or durations from a malformed event timestamp", () => {
   const state = reduceAll([
-    runRequested(1, "async () => mutate()"),
+    runRequested(1, null, "async () => mutate()"),
     {
-      ...runSettled(1, { status: "succeeded", result: "must be ignored" }),
+      ...runSettled(2, 1, { status: "succeeded", result: "must be ignored" }),
       createdAt: "not-a-timestamp",
     },
   ]);
@@ -649,45 +431,22 @@ test("does not derive agent state or durations from a malformed event timestamp"
 });
 
 test("a run request RunRequested refuses (no code) is no step", () => {
-  const state = reduceAll([
-    { type: "events.iterate.com/itx/run-requested", payload: { code: "" } },
-  ]);
+  const state = reduceAll([fact(1, "itx/run-requested", { code: "" })]);
 
   expect(state).toMatchObject({ items: [] });
   expect(state.live).toBeNull();
 });
 
 test("a running script's chat message shows at once and the live indicator stays", () => {
-  const countdownEvents: Array<Partial<StreamEvent> & { type: string; payload?: unknown }> = [
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "gpt-test", requestId: "llm-request:gen-0" },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "assistant",
-        llmRequestOffset: 10,
-        content:
-          "<codemode>\nawait itx.chat.sendMessage('20');\nawait new Promise((resolve) => setTimeout(resolve, 1000));\n</codemode>",
-      },
-    },
-    runRequested(
-      3,
-      "async (itx) => {\n  await itx.chat.sendMessage('20');\n  await new Promise((resolve) => setTimeout(resolve, 1000));\n}",
-      2,
-    ),
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: { requestOffset: 10, result: { status: "succeeded", text: "20" } },
-    },
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "20" },
-    },
+  const script =
+    "await itx.append({ type: 'events.iterate.com/agent-ui/message-sent', payload: { message: '20' } });\nawait new Promise((resolve) => setTimeout(resolve, 1000));";
+  const countdown = [
+    request(1, { model: "gpt-test" }),
+    settled(2, 1, succeeded(`<codemode>\n${script}\n</codemode>`)),
+    runRequested(3, 1, `async (itx) => {\n${script}\n}`),
+    sent(4, "20"),
   ];
-  const running = reduceAll(countdownEvents);
+  const running = reduceAll(countdown);
 
   expect(running).toMatchObject({
     items: [{ kind: "assistant", text: "20" }],
@@ -700,7 +459,7 @@ test("a running script's chat message shows at once and the live indicator stays
     status: "running",
   });
 
-  const completed = settleAtIdle(reduceAll([...countdownEvents, runSettled(3)]));
+  const completed = settleAtIdle(reduceAll([...countdown, runSettled(5, 3)]));
 
   expect(completed.live).toBeNull();
   expect(completed.items.map((item) => item.kind)).toEqual(["assistant", "activity"]);
@@ -719,37 +478,12 @@ test("a running script's chat message shows at once and the live indicator stays
 // boundary or some future event.
 test("a script-sent reply shows at once and its script's settle closes the activity when nothing else runs", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "ok what model are you using?",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 10,
-      payload: { model: "xai/grok-4.5" },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "assistant",
-        llmRequestOffset: 10,
-        content: "<codemode>\nawait itx.chat.sendMessage('grok');\n</codemode>",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: { requestOffset: 10, result: { status: "succeeded", text: "…" } },
-    },
-    runRequested(5, "async (itx) => {\n  await itx.chat.sendMessage('grok');\n}", 3),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "I'm using **xai/grok-4.5**." },
-    },
-    runSettled(5),
+    said(1, "ok what model are you using?"),
+    request(2, { model: "xai/grok-4.5" }),
+    settled(3, 2),
+    runRequested(4, 2, "async (itx) => {\n  await say('grok');\n}"),
+    sent(5, "I'm using **xai/grok-4.5**."),
+    runSettled(6, 4),
   ]);
 
   expect(state.live).toBeNull();
@@ -764,41 +498,27 @@ test("a script-sent reply shows at once and its script's settle closes the activ
     status: "done",
     steps: [
       { kind: "llm", status: "done", outcome: "completed" },
-      { kind: "code", requestOffset: 5, status: "done", success: true },
+      { kind: "code", requestOffset: 4, status: "done", success: true },
     ],
   });
 });
 
 test("stream wakes are not chat rows", () => {
   const state = reduceAll([
-    { type: "events.iterate.com/itx/created" },
-    { type: "events.iterate.com/itx/woken" },
-    { type: "events.iterate.com/itx/woken" },
+    fact(1, "itx/created", {}),
+    fact(2, "itx/woken", {}),
+    fact(3, "itx/woken", {}),
   ]);
 
   expect(state).toMatchObject({ items: [] });
 });
 
 test("a durable rebuild recovers the interrupted partial from the settled fact", () => {
-  // Chunks are ephemeral: a refold from the journal has none, so the step's
-  // streamed text must come from settled.result.partialText.
+  // Windows are ephemeral: a refold from the journal has none, so the step's
+  // streamed text must come from the settled result's partialText.
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 5,
-      payload: { model: "gpt-test", expiresAt: Date.parse("2026-06-11T00:10:00.000Z") },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 5,
-        result: {
-          status: "cancelled",
-          reason: "interrupted-by-user-input",
-          partialText: "Let me check your cal",
-        },
-      },
-    },
+    request(5, { model: "gpt-test" }),
+    settled(6, 5, cancelled("interrupted-by-user-input", "Let me check your cal")),
   ]);
   expect(state.live?.steps[0]).toMatchObject({
     kind: "llm",
@@ -811,14 +531,8 @@ test("a durable rebuild recovers the interrupted partial from the settled fact",
 
 test("shows stream pause and resume events in the agent feed", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/itx/paused",
-      payload: { reason: "Agent circuit breaker tripped." },
-    },
-    {
-      type: "events.iterate.com/itx/resumed",
-      payload: { reason: "Operator resumed the agent." },
-    },
+    fact(1, "itx/paused", { reason: "Agent circuit breaker tripped." }),
+    fact(2, "itx/resumed", { reason: "Operator resumed the agent." }),
   ]);
 
   expect(state).toMatchObject({
@@ -828,32 +542,21 @@ test("shows stream pause and resume events in the agent feed", () => {
         id: "stream-paused-1",
         text: "Agent paused",
         reason: "Agent circuit breaker tripped.",
-        timestampMs: Date.parse("2026-06-11T00:00:01.000Z"),
+        timestampMs: timeOf(1),
       },
       {
         kind: "stream-resumed",
         id: "stream-resumed-2",
         text: "Agent resumed",
         reason: "Operator resumed the agent.",
-        timestampMs: Date.parse("2026-06-11T00:00:02.000Z"),
+        timestampMs: timeOf(2),
       },
     ],
   });
 });
 
-test("shows agent pause and resume (the turn-loop breaker) as the same marker rows", () => {
-  const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/paused",
-      payload: {
-        reason: "autonomous turn limit reached (100 consecutive turns without external input)",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/resumed",
-      payload: { reason: "external input" },
-    },
-  ]);
+test("shows agent pause and resume (the agent's own bound) as the same marker rows", () => {
+  const state = reduceAll([paused(1, "3 requests in a row failed"), resumed(2, "external input")]);
 
   expect(state).toMatchObject({
     items: [
@@ -861,15 +564,15 @@ test("shows agent pause and resume (the turn-loop breaker) as the same marker ro
         kind: "stream-paused",
         id: "stream-paused-1",
         text: "Agent paused",
-        reason: "autonomous turn limit reached (100 consecutive turns without external input)",
-        timestampMs: Date.parse("2026-06-11T00:00:01.000Z"),
+        reason: "3 requests in a row failed",
+        timestampMs: timeOf(1),
       },
       {
         kind: "stream-resumed",
         id: "stream-resumed-2",
         text: "Agent resumed",
         reason: "external input",
-        timestampMs: Date.parse("2026-06-11T00:00:02.000Z"),
+        timestampMs: timeOf(2),
       },
     ],
   });
@@ -878,19 +581,8 @@ test("shows agent pause and resume (the turn-loop breaker) as the same marker ro
 test("settles a completed LLM request at run-level idle even without an assistant message", () => {
   const state = settleAtIdle(
     reduceAll([
-      {
-        type: "events.iterate.com/agent/llm-request-requested",
-        offset: 7,
-        payload: { model: "gpt-test" },
-      },
-      {
-        type: "events.iterate.com/agent/llm-request-settled",
-        payload: {
-          requestOffset: 7,
-          durationMs: 250,
-          result: { status: "succeeded", text: "done" },
-        },
-      },
+      request(7, { model: "gpt-test" }),
+      settled(8, 7, succeeded("done"), { durationMs: 250 }),
     ]),
   );
 
@@ -904,10 +596,7 @@ test("settles a completed LLM request at run-level idle even without an assistan
 });
 
 test("the reported idle boundary closes no running step: the model call and the script stay running until their own settlements land", () => {
-  const events = [
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 1, payload: { model: "m" } },
-    runRequested(2, "async () => mutateExternalState()"),
-  ];
+  const events = [request(1), runRequested(2, null, "async () => mutateExternalState()")];
   const idle = settleAtIdle(reduceAll(events));
 
   expect(idle).toMatchObject({ items: [] });
@@ -917,14 +606,11 @@ test("the reported idle boundary closes no running step: the model call and the 
   ]);
 
   // The platform settles every run: one still going at RUN_DEADLINE_MS is settled `deadline`.
-  const settled = settleAtIdle(
+  const settledBoth = settleAtIdle(
     reduceAll([
       ...events,
-      {
-        type: "events.iterate.com/agent/llm-request-settled",
-        payload: { requestOffset: 1, result: { status: "succeeded", text: "…" } },
-      },
-      runSettled(2, {
+      settled(3, 1),
+      runSettled(4, 2, {
         status: "failed",
         error:
           "itx.run: the script did not finish within 10 minutes; it may have partly run, and it is not run again",
@@ -932,8 +618,8 @@ test("the reported idle boundary closes no running step: the model call and the 
       }),
     ]),
   );
-  expect(settled.live).toBeNull();
-  expect(settled.items).toMatchObject([
+  expect(settledBoth.live).toBeNull();
+  expect(settledBoth.items).toMatchObject([
     {
       kind: "activity",
       status: "done",
@@ -951,22 +637,25 @@ test("the reported idle boundary closes no running step: the model call and the 
 });
 
 test("a script settlement that lands after the idle report closes the step it names", () => {
-  const requested = runRequested(10, "async () => mutate()");
+  const requested = runRequested(10, null, "async () => mutate()");
   const idle = settleAtIdle(reduceAll([requested]));
   expect(idle).toMatchObject({ items: [] });
   expect(idle.live?.steps).toMatchObject([{ kind: "code", requestOffset: 10, status: "running" }]);
 
-  const settled = settleAtIdle(
-    reduceAll([requested, runSettled(10, { status: "succeeded", result: { committed: true } })]),
+  const settledRun = settleAtIdle(
+    reduceAll([
+      requested,
+      runSettled(11, 10, { status: "succeeded", result: { committed: true } }),
+    ]),
   );
-  expect(settled.items).toMatchObject([
+  expect(settledRun.items).toMatchObject([
     {
       kind: "activity",
       id: "activity-10",
       steps: [{ kind: "code", status: "done", success: true, result: { committed: true } }],
     },
   ]);
-  const [activity] = settled.items;
+  const [activity] = settledRun.items;
   if (activity?.kind !== "activity") throw new Error("expected the settled activity");
   expect(activity.steps[0]).not.toHaveProperty("errorMessage");
 });
@@ -974,9 +663,9 @@ test("a script settlement that lands after the idle report closes the step it na
 test("an activity with one of its two scripts still running stays live at the idle report", () => {
   const state = settleAtIdle(
     reduceAll([
-      runRequested(10, "async () => mutateA()"),
-      runRequested(11, "async () => mutateB()"),
-      runSettled(10, { status: "succeeded", result: "a" }),
+      runRequested(10, null, "async () => mutateA()"),
+      runRequested(11, null, "async () => mutateB()"),
+      runSettled(12, 10, { status: "succeeded", result: "a" }),
     ]),
   );
 
@@ -990,14 +679,8 @@ test("an activity with one of its two scripts still running stays live at the id
   });
 });
 
-test("the reported idle boundary never closes a running model call: only its llm-request-settled does", () => {
-  const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 12,
-      payload: { model: "gpt-test" },
-    },
-  ]);
+test("the reported idle boundary never closes a running model call: only its settlement does", () => {
+  const state = reduceAll([request(12, { model: "gpt-test" })]);
   const projected = settleAtIdle(state);
 
   expect(projected).toMatchObject({ items: [] });
@@ -1006,22 +689,11 @@ test("the reported idle boundary never closes a running model call: only its llm
 
 test("the reported idle boundary settles the activity after a later journal event", () => {
   const state = reduceAll([
-    runRequested(1, 'async (itx) => { await itx.chat.sendMessage("kumquat"); return "sent"; }'),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      offset: 2,
-      payload: { message: "kumquat" },
-    },
-    { ...runSettled(1, { status: "succeeded", result: "sent" }), offset: 3 },
-    {
-      type: "events.iterate.com/agent/context-added",
-      offset: 4,
-      payload: {
-        role: "assistant",
-        content: "The assistant sent this visible web-chat message: kumquat",
-        llmRequestOffset: 99,
-      },
-    },
+    runRequested(1, null, 'async (itx) => { await say("kumquat"); return "sent"; }'),
+    sent(2, "kumquat"),
+    runSettled(3, 1, { status: "succeeded", result: "sent" }),
+    // words said in the agent's name: the model reads them, and the feed draws them nowhere
+    fact(4, "agent/context-added", { role: "assistant", content: "I sent: kumquat" }),
   ]);
 
   const projected = settleAtIdle(state);
@@ -1034,41 +706,28 @@ test("the reported idle boundary settles the activity after a later journal even
 });
 
 test("a script past its deadline stays running through later input, which queues, until the platform's `deadline` settlement closes it", () => {
-  const baseMs = Date.parse("2026-06-11T00:00:00.000Z");
-  const at = (ms: number) => new Date(baseMs + ms).toISOString();
-  const pastDeadline = reduceAll([
-    { ...runRequested(1, "async () => mutate()"), createdAt: at(0) },
-    {
-      type: "events.iterate.com/agent/context-added",
-      offset: 2,
-      createdAt: at(RUN_DEADLINE_MS + 1_000),
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "still there?" },
-    },
-  ]);
+  const at = (ms: number) => new Date(timeOf(0) + ms).toISOString();
+  const requested = { ...runRequested(1, null, "async () => mutate()"), createdAt: at(0) };
+  const asked = { ...said(2, "still there?"), createdAt: at(RUN_DEADLINE_MS + 1_000) };
+  const pastDeadline = reduceAll([requested, asked]);
   expect(pastDeadline).toMatchObject({ items: [] });
   expect(pastDeadline.queuedUserMessages).toMatchObject([{ text: "still there?" }]);
   expect(pastDeadline.live?.steps).toMatchObject([{ kind: "code", status: "running" }]);
 
-  const settled = reduceAll([
-    { ...runRequested(1, "async () => mutate()"), createdAt: at(0) },
+  const settledRun = reduceAll([
+    requested,
+    asked,
     {
-      type: "events.iterate.com/agent/context-added",
-      offset: 2,
-      createdAt: at(RUN_DEADLINE_MS + 1_000),
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "still there?" },
-    },
-    {
-      ...runSettled(1, {
+      ...runSettled(3, 1, {
         status: "failed",
         error: "itx.run: the script did not finish within 10 minutes",
         failureKind: "deadline",
       }),
-      offset: 3,
       createdAt: at(RUN_DEADLINE_MS + 2_000),
     },
   ]);
-  expect(settled.live).toBeNull();
-  expect(settled.items).toMatchObject([
+  expect(settledRun.live).toBeNull();
+  expect(settledRun.items).toMatchObject([
     {
       kind: "activity",
       steps: [{ kind: "code", success: false, durationMs: RUN_DEADLINE_MS + 2_000 }],
@@ -1078,21 +737,7 @@ test("a script past its deadline stays running through later input, which queues
 });
 
 test("queues a user message that arrives mid-turn", () => {
-  const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 7,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "also, one more thing",
-      },
-    },
-  ]);
+  const state = reduceAll([request(7, { model: "gpt-test" }), said(8, "also, one more thing")]);
 
   // The interjected message should stay pinned after the live activity
   // instead of settling into chronological feed rows before the current turn.
@@ -1107,32 +752,10 @@ test("queues a user message that arrives mid-turn", () => {
 
 test("settles queued user messages before the next LLM request starts", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 7,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "also, one more thing",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 7,
-        durationMs: 100,
-        result: { status: "succeeded", text: "on it" },
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 12,
-      payload: { model: "gpt-test" },
-    },
+    request(7, { model: "gpt-test" }),
+    said(8, "also, one more thing"),
+    settled(9, 7, succeeded("on it"), { durationMs: 100 }),
+    request(12, { model: "gpt-test" }),
   ]);
 
   expect(state.items.map((item) => item.kind)).toEqual(["activity", "user"]);
@@ -1147,24 +770,16 @@ test("settles queued user messages before the next LLM request starts", () => {
 
 test("a request that input starts while a script still runs moves the input into the transcript and joins the script's activity", () => {
   const events = [
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "do X" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 2, payload: { model: "m" } },
-    requestSettled(2),
-    runRequested(4, "async () => longWork()"),
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 6, payload: { model: "m" } },
-    requestSettled(6),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "still working on X", llmRequestOffset: 6 },
-    },
-    runSettled(4),
+    said(1, "do X"),
+    request(2),
+    settled(3, 2),
+    // a script that no response of the agent wrote, which outlives the turn
+    runRequested(4, null, "async () => longWork()"),
+    said(5, "and then?"),
+    request(6),
+    settled(7, 6),
+    sent(8, "still working on X"),
+    runSettled(9, 4),
   ];
 
   // The second request answers "and then?": the composer no longer shows it
@@ -1183,7 +798,7 @@ test("a request that input starts while a script still runs moves the input into
     { kind: "llm", llmRequestOffset: 6, status: "running" },
   ]);
 
-  // Its answer lands at once, above the activity the script still runs: no
+  // The words land at once, above the activity the script still runs: no
   // settled activity row yet, the script still running, nothing held.
   const replied = reduceAll(events.slice(0, 8));
   expect(replied).toMatchObject({
@@ -1200,11 +815,11 @@ test("a request that input starts while a script still runs moves the input into
     { kind: "llm", llmRequestOffset: 6, status: "done", outcome: "completed" },
   ]);
 
-  // The script returned nothing, so its settlement ends the turn: journal
-  // facts alone close the one activity, whole and clean.
-  const settled = reduceAll(events);
-  expect(settled.live).toBeNull();
-  expect(settled.items).toMatchObject([
+  // Once the script settled and the agent says it is idle, the one activity closes, whole and
+  // clean: a request joined it after the script, so the script's settlement alone does not end it.
+  const settledTurn = settleAtIdle(reduceAll(events));
+  expect(settledTurn.live).toBeNull();
+  expect(settledTurn.items).toMatchObject([
     { kind: "user", text: "do X" },
     { kind: "user", text: "and then?" },
     { kind: "assistant", text: "still working on X" },
@@ -1219,28 +834,22 @@ test("a request that input starts while a script still runs moves the input into
       ],
     },
   ]);
-  expect(settled.items.filter((item) => item.kind === "activity")).toHaveLength(1);
-  expect(summarizeAgentUiActivity(settled.items[3] as AgentUiActivity)).toMatchObject({
+  expect(settledTurn.items.filter((item) => item.kind === "activity")).toHaveLength(1);
+  expect(summarizeAgentUiActivity(settledTurn.items[3] as AgentUiActivity)).toMatchObject({
     outcome: "clean",
   });
 });
 
 test("a reply that lands at once leaves the activity open when the script returns a value: the follow-up request joins it", () => {
   const events = [
-    runRequested(1, "async () => longWork()"),
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 3, payload: { model: "m" } },
-    requestSettled(3),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "X is still running.", llmRequestOffset: 3 },
-    },
-    runSettled(1, { status: "succeeded", result: { done: true } }),
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 7, payload: { model: "m" } },
-    requestSettled(7),
+    runRequested(1, null, "async () => longWork()"),
+    said(2, "and then?"),
+    request(3),
+    settled(4, 3),
+    sent(5, "X is still running."),
+    runSettled(6, 1, { status: "succeeded", result: { done: true } }),
+    request(7),
+    settled(8, 7),
   ];
 
   const returned = reduceAll(events.slice(0, 6));
@@ -1262,73 +871,20 @@ test("a reply that lands at once leaves the activity open when the script return
   ]);
 });
 
-test("a reply whose request wrote a script that still runs waits for that script, even beside an older running script", () => {
-  const events = [
-    runRequested(1, "async () => longWork()"),
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 3, payload: { model: "m" } },
-    requestSettled(3),
-    // The answer's own script (asked for while processing its assistant
-    // item), then its prose: the prose belongs after the script it announced.
-    runRequested(5, "async () => more()"),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "Starting Y too.", llmRequestOffset: 3 },
-    },
-    runSettled(1),
-    runSettled(5),
-  ];
-
-  const olderSettled = reduceAll(events.slice(0, 7));
-  expect(olderSettled).toMatchObject({
-    items: [{ kind: "user", text: "and then?" }],
-    deferredAssistantMessages: [{ text: "Starting Y too." }],
-  });
-  expect(olderSettled.live?.steps).toMatchObject([
-    { kind: "code", requestOffset: 1, status: "done" },
-    { kind: "llm", llmRequestOffset: 3, status: "done" },
-    { kind: "code", requestOffset: 5, status: "running" },
-  ]);
-
-  expect(reduceAll(events)).toMatchObject({
-    live: null,
-    deferredAssistantMessages: [],
-    items: [
-      { kind: "user", text: "and then?" },
-      { kind: "activity", steps: [{ kind: "code" }, { kind: "llm" }, { kind: "code" }] },
-      { kind: "assistant", text: "Starting Y too." },
-    ],
-  });
-});
-
 test("a reply that lands at once follows the replies held before it in log order, and leaves later input queued", () => {
   const state = reduceAll([
-    runRequested(1, "async () => longWork()"),
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 3, payload: { model: "m" } },
-    // A transport echo while the request runs is held behind the running work.
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "echo" } },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "one more" },
-    },
-    requestSettled(3),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "X is still running.", llmRequestOffset: 3 },
-    },
+    request(1),
+    // words while only the model call runs are held behind the running work
+    sent(2, "held"),
+    settled(3, 1),
+    runRequested(4, 1, "async () => longWork()"),
+    said(5, "one more"),
+    sent(6, "X is still running."),
   ]);
 
   expect(state).toMatchObject({
     items: [
-      { kind: "user", text: "and then?" },
-      { kind: "assistant", text: "echo" },
+      { kind: "assistant", text: "held" },
       { kind: "assistant", text: "X is still running." },
     ],
     deferredAssistantMessages: [],
@@ -1336,17 +892,17 @@ test("a reply that lands at once follows the replies held before it in log order
     queuedUserMessages: [{ text: "one more" }],
   });
   expect(state.live?.steps).toMatchObject([
-    { kind: "code", requestOffset: 1, status: "running" },
-    { kind: "llm", llmRequestOffset: 3, status: "done" },
+    { kind: "llm", llmRequestOffset: 1, status: "done" },
+    { kind: "code", requestOffset: 4, status: "running" },
   ]);
 });
 
-test("a message that names no request shows at once while a script runs", () => {
+test("the agent's words show at once while a script runs", () => {
   const state = reduceAll([
-    runRequested(1, "async () => longWork()"),
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 2, payload: { model: "m" } },
-    requestSettled(2),
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "from a script" } },
+    runRequested(1, null, "async () => longWork()"),
+    request(2),
+    settled(3, 2),
+    sent(4, "from a script"),
   ]);
 
   expect(state).toMatchObject({
@@ -1356,11 +912,8 @@ test("a message that names no request shows at once while a script runs", () => 
   });
 });
 
-test("a message that names no request waits while only a model call runs", () => {
-  const state = reduceAll([
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 1, payload: { model: "m" } },
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "from elsewhere" } },
-  ]);
+test("the agent's words wait while only a model call runs", () => {
+  const state = reduceAll([request(1), sent(2, "from elsewhere")]);
 
   expect(state).toMatchObject({
     items: [],
@@ -1370,11 +923,8 @@ test("a message that names no request waits while only a model call runs", () =>
 
 test("a script that sends a link and then polls shows the link at once, and its settle closes the activity", () => {
   const started = [
-    runRequested(1, "async (itx) => pollForConnection(itx)"),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "[Connect Cloudflare](https://example.com/connect)" },
-    },
+    runRequested(1, null, "async (itx) => pollForConnection(itx)"),
+    sent(2, "[Connect Cloudflare](https://example.com/connect)"),
   ];
   const linked = reduceAll(started);
 
@@ -1384,26 +934,14 @@ test("a script that sends a link and then polls shows the link at once, and its 
     live: { status: "running", steps: [{ kind: "code", status: "running" }] },
   });
 
-  const polling = [
-    ...started,
-    {
-      type: "events.iterate.com/agent/summary-updated",
-      payload: { activity: "Checking for your Cloudflare connection" },
-    },
-  ];
+  const polling = [...started, summary(3, "Checking for your Cloudflare connection")];
 
   expect(deriveAgentUiLiveStatus(reduceAll(polling))).toMatchObject({
     phase: "running",
     statusText: "Checking for your Cloudflare connection",
   });
 
-  const nudged = [
-    ...polling,
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "Still waiting for the connection." },
-    },
-  ];
+  const nudged = [...polling, sent(4, "Still waiting for the connection.")];
 
   expect(reduceAll(nudged)).toMatchObject({
     items: [
@@ -1413,12 +951,12 @@ test("a script that sends a link and then polls shows the link at once, and its 
     live: { status: "running", steps: [{ kind: "code", status: "running" }] },
   });
 
-  const settled = settleAtIdle(reduceAll([...nudged, runSettled(1)]));
+  const settledRun = settleAtIdle(reduceAll([...nudged, runSettled(5, 1)]));
 
-  expect(settled.live).toBeNull();
-  expect(settled).toMatchObject({ deferredAssistantMessages: [], queuedUserMessages: [] });
-  expect(settled.items.map((item) => item.kind)).toEqual(["assistant", "assistant", "activity"]);
-  expect(settled.items[2]).toMatchObject({
+  expect(settledRun.live).toBeNull();
+  expect(settledRun).toMatchObject({ deferredAssistantMessages: [], queuedUserMessages: [] });
+  expect(settledRun.items.map((item) => item.kind)).toEqual(["assistant", "assistant", "activity"]);
+  expect(settledRun.items[2]).toMatchObject({
     kind: "activity",
     status: "done",
     steps: [{ kind: "code", status: "done", success: true }],
@@ -1427,15 +965,12 @@ test("a script that sends a link and then polls shows the link at once, and its 
 
 test("a request that input starts while a script still runs moves the script's earlier reply into the transcript before that input", () => {
   const state = reduceAll([
-    runRequested(1, "async () => longWork()"),
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "still on X" } },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/llm-request-requested", offset: 4, payload: { model: "m" } },
-    requestSettled(4),
-    runSettled(1),
+    runRequested(1, null, "async () => longWork()"),
+    sent(2, "still on X"),
+    said(3, "and then?"),
+    request(4),
+    settled(5, 4),
+    runSettled(6, 1),
   ]);
 
   expect(state).toMatchObject({
@@ -1456,13 +991,10 @@ test("a request that input starts while a script still runs moves the script's e
 
 test("a running script's reply shows at once, and its settle flushes the input that queued behind the script", () => {
   const state = reduceAll([
-    runRequested(1, "async () => longWork()"),
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and then?" },
-    },
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "X is done" } },
-    runSettled(1),
+    runRequested(1, null, "async () => longWork()"),
+    said(2, "and then?"),
+    sent(3, "X is done"),
+    runSettled(4, 1),
   ]);
 
   expect(state.items).toMatchObject([
@@ -1473,55 +1005,14 @@ test("a running script's reply shows at once, and its settle flushes the input t
   expect(state).toMatchObject({ deferredAssistantMessages: [], queuedUserMessages: [] });
 });
 
-test("does not append late chunks from an interrupted request into the next turn", () => {
+test("does not append late windows from an interrupted request into the next turn", () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 7,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 7,
-        sequence: 0,
-        responseDelta: "old partial",
-        thinkingDelta: "",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "user",
-        actor: { type: "user", origin: "web" },
-        content: "oh this is taking too long",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 7,
-        result: {
-          status: "cancelled",
-          reason: "interrupted-by-user-input",
-          partialText: "old partial",
-        },
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 7,
-        sequence: 1,
-        responseDelta: " stale chunk",
-        thinkingDelta: "",
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 12,
-      payload: { model: "gpt-test" },
-    },
+    request(7, { model: "gpt-test" }),
+    frame(8, 7, { textDelta: "old partial" }),
+    said(9, "oh this is taking too long"),
+    settled(10, 7, cancelled("interrupted-by-user-input", "old partial")),
+    frame(11, 7, { textDelta: " stale chunk" }),
+    request(12, { model: "gpt-test" }),
   ]);
 
   expect(state.items.map((item) => item.kind)).toEqual(["activity", "user"]);
@@ -1545,20 +1036,22 @@ test("does not append late chunks from an interrupted request into the next turn
   });
 });
 
-test("renders the loop's own developer context (a format correction) as a user bubble", () => {
+test('a developer note that an agent wrote (`actor: { type: "agent" }`, as the Cloud\'s handover writes) is a user bubble', () => {
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
+    fact(
+      1,
+      "agent/context-added",
+      {
         role: "developer",
-        content: "Your code did NOT run: the <codemode> tag was empty.",
+        content: "Notes from the Cloud's installation agent.",
         actor: { type: "agent" },
       },
-    },
+      { origin: "/" },
+    ),
   ]);
 
   expect(state.items).toMatchObject([
-    { kind: "user", text: "Your code did NOT run: the <codemode> tag was empty." },
+    { kind: "user", text: "Notes from the Cloud's installation agent." },
   ]);
 });
 
@@ -1569,40 +1062,37 @@ test("a user message's attachments render without a URL: the page signs one per 
     path: "files/screenshot.png",
     size: 123,
   };
-  const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", content: "", files: [file] },
-    },
-  ]);
+  const state = reduceAll([said(1, "", { files: [file] })]);
 
   expect(state.items).toMatchObject([{ kind: "user", text: "", files: [file] }]);
+});
+
+test("a request that another response answered first is no failure of its round", () => {
+  const state = settleAtIdle(
+    reduceAll([
+      said(1, "hello"),
+      request(5, { model: "gpt-test" }),
+      request(6, { model: "gpt-test" }),
+      settled(7, 6, succeeded("Hi.")),
+      settled(8, 5, cancelled("superseded")),
+    ]),
+  );
+  const activity = state.items.find((item) => item.kind === "activity");
+  if (activity?.kind !== "activity") throw new Error("expected activity item");
+  expect(activity.steps.map((step) => step.kind === "llm" && step.cancelReason)).toEqual([
+    "superseded",
+    undefined,
+  ]);
+  expect(summarizeAgentUiActivity(activity)).toMatchObject({ requestCount: 2, outcome: "clean" });
 });
 
 test("groups expired and unrecognized cancellations into one failed activity", () => {
   const state = settleAtIdle(
     reduceAll([
-      {
-        type: "events.iterate.com/agent/llm-request-requested",
-        offset: 7,
-        payload: { model: "gpt-test" },
-      },
-      {
-        type: "events.iterate.com/agent/llm-request-settled",
-        payload: {
-          requestOffset: 7,
-          result: { status: "cancelled", reason: "future-cancel-reason" },
-        },
-      },
-      {
-        type: "events.iterate.com/agent/llm-request-requested",
-        offset: 11,
-        payload: { model: "gpt-test" },
-      },
-      {
-        type: "events.iterate.com/agent/llm-request-settled",
-        payload: { requestOffset: 11, result: { status: "cancelled", reason: "expired" } },
-      },
+      request(7, { model: "gpt-test" }),
+      settled(8, 7, cancelled("future-cancel-reason")),
+      request(11, { model: "gpt-test" }),
+      settled(12, 11, cancelled("expired")),
     ]),
   );
 
@@ -1627,37 +1117,13 @@ test("groups expired and unrecognized cancellations into one failed activity", (
 });
 
 test("the first settlement wins when a duplicate races in", () => {
-  // The contract collapses a zombie incarnation racing an interrupt to one
-  // settlement; if both appends still land, the UI must keep the first fact.
+  // A request settles once; if a second settlement still lands, the UI must keep the first fact.
   const state = reduceAll([
-    {
-      type: "events.iterate.com/agent/llm-request-requested",
-      offset: 1,
-      payload: { model: "gpt-test" },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 1,
-        result: {
-          status: "cancelled",
-          reason: "interrupted-by-user-input",
-          partialText: "Hel",
-        },
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: {
-        requestOffset: 1,
-        durationMs: 2_000,
-        result: {
-          status: "succeeded",
-          text: "late zombie response",
-          usage: { inputTokens: 100, outputTokens: 10 },
-        },
-      },
-    },
+    request(1, { model: "gpt-test" }),
+    settled(2, 1, cancelled("interrupted-by-user-input", "Hel")),
+    settled(3, 1, succeeded("late zombie response", { inputTokens: 100, outputTokens: 10 }), {
+      durationMs: 2_000,
+    }),
   ]);
 
   expect(state.live?.steps[0]).toMatchObject({
@@ -1674,158 +1140,75 @@ test("the first settlement wins when a duplicate races in", () => {
   });
 });
 
-test("derived events mark the llm step interpreted; uninterpreted turns stay plain", () => {
-  const answered = [
-    { type: "events.iterate.com/agent/llm-request-requested", payload: { model: "m" } },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "assistant",
-        content: 'Hi!\n<codemode status="Working">\nreturn 1\n</codemode>',
-        llmRequestOffset: 1,
-      },
-    },
-    // The agent's derived events, in its committed order: the run it asked
-    // for while processing the assistant event (offset 2) FIRST — so the code
-    // step joins the request's still-open activity — then the extracted prose
-    // (marked with the request offset).
-    runRequested(3, "async (itx) => {\nreturn 1\n}", 2),
-  ];
-  // the run alone marks the response interpreted: the Script tab carries the code
-  expect(reduceAll(answered).live?.steps[0]).toMatchObject({
-    kind: "llm",
-    assistantEventOffset: 2,
-    interpreted: true,
-  });
-  const reduced = reduceAll([
-    ...answered,
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "Hi!", llmRequestOffset: 1 },
-    },
+test("the run of a response's script marks its llm step interpreted; a response with no script stays plain", () => {
+  // the run's key names the request whose response wrote the script: the Script tab carries the code
+  const answered = reduceAll([
+    request(1),
+    settled(2, 1, succeeded('Hi!\n<codemode status="Working">\nreturn 1\n</codemode>')),
+    runRequested(3, 1, "async (itx) => {\nreturn 1\n}"),
   ]);
-  const llmStep = reduced.live?.steps.find((step) => step.kind === "llm");
-  expect(llmStep).toMatchObject({ assistantEventOffset: 2, interpreted: true });
-  // The extracted prose still becomes the assistant bubble (deferred until
-  // the live round settles, like any mid-turn assistant message).
-  expect(reduced.deferredAssistantMessages).toMatchObject([{ text: "Hi!" }]);
+  expect(answered.live?.steps[0]).toMatchObject({ kind: "llm", interpreted: true });
 
-  // A plain turn (no derived events) is NOT marked.
-  const plain = reduceAll([
-    { type: "events.iterate.com/agent/llm-request-requested", payload: { model: "m" } },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "assistant", content: "Just prose.", llmRequestOffset: 1 },
-    },
-  ]);
+  // A response that wrote no script is NOT marked.
+  const plain = reduceAll([request(1), settled(2, 1, succeeded("Just prose."))]);
   const plainStep = plain.live?.steps.find((step) => step.kind === "llm");
-  expect(plainStep).toMatchObject({ assistantEventOffset: 2 });
+  expect(plainStep).toMatchObject({ kind: "llm", responseText: "Just prose." });
   expect(plainStep).not.toHaveProperty("interpreted");
 });
 
-test("script-before-prose keeps the whole turn in ONE activity, rounds paired", () => {
+test("a script's words keep the whole turn in ONE activity, rounds paired", () => {
   const reduced = reduceAll([
-    { type: "events.iterate.com/agent/llm-request-requested", payload: { model: "m" } },
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: {
-        role: "assistant",
-        content: 'Hi!\n<codemode status="Working">\nreturn 1\n</codemode>',
-        llmRequestOffset: 1,
-      },
-    },
-    {
-      type: "events.iterate.com/agent/llm-request-settled",
-      payload: { requestOffset: 1, result: { status: "succeeded", text: "…" } },
-    },
-    // The agent's order: script first (joins the request's activity), prose
-    // second (defers — the activity is now working again).
-    runRequested(4, "async (itx) => 1", 2),
-    {
-      type: "events.iterate.com/agent/web-message-sent",
-      payload: { message: "Hi!", llmRequestOffset: 1 },
-    },
+    request(1),
+    settled(2, 1, succeeded('Hi!\n<codemode status="Working">\nreturn 1\n</codemode>')),
+    // the agent's order: the script joins the request's activity, and its words go out at once
+    runRequested(3, 1, "async (itx) => 1"),
+    sent(4, "Hi!"),
   ]);
   // No settled activity item was flushed mid-turn: the request and its
-  // extracted code live in the SAME activity.
+  // script live in the SAME activity.
   expect(reduced.items.filter((item) => item.kind === "activity")).toHaveLength(0);
   expect(reduced.live?.steps.map((step) => step.kind)).toEqual(["llm", "code"]);
-  // The prose deferred (the activity is working) instead of splitting it.
-  expect(reduced.deferredAssistantMessages).toMatchObject([{ text: "Hi!" }]);
+  // The words stand above the activity instead of splitting it.
+  expect(reduced.items).toMatchObject([{ kind: "assistant", text: "Hi!" }]);
+  expect(reduced).toMatchObject({ deferredAssistantMessages: [] });
 });
 
 test("phases follow the running step: waiting → thinking → writing → running", () => {
-  const waiting = reduceAll([{ ...request, offset: 5 }]);
+  const waiting = reduceAll([request(5)]);
   expect(deriveAgentUiLiveStatus(waiting)).toMatchObject({ phase: "waiting", statusText: null });
 
-  const thinking = reduceAll([
-    { ...request, offset: 5 },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 5,
-        sequence: 0,
-        responseDelta: "",
-        thinkingDelta: "hmm",
-      },
-    },
-  ]);
+  const thinking = reduceAll([request(5), frame(6, 5, { thinkingDelta: "hmm" })]);
   expect(deriveAgentUiLiveStatus(thinking)).toMatchObject({ phase: "thinking" });
 
-  const writing = reduceAll([
-    { ...request, offset: 5 },
-    {
-      type: "events.iterate.com/agent/llm-response-frame",
-      payload: {
-        llmRequestOffset: 5,
-        sequence: 0,
-        responseDelta: "await work()",
-        thinkingDelta: "",
-      },
-    },
-  ]);
+  const writing = reduceAll([request(5), frame(6, 5, { textDelta: "await work()" })]);
   expect(deriveAgentUiLiveStatus(writing)).toMatchObject({ phase: "writing" });
 
-  const running = reduceAll([{ ...request, offset: 5 }, runRequested(2)]);
+  const running = reduceAll([request(5), runRequested(6, null)]);
   expect(deriveAgentUiLiveStatus(running)).toMatchObject({ phase: "running" });
 });
 
 test("a script that settled WITH a value means another round: processing", () => {
-  const state = reduceAll([
-    { ...request, offset: 5 },
-    requestSettled(5),
-    runRequested(3),
-    runSettled(3, { status: "succeeded", result: 42 }),
-  ]);
+  const ran = [request(5), settled(6, 5), runRequested(7, 5)];
+  const state = reduceAll([...ran, runSettled(8, 7, { status: "succeeded", result: 42 })]);
   expect(deriveAgentUiLiveStatus(state)).toMatchObject({ phase: "processing" });
   // A value-less settle (`return;`) ends the turn — no round is owed.
-  const returned = reduceAll([
-    { ...request, offset: 5 },
-    requestSettled(5),
-    runRequested(3),
-    runSettled(3),
-  ]);
+  const returned = reduceAll([...ran, runSettled(8, 7)]);
   expect(deriveAgentUiLiveStatus(returned)).toMatchObject({ phase: "working" });
   // A failed settle isn't a promise of another round either.
-  const failed = reduceAll([
-    { ...request, offset: 5 },
-    requestSettled(5),
-    runRequested(3),
-    runSettled(3, { status: "failed", error: "boom", failureKind: "runtime" }),
+  const failedRun = reduceAll([
+    ...ran,
+    runSettled(8, 7, { status: "failed", error: "boom", failureKind: "runtime" }),
   ]);
-  expect(deriveAgentUiLiveStatus(failed)).toMatchObject({ phase: "working" });
+  expect(deriveAgentUiLiveStatus(failedRun)).toMatchObject({ phase: "working" });
 });
 
 test("statusText is this turn's summary only — a previous turn's text stays generic", () => {
   const turnOne = [
-    { ...request, offset: 5 },
-    requestSettled(5),
-    runRequested(3),
-    {
-      type: "events.iterate.com/agent/summary-updated",
-      payload: { activity: "Sweeping March refunds" },
-    },
-    runSettled(3, { status: "succeeded", result: 1 }),
+    request(5),
+    settled(6, 5),
+    runRequested(7, 5),
+    summary(8, "Sweeping March refunds"),
+    runSettled(9, 7, { status: "succeeded", result: 1 }),
   ];
   expect(deriveAgentUiLiveStatus(reduceAll(turnOne))).toMatchObject({
     phase: "processing",
@@ -1835,28 +1218,15 @@ test("statusText is this turn's summary only — a previous turn's text stays ge
   // A user message settles the turn; the next turn's live activity starts
   // fresh — the stream's standing summary is stale for the live row (code
   // steps still inherit it for round headers, unchanged).
-  const turnTwo = reduceAll([
-    ...turnOne,
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and April?" },
-    },
-    { ...request, offset: 50 },
-  ]);
+  const turnTwo = reduceAll([...turnOne, said(10, "and April?"), request(50)]);
   expect(turnTwo).toMatchObject({ summaryActivity: "Sweeping March refunds" });
   expect(deriveAgentUiLiveStatus(turnTwo)).toMatchObject({ phase: "waiting", statusText: null });
 
   const turnTwoUpdated = reduceAll([
     ...turnOne,
-    {
-      type: "events.iterate.com/agent/context-added",
-      payload: { role: "user", actor: { type: "user", origin: "web" }, content: "and April?" },
-    },
-    { ...request, offset: 50 },
-    {
-      type: "events.iterate.com/agent/summary-updated",
-      payload: { activity: "Sweeping April refunds" },
-    },
+    said(10, "and April?"),
+    request(50),
+    summary(51, "Sweeping April refunds"),
   ]);
   expect(deriveAgentUiLiveStatus(turnTwoUpdated)).toMatchObject({
     statusText: "Sweeping April refunds",
@@ -1864,18 +1234,15 @@ test("statusText is this turn's summary only — a previous turn's text stays ge
 });
 
 test("agent/paused settles an idle live activity from journal facts alone", () => {
-  // The processing gap's guard: the autonomous breaker parks the loop after
-  // a script returned a value — without this settle the "another round is
-  // owed" inference would spin forever on journal-only surfaces (mobile).
+  // The processing gap's guard: the agent pauses itself after a script returned a value —
+  // without this settle the "another round is owed" inference would spin forever on
+  // journal-only surfaces (mobile).
   const state = reduceAll([
-    { ...request, offset: 5 },
-    requestSettled(5),
-    runRequested(3),
-    runSettled(3, { status: "succeeded", result: 42 }),
-    {
-      type: "events.iterate.com/agent/paused",
-      payload: { reason: "autonomous turn limit reached" },
-    },
+    request(5),
+    settled(6, 5),
+    runRequested(7, 5),
+    runSettled(8, 7, { status: "succeeded", result: 42 }),
+    paused(9, "20 requests without outside input"),
   ]);
   expect(state.live).toBeNull();
   expect(state.items.map((item) => item.kind)).toEqual(["activity", "stream-paused"]);
@@ -1885,25 +1252,22 @@ test("agent/paused settles an idle live activity from journal facts alone", () =
 test("agent/paused while a request is open keeps the live activity running", () => {
   // Operator/script-appendable mid-request: the open request drains and
   // settles normally, so the pause must not archive the running step.
-  const state = reduceAll([
-    { ...request, offset: 5 },
-    { type: "events.iterate.com/agent/paused", payload: { reason: "operator hold" } },
-  ]);
+  const state = reduceAll([request(5), paused(6, "operator hold")]);
   expect(state.items.map((item) => item.kind)).toEqual(["stream-paused"]);
   expect(state.live?.steps).toMatchObject([{ kind: "llm", status: "running" }]);
 });
 
-test("a value-settled script on a PAUSED loop settles the activity — never processing", () => {
+test("a value-settled script of a PAUSED agent settles the activity — never processing", () => {
   // The pause folded mid-request; the drained request's script then settles
   // WITH a value. No follow-up round is coming and no second pause fact
   // will arrive, so the settle itself must close the activity instead of
   // leaving a permanent "processing" claim.
   const state = reduceAll([
-    { ...request, offset: 5 },
-    { type: "events.iterate.com/agent/paused", payload: { reason: "operator hold" } },
-    requestSettled(5),
-    runRequested(4),
-    runSettled(4, { status: "succeeded", result: 42 }),
+    request(5),
+    paused(6, "operator hold"),
+    settled(7, 5),
+    runRequested(8, 5),
+    runSettled(9, 8, { status: "succeeded", result: 42 }),
   ]);
   expect(state).toMatchObject({ paused: true });
   expect(state.live).toBeNull();
@@ -1911,29 +1275,15 @@ test("a value-settled script on a PAUSED loop settles the activity — never pro
     { status: "done" },
   ]);
   // And resuming clears the flag for the next real turn.
-  const resumed = reduceAll([
-    { ...request, offset: 5 },
-    { type: "events.iterate.com/agent/paused", payload: {} },
-    { type: "events.iterate.com/agent/resumed", payload: {} },
-  ]);
-  expect(resumed).toMatchObject({ paused: false });
+  const resumedState = reduceAll([request(5), paused(6), resumed(7)]);
+  expect(resumedState).toMatchObject({ paused: false });
 });
 
-function reduceAll(events: Array<Partial<StreamEvent> & { type: string; payload?: unknown }>) {
-  let offset = 0;
-  const fullEvents = events.map((partial) => {
-    offset += 1;
-    return {
-      offset: partial.offset ?? offset,
-      createdAt: partial.createdAt || `2026-06-11T00:00:${String(offset).padStart(2, "0")}.000Z`,
-      payload: partial.payload ?? {},
-      ...partial,
-    } as unknown as StreamEvent;
-  });
+/** `events` through the reducer: the end state, and every settled item in emission order. */
+function reduceAll(events: StreamEvent[]) {
   let state = initialAgentUiState();
-  // The feed renders every settled item in emission order.
   const items: AgentUiItem[] = [];
-  for (const event of fullEvents) {
+  for (const event of events) {
     const step = reduceAgentUi(state, event);
     state = step.endState;
     items.push(...step.items);
@@ -1946,33 +1296,3 @@ function settleAtIdle(reduced: ReturnType<typeof reduceAll>) {
   const projected = settleAgentUiAtIdleBoundary(reduced);
   return { ...projected.endState, items: [...reduced.items, ...projected.items] };
 }
-
-const request = { type: "events.iterate.com/agent/llm-request-requested", payload: {} };
-const requestSettled = (requestOffset: number) => ({
-  type: "events.iterate.com/agent/llm-request-settled",
-  payload: { requestOffset, result: { status: "succeeded", text: "await work()" } },
-});
-/** The context's `itx/run-requested` at `offset`; `askedWhile` is the assistant item the agent was
- *  processing when it asked (the engine's `whileProcessing` stamp). */
-const runRequested = (offset: number, code = "await work()", askedWhile?: number) => ({
-  type: "events.iterate.com/itx/run-requested",
-  offset,
-  payload: { code },
-  ...(askedWhile !== undefined && {
-    source: {
-      processor: {
-        slug: "agent",
-        version: "1",
-        whileProcessing: { offset: askedWhile, type: "events.iterate.com/agent/context-added" },
-      },
-    },
-  }),
-});
-/** The platform's `itx/run-settled` for the run requested at `requestOffset`. */
-const runSettled = (
-  requestOffset: number,
-  settlement: RunSettlement = { status: "succeeded" },
-) => ({
-  type: "events.iterate.com/itx/run-settled",
-  payload: { requestOffset, settlement },
-});

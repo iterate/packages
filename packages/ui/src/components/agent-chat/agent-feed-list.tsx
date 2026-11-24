@@ -42,7 +42,6 @@ export function AgentFeedList({
   toggledIds,
   onToggle,
   inspect,
-  traceOffsets,
   signedUrl,
   itemFooter,
   me,
@@ -65,11 +64,10 @@ export function AgentFeedList({
   toggledIds: ReadonlySet<string>;
   onToggle: (id: string) => void;
   inspect: ComponentProps<typeof AgentFeedItemRow>["inspect"];
-  traceOffsets: ReadonlyMap<string, number>;
   signedUrl: ComponentProps<typeof AgentFeedItemRow>["signedUrl"];
   itemFooter?: (item: AgentUiItem) => ReactNode;
   me: string | undefined;
-  /** This chat's agent, which tells its helpers' words from another agent's. */
+  /** This chat's agent, which tells its subagents' words from another agent's. */
   agentPath: string;
   /** Everyone but the viewer who is typing now: their faces with dots end the tail. None with
    *  presence off. */
@@ -93,7 +91,6 @@ export function AgentFeedList({
           expanded={toggledIds.has(row.id)}
           onToggle={onToggle}
           inspect={inspect}
-          traceOffset={row.kind === "assistant" ? traceOffsets.get(row.id) : undefined}
           signedUrl={signedUrl}
           me={me}
           agentPath={agentPath}
@@ -102,7 +99,7 @@ export function AgentFeedList({
         {itemFooter?.(row)}
       </>
     ),
-    [toggledIds, onToggle, inspect, traceOffsets, signedUrl, itemFooter, me, agentPath, items],
+    [toggledIds, onToggle, inspect, signedUrl, itemFooter, me, agentPath, items],
   );
   return (
     <VirtualLog

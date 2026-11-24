@@ -76,6 +76,7 @@ function propsOf(
       processors: held.processors,
       presence: held.presence,
       liveState: held.liveState,
+      version: held.version,
     },
     error: held.hostError,
     state: held.state,

@@ -1,9 +1,8 @@
 import { RUN_DEADLINE_MS, RunRequested, RunSettled } from "iterate/stream/run";
-import { AgentContract, AgentLlmRequestCancelReason } from "iterate/agents/contract";
+import { z } from "zod";
 import { appendText, sliceText, type StreamText } from "./chunked-text.ts";
 import { AGENT_FACT, scriptRequestOffsetOf } from "./agent-facts.ts";
 import {
-  relayedMessageOffset,
   saidByOf,
   senderOf,
   sentByMe,
@@ -14,11 +13,10 @@ import {
 // The agent UI is a clean chat: user message → activity ("Ran code 2× · 3
 // requests · 7.4 s") → assistant message, with pause and resume dividers, and
 // what reached the agent without starting a turn folded out of the way.
-// Reduced from raw events: settled items, plus the in-flight activity and its
-// streamed text. Only a durable fact closes a step: `agent/llm-request-settled`
-// a model call, the context's `itx/run-settled` a script (the platform settles
-// every run, `deadline` or `interrupted` included), and a later intent one that
-// never opened (see `agent/llm-request-requested` below).
+// Reduced from the agent's facts (agent-facts.ts): settled items, plus the
+// in-flight activity and its streamed text. Only a durable fact closes a step:
+// `llm-request/settled` a model call, the context's `itx/run-settled` a script
+// (the platform settles every run, `deadline` or `interrupted` included).
 //
 // The fold's memory is one turn long: once a turn is over `live` and the held
 // messages are empty, and the rest only stamps later rows. So folding from any
@@ -26,38 +24,32 @@ import {
 // that starts after that offset on. The chat relies on this to read the newest
 // page of a log and older pages on request.
 
-/** One streamed window of an answer, as the agent's contract spells it. */
-const LlmResponseFrame =
-  AgentContract.events["events.iterate.com/agent/llm-response-frame"].payloadSchema;
+/** Why a request stopped short: an input interrupted it, another response answered its inputs
+ *  first, or it ran past its deadline. */
+const AgentLlmRequestCancelReason = z.enum(["interrupted-by-user-input", "superseded", "expired"]);
+type AgentLlmRequestCancelReason = z.infer<typeof AgentLlmRequestCancelReason>;
 
 export type AgentUiLlmStep = {
   kind: "llm";
   id: string;
-  /** Offset of the llm-request-requested event this step tracks. */
+  /** Offset of the `llm-request/requested` fact this step tracks. */
   llmRequestOffset: number;
   status: "running" | "done";
   model?: string;
   /** Streamed reasoning summary ("thinking") text. */
   thinkingText: StreamText;
-  /** Streamed response text — for code-mode agents this is source code. */
+  /** Streamed response text: the model's words and its `<codemode>` script. */
   responseText: StreamText;
   /** The provider says the model reasons now, with words or with none (the agent's
    *  `llm-request/response-frame-received` `thinking`). */
   thinking?: boolean;
-  /** Which answer to the request the streamed text is from (absent: 0): the next key's answer
-   *  after one failed part way replaces it. */
+  /** Which attempt of the request the streamed text is from (absent: 0): the next attempt after
+   *  one failed part way replaces it. */
   attempt?: number;
-  /** Offset of the committed assistant context-added event carrying this
-   * step's final text; links interpretation events back to the step. */
-  assistantEventOffset?: number;
-  /** True once ANOTHER event derived from this response committed (an
-   * extracted chat message pointing at the request, or a script extracted
-   * from the assistant event). The derived views are then the story: pretty
-   * rendering collapses the raw response text behind the raw toggles. */
+  /** True once the agent asked to run the response's script (its `itx/run-requested` names this
+   *  request). The script is then the story: pretty rendering collapses the raw response text
+   *  behind the raw toggles. */
   interpreted?: boolean;
-  /** True once this request's reply went out while only older work still ran
-   * (see emitAssistantMessageItem): nothing is held for that work to release. */
-  repliedAtOnce?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   durationMs?: number;
@@ -150,9 +142,11 @@ export function summarizeAgentUiActivity(
       interruptedBy = step.interruptedBy;
       interruptedWithPartialResponse ||=
         step.thinkingText.length > 0 || step.responseText.length > 0;
+    } else if (cancelled && step.cancelReason === "superseded") {
+      // another response answered the same inputs first: the round goes on with that one
     } else if (step.outcome === "failed" || cancelled) {
-      // Any cancellation other than the user's own interrupt (expired, or a
-      // reason this UI doesn't recognize) means the turn produced nothing.
+      // Any other cancellation (expired, or a reason this UI doesn't recognize) means the
+      // request produced nothing.
       failed = true;
     }
   }
@@ -287,7 +281,7 @@ export function deriveAgentUiLiveStatus(state: AgentUiState): AgentUiLiveStatus 
       return "thinking";
     if (current?.kind === "llm") return "waiting";
     const last = live.steps.at(-1);
-    // A paused loop owes no follow-up, whatever the last step promised — a
+    // A paused agent owes no follow-up, whatever the last step promised — a
     // pause folded mid-request must not leave a permanent claim after that
     // request's outcome lands.
     if (!state.paused && last?.kind === "code") {
@@ -297,9 +291,9 @@ export function deriveAgentUiLiveStatus(state: AgentUiState): AgentUiLiveStatus 
     }
     if (!state.paused && last?.kind === "llm") {
       // The response finished and visibly contains a script: what follows is
-      // a journal fact either way — itx/run-requested when it extracts,
-      // or the format's rejection feedback driving another llm request — so
-      // the turn is not over.
+      // a journal fact either way — itx/run-requested when the script may run,
+      // or another llm request when the agent refused it — so the turn is not
+      // over.
       if (
         last.status === "done" &&
         last.outcome === "completed" &&
@@ -421,17 +415,15 @@ export type AgentUiState = {
    * inherit `summaryActivity` at birth regardless of age). */
   summaryActivityUpdatedAtMs: number | null;
   /** The stream/agent is paused (agent/paused or itx/paused, uncleared by
-   * a resume). A paused loop owes no follow-up round, so the "processing"
+   * a resume). A paused agent owes no follow-up round, so the "processing"
    * inference must not claim one. */
   paused: boolean;
-  /** The highest trigger an intent has named so far. */
-  latestTriggerOffset: number;
-  /** Who said each `agent/message-received`, by its offset, with its words and its files' paths
-   *  (one per line): iterate's loop relays the words as a `context-added` of its own, which names
-   *  no person, and may name no context. The entry goes once a copy has taken it. */
+  /** Each `agent/message-received` (the platform's `message()`), by its offset: who sent it, the
+   *  context that sent it, its words and its files. The `agent/context-added` that names it in
+   *  `source` is its transcription for the model, and is drawn with these. The entry goes then. */
   senderByMessage: Record<
     number,
-    { sender?: MessageSender; from?: string; words?: string; files: string }
+    { sender?: MessageSender; from?: string; words: string; files: AgentUiFileAttachment[] }
   >;
   /** Who sent the newest input that interrupts the answer being written (its policy says so): the
    *  request it stops is settled cancelled after it, and takes this as who stopped it. */
@@ -454,7 +446,6 @@ export function initialAgentUiState(): AgentUiState {
     summaryActivity: null,
     summaryActivityUpdatedAtMs: null,
     paused: false,
-    latestTriggerOffset: 0,
     senderByMessage: {},
     drawnInputs: {},
     subagentPaths: {},
@@ -505,21 +496,21 @@ function reduceAgentUiEvent(
   if (!Number.isFinite(timestampMs)) return state;
 
   switch (event.type) {
-    // Words sent to any kind of agent (`message()`). The platform stamped who asked on this event;
-    // the bubble comes from the `context-added` the loop makes of it.
+    // THE PLATFORM'S `message()` (`agent/message-received`): the platform stamped who sent it. Its
+    // bubble is drawn where the mind transcribes it for the model (`reduceTranscription`).
     case "events.iterate.com/agent/message-received": {
-      const sender = senderOf(event.source);
-      const from = readContextFrom(event);
-      if (!sender && !from) return state;
+      const words = readString(event, "message");
+      // oxlint-disable-next-line iterate/simple-truthiness-check -- empty words are a message: a person can send files alone
+      if (words == null) return state;
       return {
         ...state,
         senderByMessage: {
           ...state.senderByMessage,
           [event.offset]: {
-            sender,
-            from,
-            words: readString(event, "message") ?? undefined,
-            files: filePathsOf(readFileAttachments(event)),
+            sender: senderOf(event.source),
+            from: readContextFrom(event),
+            words,
+            files: readFileAttachments(event),
           },
         },
       };
@@ -550,76 +541,29 @@ function reduceAgentUiEvent(
       );
     }
 
-    // The canonical model-visible context event. User context renders as a
-    // bubble; assistant context replaces the streamed LLM text; the loop's
-    // own developer context (actor `agent`, a format correction) renders as a
-    // bubble too. Script-produced developer context is model input, not another bubble.
+    // THE AGENT'S ONE INPUT. A person's words (role `user`) are a bubble, or a quiet row when they
+    // start no request. A transcription of a raw fact the chat holds is drawn from that fact. What
+    // was said in the agent's name (`assistant`) and the system's words are drawn nowhere: the chat
+    // draws the words a person saw (`agent-ui/message-sent`). A developer note is drawn only when
+    // an agent wrote it (`actor: { type: "agent" }`, as cloud-handover.ts writes).
     case "events.iterate.com/agent/context-added": {
       const role = readString(event, "role");
       const text = readString(event, "content");
-      // oxlint-disable-next-line iterate/simple-truthiness-check -- empty content is a real message: a person can send attachments alone (iterate/agents durable-object.ts message()), and an assistant's committed text replaces the streamed preview even when empty
-      if (text == null) return state;
-      const actor = readRecord(event, "actor");
-      const actorType = typeof actor?.type === "string" ? actor.type : undefined;
-
-      if (role === "assistant") {
-        const llmRequestOffset = readLlmRequestOffset(event);
-        if (llmRequestOffset == null) return state;
-        return updateLlmStep(state, llmRequestOffset, (step) =>
-          step.status === "running"
-            ? {
-                ...step,
-                responseText: text,
-                assistantEventOffset: event.offset,
-              }
-            : step,
-        );
-      }
-      if (role === "system") return state;
+      // oxlint-disable-next-line iterate/simple-truthiness-check -- empty content is a real message: a person can send files alone
+      if (text == null || role === "assistant" || role === "system") return state;
       // THE AGENT'S TRANSCRIPTION of a raw fact (agent-facts.ts): the bubble is the raw fact's
       const transcribed = role === "user" ? transcribedFactOf(event) : undefined;
       const fromRaw = transcribed && reduceTranscription(state, event, transcribed, items);
       if (fromRaw) return fromRaw;
 
       const files = readFileAttachments(event);
-      // The loop's copy of a message names it by a label that its writer sets (iterate/agents
-      // processor.ts, `messageSpeakers`). So a person's words take the message's sender only when
-      // their own stamp names nobody, no schedule, copy or platform wrote them, and their words
-      // and files are the message's: other words, another file, or a second copy under a person's
-      // message are nobody's. The entry goes once a copy has taken it.
-      const offset = relayedMessageOffset(event);
-      const named = offset === undefined ? undefined : state.senderByMessage[offset];
-      const stamped = senderOf(event.source);
-      const relayed =
-        named &&
-        !stamped &&
-        role === "user" &&
-        (!actorType || actorType === "user") &&
-        !readContextFrom(event) &&
-        !event.source?.schedule &&
-        !event.source?.copiedFrom &&
-        !event.source?.platform &&
-        named.words === text &&
-        named.files === filePathsOf(files)
-          ? named
-          : undefined;
-      const sender = stamped || relayed?.sender;
-      const taken =
-        relayed && offset !== undefined
-          ? {
-              ...state,
-              senderByMessage: Object.fromEntries(
-                Object.entries(state.senderByMessage).filter(([key]) => Number(key) !== offset),
-              ),
-            }
-          : state;
+      const sender = senderOf(event.source);
       // THE INTERRUPT is input whose policy says so: a press of Interrupt (a developer item) or a
       // person's words to an agent set to be interrupted. Who sent it is who stopped the answer.
       const policy = readRecord(event, "llmRequestPolicy")?.behaviour;
       const heard =
-        policy === "interrupt-current-request" ? { ...taken, interruptBy: sender } : taken;
+        policy === "interrupt-current-request" ? { ...state, interruptBy: sender } : state;
       if (role === "user") {
-        const from = readContextFrom(event) ?? relayed?.from ?? writerContextOf(event);
         const message = {
           offset: event.offset,
           text,
@@ -627,7 +571,7 @@ function reduceAgentUiEvent(
           timestampMs,
           sender,
           saidBy: sender && saidByOf(sender),
-          from,
+          from: writerContextOf(event),
         };
         if (policy === "dont-trigger-request")
           return emitBackgroundItem(heard, items, {
@@ -642,7 +586,7 @@ function reduceAgentUiEvent(
           ...message,
         });
       }
-      if (actorType === "agent") {
+      if (readRecord(event, "actor")?.type === "agent") {
         return emitUserMessageItem(heard, items, {
           kind: "user",
           id: `user-${event.offset}`,
@@ -655,57 +599,20 @@ function reduceAgentUiEvent(
       return heard;
     }
 
-    // the agent's words for a person: the same bubble, with no request named
-    case AGENT_FACT.uiMessageSent:
-    case "events.iterate.com/agent/web-message-sent": {
+    // the agent's words for a person: a script of its response appends them
+    case AGENT_FACT.uiMessageSent: {
       const text = readString(event, "message");
       // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty message is still a sent message: it can carry attachments alone
       if (text == null) return state;
-      // An llmRequestOffset marks the message as EXTRACTED from that request's
-      // response (a userland response interpreter) — the raw response text is
-      // now redundant in pretty rendering.
-      const extractedFromRequest = readLlmRequestOffset(event);
-      const marked =
-        extractedFromRequest == null
-          ? state
-          : updateLlmStep(state, extractedFromRequest, (step) => ({ ...step, interpreted: true }));
       const files = readFileAttachments(event);
-      const item: AgentUiMessageItem = {
+      return emitAssistantMessageItem(state, items, {
         kind: "assistant",
         id: `assistant-${event.offset}`,
         offset: event.offset,
         text,
         ...(files.length === 0 ? {} : { files }),
         timestampMs,
-      };
-      return emitAssistantMessageItem(marked, items, item, extractedFromRequest);
-    }
-
-    case "events.iterate.com/agent/llm-request-requested": {
-      // This event is an INTENT. The agent opens a request only for the intent
-      // naming its pending trigger, with nothing open (iterate/agents
-      // processor.ts), and nothing ever settles one it left unopened. A trigger
-      // only moves forward, and the next intent is scheduled only once the open
-      // request has settled. So an intent at or below the latest trigger never
-      // opens, and an earlier intent still unsettled when this one lands never
-      // opened.
-      const triggerOffset = readNumber(event, "triggerOffset");
-      if (triggerOffset !== null && triggerOffset <= state.latestTriggerOffset) return state;
-      const opening = withoutRunningRequests({
-        ...state,
-        latestTriggerOffset: triggerOffset ?? state.latestTriggerOffset,
       });
-      // The agent builds a request's prompt from the log, so this request
-      // answers every queued input: the activity it waited behind closes, and
-      // every held message moves into the transcript in log order. A step
-      // that still runs (a script outlives the request that wrote it) keeps
-      // its activity live, since only its settlement ends it; this request
-      // joins that activity, and the script's later replies wait for it.
-      const ready =
-        opening.queuedUserMessages.length === 0 && opening.live
-          ? opening
-          : flushDeferredMessages(settleLive(opening, items), items);
-      return withLlmStep(ready, event, timestampMs);
     }
 
     // THE AGENT'S REQUEST. Only its answer is a step: a `summary` or a `side` request is no answer
@@ -713,6 +620,11 @@ function reduceAgentUiEvent(
     // answer request opens: the agent settles each one it asks.
     case AGENT_FACT.llmRequested: {
       if (readString(event, "purpose") !== "answer") return state;
+      // The agent builds a request's prompt from the log, so this request answers every queued
+      // input: the activity it waited behind closes, and every held message moves into the
+      // transcript in log order. A step that still runs (a script outlives the request that wrote
+      // it) keeps its activity live, since only its settlement ends it; this request joins that
+      // activity, and the script's later replies wait for it.
       const ready =
         state.queuedUserMessages.length === 0 && state.live
           ? state
@@ -739,28 +651,7 @@ function reduceAgentUiEvent(
       const payload = readPayloadRecord(event);
       const llmRequestOffset = payload?.llmRequestOffset;
       if (!payload || typeof llmRequestOffset !== "number") return state;
-      // the agent's settled fact holds the answer whole: no other fact carries it
-      return settledLlmStep(state, llmRequestOffset, payload, timestampMs, { answer: true });
-    }
-
-    case "events.iterate.com/agent/llm-response-frame": {
-      // One coalesced window: the text and thinking it adds, as the processor extracted them.
-      const frame = LlmResponseFrame.safeParse(event.payload);
-      if (!frame.success) return state;
-      const { llmRequestOffset, responseDelta, thinkingDelta, attempt = 0 } = frame.data;
-      if (!responseDelta && !thinkingDelta) return state;
-      return updateLlmStep(state, llmRequestOffset, (step) =>
-        streamedInto(step, { attempt, responseDelta, thinkingDelta }),
-      );
-    }
-
-    case "events.iterate.com/agent/llm-request-settled": {
-      // The ONE terminal fact for a request (succeeded | failed | cancelled),
-      // pointing back at the requested event's offset via `requestOffset`.
-      const payload = readPayloadRecord(event);
-      const requestOffset = payload?.requestOffset;
-      if (!payload || typeof requestOffset !== "number") return state;
-      return settledLlmStep(state, requestOffset, payload, timestampMs, { answer: false });
+      return settledLlmStep(state, llmRequestOffset, payload, timestampMs);
     }
 
     // The CONTEXT's script run (core/itx runs it): the request's offset is the
@@ -768,21 +659,13 @@ function reduceAgentUiEvent(
     case "events.iterate.com/itx/run-requested": {
       const parsed = RunRequested.safeParse(event.payload);
       if (!parsed.success) return state;
-      // The agent asks for a run while processing the assistant item that
-      // wrote it (the engine's `whileProcessing` stamp): that response's llm
-      // step is interpreted — the Script tab now carries the code, so pretty
-      // rendering can fold the raw response away.
-      const askedWhile = event.source?.processor?.whileProcessing?.offset;
-      const askedWhileState =
-        askedWhile === undefined
-          ? state
-          : markLlmStepInterpretedByAssistantOffset(state, askedWhile);
-      // the agent's key names the request whose response holds the script (agent-facts.ts)
+      // the agent's key names the request whose response holds the script (agent-facts.ts): that
+      // response's llm step is interpreted, since the Script tab now carries the code
       const askedBy = scriptRequestOffsetOf(event.idempotencyKey);
       const interpretedState =
         askedBy === undefined
-          ? askedWhileState
-          : updateLlmStep(askedWhileState, askedBy, (step) => ({ ...step, interpreted: true }));
+          ? state
+          : updateLlmStep(state, askedBy, (step) => ({ ...step, interpreted: true }));
       const live = ensureLive(interpretedState, event.offset, timestampMs);
       const step: AgentUiCodeStep = {
         kind: "code",
@@ -826,28 +709,19 @@ function reduceAgentUiEvent(
         activitySummary: state.summaryActivity || undefined,
       };
       const next = { ...state, live: { ...state.live, steps } };
-      // A reply can still be held here (an extracted answer that waited for
-      // the work it started; see emitAssistantMessageItem). If this settle is the turn's last journal
-      // fact — nothing running, no follow-up round — no later event exists to
-      // flush it, and the idle-boundary flush is a transient overlay driven
-      // by the agent's idle report, which can lag or wedge. Journal facts alone must
-      // surface a sent message: settle the activity here and flush. A paused
-      // loop is the same situation even with no deferred messages: the pause
-      // fact already landed (possibly mid-request), no follow-up round is
-      // coming, and no second pause will arrive to close the activity. A
-      // reply that already went out at once is the same (a request's answer,
-      // or a message a running script sent): when this script returned
-      // nothing (the turn ends, no follow-up round) nothing else closes the
-      // activity. A script that returned a value is followed by a request
-      // that joins this activity, so it stays open for that. A script's own
-      // message counts only when no later step joined the activity: that
-      // step's turn is not over because this script's is.
+      // A reply can still be held here (one that waited for the work running beside it; see
+      // emitAssistantMessageItem). If this settle is the turn's last journal fact — nothing
+      // running, no follow-up round — no later event exists to flush it, and the idle-boundary
+      // flush is a transient overlay driven by the agent's idle report, which can lag or wedge.
+      // Journal facts alone must surface a sent message: settle the activity here and flush. A
+      // paused agent is the same situation even with no deferred messages: the pause fact already
+      // landed (possibly mid-request), no follow-up round is coming, and no second pause will
+      // arrive to close the activity. A script whose message already went out at once is the same
+      // when it returned nothing (the turn ends, no follow-up round), or did not succeed: nothing
+      // else is sure to close the activity. A script that returned a value is followed by a
+      // request that joins this activity, so it stays open for that. Its message counts only when
+      // no later step joined the activity: that step's turn is not over because this script's is.
       const turnEnds = settlement.status === "succeeded" && settlement.result === undefined;
-      const repliedAtOnce = next.live.steps.some(
-        (candidate) => candidate.kind === "llm" && candidate.repliedAtOnce,
-      );
-      // Its own message held nothing back, so a settle that is not a success closes the activity
-      // too, as it did while that message was held: no later event is sure to come.
       const scriptRepliedAtOnce =
         step.repliedAtOnce &&
         index === steps.length - 1 &&
@@ -856,8 +730,7 @@ function reduceAgentUiEvent(
         (next.deferredAssistantMessages.length > 0 ||
           next.queuedUserMessages.length > 0 ||
           next.paused ||
-          scriptRepliedAtOnce ||
-          (repliedAtOnce && turnEnds)) &&
+          scriptRepliedAtOnce) &&
         !isAgentUiActivityWorking(next.live)
       ) {
         return flushDeferredMessages(settleLive(next, items), items);
@@ -888,8 +761,9 @@ function reduceAgentUiEvent(
     }
 
     // The stream-level facts (the whole stream stops accepting appends) and
-    // the agent-level facts (the turn loop parks — the autonomous breaker, or
-    // an operator) render as the same pause/resume marker rows. A pause is
+    // the agent-level facts (the agent asks for no request — its own bound on
+    // failures and on requests, or an operator) render as the same
+    // pause/resume marker rows. A pause is
     // also a run boundary: no more work is coming, so an idle live activity
     // (e.g. mid-turn after a script returned a value — the "processing" gap)
     // settles from this journal fact alone instead of waiting on the
@@ -1011,8 +885,8 @@ function transcribedFactOf(event: StreamEvent): { path: string; offset: number }
 /** A TRANSCRIPTION whose raw fact the chat drew or holds. The Dash's words are their bubble
  *  already: the transcription is drawn nowhere, and an interrupt it carries is by the words'
  *  sender. The platform's `message()` on this agent (`agent/message-received`) is drawn here from
- *  the raw fact: its words, its sender, the context that sent it. Undefined for any other: a
- *  channel's words (Slack) are drawn from the transcription, as they are. */
+ *  the raw fact: its words, its files, its sender, the context that sent it. Undefined for any
+ *  other: a channel's words (Slack) are drawn from the transcription, as they are. */
 function reduceTranscription(
   state: AgentUiState,
   event: StreamEvent,
@@ -1030,10 +904,10 @@ function reduceTranscription(
   const named = state.senderByMessage[raw.offset];
   if (!named || (event.path && event.path !== raw.path)) return undefined;
   const taken = { ...state, senderByMessage: withoutKey(state.senderByMessage, raw.offset) };
-  const files = readFileAttachments(event);
+  const { files } = named;
   const message = {
     offset: event.offset,
-    text: named.words || "",
+    text: named.words,
     ...(files.length === 0 ? {} : { files }),
     timestampMs: Date.parse(event.createdAt),
     sender: named.sender,
@@ -1107,14 +981,13 @@ function streamedInto(
   };
 }
 
-/** THE ONE TERMINAL FACT for a request (succeeded | failed | cancelled), folded into its step.
- *  `answer`: the settled fact holds the answer's text (the agent's), which then is the step's. */
+/** THE ONE TERMINAL FACT for a request (succeeded | failed | cancelled), folded into its step. A
+ *  success holds the answer whole, which then is the step's text. */
 function settledLlmStep(
   state: AgentUiState,
   requestOffset: number,
   payload: Record<string, unknown>,
   timestampMs: number,
-  { answer }: { answer: boolean },
 ): AgentUiState {
   const result = isRecord(payload.result) ? payload.result : undefined;
 
@@ -1140,8 +1013,7 @@ function settledLlmStep(
           // provider chunk, while responseText only holds FLUSHED windows
           // — an interrupt can strand up to one coalescing window's tail
           // in the buffer. Adopt the recorded text when it extends the preview.
-          ...(answer &&
-            status === "succeeded" &&
+          ...(status === "succeeded" &&
             typeof result?.text === "string" && { responseText: result.text, thinking: false }),
           ...(partialText &&
             partialText.length > step.responseText.length &&
@@ -1250,26 +1122,19 @@ function emitUserMessageItem(
 }
 
 /**
- * Assistant output belongs after the activity that produced it. Transport
- * adapters all use this path, so a Slack/Telegram echo cannot split a running
- * script group. Two messages land at once instead, above the still-live
- * activity, after the held replies before them in log order:
- * - the answer of a finished request while only OLDER work still runs (input
- *   sent during a long script): nothing that request started is running;
- * - a message a RUNNING SCRIPT sends (no llmRequestOffset while a code step
- *   runs): a script that sends a link and then polls must not hide the link
- *   until it settles.
- * The activity stays live and whole until its own settlements close it. The
- * request's step, or the running code step, is marked `repliedAtOnce`, so a
- * script settlement that ends the turn closes it (see itx/run-settled). Any
- * other message (an extracted one whose request started work still running,
- * or one with no llmRequestOffset while only an llm step runs) is held.
+ * Assistant output belongs after the activity that produced it, so a message
+ * cannot split a running script group. A message a RUNNING SCRIPT sends lands
+ * at once instead, above the still-live activity, after the held replies
+ * before it in log order: a script that sends a link and then polls must not
+ * hide the link until it settles. The activity stays live and whole until its
+ * own settlements close it. The running code step is marked `repliedAtOnce`,
+ * so a script settlement that ends the turn closes it (see itx/run-settled).
+ * A message while only an llm step runs is held.
  */
 function emitAssistantMessageItem(
   state: AgentUiState,
   items: AgentUiItem[],
   item: AgentUiMessageItem,
-  llmRequestOffset: number | null,
 ): AgentUiState {
   // A live activity that survives settleLive is working.
   const settled = settleLive(state, items);
@@ -1278,18 +1143,10 @@ function emitAssistantMessageItem(
     items.push(item);
     return flushed;
   }
-  if (llmRequestOffset !== null && onlyOlderWorkRuns(settled.live, llmRequestOffset)) {
-    items.push(...settled.deferredAssistantMessages, item);
-    const replied = updateLlmStep(settled, llmRequestOffset, (step) => ({
-      ...step,
-      repliedAtOnce: true,
-    }));
-    return { ...replied, deferredAssistantMessages: [] };
-  }
   const scriptRuns = settled.live.steps.some(
     (step) => step.kind === "code" && step.status === "running",
   );
-  if (llmRequestOffset === null && scriptRuns) {
+  if (scriptRuns) {
     items.push(...settled.deferredAssistantMessages, item);
     const steps = settled.live.steps.map((step) =>
       step.kind === "code" && step.status === "running" ? { ...step, repliedAtOnce: true } : step,
@@ -1300,34 +1157,6 @@ function emitAssistantMessageItem(
     ...settled,
     deferredAssistantMessages: [...settled.deferredAssistantMessages, item],
   };
-}
-
-/** Whether the request at `llmRequestOffset` finished in `live` and every step still running there
- *  began before it: work the request did not start, so its answer does not wait for that work. */
-function onlyOlderWorkRuns(live: AgentUiActivity, llmRequestOffset: number): boolean {
-  const request = live.steps.find(
-    (step) => step.kind === "llm" && step.llmRequestOffset === llmRequestOffset,
-  );
-  if (request?.status !== "done") return false;
-  return live.steps.every(
-    (step) =>
-      step.status === "done" ||
-      (step.kind === "code" ? step.requestOffset : step.llmRequestOffset) < llmRequestOffset,
-  );
-}
-
-/** Mark the llm step whose committed assistant event is `assistantEventOffset`
- * as interpreted (the agent asked for its script's run). */
-function markLlmStepInterpretedByAssistantOffset(
-  state: AgentUiState,
-  assistantEventOffset: number,
-): AgentUiState {
-  if (!state.live) return state;
-  const match = state.live.steps.find(
-    (step) => step.kind === "llm" && step.assistantEventOffset === assistantEventOffset,
-  );
-  if (!match || match.kind !== "llm") return state;
-  return updateLlmStep(state, match.llmRequestOffset, (step) => ({ ...step, interpreted: true }));
 }
 
 function updateLlmStep(
@@ -1374,11 +1203,6 @@ function readFileAttachments(event: StreamEvent): AgentUiFileAttachment[] {
   });
 }
 
-/** A message's files as the loop's copy must repeat them: their paths, one per line. */
-function filePathsOf(files: readonly AgentUiFileAttachment[]): string {
-  return files.map((file) => file.path).join("\n");
-}
-
 function readString(event: StreamEvent, key: string): string | null {
   const value = readPayloadRecord(event)?.[key];
   return typeof value === "string" ? value : null;
@@ -1394,16 +1218,12 @@ function readNumber(event: StreamEvent, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** The context path a message's `from` names (core's `messagePayload`), unless it is the root:
- *  `/` is the mind's code and its people, so its words are a person's. */
+/** The context path an `agent/message-received` names as its sender (`from`, which the agents
+ *  collection relays), unless it is the root: `/` is the mind's code and its people, so its words
+ *  are a person's. */
 function readContextFrom(event: StreamEvent): string | undefined {
   const from = readString(event, "from");
   return from?.startsWith("/") && from !== "/" ? from : undefined;
-}
-
-/** The llm-request-requested offset an LLM lifecycle event references. */
-function readLlmRequestOffset(event: StreamEvent): number | null {
-  return readNumber(event, "llmRequestOffset");
 }
 
 function readRecord(event: StreamEvent, key: string): Record<string, unknown> | null {

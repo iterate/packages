@@ -32,7 +32,7 @@ test("a device provisions itself and subscribes once to its relay's context; eac
         name: expect.stringMatching(/^cli-[0-9a-f]{8}$/),
         consumes: [
           "events.iterate.com/voice-agent/speaker-frame",
-          "events.iterate.com/agent/web-message-sent",
+          "events.iterate.com/agent-ui/message-sent",
           "events.iterate.com/voice-agent/call-started",
           "events.iterate.com/voice-agent/conversation-accepted",
           "events.iterate.com/voice-agent/call-ended",
@@ -80,7 +80,7 @@ test("the subscription hands each call its own frames and facts, and the agent's
   root.deliver([
     accepted(call.activation),
     accepted("another-call"),
-    { type: "events.iterate.com/agent/web-message-sent", payload: { message: "Four." } },
+    { type: "events.iterate.com/agent-ui/message-sent", payload: { message: "Four." } },
     { type: "events.iterate.com/agent/paused", payload: {} },
   ]);
   vi.advanceTimersByTime(300);
@@ -106,7 +106,7 @@ test("the subscription hands each call its own frames and facts, and the agent's
         type: "events.iterate.com/voice-agent/conversation-accepted",
         payload: { activation: call.activation, handshakeTookMs: 812 },
       },
-      { type: "events.iterate.com/agent/web-message-sent", payload: { message: "Four." } },
+      { type: "events.iterate.com/agent-ui/message-sent", payload: { message: "Four." } },
       { type: "events.iterate.com/voice-agent/answer-transcribed", payload: { text: "Four." } },
     ],
   });

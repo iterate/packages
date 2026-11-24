@@ -150,8 +150,8 @@ export function isAgentContext(row: ContextListing | undefined): row is ContextL
  *  had. Undefined when nothing changed, and for a description longer than the list keeps whole
  *  (`LIST_DESCRIPTION_MAX_CHARS`): the list keeps what it has, and the context the full text. The
  *  event cannot clear a field: an emptied one leaves the agent's own summary as it stands. */
-/** The longest description an agent's copy row carries whole: an iterate agent's row, made at
- *  its `create` (core/lib/src/agents/collection.ts `CATALOG_ROWS`), cuts at 500 characters, and the
+/** The longest description an agent's copy row carries whole: the row of the mind's own agent
+ *  (core/configs/default/agent-start.ts `CATALOG_ROWS`) cuts at 500 characters, and the
  *  catalog would write the cut text back over the context's own. */
 const LIST_DESCRIPTION_MAX_CHARS = 500;
 

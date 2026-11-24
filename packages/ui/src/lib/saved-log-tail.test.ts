@@ -14,6 +14,7 @@ test("a new page reads back the newest 1,000 durable events that the last page s
     "/agents/a",
     [...offsets(1, 1_100).map((at) => event(at)), event(1_101, { ephemeral: true })],
     true,
+    1,
   );
   await first.flush();
   const second = (await page()).savedLogTails(owner);
@@ -33,12 +34,13 @@ test("the character bound drops the oldest events, and an event over it alone sa
     "/agents/a",
     offsets(1, 4).map((at) => event(at, { characters: 600_000 })),
     true,
+    1,
   );
   expect(first.peek("/agents/a")).toMatchObject({ tail: { exhausted: false } });
   expect(first.peek("/agents/a")?.tail?.events.map((one) => one.offset)).toEqual([2, 3, 4]);
   await first.flush();
   expect((await (await page()).savedLogTails(owner).read("/agents/a"))?.events).toHaveLength(3);
-  first.save("/agents/a", [event(1), event(2, { characters: 2_100_000 })], true);
+  first.save("/agents/a", [event(1), event(2, { characters: 2_100_000 })], true, 1);
   expect(first.peek("/agents/a")).toMatchObject({ tail: undefined });
   await first.flush();
   expect(await (await page()).savedLogTails(owner).read("/agents/a")).toBe(undefined);
@@ -55,6 +57,7 @@ test.for([
     "/agents/a",
     offsets(1, count).map((at) => event(at)),
     said,
+    1,
   );
   expect(tails.peek("/agents/a")).toMatchObject({ tail: { exhausted } });
 });
@@ -62,7 +65,7 @@ test.for([
 test("another member reads nothing of the first one's tails, and its first use deletes them", async () => {
   await database();
   const first = (await page()).savedLogTails(owner);
-  first.save("/agents/a", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
   await first.flush();
   const other = (await page()).savedLogTails({ ...owner, actor: "/members/b" });
   expect(await other.read("/agents/a")).toBe(undefined);
@@ -76,7 +79,7 @@ test("the 31st context saved deletes the one saved longest ago", async () => {
     const tails = (await page()).savedLogTails(owner);
     for (const at of offsets(0, 30)) {
       vi.setSystemTime(1_000 * (at + 1));
-      tails.save(`/agents/${at}`, [event(1)], true);
+      tails.save(`/agents/${at}`, [event(1)], true, 1);
     }
     await tails.flush();
     const next = (await page()).savedLogTails(owner);
@@ -90,8 +93,8 @@ test("the 31st context saved deletes the one saved longest ago", async () => {
 test("drop forgets one context; a wipe deletes the database, and no save or read after it does anything", async () => {
   const indexedDB = await database();
   const first = (await page()).savedLogTails(owner);
-  first.save("/agents/a", [event(1)], true);
-  first.save("/agents/b", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
+  first.save("/agents/b", [event(1)], true, 1);
   await first.flush();
   first.drop("/agents/a");
   expect(first.peek("/agents/a")).toMatchObject({ tail: undefined });
@@ -103,7 +106,7 @@ test("drop forgets one context; a wipe deletes the database, and no save or read
   await next.wipeSavedLogTails();
   expect(await indexedDB.databases()).toEqual([]);
   expect(tails.peek("/agents/b")).toMatchObject({ tail: undefined });
-  tails.save("/agents/c", [event(1)], true);
+  tails.save("/agents/c", [event(1)], true, 1);
   await tails.flush();
   expect(await tails.read("/agents/c")).toBe(undefined);
   expect(await indexedDB.databases()).toEqual([]);
@@ -123,7 +126,7 @@ test.for([
   vi.stubGlobal("indexedDB", factory);
   const tails = (await page()).savedLogTails(owner);
   expect(await tails.read("/agents/a")).toBe(undefined);
-  tails.save("/agents/a", [event(1)], true);
+  tails.save("/agents/a", [event(1)], true, 1);
   await expect(tails.flush()).resolves.toBe(undefined);
 });
 
@@ -134,7 +137,7 @@ test("the first save writes at once, the saves of the next 3 s write once at the
   try {
     const tails = (await page()).savedLogTails(owner);
     // a reader may reload right after the first rows came: the first tail does not wait
-    tails.save("/agents/a", [event(1)], true);
+    tails.save("/agents/a", [event(1)], true, 1);
     // well inside the 3 s, and with no flush asked for
     await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(1), { timeout: 500, interval: 10 });
     for (const at of offsets(2, 20))
@@ -142,6 +145,7 @@ test("the first save writes at once, the saves of the next 3 s write once at the
         "/agents/a",
         offsets(1, at).map((one) => event(one)),
         true,
+        1,
       );
     await vi.advanceTimersByTimeAsync(2_000);
     expect(put).toHaveBeenCalledTimes(1);
@@ -153,6 +157,7 @@ test("the first save writes at once, the saves of the next 3 s write once at the
       "/agents/a",
       offsets(1, 21).map((one) => event(one)),
       true,
+      1,
     );
     await tails.flush();
     expect(put).toHaveBeenCalledTimes(3);
@@ -166,7 +171,7 @@ test("the first save writes at once, the saves of the next 3 s write once at the
 test("a view saved with a tail is read back by a new page, and a later save of either keeps the other", async () => {
   await database();
   const first = (await page()).savedLogTails(owner);
-  first.save("/agents/a", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
   first.saveView("/agents/a", claude("A"));
   await first.flush();
   const second = (await page()).savedLogTails(owner);
@@ -176,7 +181,7 @@ test("a view saved with a tail is read back by a new page, and a later save of e
     view: claude("A"),
   });
   // a later save of the tail keeps the view
-  second.save("/agents/a", [event(1), event(2)], true);
+  second.save("/agents/a", [event(1), event(2)], true, 1);
   await second.flush();
   const third = (await page()).savedLogTails(owner);
   await third.read("/agents/a");
@@ -198,13 +203,13 @@ test("a view saved before its tail is written with the tail, and no view is kept
   first.saveView("/agents/a", claude("A"));
   await vi.waitFor(() => expect(first.peek("/agents/a")).toMatchObject({ tail: undefined }));
   expect(first.peek("/agents/a")?.view).toBe(undefined);
-  first.save("/agents/a", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
   await first.flush();
   const second = (await page()).savedLogTails(owner);
   await second.read("/agents/a");
   expect(second.peek("/agents/a")).toMatchObject({ view: claude("A") });
   // a tail with no event deletes the record, view and all
-  second.save("/agents/a", [], true);
+  second.save("/agents/a", [], true, 1);
   await second.flush();
   const third = (await page()).savedLogTails(owner);
   expect(await third.read("/agents/a")).toBe(undefined);
@@ -216,7 +221,7 @@ test("another member reads no view, and drop and a wipe remove it", async () => 
   await database();
   const first = (await page()).savedLogTails(owner);
   for (const path of ["/agents/a", "/agents/b"]) {
-    first.save(path, [event(1)], true);
+    first.save(path, [event(1)], true, 1);
     first.saveView(path, claude("A"));
   }
   await first.flush();
@@ -226,9 +231,9 @@ test("another member reads no view, and drop and a wipe remove it", async () => 
   const again = (await page()).savedLogTails(owner);
   // the other member's first use deleted the first one's records
   expect(await again.read("/agents/a")).toBe(undefined);
-  again.save("/agents/a", [event(1)], true);
+  again.save("/agents/a", [event(1)], true, 1);
   again.saveView("/agents/a", claude("A"));
-  again.save("/agents/b", [event(1)], true);
+  again.save("/agents/b", [event(1)], true, 1);
   again.saveView("/agents/b", claude("A"));
   await again.flush();
   again.drop("/agents/a");
@@ -247,7 +252,7 @@ test("another member reads no view, and drop and a wipe remove it", async () => 
 test("a record whose view does not parse answers its tail with no view", async () => {
   const indexedDB = await database();
   const first = (await page()).savedLogTails(owner);
-  first.save("/agents/a", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
   await first.flush();
   await rewrite(indexedDB, (record) => ({ ...record, view: { kind: 7, file: "claude.ts" } }));
   const second = (await page()).savedLogTails(owner);
@@ -256,10 +261,41 @@ test("a record whose view does not parse answers its tail with no view", async (
   expect(second.peek("/agents/a")?.view).toBe(undefined);
 });
 
+test("a tail is read back with the version of its context; a save of another version replaces it", async () => {
+  await database();
+  const first = (await page()).savedLogTails(owner);
+  first.save("/agents/a", [event(1), event(2)], true, 1);
+  await first.flush();
+  expect(await (await page()).savedLogTails(owner).read("/agents/a")).toMatchObject({
+    version: 1,
+  });
+  // the same events, of the next version: no streamed chunk, another tail
+  first.save("/agents/a", [event(1), event(2)], true, 2);
+  expect(first.peek("/agents/a")).toMatchObject({ tail: { version: 2 } });
+  await first.flush();
+  expect(await (await page()).savedLogTails(owner).read("/agents/a")).toMatchObject({
+    events: [{ offset: 1 }, { offset: 2 }],
+    version: 2,
+  });
+});
+
+test("a record with no version, as a page before versions wrote it, is not read: it may be of any version", async () => {
+  const indexedDB = await database();
+  const first = (await page()).savedLogTails(owner);
+  first.save("/agents/a", [event(1)], true, 1);
+  first.saveView("/agents/a", claude("A"));
+  await first.flush();
+  await rewrite(indexedDB, (record) => ({ ...record, version: undefined }));
+  const second = (await page()).savedLogTails(owner);
+  expect(await second.read("/agents/a")).toBe(undefined);
+  expect(second.peek("/agents/a")).toMatchObject({ tail: undefined });
+  expect(second.peek("/agents/a")?.view).toBe(undefined);
+});
+
 test("a kind's file over 500,000 characters is not kept: the view is not remembered", async () => {
   await database();
   const first = (await page()).savedLogTails(owner);
-  first.save("/agents/a", [event(1)], true);
+  first.save("/agents/a", [event(1)], true, 1);
   first.saveView("/agents/a", claude("A"));
   // a larger file replaces the kept view with none: the kept one is of an older file
   first.saveView("/agents/a", claude("x".repeat(500_001)));

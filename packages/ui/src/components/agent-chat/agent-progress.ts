@@ -1,5 +1,5 @@
 /** Safe conversation data for a host that keeps the agent's raw log on its server. */
-import { AgentContract } from "iterate/agents/contract";
+import { AgentEventCatalog } from "iterate/agents/contract";
 import { foldAgentLog, toAgentEvent } from "./agent-events.ts";
 import { deriveAgentUiLiveStatus, isAgentUiLiveRowWorking } from "./agent-ui-reducer.ts";
 import type { AgentRow } from "#/lib/agent-summary.ts";
@@ -42,7 +42,7 @@ export function agentMessagesOf(events: readonly unknown[]): AgentMessageRow[] {
   return events.flatMap((raw) => {
     const event = toAgentEvent(raw);
     if (event?.type !== "events.iterate.com/agent/message-received") return [];
-    const payload = AgentContract.events[
+    const payload = AgentEventCatalog.events[
       "events.iterate.com/agent/message-received"
     ].payloadSchema.safeParse(event.payload);
     if (!payload.success || !payload.data.from) return [];

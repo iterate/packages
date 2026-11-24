@@ -2,13 +2,13 @@
 
 GPT-Live voice calls for a mind's devices. Each device has two contexts, made when it connects
 and kept: its relay, `/voice/<device>`, which runs this package's relay facet and holds the live
-model, and its agent, `/agents/voice/<device>`, an agent of the agents app (`iterate/agents`,
-created through `itx.agents`) that answers every call the device makes and remembers them. Each
-request the live model delegates goes to the agent as a message through the agents app
-(`itx.agents.get(path).message(words)`), and the agent's answer goes back to the live model to
-speak. A press is ONE append to the relay's context, `call-started { activation }`: nothing is
-created on it, and the relay dials in the batch that carries it. Userspace: a mind installs this
-package; the platform ships none of it.
+model, and its agent, `/agents/voice/<device>`, the mind's own agent (the code in its config's
+`agent/`, created through `itx.agents`), which answers every call the device makes and remembers
+them. Each request the live model delegates goes to the agent as a message
+(`itx.agents.get(path).message(words)`), and the words the agent's scripts send the person
+(`agent-ui/message-sent`) go back to the live model to speak. A press is ONE append to the relay's
+context, `call-started { activation }`: nothing is created on it, and the relay dials in the batch
+that carries it. Userspace: a mind installs this package; the platform ships none of it.
 
 Two contexts, not one, because a context's birth restarts what it runs: an agent's cold build must
 never sit in front of the relay's dial.
@@ -16,8 +16,8 @@ never sit in front of the relay's dial.
 ## Install
 
 A mind's config repo depends on the package, re-exports its service and relay class from
-`voice.ts`, and installs voice from its init case beside the agents app, which every device's agent
-runs on (the default config's `apps.md`, "Voice devices", says how to make that commit):
+`voice.ts`, and installs voice from its init case beside `itx.agents`, which makes every device's
+agent (the default config's `apps.md`, "Voice devices", says how to make that commit):
 
 ```text
 package.json   "dependencies": { "@iterate-com/voice": "0.1.0-main.<date>-<sha>" }   (npm's `main` dist-tag, pinned)
@@ -60,29 +60,34 @@ that asked, so a device holds no more than it does.
 - **The agent** is created with `itx.agents.at(caller).create("/agents/voice/<client>")`.
   Provisioning adds [voice-context.md](src/voice-context.md), the instructions for spoken answers,
   as a developer message that starts no turn; [screen-context.md](src/screen-context.md) the same
-  way for a device with a screen; and
-  `agent/configured { config: { llmRequestDebounceMs: 0, idleCompactionAfterMs: 900_000, idleCompactionMinNewTokens: 2_000 } }`, so a
-  hand-over is answered at once and the history between calls gets its idle summary 15 minutes
-  after a request, once 2,000 tokens are new since the last one (the agents app's idle compaction
-  is off until an agent sets it). Each instruction
-  and the patch are keyed by their content, so a build with new ones adds them once. Two rows on the agent's context copy what the relay needs to the relay's:
-  `agent/summary-updated`, `agent/web-message-sent`, `agent/paused`, and the agent's own report of
-  each failed script (the `context-added` that begins "Your script failed") as
-  `voice-agent/script-failed`; the platform never copies an `itx/*` event.
+  way for a device with a screen; and `agent/configured { config: { llmRequestDebounceMs: 0 } }`,
+  so a hand-over is answered at once. The patch names only keys of the agent's config
+  (`AgentConfig`): the agent drops a key it does not know. When the history between calls is
+  summarised is the agent's own rule. Each instruction and the patch are keyed by their content,
+  so a build with new ones adds them once. One row on the agent's context copies what the relay
+  needs to the relay's: `agent/summary-updated`, `agent-ui/message-sent` and `agent/paused`. A row
+  whose body changes takes a new key, so that a device provisioned by an earlier build gets it at
+  its next connect: a row of the same name replaces the old one. An earlier build wrote a second
+  row there, `voice-relay-script-failed`; provisioning switches it off with a row of that name and
+  no target.
 - **The relay**, `/voice/<client>`, gets a parent link to the caller, the `voice-agent`
   subscription row, and `voice-agent/device-provisioned { agentPath }`, which wakes the relay so it
-  prepares the live model's session before the first press. A second row copies each press to the
-  agent's context as `agent/warm-up-requested`.
+  prepares the live model's session before the first press. An earlier build wrote a second row
+  there, `voice-agent-warm-up`; provisioning switches it off the same way.
 
-The backend is the mind's normal agent: its system prompt, capability tree and `run` tool. Keep
-tool examples in the agents app's prompt; do not maintain a separate voice API description. Each
-hand-over carries the words said since the one before (`Person:` and `Voice:` lines), and the first
-of each call starts with `New call.`, so the agent's own conversation holds every call on the device
-and where each began. A script's status reaches the live model as a quiet note, a failed script
-too, and a message is spoken for the newest hand-over of this call its request had read, unless it
-was written beside a script (`besideScript`), before that script's result. A message ending in
-`HANG_UP` ends the call after the goodbye, and an agent that pauses says so. What the agent says
-before a call has handed it anything belongs to an earlier call and is not spoken.
+The backend is the mind's own agent: its system prompt, capability tree and scripts. Keep examples
+in the mind's agent prompt; do not maintain a separate voice API description. Each hand-over
+carries the words said since the one before (`Person:` and `Voice:` lines), and the first of each
+call starts with `New call.`, so the agent's own conversation holds every call on the device and
+where each began. A script's status reaches the live model as a quiet note, and is said aloud on a
+long job while the person waits for the answer. Words reach the person only when a script of the
+agent appends `agent-ui/message-sent`. Each such message names no hand-over: it is spoken at once
+for the newest hand-over of this call, and it is the answer, so later status is not said aloud.
+When a script fails, the agent reads the failure in its next request and says what matters in a
+message. A message that holds `HANG_UP` ends the call after the goodbye, and an agent that pauses
+says so.
+What the agent says before a call has handed it anything belongs to an earlier call and is not
+spoken.
 
 The screen guide's display action is `itx.cd("/").voice.setImage({ device, image: { html } })`.
 The agent retains supplied context messages and passes them to the model unchanged; it has no
@@ -112,11 +117,7 @@ request. Words the device gives the voice to say, such as a phone bridge's openi
 session starts. Unlike the agent's words, they need no hand-over of the call first, because they
 name the call.
 
-The live model hands over within seconds of the press, so the press also readies the agent, on the
-row above and never in the dial's way: its context wakes, it reads its instructions, opens its socket
-if it has one (a mind's own `llm.apiKeys`) and has the provider cache its prompt with one ping
-(`iterate/agents`, Warming up), which its log shows as `agent/cache-kept-warm`. A first hand-over
-that comes while the ping runs is answered at once, beside it. Facts the relay writes:
+Facts the relay writes:
 
 | Event                   | Payload                                                                                                                                                        |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -129,7 +130,7 @@ The call client counts the rest on the device's own clock: `pressToAcceptedMs` a
 
 | File                                         | What                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/voice-agent.ts`                         | `VoiceAgentDurableObject`: the GPT-Live relay and the device's call fold. Dials `wss://api.openai.com/v1/live/sessions` through egress with `getSecret("/secrets/openai")`, forwards `mic-frame`s, appends `speaker-frame`s and transcripts, hands the live model's delegations to the device's agent, and forwards the agent's replies to the live model to speak.                                                                       |
+| `src/voice-agent.ts`                         | `VoiceAgentDurableObject`: the GPT-Live relay and the device's call fold. Dials `wss://api.openai.com/v1/live/sessions` through egress with `getSecret("/secrets/openai")`, forwards `mic-frame`s, appends `speaker-frame`s and transcripts, hands the live model's delegations to the device's agent, and forwards the agent's messages to the live model to speak.                                                                      |
 | `src/mic-pacer.ts`                           | The relay's one queue and pacer for everything the live model hears: the device's frames from the press on, held until the session starts, sent oldest first: what was held goes at once up to 5 s (GPT-Live's burst limit), the rest at most 1.2× real time (at most 100 ms of saved-up credit), and digital silence only when nothing is queued and the provider would starve. More than 6 s queued ends the call with `audio-trimmed`. |
 | `src/worker.ts`                              | The voice service at `itx.voice`: `ensureVoiceDevice`, `setImage`, `health`.                                                                                                                                                                                                                                                                                                                                                              |
 | `src/install.ts`                             | `installVoice`, the init case's; `ensureVoiceAgent`, the key and the wait Kit runs in the browser, preserving existing services and secrets; `voiceVersion` and `upgradeVoice`, the running build and its upgrade.                                                                                                                                                                                                                        |

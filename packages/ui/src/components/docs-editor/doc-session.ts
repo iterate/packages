@@ -117,28 +117,26 @@ export type DocSessionOptions = {
   commentOnly: boolean;
 };
 
-/** What an agent is doing: the fields of its `agent` facet's live state (iterate/agents contract.ts
- *  `stateSchema`) that say it is at work on a turn. */
+/** What an agent is doing: the fields of its `agent` facet's live state (core/configs/default
+ *  agent/contract.ts `stateSchema`) that say it is at work on a turn. */
 const AgentLive = z.object({
   paused: z.object({ reason: z.string() }).nullable(),
-  /** a model request about to start, or under way */
-  pendingLlmRequestTrigger: z.object({}).nullable(),
-  openRequest: z.object({ model: z.string() }).nullable(),
-  /** a script its model answered with, not yet started, and the scripts running */
-  awaitingRun: z.object({}).nullable(),
-  pendingRuns: z.record(z.string(), z.unknown()),
+  /** its open requests to the model */
+  llmRequests: z.array(z.object({})),
+  /** inputs that wait for a request */
+  pendingTriggerOffsets: z.array(z.number()),
+  /** the scripts its model answered with; `answered`: the conversation holds the result */
+  scriptCalls: z.array(z.object({ answered: z.boolean() })),
 });
 
-/** Whether an agent is thinking: not paused, and asking its model or running a script it answered
- *  with. It is briefly neither when a script has ended and the agent has not yet passed its result
- *  to the model. */
+/** Whether an agent is thinking: not paused, and asking its model, about to, or with a script
+ *  whose result the conversation does not hold yet (one about to run, or running). */
 function isThinking(agent: z.infer<typeof AgentLive>) {
   const working =
-    agent.pendingLlmRequestTrigger ||
-    agent.openRequest ||
-    agent.awaitingRun ||
-    Object.keys(agent.pendingRuns).length > 0;
-  return !agent.paused && Boolean(working);
+    agent.llmRequests.length > 0 ||
+    agent.pendingTriggerOffsets.length > 0 ||
+    agent.scriptCalls.some((call) => !call.answered);
+  return !agent.paused && working;
 }
 
 /** A tab's awareness state as collab.ts sets it: whose tab it is. */

@@ -2,7 +2,8 @@
 // The chat's status strip when the agent's live state is not there to read: it says what the
 // catalog heard from the agent, or else that it cannot tell, and the log alone then decides when a
 // turn is over, instead of waiting for it for good. And the chat with no strip, where the status is
-// the feed's last row. And what the feed shows while its log is read, and after.
+// the feed's last row. And what the feed shows while its log is read, and after. And the chat over
+// a log with an earlier version: the current version alone.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,24 @@ import { expect, test, vi } from "vitest";
 import { AgentChat, AgentProgress } from "./agent-chat.tsx";
 import { AgentReading } from "./agent-reading.tsx";
 import { LogReading } from "#/components/virtual-log/read-progress.tsx";
+import {
+  apiMessage,
+  created,
+  fact,
+  frame,
+  liveState,
+  request,
+  runRequested,
+  runSettled,
+  said,
+  scriptResult,
+  sent,
+  settled,
+  succeeded,
+  summary,
+  transcription,
+  versionEnded,
+} from "#/test-support/agent-log.ts";
 
 // jsdom lays nothing out; the composer's CodeMirror measures text ranges after each change
 Object.assign(Range.prototype, {
@@ -20,54 +39,23 @@ Object.assign(Range.prototype, {
 test("shared-conversation progress shows work and its public summary without response or script content", () => {
   const context: Context = {
     events: [
-      {
-        offset: 1,
-        createdAt: "2026-11-16T12:00:00Z",
-        type: "events.iterate.com/agent/llm-request-requested",
-        payload: { model: "gpt-test" },
-      },
-      {
-        offset: 2,
-        createdAt: "2026-11-16T12:00:01Z",
-        type: "events.iterate.com/agent/llm-response-frame",
-        payload: {
-          llmRequestOffset: 1,
-          sequence: 0,
-          thinkingDelta: "PRIVATE_REASONING",
-          responseDelta: "PRIVATE_RESPONSE",
-        },
-      },
-      {
-        offset: 3,
-        createdAt: "2026-11-16T12:00:02Z",
-        type: "events.iterate.com/agent/summary-updated",
-        payload: { title: "Look up a file", activity: "Finding the shared file" },
-      },
+      request(1, { model: "gpt-test" }),
+      frame(2, 1, { thinkingDelta: "PRIVATE_REASONING", textDelta: "PRIVATE_RESPONSE" }),
+      summary(3, "Finding the shared file"),
     ],
     caughtUp: true,
     processors: { loaded: true, rows: [] },
     presence: { actors: [], rpcStubs: [] },
-    liveState: {
-      agent: {
-        status: "live",
-        value: { paused: null, openRequest: { model: "gpt-test" }, pendingLlmRequestTrigger: null },
-      },
-    },
+    liveState: agentLive({
+      llmRequests: [{ requestOffset: 1, purpose: "answer", model: "gpt-test" }],
+    }),
   };
   const thinking = renderToStaticMarkup(<AgentProgress context={context} />);
   expect(thinking).toContain("Thinking · gpt-test");
   expect(thinking).toContain("Finding the shared file");
   expect(thinking).toContain('aria-label="Loading"');
   expect(thinking).not.toMatch(/PRIVATE_REASONING|PRIVATE_RESPONSE/);
-  context.events = [
-    ...context.events,
-    {
-      offset: 4,
-      createdAt: "2026-11-16T12:00:03Z",
-      type: "events.iterate.com/itx/run-requested",
-      payload: { code: "PRIVATE_SCRIPT" },
-    },
-  ];
+  context.events = [...context.events, runRequested(4, null, "PRIVATE_SCRIPT")];
   const running = renderToStaticMarkup(<AgentProgress context={context} />);
   expect(running).toContain("Running a script");
   expect(running.match(/Finding the shared file/g)).toHaveLength(1);
@@ -75,31 +63,18 @@ test("shared-conversation progress shows work and its public summary without res
 });
 
 test.for([
+  { value: { pendingTriggerOffsets: [9] }, expected: "About to think", working: true },
   {
-    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: {} },
-    expected: "About to think",
-    working: true,
-  },
-  {
-    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null, awaitingRun: {} },
+    value: { scriptCalls: [{ answered: false }] },
     expected: "About to run a script",
     working: true,
   },
   {
-    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null, unnotedRun: 12 },
-    expected: "Reading the script&#x27;s result",
-    working: true,
-  },
-  {
-    value: { paused: { reason: "Needs input" }, openRequest: null, pendingLlmRequestTrigger: null },
+    value: { paused: { reason: "Needs input" } },
     expected: "Paused — Needs input",
     working: false,
   },
-  {
-    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
-    expected: "",
-    working: false,
-  },
+  { value: {}, expected: "", working: false },
 ])(
   "shared-conversation progress follows the agent obligation: $expected",
   ({ value, expected, working }) => {
@@ -108,7 +83,7 @@ test.for([
       caughtUp: true,
       processors: { rows: [], loaded: true },
       presence: { actors: [], rpcStubs: [] },
-      liveState: { agent: { status: "live", value } },
+      liveState: agentLive(value),
     };
     const markup = renderToStaticMarkup(<AgentProgress context={context} />);
     if (expected) expect(markup).toContain(expected);
@@ -154,50 +129,6 @@ test.for<Pick<Context, "processors" | "liveState"> & { name: string; status: str
     status: "Live state unavailable",
   },
   {
-    name: "the agent facet holds no obligation",
-    processors: { rows: [], loaded: true },
-    liveState: {
-      agent: {
-        status: "live",
-        value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
-      },
-    },
-    status: "Idle",
-  },
-  {
-    name: "the agent facet holds an answer whose script has not been asked to run",
-    processors: { rows: [], loaded: true },
-    liveState: {
-      agent: {
-        status: "live",
-        value: {
-          paused: null,
-          openRequest: null,
-          pendingLlmRequestTrigger: null,
-          awaitingRun: { callId: "call_1" },
-        },
-      },
-    },
-    status: "About to run a script",
-  },
-  {
-    name: "the agent facet holds a settled run whose note has not landed",
-    processors: { rows: [], loaded: true },
-    liveState: {
-      agent: {
-        status: "live",
-        value: {
-          paused: null,
-          openRequest: null,
-          pendingLlmRequestTrigger: null,
-          unnotedRun: 29,
-        },
-      },
-    },
-    status: "Reading the script's result",
-  },
-  {
-    // the agent of the kind `agent` (agent-facts.ts): its live state has its own shape
     name: "the agent's live state has an open answer request",
     processors: { rows: [], loaded: true },
     liveState: agentLive({
@@ -242,14 +173,7 @@ test("a newest page with nothing to say is no proof of silence: the chat reads o
   using _chat = await mount({
     processors: { rows: [], loaded: true },
     liveState: {},
-    events: [
-      {
-        offset: 9_000,
-        type: "events.iterate.com/itx/woken",
-        createdAt: "2026-11-06T00:00:00.000Z",
-        payload: {},
-      },
-    ],
+    events: [fact(9_000, "itx/woken", {})],
     head: 10_000,
     older: { loadOlder, loading: false, exhausted: false },
   });
@@ -261,57 +185,38 @@ test("a newest page with nothing to say is no proof of silence: the chat reads o
 test("a request the agent facet has not reported yet still shows as running: a pending trigger is an obligation", async () => {
   using _chat = await mount({
     processors: { rows: [], loaded: true },
-    liveState: {
-      agent: {
-        status: "live",
-        value: { paused: null, openRequest: null, pendingLlmRequestTrigger: {} },
-      },
-    },
-    events: [
-      {
-        offset: 5,
-        type: "events.iterate.com/agent/llm-request-requested",
-        createdAt: "2026-11-06T00:00:00.000Z",
-        payload: { model: "m", expiresAt: 9e12, triggerOffset: 4 },
-      },
-    ],
+    liveState: agentLive({ pendingTriggerOffsets: [4] }),
+    events: [request(5)],
   });
   expect(document.querySelector("button[title='Stop generation']")).not.toBeNull();
 });
 
-test.for<{ name: string; value: Record<string, unknown>; row: string | null; spinner: boolean }>([
+test.for<{
+  name: string;
+  value: Parameters<typeof liveState>[0];
+  row: string | null;
+  spinner: boolean;
+}>([
   {
     name: "a request is open and the log holds no step of it",
-    value: { paused: null, openRequest: { model: "m" }, pendingLlmRequestTrigger: null },
+    value: { llmRequests: [{ requestOffset: 9, purpose: "answer", model: "m" }] },
     row: "Working…",
     spinner: true,
   },
   {
     name: "the agent is paused",
-    value: { paused: { reason: "over budget" }, openRequest: null, pendingLlmRequestTrigger: null },
+    value: { paused: { reason: "over budget" } },
     row: "Paused — over budget",
     spinner: false,
   },
-  {
-    name: "the agent holds no obligation",
-    value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
-    row: null,
-    spinner: false,
-  },
+  { name: "the agent holds no obligation", value: {}, row: null, spinner: false },
 ])("with no strip, when $name, the feed's last row is $row", async ({ value, row, spinner }) => {
   using _layout = laidOut();
   using chat = await mount(
     {
       processors: { rows: [], loaded: true },
-      liveState: { agent: { status: "live", value } },
-      events: [
-        {
-          offset: 4,
-          type: "events.iterate.com/agent/context-added",
-          createdAt: "2026-11-06T00:00:00.000Z",
-          payload: { role: "user", content: "hello", actor: { type: "user" } },
-        },
-      ],
+      liveState: agentLive(value),
+      events: [said(4, "hello")],
     },
     { strip: false, state: { view: "events" }, aboveComposer: <p data-testid="above">progress</p> },
   );
@@ -433,14 +338,7 @@ test.for<{ name: string; context: LogCase["context"]; says: string; error?: stri
       processors: { rows: [], loaded: true },
       liveState: {},
       caughtUp: true,
-      events: [
-        {
-          offset: 9_000,
-          type: "events.iterate.com/itx/woken",
-          createdAt: "2026-11-06T00:00:00.000Z",
-          payload: {},
-        },
-      ],
+      events: [fact(9_000, "itx/woken", {})],
       head: 10_000,
       ...context,
     });
@@ -575,15 +473,7 @@ test.for([
   "a strip with eventsTab $eventsTab keeps the agent's status words, and has $tabs tabs",
   async ({ eventsTab, tabs }) => {
     using chat = await mount(
-      {
-        processors: { rows: [], loaded: true },
-        liveState: {
-          agent: {
-            status: "live",
-            value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
-          },
-        },
-      },
+      { processors: { rows: [], loaded: true }, liveState: agentLive({}) },
       { eventsTab },
     );
     expect(chat.status()).toBe("Idle");
@@ -594,15 +484,7 @@ test.for([
 
 test("in a voice call an agent with no work shows no status, never Idle", async () => {
   using chat = await mount(
-    {
-      processors: { rows: [], loaded: true },
-      liveState: {
-        agent: {
-          status: "live",
-          value: { paused: null, openRequest: null, pendingLlmRequestTrigger: null },
-        },
-      },
-    },
+    { processors: { rows: [], loaded: true }, liveState: agentLive({}) },
     { inCall: new Map([["usr_jonas", { camera: false, screen: false }]]) },
   );
   expect(chat.status()).toBeUndefined();
@@ -639,17 +521,11 @@ test.for<{ name: string; me: string | undefined; lines: (readonly [string, strin
         processors: { rows: [], loaded: true },
         liveState: {},
         events: [
-          { ...said(1, "mine"), source: { principal: ada } },
-          {
-            ...said(2, "theirs"),
+          said(1, "mine", { source: { principal: ada } }),
+          said(2, "theirs", {
             source: { principal: { actor: "/members/bo", email: "bo@example.com" } },
-          },
-          // the cast: the context's event type does not name `onBehalfOf`, which the platform
-          // stamps on what a person's script appends
-          {
-            ...said(3, "my script's"),
-            source: { onBehalfOf: { principal: ada, run: "/@7" } },
-          } as unknown as Context["events"][number],
+          }),
+          said(3, "my script's", { source: { onBehalfOf: { principal: ada, run: "/@7" } } }),
         ],
       },
       { me },
@@ -665,7 +541,7 @@ test.for<{ name: string; me: string | undefined; lines: (readonly [string, strin
   },
 );
 
-test("another agent's words are one folded quiet row, not a bubble: a helper's line says it reported, and a press opens and closes its words", async () => {
+test("another agent's words are one folded quiet row, not a bubble: a subagent's line says it reported, and a press opens and closes its words", async () => {
   using _layout = laidOut();
   const ada = { actor: "/members/ada", email: "ada@example.com" };
   using _chat = await mount(
@@ -673,42 +549,14 @@ test("another agent's words are one folded quiet row, not a bubble: a helper's l
       processors: { rows: [], loaded: true },
       liveState: {},
       events: [
-        { ...said(1, "mine"), source: { principal: ada } },
-        {
-          ...said(2, "theirs"),
+        said(1, "mine", { source: { principal: ada } }),
+        said(2, "theirs", {
           source: { principal: { actor: "/members/bo", email: "bo@example.com" } },
-        },
-        {
-          offset: 3,
-          type: "events.iterate.com/agent/message-received",
-          createdAt: "2026-11-06T00:00:00.000Z",
-          payload: { message: "The site is up.", from: "/agents/onboarding/website" },
-        },
-        // the cast: the context's event type does not name `whileProcessing`, which the processor
-        // engine stamps on the relay the loop makes of a `message-received`
-        {
-          ...said(4, "The site is up."),
-          source: {
-            processor: {
-              slug: "agent",
-              version: "1",
-              whileProcessing: { offset: 3, type: "events.iterate.com/agent/message-received" },
-            },
-          },
-        } as unknown as Context["events"][number],
-        {
-          ...said(5, "A lead came in."),
-          payload: {
-            role: "user",
-            content: "A lead came in.",
-            actor: { type: "user" },
-            from: "/agents/sales",
-          },
-        },
-        {
-          ...said(6, "from the root"),
-          payload: { role: "user", content: "from the root", actor: { type: "user" }, from: "/" },
-        },
+        }),
+        // another agent's `message()`, and the mind's transcription of it for the model
+        ...report(3, "The site is up.", "/agents/onboarding/website"),
+        ...report(5, "A lead came in.", "/agents/sales"),
+        ...report(7, "from the root", "/"),
       ],
     },
     { path: "/agents/onboarding", me: "ada@example.com" },
@@ -753,28 +601,14 @@ test("another agent's words are one folded quiet row, not a bubble: a helper's l
 
 test("words that wait for the next turn: the panel over the composer holds a person's, never another agent's", async () => {
   using _layout = laidOut();
-  const running = {
-    offset: 2,
-    type: "events.iterate.com/agent/llm-request-requested",
-    createdAt: "2026-11-06T00:00:00.000Z",
-    payload: { model: "m", expiresAt: 9e12, triggerOffset: 1 },
-  };
-  const report = {
-    ...said(3, "The site is up."),
-    payload: {
-      role: "user",
-      content: "The site is up.",
-      actor: { type: "user" },
-      from: "/agents/onboarding/website",
-    },
-  };
+  const reported = report(3, "The site is up.", "/agents/onboarding/website");
   {
-    // a helper's report alone waits: no panel, and its words are nowhere as the reader's input
+    // a subagent's report alone waits: no panel, and its words are nowhere as the reader's input
     using _chat = await mount(
       {
         processors: { rows: [], loaded: true },
         liveState: {},
-        events: [said(1, "go"), running, report],
+        events: [said(1, "go"), request(2), ...reported],
       },
       { path: "/agents/onboarding" },
     );
@@ -785,13 +619,200 @@ test("words that wait for the next turn: the panel over the composer holds a per
     {
       processors: { rows: [], loaded: true },
       liveState: {},
-      events: [said(1, "go"), running, report, said(4, "and make it green")],
+      events: [said(1, "go"), request(2), ...reported, said(5, "and make it green")],
     },
     { path: "/agents/onboarding" },
   );
   const panel = document.querySelector("[data-testid=queued-messages-panel]");
   expect(panel?.textContent).toContain("and make it green");
   expect(panel?.textContent).not.toContain("The site is up.");
+});
+
+test("a chat whose agent's path starts a new version draws the new conversation alone: no bubble, no round, no timer and no working state of the earlier version", async () => {
+  using _layout = laidOut();
+  // the earlier version, at work: a round ran a script, the next request streams, and words wait
+  const earlier = [
+    said(1, "the earlier question"),
+    request(2),
+    settled(3, 2, succeeded("<codemode>await work()</codemode>")),
+    runRequested(4, 2),
+    sent(5, "the earlier answer"),
+    runSettled(6, 4, { status: "succeeded", result: 1 }),
+    request(7, { itemsAdded: [scriptResult(2, "1")] }),
+    frame(8, 7, { textDelta: "the earlier partial" }),
+    said(9, "queued behind the request"),
+  ];
+  using chat = await mount({
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({ llmRequests: [{ requestOffset: 7, purpose: "answer", model: "m" }] }),
+    events: earlier,
+  });
+  const page = () => document.body.textContent || "";
+  const shown = () => ({
+    bubbles: [...document.querySelectorAll("[data-kind=user], [data-kind=assistant]")].map(
+      (bubble) => bubble.querySelector(".whitespace-pre-wrap, p")?.textContent?.trim(),
+    ),
+    rounds: document.querySelectorAll("[data-kind=activity]").length,
+    roundSoFar: Boolean(document.querySelector("[data-testid=agent-live-summary]")),
+    // the live row's label and its clock
+    live: document.querySelector("[data-kind=live] [data-testid=agent-live-status]")?.textContent,
+    queued: document.querySelector("[data-testid=queued-messages-panel]")?.textContent,
+    stop: Boolean(document.querySelector("button[title='Stop generation']")),
+    status: chat.status(),
+    tabs: document.querySelector("[role=tablist]")?.textContent,
+  });
+  expect(shown()).toMatchObject({
+    bubbles: ["the earlier question", "the earlier answer"],
+    rounds: 0,
+    roundSoFar: true,
+    live: expect.stringMatching(/^Waiting for a response \d/),
+    queued: expect.stringContaining("queued behind the request"),
+    stop: true,
+    status: "Thinking · m",
+  });
+  expect(page()).toContain("the earlier partial");
+
+  // the same live log: the border of the version, and the agent's live state of the new one
+  const border = [versionEnded(10, 1), created(11, 2)];
+  await chat.update({ liveState: agentLive({}), events: [...earlier, ...border] });
+  expect(shown()).toEqual({
+    bubbles: [],
+    rounds: 0,
+    roundSoFar: false,
+    live: undefined,
+    queued: undefined,
+    stop: false,
+    status: "Idle",
+    // the Events tab is the raw log: every fact of both versions
+    tabs: "ChatEvents11",
+  });
+  expect(page()).not.toMatch(/the earlier|queued behind/);
+
+  // the new version's facts: its question, and its request at work
+  const asked = [...earlier, ...border, said(12, "the new question"), request(13, { model: "m2" })];
+  await chat.update({
+    liveState: agentLive({ llmRequests: [{ requestOffset: 13, purpose: "answer", model: "m2" }] }),
+    events: asked,
+  });
+  expect(shown()).toMatchObject({
+    bubbles: ["the new question"],
+    rounds: 0,
+    roundSoFar: false,
+    live: expect.stringMatching(/^Waiting for a response \d/),
+    queued: undefined,
+    stop: true,
+    status: "Thinking · m2",
+  });
+  expect(page()).not.toMatch(/the earlier|queued behind/);
+
+  // the new request settles: one round, the new version's alone, and nothing works
+  await chat.update({
+    liveState: agentLive({}),
+    events: [...asked, settled(14, 13, succeeded("Hello again."))],
+  });
+  expect(shown()).toMatchObject({
+    bubbles: ["the new question"],
+    rounds: 1,
+    roundSoFar: false,
+    live: undefined,
+    queued: undefined,
+    stop: false,
+    status: "Idle",
+  });
+  expect(page()).not.toMatch(/the earlier|queued behind/);
+});
+
+test("a newest page that holds the border of a version reads no older page: the current version starts there, and nothing has been said in it", async () => {
+  const loadOlder = vi.fn();
+  using _chat = await mount({
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({}),
+    events: [versionEnded(9_000, 1), created(9_001, 2), fact(9_002, "itx/woken", {})],
+    head: 10_000,
+    older: { loadOlder, loading: false, exhausted: false },
+  });
+  expect(loadOlder).not.toHaveBeenCalled();
+  expect(document.querySelector("[role=progressbar]")).toBeNull();
+  expect(document.querySelector("[role=log]")?.textContent).toContain("Nothing said yet");
+});
+
+test("a new version of the path is a new conversation: the trace and the inspected event of the earlier one close, and the person's draft stays", async () => {
+  using _layout = laidOut();
+  const onStateChange = vi.fn();
+  const earlier = [
+    said(1, "the earlier question"),
+    request(2),
+    settled(3, 2, succeeded("the earlier answer")),
+  ];
+  using chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: agentLive({}),
+      events: earlier,
+      version: 1,
+    },
+    { state: { llmRequest: 2, event: 3 }, onStateChange },
+  );
+  // the person writes, and has not sent
+  await paste("words for the next question");
+  expect(document.body.textContent).toContain("words for the next question");
+  // a reconnect of the same version: the read before its first page says none, and then the same
+  await chat.update({ caughtUp: false, events: [] });
+  await chat.update({ caughtUp: true, events: earlier });
+  expect(onStateChange).not.toHaveBeenCalled();
+  // the new version
+  await chat.update({ events: [created(5, 2), said(6, "the new question")], version: 2 });
+  expect(onStateChange.mock).toMatchObject({
+    calls: [[{ llmRequest: undefined, scriptRun: undefined, event: undefined }]],
+  });
+  expect(document.body.textContent).toContain("words for the next question");
+  expect(document.body.textContent).toContain("the new question");
+  expect(document.body.textContent).not.toContain("the earlier");
+});
+
+test("a saved copy says no version: the read's first word after it is no new conversation, and a link's trace stays open", async () => {
+  using _layout = laidOut();
+  const onStateChange = vi.fn();
+  using chat = await mount(
+    {
+      processors: { rows: [], loaded: true },
+      liveState: agentLive({}),
+      events: [said(1, "the saved question")],
+      version: 1,
+      savedCopy: true,
+    },
+    { state: { llmRequest: 7 }, onStateChange },
+  );
+  await chat.update({ events: [created(5, 2), request(7)], version: 2, savedCopy: false });
+  expect(onStateChange).not.toHaveBeenCalled();
+});
+
+test("a new version is shown from its end, wherever the reader was; a new row of the same version leaves a reader in history where they are", async () => {
+  using _layout = laidOut();
+  const earlier = Array.from({ length: 30 }, (_, at) => said(at + 1, `question ${String(at + 1)}`));
+  using chat = await mount({
+    processors: { rows: [], loaded: true },
+    liveState: agentLive({}),
+    events: earlier,
+    version: 1,
+  });
+  const scroller = document.querySelector<HTMLElement>("[data-slot=virtual-log]")!;
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5_000 });
+  const writes = vi.fn();
+  scroller.scrollTo = writes;
+  // the reader scrolls up, into history
+  await act(async () => {
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+    scroller.scrollTop = 1_000;
+    scroller.dispatchEvent(new Event("scroll"));
+  });
+  expect(document.querySelector("[aria-label^='Scroll to bottom']")).not.toBe(null);
+  writes.mockClear();
+  await chat.update({ events: [...earlier, said(31, "one more")] });
+  expect(writes).not.toHaveBeenCalled();
+  await chat.update({ events: [created(40, 2), said(41, "the new question")], version: 2 });
+  // the end: 5,000 high, less the 600 in view
+  expect(writes.mock.calls.at(-1)).toMatchObject([{ top: 4_400 }]);
 });
 
 type Context = ComponentProps<typeof AgentChat>["context"];
@@ -805,31 +826,19 @@ type LogCase = {
   shown: "reading" | "empty" | "rows" | "error";
 };
 
-/** The live state of the agent of the kind `agent` (agent-facts.ts), with nothing open but what
- *  `state` names. */
-function agentLive(state: Record<string, unknown>): Context["liveState"] {
-  return {
-    agent: {
-      status: "live",
-      value: {
-        paused: null,
-        llmRequests: [],
-        pendingTriggerOffsets: [],
-        scriptCalls: [],
-        ...state,
-      },
-    },
-  };
+/** The agent's live state as the chat's context holds it, with nothing open but what `state`
+ *  names. */
+function agentLive(state: Parameters<typeof liveState>[0]): Context["liveState"] {
+  return { agent: { status: "live", value: liveState(state) } };
 }
 
-/** A person's words in the log. */
-function said(offset: number, content: string) {
-  return {
-    offset,
-    type: "events.iterate.com/agent/context-added",
-    createdAt: "2026-11-06T00:00:00.000Z",
-    payload: { role: "user", content, actor: { type: "user" } },
-  };
+/** Another agent's words at `offset` (its `message()`, with the context that sent them as
+ *  `from`), and the mind's transcription of them for the model at `offset + 1`. */
+function report(offset: number, words: string, from: string) {
+  return [
+    apiMessage(offset, words, { source: { origin: "/agents" }, from }),
+    transcription(offset + 1, offset, `[from ${from}] ${words}`),
+  ];
 }
 
 /** A page with height, which jsdom lacks, so the virtual log draws its rows; disposing takes it
@@ -850,39 +859,64 @@ function laidOut() {
   };
 }
 
-/** The chat mounted in the document over an empty log; disposing
- *  unmounts it and clears the page. */
+/** The chat mounted in the document over an empty log; `update` draws it again over the context
+ *  as it is now (the same live log, grown); disposing unmounts it and clears the page. */
 async function mount(
-  context: Pick<Context, "processors" | "liveState"> &
-    Partial<Pick<Context, "events" | "head" | "older" | "caughtUp" | "error">>,
+  context: MountedContext,
   props: Partial<ComponentProps<typeof AgentChat>> = {},
 ) {
   const root = createRoot(document.body.appendChild(document.createElement("div")));
-  await act(async () =>
-    root.render(
-      <AgentChat
-        path="/agents/demo"
-        context={{
-          events: [],
-          caughtUp: true,
-          presence: { actors: [], rpcStubs: [] },
-          ...context,
-        }}
-        error={undefined}
-        state={{}}
-        onStateChange={() => {}}
-        onMessage={async () => {}}
-        onAppend={async () => {}}
-        signedUrl={async () => ""}
-        {...props}
-      />,
-    ),
-  );
+  const draw = (now: MountedContext) =>
+    act(async () =>
+      root.render(
+        <AgentChat
+          path="/agents/demo"
+          context={{
+            events: [],
+            caughtUp: true,
+            presence: { actors: [], rpcStubs: [] },
+            ...now,
+          }}
+          error={undefined}
+          state={{}}
+          onStateChange={() => {}}
+          onMessage={async () => {}}
+          onAppend={async () => {}}
+          signedUrl={async () => ""}
+          {...props}
+        />,
+      ),
+    );
+  await draw(context);
   return {
     status: () => document.querySelector("[data-status]")?.textContent,
+    update: (now: Partial<MountedContext>) => draw({ ...context, ...now }),
     [Symbol.dispose]: () => {
       act(() => root.unmount());
       document.body.replaceChildren();
     },
   };
+}
+
+type MountedContext = Pick<Context, "processors" | "liveState"> &
+  Partial<
+    Pick<Context, "events" | "head" | "older" | "caughtUp" | "error" | "version" | "savedCopy">
+  >;
+
+/** Words into the composer as a paste puts them in the editor (jsdom has no DataTransfer), unsent. */
+async function paste(words: string) {
+  const composer = await vi.waitFor(() => {
+    const found = document.querySelector("[aria-placeholder]");
+    expect(found).not.toBe(null);
+    return found!;
+  });
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [],
+      items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+      getData: (format: string) => (format === "text/plain" ? words : ""),
+    },
+  });
+  await act(async () => composer.dispatchEvent(event));
 }

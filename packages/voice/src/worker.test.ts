@@ -83,42 +83,31 @@ test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_e
         [
           instruction(guide("voice-context.md")),
           ...(screen ? [instruction(guide("screen-context.md"))] : []),
-          // no debounce for a waiting caller; the idle summary 15 minutes after a request
+          // no debounce for a waiting caller, and no key the agent's config does not have
           {
             type: "events.iterate.com/agent/configured",
             idempotencyKey: expect.stringMatching(/^voice-device\/configured:[0-9a-f]{16}$/),
-            payload: {
-              config: {
-                llmRequestDebounceMs: 0,
-                idleCompactionAfterMs: 900_000,
-                idleCompactionMinNewTokens: 2_000,
-              },
-            },
+            payload: { config: { llmRequestDebounceMs: 0 } },
           },
+          // a new key, so that a device provisioned by an earlier build gets the new row
           {
             type: "events.iterate.com/itx/subscription-configured",
-            idempotencyKey: `voice-device/copy-to:${path}`,
+            idempotencyKey: `voice-device/copy-to:${path}:2`,
             payload: {
               name: "voice-relay",
               consumes: [
                 "events.iterate.com/agent/summary-updated",
-                "events.iterate.com/agent/web-message-sent",
+                "events.iterate.com/agent-ui/message-sent",
                 "events.iterate.com/agent/paused",
               ],
               target: { path, payload: "payload" },
             },
           },
+          // an earlier build's failure row, switched off
           {
             type: "events.iterate.com/itx/subscription-configured",
-            idempotencyKey: `voice-device/script-failures-to:${path}`,
-            payload: expect.objectContaining({
-              name: "voice-relay-script-failed",
-              consumes: ["events.iterate.com/agent/context-added"],
-              target: expect.objectContaining({
-                path,
-                type: "events.iterate.com/voice-agent/script-failed",
-              }),
-            }),
+            idempotencyKey: `voice-device/script-failures-off:${path}`,
+            payload: { name: "voice-relay-script-failed", target: null },
           },
         ],
       ],
@@ -155,15 +144,11 @@ test.for(["waveshare_rlcd_4_2", "zectrix_note4", "home_assistant_voice_preview_e
               ],
             },
           },
-          // each press readies the agent, beside the dial
+          // an earlier build's warm-up row, switched off
           {
             type: "events.iterate.com/itx/subscription-configured",
-            idempotencyKey: `voice-device/warm-up:${agentPath}`,
-            payload: {
-              name: "voice-agent-warm-up",
-              consumes: ["events.iterate.com/voice-agent/call-started"],
-              target: { path: agentPath, type: "events.iterate.com/agent/warm-up-requested" },
-            },
+            idempotencyKey: `voice-device/warm-up-off:${agentPath}`,
+            payload: { name: "voice-agent-warm-up", target: null },
           },
           {
             type: "events.iterate.com/voice-agent/device-provisioned",
@@ -186,6 +171,82 @@ test("provisioning a provisioned device appends the same keyed rows, which the l
       Object.entries(first).map(([path, batches]) => [path, [...batches, ...batches]]),
     ),
   );
+});
+
+test("a device an earlier build provisioned connects again: its relay row takes the new body, and its failure row and warm-up row are switched off", async () => {
+  const { worker, appended } = await harness();
+  const path = "/voice/pin";
+  const agentPath = "/agents/voice/pin";
+  const row = "events.iterate.com/itx/subscription-configured";
+  // the rows the earlier build wrote, under its keys
+  const earlier: Record<string, unknown[]> = {
+    [agentPath]: [
+      {
+        type: row,
+        idempotencyKey: `voice-device/copy-to:${path}`,
+        payload: {
+          name: "voice-relay",
+          consumes: ["events.iterate.com/agent/web-message-sent"],
+          target: { path, payload: "payload" },
+        },
+      },
+      {
+        type: row,
+        idempotencyKey: `voice-device/script-failures-to:${path}`,
+        payload: {
+          name: "voice-relay-script-failed",
+          consumes: ["events.iterate.com/agent/context-added"],
+          filter: `$substring(payload.content, 0, 18) = "Your script failed"`,
+          target: { path, type: "events.iterate.com/voice-agent/script-failed" },
+        },
+      },
+    ],
+    [path]: [
+      {
+        type: row,
+        idempotencyKey: `voice-device/warm-up:${agentPath}`,
+        payload: {
+          name: "voice-agent-warm-up",
+          consumes: ["events.iterate.com/voice-agent/call-started"],
+          target: { path: agentPath, type: "events.iterate.com/agent/warm-up-requested" },
+        },
+      },
+    ],
+  };
+  await worker.ensureVoiceDevice({ client: "pin" });
+  /** The rows a context holds, by name, as its log folds what was appended to it: a key written
+   *  once is not written again, a row replaces the row of its name, and one with no target
+   *  removes it. */
+  const rowsOn = (context: string) => {
+    const keys = new Set<string>();
+    const rows: Record<string, unknown> = {};
+    const events = [...(earlier[context] ?? []), ...(appended[context] ?? []).flat()] as {
+      type: string;
+      idempotencyKey?: string;
+      payload: { name: string; target?: unknown };
+    }[];
+    for (const event of events) {
+      if (event.type !== row || (event.idempotencyKey && keys.has(event.idempotencyKey))) continue;
+      if (event.idempotencyKey) keys.add(event.idempotencyKey);
+      if (event.payload.target) rows[event.payload.name] = event.payload;
+      else delete rows[event.payload.name];
+    }
+    return rows;
+  };
+  expect({ agent: rowsOn(agentPath), relay: Object.keys(rowsOn(path)) }).toEqual({
+    agent: {
+      "voice-relay": {
+        name: "voice-relay",
+        consumes: [
+          "events.iterate.com/agent/summary-updated",
+          "events.iterate.com/agent-ui/message-sent",
+          "events.iterate.com/agent/paused",
+        ],
+        target: { path, payload: "payload" },
+      },
+    },
+    relay: ["voice-agent"],
+  });
 });
 
 test.for([

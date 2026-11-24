@@ -5,6 +5,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test, vi } from "vitest";
 import { AgentContext, AgentMessage, SubagentActivities } from "./agent-context.tsx";
 import { AgentProgress } from "./agent-chat/agent-chat.tsx";
+import {
+  liveState,
+  request,
+  runRequested,
+  runSettled,
+  said,
+  settled,
+  succeeded,
+} from "#/test-support/agent-log.ts";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -224,7 +233,7 @@ test("an activity still running is no row: it is the progress line", async () =>
     renderers: roomRenderers,
     agentContext: agentLog(
       agentTurn(1).filter((event) => event.type !== "events.iterate.com/itx/run-settled"),
-      { ...IDLE, awaitingRun: {} },
+      liveState({ scriptCalls: [{ answered: false }] }),
     ),
   });
   expect(document.querySelector("[data-kind=activity]")).toBeNull();
@@ -376,59 +385,32 @@ const spokenLine: NonNullable<Props["spokenLine"]> = (event) => {
 /** The agent's log: one turn whose script settled, from second `start`, its first event at
  *  offset 1. */
 function agentTurn(start: number) {
-  const at = (offset: number, type: string, payload: Record<string, unknown>, extra = {}) => ({
-    offset,
-    type,
-    createdAt: time(start + offset),
-    payload,
-    ...extra,
-  });
   return [
-    at(1, "events.iterate.com/agent/context-added", {
-      role: "user",
-      content: "store 42",
-      actor: { type: "user" },
-    }),
-    at(2, "events.iterate.com/agent/llm-request-requested", {
-      model: "m",
-      expiresAt: 9e12,
-      triggerOffset: 1,
-    }),
-    at(3, "events.iterate.com/agent/llm-request-settled", {
-      requestOffset: 2,
-      result: { status: "succeeded", text: "ok" },
-    }),
-    at(4, "events.iterate.com/agent/context-added", {
-      role: "assistant",
-      llmRequestOffset: 2,
-      content:
+    said(1, "store 42"),
+    request(2),
+    settled(
+      3,
+      2,
+      succeeded(
         "Storing.\n<codemode status=\"Storing\">\nawait itx.kv.put('answer', '42')\n</codemode>",
-    }),
-    at(
-      5,
-      "events.iterate.com/itx/run-requested",
-      { code: "async (itx) => { await itx.kv.put('answer', '42'); return { stored: true } }" },
-      {
-        idempotencyKey: "agent/run-requested@4",
-        source: {
-          processor: { slug: "agent", version: "1", whileProcessing: { offset: 4, type: "x" } },
-        },
-      },
+      ),
     ),
-    at(6, "events.iterate.com/itx/run-settled", {
-      requestOffset: 5,
-      settlement: { status: "succeeded", result: { stored: true } },
-    }),
-  ];
+    runRequested(
+      5,
+      2,
+      "async (itx) => { await itx.kv.put('answer', '42'); return { stored: true } }",
+    ),
+    runSettled(6, 5, { status: "succeeded", result: { stored: true } }),
+  ].map((event) => ({ ...event, createdAt: time(start + event.offset) }));
 }
 
-const IDLE = { paused: null, openRequest: null, pendingLlmRequestTrigger: null };
-const WORKING = { paused: null, openRequest: { model: "m" }, pendingLlmRequestTrigger: null };
+const IDLE = liveState();
+const WORKING = liveState({ llmRequests: [{ requestOffset: 2, purpose: "answer", model: "m" }] });
 
 /** The agent's context: `events`, its facet's live value, and its older pages. */
 const agentLog = (
   events: ReturnType<typeof agentTurn>,
-  value: Record<string, unknown> = IDLE,
+  value = IDLE,
   older?: NonNullable<Props["agentContext"]>["older"],
 ): NonNullable<Props["agentContext"]> => ({
   events,

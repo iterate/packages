@@ -18,6 +18,7 @@ import { Dash, type DashPage, type DashPageProps } from "#/components/dash/dash.
 import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
 import { agentRowsOf } from "#/lib/agent-summary.ts";
 import { itxSessionOf } from "#/lib/itx-session.ts";
+import { liveState, said, type LoggedEvent } from "#/test-support/agent-log.ts";
 
 // React's flag for a test that wraps its changes in `act`: a global that no type declares.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -589,26 +590,14 @@ function storage() {
   };
 }
 
-type LogEvent = { offset: number; type: string; createdAt: string; payload: object };
-
-/** Words a person said, as the agent's log holds them. */
-function said(offset: number, content: string): LogEvent {
-  return {
-    offset,
-    type: "events.iterate.com/agent/context-added",
-    createdAt: "2026-11-16T12:00:00.000Z",
-    payload: { role: "user", content, actor: { type: "user" } },
-  };
-}
-
 /** THE NETWORK AND THE MIND BEHIND IT. `WebSocket` is the constructor a page dials with: a dial
  *  opens while `up`, and else closes with 1006 before it opened. Behind an open socket is a
  *  capnweb session to a mind that holds `logs` by path. `drop` closes the open socket from the
  *  mind's side; `silent` loses what the page sends, with no close. */
-function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, object> = {}) {
+function network(logs: Record<string, LoggedEvent[]> = {}, facets: Record<string, object> = {}) {
   const subscribers = new Set<{
     path: string;
-    push: (events: LogEvent[]) => unknown;
+    push: (events: LoggedEvent[]) => unknown;
     socket: FakeSocket;
   }>();
   let asked = 0;
@@ -641,7 +630,7 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
     drop(code: number) {
       net.sockets.at(-1)?.end(code);
     },
-    append(path: string, event: LogEvent) {
+    append(path: string, event: LoggedEvent) {
       (logs[path] ||= []).push(event);
       for (const one of subscribers) if (one.path === path) void one.push([event]);
     },
@@ -685,7 +674,10 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
         scannedThroughOffset: held.at(-1)?.offset || 0,
       };
     }
-    subscribe(input: { consumes?: string[]; target: { dup(): (events: LogEvent[]) => unknown } }) {
+    subscribe(input: {
+      consumes?: string[];
+      target: { dup(): (events: LoggedEvent[]) => unknown };
+    }) {
       const durable = input.consumes?.includes("*");
       // the page's function ends with this call unless the mind keeps a copy of its own
       const subscriber = { path: this.#path, push: input.target.dup(), socket: this.#socket };
@@ -699,9 +691,8 @@ function network(logs: Record<string, LogEvent[]> = {}, facets: Record<string, o
       return new Listed([]);
     }
     invoke(call: string) {
-      const idle = { paused: null, openRequest: null, pendingLlmRequestTrigger: null };
       return call.includes("liveSnapshot")
-        ? { rev: 1, state: facets[this.#path] || idle }
+        ? { rev: 1, state: facets[this.#path] || liveState() }
         : { offset: 0, state: {} };
     }
     cd(path: string) {

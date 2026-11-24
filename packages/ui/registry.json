@@ -32,6 +32,7 @@
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
         "iterate/packages/iterate-logo",
+        "iterate/packages/itx-session",
         "iterate/packages/presence",
         "iterate/packages/virtual-log",
         "popover",

@@ -65,6 +65,9 @@ export type AgentKindViewProps = {
     processors: { rows: readonly any[]; loaded: boolean; error?: string };
     presence: { actors: readonly any[]; rpcStubs: readonly string[] };
     liveState: Record<string, any>;
+    /** The version of the agent's path that `events` are of, once a read has said it. A new
+     *  version is a new conversation: `AgentChat` closes what it had open of the last one. */
+    version?: number;
   };
   /** The host's own failure (opening the agent's context). */
   error: string | undefined;

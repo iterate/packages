@@ -2,20 +2,27 @@
 
 `AgentChat` is one agent's conversation: the chat with a composer, its events (`ContextView`), and
 the traces of its LLM requests and script runs. The header of `agent-chat.tsx` shows how a host
-mounts it. In the Agents app it is the view of the iterate agent kind
-(`core/configs/default/agent-kinds/iterate.ts`), loaded through `src/agent-kind-view/`.
+mounts it. In the Agents app it is the view of the agent kind `agent`
+(`core/configs/default/agent-kinds/agent.ts`), loaded through `src/agent-kind-view/`. The facts
+it reads are named in `agent-facts.ts`.
 
 - The host owns the agent's context, the hook and the route. The chat owns everything inside its
   box. It imports no router and nothing of the SDK's client. Its view state is the `state` prop
   (`AgentChatState` in `agent-chat-search.ts`).
-- At runtime it imports only three pure SDK modules: `iterate/agents/contract`,
-  `iterate/agents/codemode-format` and `iterate/stream/run`.
+- At runtime it imports only two pure SDK modules: `iterate/agents/contract` and
+  `iterate/stream/run`.
 - Pass `AgentChat.contextOptions` to `useIterateContext`. It names the streamed chunk windows,
   because a wildcard never matches an ephemeral event. Without it, an answer does not stream.
 - A log of any length opens as fast as a short one: the chat reads the newest page and reads older
   pages as the reader scrolls up, on [the virtual log](../virtual-log/AGENTS.md). This works because
   the reducer's memory is one turn long (`agent-ui-reducer.ts`). Keep it so. An LLM trace reads
   every older page, because its prompt is every context item before the request.
+- The chat shows the current version of the path alone: the SDK's log holds that version alone,
+  and `foldAgentLog` folds only the facts after the newest `itx/version-ended` it is given. A new
+  version, as a read says it (`context.version`, `versionOf` in `lib/itx-session.ts`), is a new
+  conversation: the chat closes the trace and the inspected event it had open, and goes to the
+  feed's end. The person's draft, its files and its key stay. A kind's frame gets the version
+  from its host.
 - Inputs with `llmRequestPolicy: "dont-trigger-request"` fold into one quiet row per run. They close
   no activity and join no queue. Inputs that start a turn stay bubbles.
 - `strip={false}` is the chat alone, for a page whose reader is no developer (a mind's own
@@ -71,7 +78,8 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   the call", "camera", "screen" in the card). The host derives it from the call's live state
   (the Dash: `agent-kind-view/call-presence.ts`); the chat knows nothing else of a call.
 - `onMessage` gets a `key` for each message. Hand it on as `message(input, { key })`: a send that
-  is tried again after a lost answer then lands once.
+  is tried again after a lost answer then lands once. Through `onAppend` the words are one
+  `agent-ui/message-received`, and the key is in its idempotency key.
 - A choice in an agent's words is `[[kind:value|label]]` (kind `domain`, `account`, `name`, `say`
   or `link`; no label: the value is the words). `onChoice` gets `{ kind, value, label }` on a press,
   through a React context (`choice-in-words.tsx`); `choiceState` draws one as "chosen" or "busy".
@@ -85,7 +93,8 @@ mounts it. In the Agents app it is the view of the iterate agent kind
   (`AppProviders` does this in the apps).
 - Markdown renders through streamdown. An app's stylesheet must scan it
   (`@source "../node_modules/streamdown/dist/*.js";`, as the apps' `styles.css` do).
-- Tests: the reducer's (`agent-ui-reducer.test.ts`) and the log's (`agent-events.test.ts`). The
+- Tests: the reducer's (`agent-ui-reducer.test.ts`) and the log's (`agent-events.test.ts`). They
+  write a conversation in the agent's own facts with `src/test-support/agent-log.ts`. The
   `fix-stream` skill (`.agents/skills/fix-stream` in the private repo) says which one a broken chat
   adds a row to.
 - `examples/agent-chat-page.ts` is a page to copy.

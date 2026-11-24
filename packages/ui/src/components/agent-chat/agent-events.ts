@@ -1,11 +1,12 @@
 // The agent's log as the agent-UI reducer (agent-ui-reducer.ts) reads it: `reduceAgentUi`
 // folds every committed event, the agent's and the context's script runs (`itx/run-requested` /
 // `itx/run-settled`, identified by the request's offset) alike, into messages and activities (an
-// LLM step that wrote a script, the code step that ran it, grouped into rounds).
+// LLM step that wrote a script, the code step that ran it, grouped into rounds). The fold reads
+// the current version of the path alone (`foldAgentLog`).
 import { z } from "zod";
-import { AgentContract } from "iterate/agents/contract";
 import { RunRequested, RunSettled, type RunSettlement } from "iterate/stream/run";
 import { sliceText, type StreamText } from "./chunked-text.ts";
+import { AGENT_FACT, scriptCallOf } from "./agent-facts.ts";
 import {
   initialAgentUiState,
   reduceAgentUi,
@@ -33,14 +34,22 @@ export function toAgentEvent(raw: unknown): StreamEvent | null {
   return parsed.success ? parsed.data : null;
 }
 
+/** THE BORDER OF A VERSION. `itx.cd(path).newVersion()` starts a path over: its log goes on, and
+ *  this fact ends the earlier version (the next fact, `itx/created`, names the new version). The
+ *  facts at lower offsets are another conversation. */
+const VERSION_ENDED = "events.iterate.com/itx/version-ended";
+
 /** The log folded so far, which the next call goes on from. */
 export type AgentLogFold = {
   /** The rows folded, as the caller's array held them: how the next call tells what grew. */
   log: readonly unknown[];
-  /** Those rows that are committed events, in offset order. */
+  /** The committed events of the current version, in offset order. */
   events: readonly StreamEvent[];
   state: AgentUiState;
   items: readonly AgentUiItem[];
+  /** The offset of the newest `itx/version-ended` held, or null: the current version starts after
+   *  it, and the chat reads no page older than it. */
+  versionEndedAt: number | null;
 };
 
 const NOTHING_FOLDED: AgentLogFold = {
@@ -48,12 +57,15 @@ const NOTHING_FOLDED: AgentLogFold = {
   events: [],
   state: initialAgentUiState(),
   items: [],
+  versionEndedAt: null,
 };
 
 /** `log`, sorted by offset, folded through the reducer: on from `held` when the log only grew at its
  *  end, so a live tail costs what arrived; from the start otherwise (an older page). Either way a
  *  settled row keeps its identity, so a memoised row skips the re-render that a streamed frame or an
- *  older page would bring and its markdown is not parsed again. */
+ *  older page would bring and its markdown is not parsed again. ONLY THE CURRENT VERSION is folded:
+ *  the events after the newest `itx/version-ended` held. The feed, the live line and the traces
+ *  read this fold, so they agree. */
 export function foldAgentLog(
   held: AgentLogFold | undefined,
   log: readonly unknown[],
@@ -63,8 +75,12 @@ export function foldAgentLog(
     held.log.length > 0 &&
     log[0] === held.log[0] &&
     log[held.log.length - 1] === held.log.at(-1);
-  const start = grewAtEnd ? held : NOTHING_FOLDED;
-  const fresh = log.slice(start.log.length).flatMap((row) => toAgentEvent(row) ?? []);
+  const from = grewAtEnd ? held : NOTHING_FOLDED;
+  const arrived = log.slice(from.log.length).flatMap((row) => toAgentEvent(row) ?? []);
+  const border = arrived.findLast((event) => event.type === VERSION_ENDED);
+  // a border starts the fold over after it: the facts at lower offsets are another version's
+  const start = border ? { ...NOTHING_FOLDED, versionEndedAt: border.offset } : from;
+  const fresh = border ? arrived.slice(arrived.indexOf(border) + 1) : arrived;
   let { state } = start;
   const items: AgentUiItem[] = [];
   for (const event of fresh) {
@@ -79,10 +95,11 @@ export function foldAgentLog(
     state,
     items:
       rows.length > 0
-        ? grewAtEnd
+        ? grewAtEnd && !border
           ? goingOn(start.items, rows)
           : keepingHeldMessages(rows, held?.items)
         : start.items,
+    versionEndedAt: start.versionEndedAt,
   };
 }
 
@@ -147,8 +164,8 @@ export function reduceAgentFeed(
   return agentFeedOf(foldAgentLog(undefined, events), idle, requestMayBeOpen);
 }
 
-/** The model's own code inside the agent loop's envelope (core/lib results-preamble.ts wraps it
- *  between these markers), or null for a script that has no envelope. */
+/** The model's own code inside the agent's envelope (core/configs/default agent/script-envelope.ts
+ *  wraps it between these markers), or null for a script that has no envelope. */
 export function authoredScript(code: string): string | null {
   const open = "//#region your script";
   const start = code.indexOf(open);
@@ -203,124 +220,32 @@ export function liveActivityLabel(runningSteps: readonly AgentUiStep[]): string 
   return "Waiting for a response";
 }
 
-/** The llm request behind each assistant bubble (its item id → the request offset), so clicking the
- *  message opens its trace: a `web-message-sent` names its request directly. */
-export function traceOffsetByMessage(events: readonly StreamEvent[]): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const event of events) {
-    if (event.type !== "events.iterate.com/agent/web-message-sent") continue;
-    const p = isRecord(event.payload) ? event.payload : {};
-    if (typeof p.llmRequestOffset === "number")
-      map.set(`assistant-${String(event.offset)}`, p.llmRequestOffset);
-  }
-  return map;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object.prototype.toString.call(value) === "[object Object]";
-}
-
-// ── traces ── what the model was sent and what it answered, rebuilt from the log the way the
-// agent builds its request (every context item before the request, in order).
-
-export type LlmTrace = {
-  llmRequestOffset: number;
-  model: string;
-  requestedAtMs: number;
-  messages: { offset: number; role: string; content: string }[];
-  outcome:
-    | { status: "in flight" }
-    | { status: "succeeded"; text: string; durationMs?: number }
-    | { status: "failed"; errorMessage: string; durationMs?: number }
-    | { status: "cancelled"; reason?: string };
-  /** What the loop derived from the answer: the prose it sent, the run of the script it wrote (its
-   *  `itx/run-requested` offset). */
-  derived: { prose?: string; scriptRequestOffset?: number };
-};
-
-export function llmTrace(
-  events: readonly StreamEvent[],
-  llmRequestOffset: number,
-): LlmTrace | null {
-  const requested = events.find((event) => event.offset === llmRequestOffset);
-  if (!requested || requested.type !== "events.iterate.com/agent/llm-request-requested")
-    return null;
-  const payload = isRecord(requested.payload) ? requested.payload : {};
-  const messages = events.flatMap((event) => {
-    if (event.offset >= llmRequestOffset) return [];
-    if (event.type !== "events.iterate.com/agent/context-added") return [];
-    const p = isRecord(event.payload) ? event.payload : {};
-    return typeof p.role === "string" && typeof p.content === "string"
-      ? [{ offset: event.offset, role: p.role, content: p.content }]
-      : [];
-  });
-  const settled = events.find((event) => {
-    if (event.type !== "events.iterate.com/agent/llm-request-settled") return false;
-    const p = isRecord(event.payload) ? event.payload : {};
-    return p.requestOffset === llmRequestOffset;
-  });
-  const settledPayload = isRecord(settled?.payload) ? settled.payload : {};
-  const result = isRecord(settledPayload.result) ? settledPayload.result : null;
-  const durationMs =
-    typeof settledPayload.durationMs === "number" ? settledPayload.durationMs : undefined;
-  const outcome: LlmTrace["outcome"] = !result
-    ? { status: "in flight" }
-    : result.status === "succeeded"
-      ? { status: "succeeded", text: String(result.text ?? ""), durationMs }
-      : result.status === "failed"
-        ? { status: "failed", errorMessage: String(result.errorMessage ?? ""), durationMs }
-        : {
-            status: "cancelled",
-            reason: typeof result.reason === "string" ? result.reason : undefined,
-          };
-  const assistant = events.find((event) => {
-    if (event.type !== "events.iterate.com/agent/context-added") return false;
-    const p = isRecord(event.payload) ? event.payload : {};
-    return p.role === "assistant" && p.llmRequestOffset === llmRequestOffset;
-  });
-  const prose = events.find((event) => {
-    if (event.type !== "events.iterate.com/agent/web-message-sent") return false;
-    const p = isRecord(event.payload) ? event.payload : {};
-    return p.llmRequestOffset === llmRequestOffset;
-  });
-  // The run of the script the response wrote: the one the agent asked for while processing the
-  // assistant item (the engine's `whileProcessing` stamp).
-  const scriptRequest = assistant
-    ? events.find(
-        (event) =>
-          event.type === "events.iterate.com/itx/run-requested" &&
-          event.source?.processor?.whileProcessing?.offset === assistant.offset,
-      )
-    : undefined;
-  return {
-    llmRequestOffset,
-    model: typeof payload.model === "string" ? payload.model : "?",
-    requestedAtMs: Date.parse(requested.createdAt),
-    messages,
-    outcome,
-    derived: {
-      prose:
-        prose && isRecord(prose.payload) && typeof prose.payload.message === "string"
-          ? prose.payload.message
-          : undefined,
-      scriptRequestOffset: scriptRequest?.offset,
-    },
-  };
-}
-
-const ContextAdded = AgentContract.events["events.iterate.com/agent/context-added"].payloadSchema;
+/** The items a request of the agent adds to the conversation: a script's result is one of them. */
+const RequestItems = z.object({
+  itemsAdded: z.array(
+    z.looseObject({
+      atOffset: z.number().optional(),
+      rank: z.number().optional(),
+      tag: z.string().optional(),
+      text: z.string(),
+    }),
+  ),
+});
 
 type ScriptTrace = {
   requestOffset: number;
   code: string;
   requestedAtMs: number;
   settlement?: { atMs: number; value: RunSettlement };
-  /** What the agent was told about the outcome — the developer item the settlement rendered to. */
-  rendered?: string;
+  /** What the model was told of the outcome: the script's result as a later request of the agent
+   *  gives it. */
+  seen?: string;
 };
 
-/** One script run by its `itx/run-requested` offset: the code, its `itx/run-settled` and the
- *  developer item that told the agent (its script actor names the request's offset). */
+/** One script run by its `itx/run-requested` offset: the code, its `itx/run-settled`, and the
+ *  result a later request gave the model. The agent places that result at the request whose
+ *  response wrote the script, after the response (`rank` 1 is its first script): the run's key
+ *  names both (agent-facts.ts). */
 export function scriptTrace(
   events: readonly StreamEvent[],
   requestOffset: number,
@@ -338,20 +263,26 @@ export function scriptTrace(
       ? [{ atMs: Date.parse(event.createdAt), value: settled.data.settlement }]
       : [];
   });
-  const [rendered] = events.flatMap((event) => {
-    if (event.type !== "events.iterate.com/agent/context-added") return [];
-    const item = ContextAdded.safeParse(event.payload);
-    return item.success &&
-      item.data.actor?.type === "script" &&
-      item.data.actor.requestOffset === requestOffset
-      ? [item.data.content]
-      : [];
-  });
+  const call = scriptCallOf(requested.idempotencyKey);
+  const [seen] = call
+    ? events.flatMap((event) => {
+        if (event.type !== AGENT_FACT.llmRequested) return [];
+        const asked = RequestItems.safeParse(event.payload);
+        if (!asked.success) return [];
+        const result = asked.data.itemsAdded.find(
+          (item) =>
+            item.tag === "script-result" &&
+            item.atOffset === call.requestOffset &&
+            item.rank === 1 + call.index,
+        );
+        return result ? [result.text] : [];
+      })
+    : [];
   return {
     requestOffset,
     code: request.data.code,
     requestedAtMs: Date.parse(requested.createdAt),
     settlement,
-    rendered,
+    seen,
   };
 }

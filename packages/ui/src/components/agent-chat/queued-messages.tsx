@@ -5,7 +5,7 @@
 //
 // The panel is the PEOPLE's queue. Several people can write to one agent, so each waiting message
 // says whose it is: a face and a name, or "You", as the feed draws a participant (participant.tsx). Another agent's words can wait for the next turn
-// too (a helper's report that comes in while the agent works): they are no person's input, so they
+// too (a subagent's report that comes in while the agent works): they are no person's input, so they
 // are not drawn here. The feed shows them as a report row once a request has taken them up.
 // Everyone in the conversation is trusted alike: anyone may interrupt, whoever's answer runs.
 import { useState } from "react";

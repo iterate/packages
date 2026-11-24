@@ -1,10 +1,15 @@
-// THE AGENT CHAT: an iterate agent's conversation, for any page that holds the agent's context: the
-// view `agent-kinds/iterate.ts` names (agent-kind-view/), on the shell every kind shares (agent-shell.tsx).
+// THE AGENT CHAT: the mind's own agent's conversation, for any page that holds the agent's context:
+// the view that the kind `agent` names (core/configs/default agent-kinds/agent.ts), on the shell
+// every kind shares (agent-shell.tsx).
 // An agent is a conversation on its own path (`/agents/...`), and everything it does is an event
 // there. This is a window onto that log: a strip (the agent's live status, Chat | Events), the CHAT (the
 // agent-UI reducer's items: messages, and the activities that open into rounds of script + result)
 // over a composer, the EVENTS (the raw log, `ContextView`), and the TRACES (one right-edge sheet:
 // an LLM request or a script run). It fills its parent, a flex column with a bounded height.
+// A path that started over (`newVersion()`) is its current version in the chat and the traces
+// (agent-events.ts `foldAgentLog`). A new version is a new conversation: what the chat had open of
+// the last one (a trace, the inspected event) closes, and the feed goes to its end. The draft
+// stays: it is the person's.
 // `strip={false}` is the chat alone, for a page whose reader is no developer: no strip and no
 // Events tab, and the agent's status is the feed's last row while it works. `eventsTab={false}`
 // keeps the strip's status and drops the Events tab; `attach={false}` makes the composer take words
@@ -44,19 +49,12 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { z } from "zod";
 import type { AgentChatState } from "./agent-chat-search.ts";
 import { ChatReading } from "./agent-reading.tsx";
 import { AgentShell, type AgentShellStatus } from "./agent-shell.tsx";
 import { AgentFootStatus } from "./agent-strip.tsx";
-import { agentFeedOf, foldAgentLog, traceOffsetByMessage } from "./agent-events.ts";
-import {
-  AGENT_FACT,
-  agentLiveStateOf,
-  isAgentLog,
-  sendToAgent,
-  type StoreFiles,
-} from "./agent-facts.ts";
+import { agentFeedOf, foldAgentLog } from "./agent-events.ts";
+import { AGENT_FACT, agentLiveStateOf, sendToAgent, type StoreFiles } from "./agent-facts.ts";
 import type { AgentProgressData } from "./agent-progress.ts";
 import { AgentTurnStatus } from "./agent-feed.tsx";
 import {
@@ -87,6 +85,7 @@ import {
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
 import { remembered } from "#/components/virtual-log/remembered.ts";
+import { versionOf } from "#/lib/itx-session.ts";
 import {
   isPresenceEvent,
   PRESENCE_EVENT_TYPES,
@@ -94,7 +93,14 @@ import {
   type PresentPrincipal,
 } from "#/lib/presence.ts";
 
-type AgentChatContext = ContextViewSource & { processors: { loaded: boolean } };
+type AgentChatContext = ContextViewSource & {
+  processors: { loaded: boolean };
+  /** The version of the agent's path that `events` are of, as `useIterateContext` says it. A host
+   *  that leaves it out never starts a new conversation. */
+  version?: number;
+  /** The rows are a saved copy, which says no version (`keptContext`, #/lib/itx-session.ts). */
+  savedCopy?: boolean;
+};
 type Feed = ReturnType<typeof agentFeedOf>;
 
 /** The feed before the read reaches the head, when what is held says nothing of now. */
@@ -140,6 +146,8 @@ function AgentContextProgress({ context, error }: { context: AgentChatContext; e
   );
 }
 
+/** The agent's log folded (the current version alone), what its live state says of the turn, the
+ *  feed, and the older pages the chat may read: none past the start of the current version. */
 export function useAgentFeed(context: AgentChatContext) {
   const [foldLog] = useState(() => remembered(foldAgentLog));
   const fold = useMemo(() => foldLog(context.events), [foldLog, context.events]);
@@ -149,7 +157,10 @@ export function useAgentFeed(context: AgentChatContext) {
     () => (context.caughtUp ? agentFeedOf(fold, idle, requestMayBeOpen) : NOTHING_YET),
     [context.caughtUp, fold, idle, requestMayBeOpen],
   );
-  return { fold, turn, feed };
+  // a read that failed stands in the error, and is not to be asked for again and again
+  const older =
+    (!context.error && fold.versionEndedAt === null && context.older) || OLDER_EXHAUSTED;
+  return { fold, turn, feed, older };
 }
 
 export function AgentChat({
@@ -198,9 +209,9 @@ export function AgentChat({
    *  platform parses each. `undefined` until the host holds the context: nothing can be appended. */
   onAppend: ((events: unknown[]) => Promise<unknown>) | undefined;
   /** Stores a message's files under the agent's path, as `message()` does (a kind's host has it:
-   *  agent-kind-view/types.ts). With it, the composer of the agent whose kind is `agent`
-   *  (agent-facts.ts) sends words and files as ONE `agent-ui/message-received` through
-   *  `onAppend`. Without it, words with files to that agent go through `onMessage`. */
+   *  agent-kind-view/types.ts). With it, the composer sends words and files as ONE
+   *  `agent-ui/message-received` through `onAppend` (agent-facts.ts). Without it, words with files
+   *  go through `onMessage`. */
   storeFiles?: StoreFiles;
   /** A signed download URL for a file under the agent's path, asked of the mind's root and not
    *  of the agent's context (`mind.files.get(path).url()`): only an iterate agent's context has
@@ -255,27 +266,25 @@ export function AgentChat({
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
-  const { fold, turn, feed } = useAgentFeed(context);
-  // a read that failed stands in the error, and is not to be asked for again and again
-  const older = (!context.error && context.older) || OLDER_EXHAUSTED;
+  const { fold, turn, feed, older } = useAgentFeed(context);
+  const conversation = useConversation(context);
   const [toggled, onToggle] = useToggledIds();
   const draft = useComposerDraft();
   const keys = useMessageKeys();
   const { inspected, inspect, onInspect } = useTraces(state, onStateChange);
+  useClosedWithItsConversation(conversation, state, onStateChange);
   const readingForTrace = traceWantsOlder(inspected, older, fold.events);
   // a newest page with nothing to say is no proof of silence: an idle agent's is all wakes
   const readingForFirstRow =
     context.caughtUp && !older.exhausted && feed.items.length === 0 && !feed.state.live;
   useReadOlderWhile(readingForTrace, older, fold.events);
   const logShare = heldShare(fold.events, context.head);
-  // THE AGENT (agent-facts.ts) takes the Dash's words as a fact of its own, not as `message()`
-  const agentLog = isAgentLog(context.liveState, fold.events);
+  // THE AGENT (agent-facts.ts) takes the Dash's words as a fact of its own, not as `message()`:
+  // until the host can append, `message()` carries them
   const send = useMemo<SendMessage>(
     () =>
-      agentLog && onAppend
-        ? (input) => sendToAgent(input, { onAppend, onMessage, storeFiles })
-        : onMessage,
-    [agentLog, onAppend, onMessage, storeFiles],
+      onAppend ? (input) => sendToAgent(input, { onAppend, onMessage, storeFiles }) : onMessage,
+    [onAppend, onMessage, storeFiles],
   );
   // in a voice call the agent is spoken to, not idle: the strip says nothing then
   const status = chatStatus(turn, feed.state, (inCall?.size ?? 0) > 0);
@@ -334,7 +343,7 @@ export function AgentChat({
       <AgentChoiceProvider onChoice={onChoice} choiceState={choiceState}>
         <ChatTab
           feed={feed}
-          events={fold.events}
+          conversation={conversation}
           older={older}
           logShare={logShare}
           caughtUp={context.caughtUp}
@@ -366,18 +375,13 @@ export function AgentChat({
 }
 
 /** What a host passes `useIterateContext` for a chat. `consumes`: every durable event (the Events
- *  tab is the whole log) and, named, since a wildcard never matches an ephemeral, the streamed chunk
+ *  tab is the whole log) and, named, since a wildcard never matches an ephemeral, the streamed
  *  windows the feed folds into the answer being written, and the pages' presence status (which
  *  also makes the log's row a page for `lib/presence`). The hook reads the newest page, and older
  *  pages as the reader scrolls up: the fold needs nothing older than the turns it shows
  *  (agent-ui-reducer.ts). */
 AgentChat.contextOptions = {
-  consumes: [
-    "*",
-    "events.iterate.com/agent/llm-response-frame",
-    AGENT_FACT.llmResponseFrame,
-    ...PRESENCE_EVENT_TYPES,
-  ],
+  consumes: ["*", AGENT_FACT.llmResponseFrame, ...PRESENCE_EVENT_TYPES],
 };
 
 /** The person's words and files, as the composer hands them over. */
@@ -432,56 +436,25 @@ function contentMark(data: string): string {
   return `${String(data.length)}:${(hash >>> 0).toString(16)}`;
 }
 
-/** The agent facet's live state, the fields the strip reads (iterate/agents contract.ts
- *  `stateSchema`): a pause, the one open request, the one pending trigger, the answer whose script
- *  the loop has not asked to run yet, and the settled run whose note has not landed. A script the
- *  agent asked for is the CONTEXT's obligation, not in this state: the feed's running code step
- *  says so. */
-const AgentLive = z.object({
-  paused: z.object({ reason: z.string() }).nullable(),
-  openRequest: z.object({ model: z.string() }).nullable(),
-  pendingLlmRequestTrigger: z.object({}).nullable(),
-  awaitingRun: z.object({}).nullable().default(null),
-  unnotedRun: z.number().nullable().default(null),
-});
-
-/** THE AGENT'S LIVE STATE (agent-facts.ts) as the fields the strip reads: its pause, its open
- *  answer request (or any open request), the inputs that wait for a request, and a script that it
- *  asked for and that has not settled. */
-function agentFacetOf(value: unknown): z.infer<typeof AgentLive> | undefined {
-  const state = agentLiveStateOf(value);
-  if (!state) return undefined;
-  const open =
-    state.llmRequests.find((request) => request.purpose === "answer") ?? state.llmRequests[0];
-  return {
-    paused: state.paused,
-    openRequest: open ? { model: open.model } : null,
-    pendingLlmRequestTrigger: state.pendingTriggerOffsets.length > 0 ? {} : null,
-    awaitingRun: state.scriptCalls.some((call) => !call.answered) ? {} : null,
-    unnotedRun: null,
-  };
-}
-
-/** What the agent facet says of the turn. Its live state rides the context's subscription, and its
- *  entry appears once the processors table has loaded, so there is no live state to wait for when
- *  the table could not be read, or loaded without the facet. The turn is over when the facet holds
- *  no obligation, a pause included (a paused loop owes no follow-up round). Without live state at
- *  all, the log alone decides: the reducer settles only once no step is running, and a follow-up
- *  round reopens an activity. */
+/** What the agent facet says of the turn (its live state: agent-facts.ts). Its live state rides the
+ *  context's subscription, and its entry appears once the processors table has loaded, so there is
+ *  no live state to wait for when the table could not be read, or loaded without the facet. The
+ *  turn is over when the facet holds no obligation: no open request, no input that waits for one,
+ *  no script whose result the agent has not read. A pause is no obligation (a paused agent owes no
+ *  follow-up round). Without live state at all, the log alone decides: the reducer settles only
+ *  once no step is running, and a follow-up round reopens an activity. */
 function agentTurnOf({ liveState, processors }: AgentChatContext) {
   const live: LiveStateView | undefined = liveState.agent;
   const liveUnavailable = live
     ? live.status === "error"
     : Boolean(processors.error) ||
       (processors.loaded && !processors.rows.some((row) => row.hostedFacet?.name === "agent"));
-  const parsed = AgentLive.safeParse(live?.value);
-  const facet = parsed.success ? parsed.data : agentFacetOf(live?.value);
+  const facet = agentLiveStateOf(live?.value);
   const facetIdle =
     facet &&
-    !facet.openRequest &&
-    !facet.pendingLlmRequestTrigger &&
-    !facet.awaitingRun &&
-    !facet.unnotedRun;
+    facet.llmRequests.length === 0 &&
+    facet.pendingTriggerOffsets.length === 0 &&
+    facet.scriptCalls.every((call) => call.answered);
   return {
     facet,
     liveUnavailable,
@@ -494,9 +467,10 @@ function agentTurnOf({ liveState, processors }: AgentChatContext) {
 }
 
 /** What the strip says the agent is doing. A script still running is the context's, read from the
- *  log: the feed's running code step. Before the agent's live state is known it says nothing: the
- *  feed's loading state is the one thing that speaks of the wait. `inCall`: someone is in the
- *  agent's voice call, so an agent with no work says nothing, never "Idle". */
+ *  log: the feed's running code step. An open request is the answer's when one is open, else the
+ *  first. Before the agent's live state is known it says nothing: the feed's loading state is the
+ *  one thing that speaks of the wait. `inCall`: someone is in the agent's voice call, so an agent
+ *  with no work says nothing, never "Idle". */
 function chatStatus(
   { facet, liveUnavailable, detail }: ReturnType<typeof agentTurnOf>,
   feedState: AgentUiState,
@@ -516,11 +490,13 @@ function chatStatus(
       text: `Running a script${summaryActivity ? ` · ${summaryActivity}` : ""}`,
       tone: "live" as const,
     };
-  if (facet.openRequest)
-    return { text: `Thinking · ${facet.openRequest.model}`, tone: "live" as const };
-  if (facet.pendingLlmRequestTrigger) return { text: "About to think", tone: "live" as const };
-  if (facet.awaitingRun) return { text: "About to run a script", tone: "live" as const };
-  if (facet.unnotedRun) return { text: "Reading the script's result", tone: "live" as const };
+  const open =
+    facet.llmRequests.find((request) => request.purpose === "answer") ?? facet.llmRequests[0];
+  if (open) return { text: `Thinking · ${open.model}`, tone: "live" as const };
+  if (facet.pendingTriggerOffsets.length > 0)
+    return { text: "About to think", tone: "live" as const };
+  if (facet.scriptCalls.some((call) => !call.answered))
+    return { text: "About to run a script", tone: "live" as const };
   return { text: inCall ? "" : "Idle", tone: "muted" as const };
 }
 
@@ -537,7 +513,7 @@ function chatStatusRow({ text, tone }: AgentShellStatus, feedState: AgentUiState
 /** The conversation over the composer. */
 function ChatTab({
   feed,
-  events,
+  conversation,
   older,
   logShare,
   caughtUp,
@@ -564,7 +540,8 @@ function ChatTab({
   typing,
 }: {
   feed: Feed;
-  events: readonly StreamEvent[];
+  /** Which conversation it is (`useConversation`): a new one is shown from its end. */
+  conversation: number;
   older: OlderPages;
   logShare: number;
   caughtUp: boolean;
@@ -595,10 +572,9 @@ function ChatTab({
 }) {
   // the person's own words land in view, wherever they were reading
   const [followTail, setFollowTail] = useState(0);
-  const traceOffsets = useMemo(() => traceOffsetByMessage(events), [events]);
   // THE INTERRUPT: cancellation is a property of new input, never a command: a developer item that
-  // tells the model why its answer stopped, marked as the person's so it counts as external input.
-  // The agent settles the open request as cancelled when it lands.
+  // tells the model why its answer stopped. The platform stamps the person who appended it. The
+  // agent settles the open request as cancelled when it lands.
   const interrupt = useAgentInterrupt({
     runningLlmRequestId: feed.state.live?.steps.findLast(
       (step): step is AgentUiLlmStep => step.kind === "llm" && step.status === "running",
@@ -611,7 +587,6 @@ function ChatTab({
               payload: {
                 role: "developer",
                 content: "The user interrupted the in-progress response from the web chat.",
-                actor: { type: "user" },
                 llmRequestPolicy: { behaviour: "interrupt-current-request" },
               },
             },
@@ -624,7 +599,8 @@ function ChatTab({
       feed={feed}
       older={older}
       logShare={logShare}
-      followTail={followTail}
+      // each of the person's sends, and each new conversation, pins the view to the end
+      followTail={followTail + conversation}
       empty={
         <ChatEmpty
           caughtUp={caughtUp}
@@ -672,7 +648,6 @@ function ChatTab({
       toggledIds={toggled}
       onToggle={onToggle}
       inspect={inspect}
-      traceOffsets={traceOffsets}
       signedUrl={signedUrl}
       itemFooter={itemFooter}
       me={me}
@@ -716,6 +691,37 @@ function ChatEmpty({
       </EmptyHeader>
     </Empty>
   );
+}
+
+/** WHICH CONVERSATION THE CHAT SHOWS: 0, and one more each time a read of the agent's path says
+ *  another version than the one it said before (`versionOf`: a saved copy, and a read before its
+ *  first page, say none). */
+function useConversation(context: AgentChatContext) {
+  const version = versionOf(context);
+  const [held, setHeld] = useState({ version, count: 0 });
+  if (version && version !== held.version)
+    setHeld({ version, count: held.version ? held.count + 1 : held.count });
+  return held.count;
+}
+
+/** What the state has open of a conversation, and is closed when the next one starts: a trace and
+ *  the Events tab's inspected event, which name events of the earlier version. The filters and the
+ *  processors sheet stay: they are the person's choice of what to see. */
+const CONVERSATION_CLOSED: Partial<AgentChatState> = { ...TRACES_CLOSED, event: undefined };
+
+/** Closes what the state has open of the last conversation when `conversation` grows. */
+function useClosedWithItsConversation(
+  conversation: number,
+  state: AgentChatState,
+  onStateChange: (patch: Partial<AgentChatState>) => void,
+) {
+  const closedAt = useRef(conversation);
+  const open = Boolean(state.llmRequest || state.scriptRun || state.event);
+  useEffect(() => {
+    if (closedAt.current === conversation) return;
+    closedAt.current = conversation;
+    if (open) onStateChange(CONVERSATION_CLOSED);
+  }, [conversation, open, onStateChange]);
 }
 
 /** Which rows are opened in place, local to this page. */

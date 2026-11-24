@@ -85,6 +85,25 @@ test("the home with something waiting: the requests, and each integration that a
   ]);
 });
 
+test("the home's box holds the draft that the address brought, unsent", async () => {
+  const { itx, born } = mind({});
+  history.replaceState(
+    null,
+    "",
+    `/#draft=${encodeURIComponent("Read tasks/a.md and tell me what is being decided.")}`,
+  );
+  await using page = await draw(DashHome, itx, { waiting: 0 });
+  await composerOf(page.host);
+  await act(() =>
+    vi.waitFor(() =>
+      expect(page.host.textContent).toContain("Read tasks/a.md and tell me what is being decided."),
+    ),
+  );
+  // nothing was sent: no agent was born for it
+  expect(born).toEqual([]);
+  history.replaceState(null, "", "/");
+});
+
 test.for([
   { name: "the Dash knows who is signed in", known: true },
   {
@@ -756,6 +775,58 @@ test("the opener is not appended from a remembered view over a saved copy, only 
   second.release();
   await act(() => vi.waitFor(() => expect(second.appended).toHaveLength(1)));
   second.releaseKinds();
+});
+
+test("a path at a later version: the chat is that version's alone, and the opener is said into it when nothing was said there, whatever the earlier version said", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/second-version";
+  const { itx, appended } = mind({
+    logs: { [path]: [words(1, "Words of the earlier version"), ...borderOf(path, 2, 2)] },
+    versions: { [path]: { version: 2, startedAt: 3 } },
+  });
+  history.replaceState(null, "", `/agents${path}`);
+  await using page = await draw(DashAgents, itx, {
+    waiting: 0,
+    openers: { [path]: "Begin with step 1." },
+  });
+  // the chat's part may load after the page drew: the wait is outside act, as the first opener's
+  await vi.waitFor(() => expect(appended).toHaveLength(1), { timeout: 5_000 });
+  expect(appended).toMatchObject([{ path, events: [{ idempotencyKey: `opener:${path}` }] }]);
+  expect(page.host.textContent).not.toContain("Words of the earlier version");
+});
+
+test("a path that takes a new version while its chat is open: the earlier version's words go, and the opener is said into the new one", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  using _layout = laidOut();
+  const path = "/agents/started-over";
+  const logs: Record<string, { offset: number; type: string; payload: object }[]> = {
+    [path]: [words(1, "Words of the earlier version")],
+  };
+  const versions: Record<string, { version: number; startedAt: number }> = {};
+  const { itx, appended, push } = mind({ logs, versions });
+  history.replaceState(null, "", `/agents${path}`);
+  await using page = await draw(DashAgents, itx, {
+    waiting: 0,
+    openers: { [path]: "Begin with step 1." },
+  });
+  await act(() =>
+    vi.waitFor(() =>
+      expect(page.host.querySelector("[role=log]")?.textContent).toContain(
+        "Words of the earlier version",
+      ),
+    ),
+  );
+  // something was said: no opener
+  expect(appended).toEqual([]);
+  // the new version: the log goes on, and the kernel's last batch reaches each of the page's rows
+  const border = borderOf(path, 2, 2);
+  logs[path].push(...border);
+  versions[path] = { version: 2, startedAt: 3 };
+  await act(async () => push(path, border));
+  await act(() => vi.waitFor(() => expect(appended).toHaveLength(1)));
+  expect(appended).toMatchObject([{ path, events: [{ idempotencyKey: `opener:${path}` }] }]);
+  expect(page.host.textContent).not.toContain("Words of the earlier version");
 });
 
 test("with the Agents page's `call` off, an agent page has no call: no place, no button, no tiles, nothing turned on", async () => {
@@ -2736,6 +2807,7 @@ function mind({
   unreadable = false,
   source = "export default {};",
   logs = {},
+  versions = {},
   pages = {},
   row,
   facets = {},
@@ -2748,6 +2820,8 @@ function mind({
   /** the source of every kind's file */
   source?: string;
   logs?: Record<string, { offset: number; type: string; payload: object; source?: object }[]>;
+  /** the version of a path that its pages say, and the offset where it started */
+  versions?: Record<string, { version: number; startedAt: number }>;
   pages?: Record<string, { name: string; principal: { actor: string; email: string } }[]>;
   row?: string;
   facets?: Record<string, Record<string, unknown>>;
@@ -2768,6 +2842,8 @@ function mind({
   let kindsGate = Promise.resolve();
   let releaseKinds = () => {};
   let asked = 0;
+  /** each live callback a page subscribed, with its context's path */
+  const rows: { path: string; target: (events: unknown[]) => void }[] = [];
   const contextOf = (path: string) => ({
     readEvents: async (after = 0) => {
       await gate;
@@ -2776,9 +2852,14 @@ function mind({
         events: held.filter((event) => event.offset > after),
         atHead: true,
         scannedThroughOffset: held.at(-1)?.offset || 0,
+        version: versions[path]?.version,
+        versionStartedAtOffset: versions[path]?.startedAt,
       };
     },
-    subscribe: async () => ({ name: row, [Symbol.dispose]() {} }),
+    subscribe: async ({ target }: { target: (events: unknown[]) => void }) => {
+      rows.push({ path, target });
+      return { name: row, [Symbol.dispose]() {} };
+    },
     subscriptions: {
       list: async () => [
         ...(pages[path] || []).map(({ name, principal }) => ({
@@ -2874,6 +2955,11 @@ function mind({
     born,
     reads: () => reads,
     asked: () => asked,
+    /** A batch to every live callback of `path`, as the context delivers it. */
+    push: (path: string, events: { offset: number; type: string; payload: object }[]) => {
+      for (const one of rows.filter((held) => held.path === path))
+        one.target(events.map((event) => ({ ...event, path, createdAt: now })));
+    },
     hold: () => {
       gate = new Promise((resolve) => (release = resolve));
     },
@@ -3352,6 +3438,19 @@ function words(offset: number, content: string) {
   };
 }
 
+/** The kernel's border of a version of `path`, from `offset`: the earlier version's end, and the
+ *  `itx/created` of `version`. */
+function borderOf(path: string, offset: number, version: number) {
+  return [
+    {
+      offset,
+      type: "events.iterate.com/itx/version-ended",
+      payload: { version: version - 1 },
+    },
+    { offset: offset + 1, type: "events.iterate.com/itx/created", payload: { path, version } },
+  ];
+}
+
 /** A first visit to the Claude agent at `path`, whose kind's file has `source`: the page works out
  *  its view and keeps it. jsdom loads no frame, so the frame's read never starts and saves no
  *  rows: the rows it would have shown are saved here. */
@@ -3362,7 +3461,7 @@ async function rememberKindView(path: string, source: string) {
     await using first = await draw(DashAgents, itx, { waiting: 0, agents: claudeRows(path) });
     expect(first.host.querySelector("iframe")).not.toBe(null);
   }
-  savedLogTails(member).save(path, [{ ...words(1, "Hello"), createdAt: now }], true);
+  savedLogTails(member).save(path, [{ ...words(1, "Hello"), createdAt: now }], true, 1);
 }
 
 /** A page with height, which jsdom lacks, so the chat's virtual log draws its rows; disposing takes

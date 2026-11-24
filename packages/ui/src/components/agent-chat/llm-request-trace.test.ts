@@ -138,7 +138,7 @@ test("a request in flight, a failed one, a cancelled one: what came back so far,
     },
     { outcome: { status: "cancelled", reason: "superseded" } },
   ]);
-  // no request of the agent at that offset: the platform agent's trace is the sheet's
+  // no request of the agent at that offset
   expect(llmRequestTrace(log, 3)).toBe(null);
 });
 

@@ -38,7 +38,7 @@ import type {
   SubagentActivity,
 } from "#/components/agent-chat/agent-progress.ts";
 import type { ContextViewSource } from "#/components/context-view/context-view.tsx";
-import { heldShare, OLDER_EXHAUSTED } from "#/components/virtual-log/older-pages.ts";
+import { heldShare } from "#/components/virtual-log/older-pages.ts";
 import type { SpokenLine } from "#/components/call/spoken-lines.ts";
 import { TranscriptRollup } from "#/components/call/transcript-rollup.tsx";
 
@@ -234,8 +234,7 @@ function useAgentWork(
   onStateChange: ComponentProps<typeof AgentShell>["onStateChange"],
 ) {
   const log = agentContext || NO_AGENT_LOG;
-  const { fold, feed } = useAgentFeed(log);
-  const older = (!log.error && log.older) || OLDER_EXHAUSTED;
+  const { fold, feed, older } = useAgentFeed(log);
   const settled = useMemo(() => settledActivities(feed.items), [feed.items]);
   const { inspected, inspect, onInspect } = useTraces(state, onStateChange);
   const readingForTrace = traceWantsOlder(inspected, older, fold.events);
@@ -279,7 +278,6 @@ function ContextRow({
           expanded={toggled.has(row.activity.id)}
           onToggle={onToggle}
           inspect={inspect}
-          traceOffset={undefined}
           signedUrl={NO_FILES}
           me={me}
         />

@@ -106,30 +106,6 @@ test("a run's line names its types as they are stored, in order, with a count fo
   expect(runLabel(["t.example.com/a", "t.example.com/a"])).toBe("t.example.com/a ×2");
 });
 
-test("an agent keeping warm is upkeep, however long the call", () => {
-  const kept = [
-    at(1, "events.iterate.com/agent/warm-up-requested", {}),
-    at(2, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 1 }),
-    at(3, "events.iterate.com/agent/warm-up-requested", {}),
-    at(4, "events.iterate.com/agent/cache-kept-warm", { afterRequestOffset: 3 }),
-    at(5, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
-  ];
-  expect(foldEvents(kept).map(shape).slice(1)).toEqual(["run:1 1,2,3,4,5"]);
-  expect(runLabel(kept.map((event) => event.type))).toBe(
-    "agent/warm-up-requested ×2, agent/cache-kept-warm ×2, agent/idle-check",
-  );
-});
-
-test("warming that stopped is news, not upkeep: it is no part of the upkeep before it", () => {
-  const kept = [
-    at(1, "events.iterate.com/agent/warm-up-requested", {}),
-    at(2, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
-    at(3, "events.iterate.com/agent/cache-kept-warm", { stopped: "missed" }),
-    at(4, "events.iterate.com/agent/idle-check", { afterRequestOffset: 1 }),
-  ];
-  expect(foldEvents(kept).map(shape).slice(1)).toEqual(["run:1 1,2", "event:3 3", "event:4 4"]);
-});
-
 test("whoBefore: carries the last named actor over upkeep, starts afresh at a day mark", () => {
   const named = (offset: number, actor: string, iso?: string): ContextViewEvent => ({
     // a type of its own each, so that none folds into the one before it

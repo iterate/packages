@@ -10,7 +10,7 @@ import { useMemo, useRef, useState, type ComponentProps } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BotIcon } from "lucide-react";
 import { cn } from "cn";
-import { agentAtWork } from "iterate/agents/mind-now";
+import { agentAtWork } from "iterate/agents/at-work";
 import { AgentComposer } from "#/components/agent-chat/composer.tsx";
 import { useComposerDraft } from "#/components/agent-chat/use-composer-attachments.ts";
 import { AgentLink, StatusDot, type AgentHref, type OpenAgent } from "#/components/agents-nav.tsx";
@@ -61,6 +61,7 @@ export function NewAgentComposer({
   onMessage,
   agentHref,
   onOpen,
+  initialDraft,
 }: {
   /** The folder of the person signed in (lib/agent-summary.ts `personOf`): a new agent is born in
    *  it, and their agents come first. None: a new agent has no person's folder. A function, for a
@@ -81,8 +82,11 @@ export function NewAgentComposer({
   agentHref: AgentHref;
   /** A page with a client router navigates here; without it the page loads the agent's link. */
   onOpen?: OpenAgent;
+  /** Words that the box holds when it is first drawn, unsent: the person reads them, changes them
+   *  and sends them (`draftOfAddress`). */
+  initialDraft?: string;
 }) {
-  const draft = useComposerDraft();
+  const draft = useComposerDraft(initialDraft);
   // the agent born for a first message that then failed to send: sending again goes to it, so a
   // retry leaves no empty agent behind
   const born = useRef<string | undefined>(undefined);

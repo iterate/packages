@@ -77,7 +77,6 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   expanded,
   onToggle,
   inspect,
-  traceOffset,
   signedUrl,
   me,
   agentPath,
@@ -87,14 +86,12 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
   expanded: boolean;
   onToggle: (id: string) => void;
   inspect: Inspect;
-  /** The llm request behind an assistant message, so its bubble opens the trace on hover. */
-  traceOffset: number | undefined;
   signedUrl: SignedUrl;
   /** The viewer's address or actor id. Their own bubbles stand at the right; another
    *  participant's at the left, with their face. With none, every bubble that names a sender is
    *  another participant's. */
   me?: string;
-  /** This chat's agent: another agent's words "reported" when it is one of its helpers, below it,
+  /** This chat's agent: another agent's words "reported" when it is one of its subagents, below it,
    *  else "wrote". */
   agentPath?: string;
   /** A message of the same sender is the row before this one (agent-feed-list.tsx): another
@@ -153,16 +150,6 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
               hasText={item.text !== ""}
               signedUrl={signedUrl}
             />
-            {traceOffset === undefined ? null : (
-              <button
-                type="button"
-                onClick={() => inspect.llmRequest(traceOffset)}
-                className="self-start text-2xs text-muted-foreground/60 opacity-0 transition-opacity pointer-coarse:opacity-100 hover:text-foreground group-hover:opacity-100"
-                title="See the model's raw response and the code this turn ran"
-              >
-                trace ›
-              </button>
-            )}
           </MessageContent>
         </Message>
       );
@@ -239,7 +226,7 @@ function BackgroundRow({
 
 // ── another agent's words: the quiet "website reported" row ──
 
-/** Words another agent sent (a helper's report, mostly): what the agent reads, which its person did
+/** Words another agent sent (a subagent's report, mostly): what the agent reads, which its person did
  *  not say. So it is no bubble on the person's side, but a quiet row on the agent's that opens into
  *  the words. */
 function ReportRow({
@@ -258,7 +245,7 @@ function ReportRow({
   signedUrl: SignedUrl;
 }) {
   const name = from.split("/").findLast(Boolean) || from;
-  const helper = Boolean(agentPath) && from.startsWith(`${agentPath}/`);
+  const subagent = Boolean(agentPath) && from.startsWith(`${agentPath}/`);
   return (
     <FoldedRow
       kind="report"
@@ -268,7 +255,7 @@ function ReportRow({
       onToggle={() => onToggle(item.id)}
       line={
         <>
-          {helper ? `${name} reported` : `${name} wrote`}
+          {subagent ? `${name} reported` : `${name} wrote`}
           <time
             dateTime={new Date(item.timestampMs).toISOString()}
             title={formatDateTime(item.timestampMs)}
@@ -566,8 +553,12 @@ function RoundBody({ round, inspect }: { round: AgentUiActivityRound; inspect: I
 function llmStepLabel(llm: AgentUiLlmStep): string {
   if (llm.status === "running") return "Waiting for a response";
   if (llm.outcome === "failed") return "Request failed";
-  if (llm.outcome === "cancelled")
-    return llm.cancelReason === "expired" ? "Request expired" : "Request cancelled";
+  if (llm.outcome === "cancelled") {
+    if (llm.cancelReason === "expired") return "Request expired";
+    return llm.cancelReason === "superseded"
+      ? "Another response answered first"
+      : "Request cancelled";
+  }
   return llm.model || "Response";
 }
 
@@ -657,7 +648,7 @@ function RoundTabs({
   // Every settled script has a result pane — a `return;` that ended the turn says so there.
   const hasResult = code.status === "done";
   const active = selected === "result" && !hasResult ? "script" : selected;
-  // A script the agent loop wrapped: the Script tab shows the model's own code, Full script all of it.
+  // A script in the agent's envelope: the Script tab shows the model's own code, Full script all of it.
   const authored = authoredScript(code.code);
   const wrapped = Boolean(authored);
   return (

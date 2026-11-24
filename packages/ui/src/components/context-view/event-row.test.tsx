@@ -9,9 +9,9 @@ import type { ContextViewEvent } from "./types.tsx";
 test("a row is the offset, the time, the type as stored and the payload's fields: no sentence, no badge, no second font", () => {
   const row = renderToStaticMarkup(
     <EventRow
-      event={event(14, "events.iterate.com/agent/created", {
+      event={event(14, "events.iterate.com/agent/subagent-requested", {
         path: "/agents/voice/web-e11a546f1347",
-        role: "developer",
+        brief: "research",
       })}
       showWho={false}
       onOpen={() => {}}
@@ -19,7 +19,7 @@ test("a row is the offset, the time, the type as stored and the payload's fields
   );
   // the type without the prefix that every platform type has, and whole in its title
   expect(row).toContain(
-    `title="events.iterate.com/agent/created" data-event-type="true">agent/created</span>`,
+    `title="events.iterate.com/agent/subagent-requested" data-event-type="true">agent/subagent-requested</span>`,
   );
   expect(
     row
@@ -27,7 +27,7 @@ test("a row is the offset, the time, the type as stored and the payload's fields
       .replace(/\s+/g, " ")
       .trim(),
   ).toMatch(
-    /^#14 \d\d:\d\d:\d\d agent\/created path \/agents\/voice\/web-e11a546f1347 · role developer$/,
+    /^#14 \d\d:\d\d:\d\d agent\/subagent-requested path \/agents\/voice\/web-e11a546f1347 · brief research$/,
   );
   // one font and no dressing: a path is plain text
   expect(row).not.toMatch(/font-mono|font-readme|uppercase|<strong|<code|rounded bg-/);

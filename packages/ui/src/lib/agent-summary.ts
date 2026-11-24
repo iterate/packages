@@ -2,7 +2,7 @@
 // (components/agents-nav.tsx, agents-home.tsx), tested in agent-summary.test.ts. A page keeps the
 // rows live from the catalog on `/agents`: `agentRowsOf(useFacetLiveState(stub, "agents").value)`.
 import { z } from "zod";
-import { agentAtWork } from "iterate/agents/mind-now";
+import { agentAtWork } from "iterate/agents/at-work";
 
 const AgentStatus = z.enum(["working", "idle", "waiting", "ended"]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
@@ -232,6 +232,14 @@ export function personAt(path: string): string | undefined {
  *  with no address, and for a kind whose choice does not say `byPerson` (a kind takes the paths
  *  its own file knows: acp's runner refuses any but `/agents/acp/<id>`). An agent is its path;
  *  there is no separate name. */
+/** THE DRAFT THAT AN ADDRESS BRINGS to the box that starts a new agent: `#draft=<text>` in the
+ *  hash, or "" for none. A link from another page of the mind puts it there. It is in the hash so
+ *  that no server sees it. It is only ever put in the box, unsent. At most 4,000 characters; a hash
+ *  that does not decode is no draft. */
+export function draftOfAddress(hash: string | undefined): string {
+  return (new URLSearchParams((hash || "").replace(/^#/, "")).get("draft") || "").slice(0, 4_000);
+}
+
 export function newAgentPath(folder: string, date: Date, person: string | undefined): string {
   const slug = date
     .toISOString()

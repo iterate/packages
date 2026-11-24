@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { authoredScript } from "./agent-events.ts";
 
-test("the Script tab reads the model's code out of the loop's envelope", () => {
+test("the Script tab reads the model's code out of the agent's envelope", () => {
   const envelope = [
     "async (itx) => {",
     "  const results = __results(itx);",

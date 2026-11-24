@@ -1,11 +1,11 @@
 // voice-agent.test.ts — the relay between the live voice model and the device's agent: what each
-// delegation hands the agent, what of the agent's answers the live model is sent, and which press
+// delegation hands the agent, what of the agent's words the live model is sent, and which press
 // opens which call.
 // The relay runs bare, its provider a fake socket this file speaks for, the agent's side a log the
-// hand-overs and answers are committed to; the microphone's path to the provider is pinned only as
-// far as the relay's own queue and pacer reach (mic-pacer.test.ts holds the pacing cases). The
-// provider's real protocol and the agent's own loop are out of scope:
-// test/vitest/agents/voice-agent.e2e.test.ts runs the whole call on a worker.
+// hand-overs and the agent's facts are committed to, as the agent's row copies them; the
+// microphone's path to the provider is pinned only as far as the relay's own queue and pacer reach
+// (mic-pacer.test.ts holds the pacing cases). The provider's real protocol and the agent itself
+// are out of scope.
 import { consumesEvent } from "iterate/stream/processor";
 import { expect, test } from "vitest";
 import { MIC_QUEUE_MAX_MS } from "./mic-pacer.ts";
@@ -24,16 +24,10 @@ type Step =
   | { said: string; atMs: number }
   /** The live model handed a request to the backend. */
   | { delegates: string }
-  /** The agent opened a model request, over every item before it. */
-  | { request: string }
-  /** The agents app published a script's status. */
+  /** A script of the agent appended its status (`agent/summary-updated`). */
   | { status: string }
-  /** The agents app published that request's message, written beside a script or not. */
-  | { answer: string; text: string; besideScript?: true }
-  /** A running script sent the person words (`sendMessage`): no request offset. */
-  | { scriptSends: string }
-  /** A script the agent ran failed: its own report of it, copied to the relay. */
-  | { scriptFails: string }
+  /** A script of the agent sent the person words (`agent-ui/message-sent`). */
+  | { message: string }
   /** The caller typed words into the call (voice-call.ts `--say`). */
   | { typed: string }
   /** The caller's device gave the voice words to say in the call under `activation` (default:
@@ -47,6 +41,9 @@ type Step =
   | { press: string }
   /** The provider started the session. */
   | { providerReady: true }
+  /** The live model speaks for this long, in 100 ms deltas, then is silent long enough to end
+   *  its answer. */
+  | { voiceSpeaksMs: number }
   /** The clock moves on this far, 20 ms at a time, and every wait that falls due on the way ends. */
   | { elapseMs: number };
 
@@ -58,12 +55,11 @@ test.for<{
   ended?: string;
 }>([
   {
-    name: "a delegation hands the person's words to the agent, and the agent's answer is spoken for it",
+    name: "a delegation hands the person's words to the agent, and the agent's message is spoken for it",
     steps: [
       { heard: "What time is it in London?", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
-      { answer: "r1", text: "It is noon in London." },
+      { message: "It is noon in London." },
     ],
     toAgent: ["New call.\nPerson: What time is it in London?"],
     toLiveModel: [
@@ -72,15 +68,12 @@ test.for<{
     ],
   },
   {
-    name: "a script's status soon after the hand-over reaches the live model quietly, for that hand-over, and the prose beside the script is never spoken",
+    name: "a script's status soon after the hand-over reaches the live model quietly, for that hand-over, and the message after it is spoken",
     steps: [
       { heard: "What time is it in London?", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
       { status: "Checking London time" },
-      { answer: "r1", text: "I could not verify the time.", besideScript: true },
-      { request: "r2" },
-      { answer: "r2", text: "It is noon in London." },
+      { message: "It is noon in London." },
     ],
     toAgent: ["New call.\nPerson: What time is it in London?"],
     toLiveModel: [
@@ -98,14 +91,12 @@ test.for<{
     steps: [
       { heard: "Add chocolate to my order.", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
       { elapseMs: 10_000 },
       { status: "Checking your trolley" },
       { status: "Checking your trolley" },
       { elapseMs: 9_999 },
       { status: "Adding the chocolate" },
-      { request: "r2" },
-      { answer: "r2", text: "Added the chocolate." },
+      { message: "Added the chocolate." },
       { elapseMs: 20_000 },
       { status: "Tidying up" },
     ],
@@ -127,33 +118,13 @@ test.for<{
     ],
   },
   {
-    name: "a failed script is progress the voice hears: said aloud when the person has waited",
-    steps: [
-      { heard: "What's in my trolley?", atMs: 0 },
-      { delegates: "d1" },
-      { request: "r1" },
-      { elapseMs: 11_000 },
-      { scriptFails: "TypeError: waitrose.getTrolly is not a function" },
-    ],
-    toAgent: ["New call.\nPerson: What's in my trolley?"],
-    toLiveModel: [
-      { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
-      {
-        type: "session.commentary.append",
-        delegation_id: "d1",
-        content:
-          "Progress: a script failed (runtime, after 1 s): TypeError: waitrose.getTrolly is not a function",
-      },
-    ],
-  },
-  {
-    name: "words a script sends while it runs are spoken at once, and count as the latest news",
+    name: "a message after a long wait is spoken at once and is the answer: a status after it is only a quiet note",
     steps: [
       { heard: "Reorder last week's shop.", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
       { elapseMs: 20_000 },
-      { scriptSends: "On it, this takes a minute." },
+      { message: "On it, this takes a minute." },
+      { elapseMs: 20_000 },
       { status: "Rebuilding the trolley" },
     ],
     toAgent: ["New call.\nPerson: Reorder last week's shop."],
@@ -190,22 +161,20 @@ test.for<{
     ],
   },
   {
-    name: "an answer speaks for the newest hand-over its request had read",
+    name: "a message names no hand-over, so it speaks for the newest one",
     steps: [
       { heard: "Show me an exercise.", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
+      { message: "Here is an exercise." },
       { heard: "Make it division.", atMs: 3_000 },
       { delegates: "d2" },
-      { answer: "r1", text: "Here is an exercise." },
-      { request: "r2" },
-      { answer: "r2", text: "Here is a division exercise." },
+      { message: "Here is a division exercise." },
     ],
     toAgent: ["New call.\nPerson: Show me an exercise.", "Person: Make it division."],
     toLiveModel: [
       { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
-      { type: "session.thinking.append", delegation_id: "d2", content: HANDED_OVER },
       { type: "session.commentary.append", delegation_id: "d1", content: "Here is an exercise." },
+      { type: "session.thinking.append", delegation_id: "d2", content: HANDED_OVER },
       {
         type: "session.commentary.append",
         delegation_id: "d2",
@@ -218,8 +187,7 @@ test.for<{
     steps: [
       { heard: "Bye, hang up please.", atMs: 0 },
       { delegates: "d1" },
-      { request: "r1" },
-      { answer: "r1", text: "Bye for now. HANG_UP" },
+      { message: "Bye for now. HANG_UP" },
       { elapseMs: HANG_UP_GOODBYE_GRACE_MS },
     ],
     toAgent: ["New call.\nPerson: Bye, hang up please."],
@@ -247,21 +215,17 @@ test.for<{
     ],
   },
   {
-    name: "words typed into the call are a hand-over of it: no delegation to acknowledge, and the agent's answer is spoken",
-    steps: [
-      { typed: "What time is it in London?" },
-      { request: "r1" },
-      { answer: "r1", text: "It is noon in London." },
-    ],
+    name: "words typed into the call are a hand-over of it: no delegation to acknowledge, and the agent's message is spoken",
+    steps: [{ typed: "What time is it in London?" }, { message: "It is noon in London." }],
     toAgent: ["New call.\nPerson (typed): What time is it in London?"],
     toLiveModel: [
       { type: "session.commentary.append", delegation_id: null, content: "It is noon in London." },
     ],
   },
   {
-    name: "words the device gives its call are said at once, before any hand-over, while an earlier call's script words and another call's given words are not",
+    name: "words the device gives its call are said at once, before any hand-over, while an earlier call's message and another call's given words are not",
     steps: [
-      { scriptSends: "The report from your last call is ready." },
+      { message: "The report from your last call is ready." },
       { given: "Words for a call that is over.", activation: "earlier" },
       { given: "Good evening. The restaurant has your table at eight." },
     ],
@@ -277,11 +241,10 @@ test.for<{
   {
     name: "what the agent says before this call handed it anything is an earlier call's: never spoken, and its goodbye hangs nothing up",
     steps: [
-      { request: "r0" },
       { status: "Tidying up after the last call" },
+      { message: "Bye for now. HANG_UP" },
       { heard: "Hello?", atMs: 0 },
       { delegates: "d1" },
-      { answer: "r0", text: "Bye for now. HANG_UP" },
       { elapseMs: HANG_UP_GOODBYE_GRACE_MS },
     ],
     toAgent: ["New call.\nPerson: Hello?"],
@@ -299,13 +262,12 @@ test("a new incarnation replaying the call hands nothing over and speaks nothing
   for (const step of [
     { heard: "What time is it in London?", atMs: 0 },
     { delegates: "d1" },
-    { request: "r1" },
   ] satisfies Step[])
     await call.take(step);
   // The incarnation that held the provider socket is gone; its successor folds the log, then the
   // agent's answer arrives.
   const successor = await call.restart();
-  await successor.take({ answer: "r1", text: "It is noon in London." });
+  await successor.take({ message: "It is noon in London." });
   expect(successor.outcome()).toEqual({
     toAgent: [],
     toLiveModel: [],
@@ -313,8 +275,32 @@ test("a new incarnation replaying the call hands nothing over and speaks nothing
   });
 });
 
+test("an agent-ui/message-sent with HANG_UP arms the hang-up: the call ends a second after the voice has said the goodbye, long before the grace", async () => {
+  const call = await liveCall();
+  for (const step of [
+    { heard: "That's all, thanks. Bye!", atMs: 0 },
+    { delegates: "d1" },
+    { message: "Bye for now. HANG_UP" },
+    { voiceSpeaksMs: 1_000 },
+  ] satisfies Step[])
+    await call.take(step);
+  const beforeTheTail = call.outcome().endings;
+  await call.take({ elapseMs: 1_000 });
+  expect({ beforeTheTail, after: call.outcome() }).toEqual({
+    beforeTheTail: [],
+    after: {
+      toAgent: ["New call.\nPerson: That's all, thanks. Bye!"],
+      toLiveModel: [
+        { type: "session.thinking.append", delegation_id: "d1", content: HANDED_OVER },
+        { type: "session.commentary.append", delegation_id: "d1", content: "Bye for now." },
+      ],
+      endings: ["the Agent hung up"],
+    },
+  });
+});
+
 test("audio past the 6 s queue ends the call, and a fact says how much the live model never heard", async () => {
-  const call = await liveCall([], new Map(), {}, { ready: false });
+  const call = await liveCall([], {}, { ready: false });
   await call.take({ micFrames: MIC_QUEUE_MAX_MS / 50 + 1 });
   expect({
     ended: call.facts("events.iterate.com/voice-agent/call-ended"),
@@ -335,7 +321,7 @@ test("audio past the 6 s queue ends the call, and a fact says how much the live 
 });
 
 test("a press on a device that was never provisioned ends at once, saying how to provision it, and dials nothing", async () => {
-  const call = await liveCall([], new Map(), {}, { provisioned: false });
+  const call = await liveCall([], {}, { provisioned: false });
   expect({ endings: call.outcome().endings, starts: call.sent("session.start") }).toEqual({
     endings: [
       "this device is not provisioned: itx.voice.ensureVoiceDevice({ client }) provisions it",
@@ -393,7 +379,7 @@ test("frames past 1 s before their call's press are dropped, and accepted says h
 });
 
 test("audio held through the handshake reaches the provider at once and in order, and accepted says how much", async () => {
-  const call = await liveCall([], new Map(), {}, { ready: false });
+  const call = await liveCall([], {}, { ready: false });
   await call.take({ micFrames: 20 });
   await call.take({ providerReady: true });
   const atStart = call.heard();
@@ -418,7 +404,7 @@ test("audio held through the handshake reaches the provider at once and in order
 });
 
 test("words given before the session starts are said once it does", async () => {
-  const call = await liveCall([], new Map(), {}, { ready: false });
+  const call = await liveCall([], {}, { ready: false });
   await call.take({ given: "Good evening." });
   const beforeReady = call.sent("session.commentary.append");
   await call.take({ providerReady: true });
@@ -456,7 +442,7 @@ test("a mind's liveModel, liveVoice and liveInstructions shape the session start
       instructions: expect.stringMatching(/^Backchannel policy/),
     },
   });
-  const hooked = await liveCall([], new Map(), {
+  const hooked = await liveCall([], {
     liveModel: "gpt-live-2",
     liveVoice: "vesper",
     liveInstructions: ({ path, instructions }) => `You are Jeeves, on ${path}.\n${instructions}`,
@@ -489,7 +475,6 @@ type LoggedEvent = {
  *  the log folded, no socket. */
 async function liveCall(
   log: LoggedEvent[] = [],
-  requests = new Map<string, number>(),
   hooks: { liveModel?: string; liveVoice?: string; liveInstructions?: LiveInstructions } = {},
   { ready = true, provisioned = true } = {},
 ) {
@@ -519,9 +504,10 @@ async function liveCall(
     messageAgent: async (path, words) => {
       // words for any context but the device's agent would be a hand-over to the wrong agent
       toAgent.push(path === AGENT_PATH ? words : `(to ${path}) ${words}`);
+      // what `itx.agents.get(path).message(words)` appends, which the relay does not consume
       return commit({
-        type: "events.iterate.com/agent/context-added",
-        payload: { role: "user", content: words, actor: { type: "user" } },
+        type: "events.iterate.com/agent/message-received",
+        payload: { message: words },
       });
     },
   });
@@ -593,7 +579,7 @@ async function liveCall(
         .filter((event) => event.type === "events.iterate.com/voice-agent/call-ended")
         .map((event) => event.payload.reason),
     }),
-    restart: () => liveCall(log, requests, hooks),
+    restart: () => liveCall(log, hooks),
     /** The `session.start` the relay sent the live model. */
     sessionStart: () => sent.find((message) => message.type === "session.start"),
     /** Every message of `type` the relay sent the live model. */
@@ -620,36 +606,15 @@ async function liveCall(
           type: "session.delegation.created",
           delegation: { id: step.delegates, target: "client" },
         });
-      } else if ("request" in step) {
-        // The agent's intent, which the relay does not consume: its offset names the request.
-        const intent = commit({
-          type: "events.iterate.com/agent/llm-request-requested",
-          payload: {},
-        });
-        requests.set(step.request, intent.offset);
       } else if ("status" in step) {
         commit({
           type: "events.iterate.com/agent/summary-updated",
           payload: { activity: step.status },
         });
-      } else if ("answer" in step) {
+      } else if ("message" in step) {
         commit({
-          type: "events.iterate.com/agent/web-message-sent",
-          payload: {
-            message: step.text,
-            llmRequestOffset: requests.get(step.answer),
-            ...(step.besideScript && { besideScript: true }),
-          },
-        });
-      } else if ("scriptSends" in step) {
-        commit({
-          type: "events.iterate.com/agent/web-message-sent",
-          payload: { message: step.scriptSends },
-        });
-      } else if ("scriptFails" in step) {
-        commit({
-          type: "events.iterate.com/voice-agent/script-failed",
-          payload: { report: `Your script failed (runtime, after 1 s):\n${step.scriptFails}` },
+          type: "events.iterate.com/agent-ui/message-sent",
+          payload: { message: step.message },
         });
       } else if ("typed" in step) {
         commit({
@@ -680,6 +645,14 @@ async function liveCall(
         });
       } else if ("providerReady" in step) {
         await provider({ type: "session.started" });
+      } else if ("voiceSpeaksMs" in step) {
+        // 100 ms deltas of one level, then 700 ms of digital silence, which ends the answer
+        const speech = Buffer.alloc(3_200, 16).toString("base64");
+        const silence = Buffer.alloc(3_200).toString("base64");
+        for (let spokenMs = 0; spokenMs < step.voiceSpeaksMs; spokenMs += 100)
+          await provider({ type: "session.output_audio.delta", delta: speech });
+        for (let silentMs = 0; silentMs < 700; silentMs += 100)
+          await provider({ type: "session.output_audio.delta", delta: silence });
       } else {
         for (let leftMs = step.elapseMs; leftMs > 0; leftMs -= 20) {
           clockMs += Math.min(20, leftMs);

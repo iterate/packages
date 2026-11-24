@@ -7,8 +7,9 @@
 //   const context = useSavedContext({ held: agent, options, path, session, tails });
 //
 // The saved rows are drawn while the mind reads, with `savedCopy`; the read asks only for what is
-// newer than them (`since`), and its newer rows come after them, as the same objects. With no
-// `tails` (no member known yet) it is `useKeptContext` alone.
+// newer than them (`since`), and its newer rows come after them, as the same objects. Saved rows
+// of another version than the read says go (`keptContext`). With no `tails` (no member known yet)
+// it is `useKeptContext` alone.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useIterateContext, type IterateContextHandle } from "iterate/react";
 import { keptContext, type ItxSession, type LogSeed } from "#/lib/itx-session.ts";
@@ -139,11 +140,11 @@ export function useSavedContext({
     setSeed((last) => (last.tail ? { ...last, tail: undefined } : last));
   }, [refused, tails, path]);
   const saving = live.caughtUp && !live.error;
-  const { events } = context;
+  const { events, version } = context;
   const { exhausted } = context.older;
   useEffect(() => {
-    if (saving) tails?.save(path, events, exhausted);
-  }, [saving, tails, path, events, exhausted]);
+    if (saving) tails?.save(path, events, exhausted, version);
+  }, [saving, tails, path, events, exhausted, version]);
   useEffect(() => () => void tails?.flush(), [tails]);
   return context;
 }
