@@ -36,8 +36,12 @@ export function toAgentEvent(raw: unknown): StreamEvent | null {
 
 /** THE BORDER OF A VERSION. `itx.cd(path).newVersion()` starts a path over: its log goes on, and
  *  this fact ends the earlier version (the next fact, `itx/created`, names the new version). The
- *  facts at lower offsets are another conversation. */
-const VERSION_ENDED = "events.iterate.com/itx/version-ended";
+ *  facts at lower offsets are another conversation. The kernel appends `itx/started-over`; a log
+ *  that took a new version under the earlier name holds `itx/version-ended`, for ever. */
+const STARTED_OVER = new Set([
+  "events.iterate.com/itx/started-over",
+  "events.iterate.com/itx/version-ended",
+]);
 
 /** The log folded so far, which the next call goes on from. */
 export type AgentLogFold = {
@@ -47,7 +51,7 @@ export type AgentLogFold = {
   events: readonly StreamEvent[];
   state: AgentUiState;
   items: readonly AgentUiItem[];
-  /** The offset of the newest `itx/version-ended` held, or null: the current version starts after
+  /** The offset of the newest `itx/started-over` held, or null: the current version starts after
    *  it, and the chat reads no page older than it. */
   versionEndedAt: number | null;
 };
@@ -64,7 +68,7 @@ const NOTHING_FOLDED: AgentLogFold = {
  *  end, so a live tail costs what arrived; from the start otherwise (an older page). Either way a
  *  settled row keeps its identity, so a memoised row skips the re-render that a streamed frame or an
  *  older page would bring and its markdown is not parsed again. ONLY THE CURRENT VERSION is folded:
- *  the events after the newest `itx/version-ended` held. The feed, the live line and the traces
+ *  the events after the newest `itx/started-over` held. The feed, the live line and the traces
  *  read this fold, so they agree. */
 export function foldAgentLog(
   held: AgentLogFold | undefined,
@@ -77,7 +81,7 @@ export function foldAgentLog(
     log[held.log.length - 1] === held.log.at(-1);
   const from = grewAtEnd ? held : NOTHING_FOLDED;
   const arrived = log.slice(from.log.length).flatMap((row) => toAgentEvent(row) ?? []);
-  const border = arrived.findLast((event) => event.type === VERSION_ENDED);
+  const border = arrived.findLast((event) => STARTED_OVER.has(event.type));
   // a border starts the fold over after it: the facts at lower offsets are another version's
   const start = border ? { ...NOTHING_FOLDED, versionEndedAt: border.offset } : from;
   const fresh = border ? arrived.slice(arrived.indexOf(border) + 1) : arrived;

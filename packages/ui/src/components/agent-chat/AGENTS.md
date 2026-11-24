@@ -18,7 +18,7 @@ it reads are named in `agent-facts.ts`.
   the reducer's memory is one turn long (`agent-ui-reducer.ts`). Keep it so. An LLM trace reads
   every older page, because its prompt is every context item before the request.
 - The chat shows the current version of the path alone: the SDK's log holds that version alone,
-  and `foldAgentLog` folds only the facts after the newest `itx/version-ended` it is given. A new
+  and `foldAgentLog` folds only the facts after the newest `itx/started-over` it is given. A new
   version, as a read says it (`context.version`, `versionOf` in `lib/itx-session.ts`), is a new
   conversation: the chat closes the trace and the inspected event it had open, and goes to the
   feed's end. The person's draft, its files and its key stay. A kind's frame gets the version

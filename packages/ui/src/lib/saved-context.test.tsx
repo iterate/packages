@@ -249,7 +249,7 @@ test("a reload over a saved copy of an earlier version: the copy goes once the r
   await saved(mind);
   // the path takes a new version: its border, and the new version's first words
   mind.events.push(
-    borderEvent(4, "itx/version-ended", { version: 1 }),
+    borderEvent(4, "itx/started-over", { version: 1 }),
     borderEvent(5, "itx/created", { path, version: 2 }),
     stampedEvent(6),
   );

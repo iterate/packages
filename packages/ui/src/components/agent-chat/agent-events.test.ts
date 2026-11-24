@@ -9,6 +9,7 @@ import { llmRequestTrace } from "./llm-request-trace.ts";
 import {
   created,
   fact,
+  PATH,
   paused,
   quiet,
   request,
@@ -314,6 +315,23 @@ test("the newest border wins: two earlier versions leave the third alone", () =>
   ];
   const fold = foldAgentLog(undefined, log);
   expect(fold).toMatchObject({ versionEndedAt: 5, items: [{ text: "third version" }] });
+  expect(fold.items).toHaveLength(1);
+});
+
+test("a border under its earlier name, `itx/version-ended`, is a border too", () => {
+  const earlierName = fact(
+    2,
+    "itx/version-ended",
+    { version: 1, held: {} },
+    { origin: PATH, platform: true },
+  );
+  const fold = foldAgentLog(undefined, [
+    said(1, "first version"),
+    earlierName,
+    created(3, 2),
+    said(4, "second version"),
+  ]);
+  expect(fold).toMatchObject({ versionEndedAt: 2, items: [{ text: "second version" }] });
   expect(fold.items).toHaveLength(1);
 });
 

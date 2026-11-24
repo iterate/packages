@@ -251,7 +251,7 @@ export function resumed(offset: number, reason?: string): LoggedEvent {
 /** The border of a version: `itx.cd(path).newVersion()` ends `version` here, and the next fact,
  *  `itx/created`, starts the next one. */
 export function versionEnded(offset: number, version: number): LoggedEvent {
-  return fact(offset, "itx/version-ended", { version, held: {} }, { origin: PATH, platform: true });
+  return fact(offset, "itx/started-over", { version, held: {} }, { origin: PATH, platform: true });
 }
 
 /** The start of `version` of the agent's path. */

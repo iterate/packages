@@ -3444,7 +3444,7 @@ function borderOf(path: string, offset: number, version: number) {
   return [
     {
       offset,
-      type: "events.iterate.com/itx/version-ended",
+      type: "events.iterate.com/itx/started-over",
       payload: { version: version - 1 },
     },
     { offset: offset + 1, type: "events.iterate.com/itx/created", payload: { path, version } },
