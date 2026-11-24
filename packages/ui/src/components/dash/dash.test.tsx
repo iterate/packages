@@ -355,6 +355,77 @@ test("in the icon rail an agent row is its icon alone: its words hide by the sid
   ).toEqual(["Find a flight to Lisbon", "comparing fares", "/agents/flights"]);
 });
 
+test("mainAgent pins the main conversation at the top with its live status and subagents, and puts the rest under Side conversations", async () => {
+  const now = new Date().toISOString();
+  await using dash = await draw("/agents/agents/main/researcher", [], {
+    pages: [
+      pages[0]!,
+      { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents</p> },
+      { id: "settings", name: "Settings", icon: SettingsIcon, component: DashSettings },
+    ],
+    mainAgent: "/agents/main",
+    agents: {
+      "/agents/main": {
+        createdAt: now,
+        kind: "iterate",
+        title: "Main",
+        status: "working",
+        activity: "setting up",
+        lastActivityAt: now,
+      },
+      "/agents/main/researcher": {
+        createdAt: now,
+        kind: "iterate",
+        parent: "/agents/main",
+        lastActivityAt: now,
+      },
+      "/agents/main/sandbox": {
+        createdAt: now,
+        kind: "iterate",
+        parent: "/agents/main",
+        lastActivityAt: now,
+      },
+      "/agents/side-1": {
+        createdAt: now,
+        kind: "iterate",
+        title: "Side one",
+        lastActivityAt: now,
+      },
+    },
+  });
+  const { host } = dash;
+  // Main conversation is anchored at the top, active for its subagent, and not duplicated below
+  const mainRow = host.querySelector('[data-main-agent][data-agent-path="/agents/main"]');
+  expect(mainRow).not.toBeNull();
+  expect(mainRow?.querySelector("a")?.getAttribute("href")).toBe("/agents/agents/main");
+  expect(mainRow?.querySelector("a")?.hasAttribute("data-active")).toBe(true);
+  expect(mainRow?.querySelector("[data-agent-status]")?.getAttribute("data-agent-status")).toBe(
+    "working",
+  );
+  expect(mainRow?.querySelector("[data-agent-line]")?.textContent).toBe(
+    "and 2 subagents · setting up",
+  );
+  expect(
+    [...host.querySelectorAll("[data-agent-path]")].map((row) =>
+      row.getAttribute("data-agent-path"),
+    ),
+  ).toEqual(["/agents/main", "/agents/side-1"]);
+  // Section heading is "Side conversations" with "New conversation" above the side rows and "View all" below
+  expect(host.querySelector('[data-slot="sidebar-group-label"]')?.textContent).toBe(
+    "Side conversations",
+  );
+  const navOrder = [...host.querySelectorAll('[data-slot="sidebar-content"] a')].map((a) =>
+    a.textContent?.trim(),
+  );
+  expect(navOrder).toEqual([
+    "Main conversationand 2 subagents · setting up",
+    "New conversation",
+    "Side one/agents/side-1",
+    "View all",
+    "Settings",
+  ]);
+});
+
 test("sidebar order is alert, New agent & pinned, agents (skipping pinned), then foot links and visible pages", async () => {
   const now = new Date().toISOString();
   await using dash = await draw("/", ["itx.secrets"], {
@@ -869,6 +940,7 @@ async function draw(
     whoami,
     session,
     sidebarDefaultOpen,
+    mainAgent,
     pinned,
     foot,
     accountLinks,
@@ -878,6 +950,7 @@ async function draw(
     logo?: ReactNode;
     pages?: DashPage[];
     links?: DashLinks[];
+    mainAgent?: string | { path: string; name?: string };
     pinned?: DashLink[];
     foot?: DashLink[];
     accountLinks?: DashLink[];
@@ -966,6 +1039,7 @@ async function draw(
         principal={principal === "ask" ? undefined : principal}
         pages={drawn}
         links={drawnLinks}
+        mainAgent={mainAgent}
         pinned={pinned}
         foot={foot}
         accountLinks={accountLinks}

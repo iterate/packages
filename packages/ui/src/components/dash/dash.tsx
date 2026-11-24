@@ -40,7 +40,7 @@ import type { AuthenticatedApp } from "iterate/app";
 import type { Principal } from "iterate/principal";
 import { useContextStub, useFacetLiveState } from "iterate/react";
 import { servesOf } from "./serves.ts";
-import { DashAgentsNav } from "./dash-agents-nav.tsx";
+import { DashAgentsNav, DashMainAgentRow } from "./dash-agents-nav.tsx";
 import {
   DashNote,
   DashPlaceholder,
@@ -63,7 +63,7 @@ import {
   SidebarMenuItem,
 } from "#/components/ui/sidebar.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
-import { agentRowsOf, type AgentRow } from "#/lib/agent-summary.ts";
+import { agentGroups, agentRowsOf, type AgentGroup, type AgentRow } from "#/lib/agent-summary.ts";
 import { itxSessionOf, kept, type ItxConnection } from "#/lib/itx-session.ts";
 import { go, keysOfLink, linkTo, pageHref, useAddress, usePageParam } from "#/lib/page-url.ts";
 import { titleWithCount, useWaitingApprovals } from "#/lib/waiting-approvals.ts";
@@ -98,6 +98,7 @@ export function Dash({
   principal,
   pages,
   links,
+  mainAgent,
   pinned,
   foot,
   accountLinks,
@@ -117,9 +118,13 @@ export function Dash({
   principal?: Principal | null;
   pages: DashPage[];
   links: DashLinks[];
-  /** Rows the mind pins right under New agent, drawn as it is: a link to another place (an
-   *  agent's view is `/agents/<path>`, which opens in place). Pinned agents are skipped in the
-   *  recent-agents list below so they are not listed twice. */
+  /** The mind's main conversation (e.g. `"/agents/main"`): anchored at the top of the sidebar with
+   *  its live status and subagent count, while all other top-level agents sit under "Side
+   *  conversations" below it. */
+  mainAgent?: string | { path: string; name?: string };
+  /** Rows the mind pins right under New agent (or under Main conversation), drawn as it is: a link
+   *  to another place (an agent's view is `/agents/<path>`, which opens in place). Pinned agents are
+   *  skipped in the recent-agents list below so they are not listed twice. */
   pinned?: DashLink[];
   /** Links anchored to the foot of the sidebar above the remaining page rows (e.g. Approvals). */
   foot?: DashLink[];
@@ -169,19 +174,36 @@ export function Dash({
   const account = useAccount(itx, principal, connection.epoch);
   // THE CATALOG OF THE MIND'S AGENTS, live, for the sidebar and every page
   const agents = useAgentRows(itx, Boolean(agentsPage), connection);
-  const pinnedAgents = useMemo(
+  const main = useMemo(
     () =>
-      new Set(
-        (pinned || [])
-          .map((row) => inPlaceOf(row.href, pages).agent)
-          .filter((path): path is string => Boolean(path)),
-      ),
-    [pinned, pages],
+      typeof mainAgent === "string"
+        ? { path: mainAgent, name: "Main conversation" }
+        : mainAgent
+          ? { path: mainAgent.path, name: mainAgent.name || "Main conversation" }
+          : undefined,
+    [mainAgent],
   );
+  const mainGroup = useMemo(
+    () =>
+      main && agents
+        ? agentGroups(agents).find((group) => group.row.path === main.path)
+        : undefined,
+    [main, agents],
+  );
+  const pinnedAgents = useMemo(() => {
+    const excluded = new Set(
+      (pinned || [])
+        .map((row) => inPlaceOf(row.href, pages).agent)
+        .filter((path): path is string => Boolean(path)),
+    );
+    if (main) excluded.add(main.path);
+    return excluded;
+  }, [pinned, pages, main]);
   const homeLink = linkTo(pageHref(undefined));
   // the mind as its owner named it, for the agent pages' stack of who is here: the sidebar's
   // fallback to the app's name is no name of the mind
   const mindFace = useMemo(() => ({ name: name || mind, logo }), [name, mind, logo]);
+  const agentsOverviewHref = agentsPage ? hrefOfPage(pages, agentsPage) : undefined;
   return (
     <>
       <AppShell
@@ -205,21 +227,25 @@ export function Dash({
             mind={mind}
             pages={pages}
             links={links}
+            main={main}
+            mainGroup={mainGroup}
             pinned={pinned}
             foot={foot}
             page={page}
             agent={agent}
             waiting={waiting}
-            newAgent={agentsPage ? hrefOfPage(pages, agentsPage) : undefined}
+            newAgent={main ? undefined : agentsOverviewHref}
             agents={
               agentsPage ? (
                 <DashAgentsNav
                   agents={agents}
                   current={agent}
                   exclude={pinnedAgents}
-                  overview={hrefOfPage(pages, agentsPage)}
+                  overview={agentsOverviewHref!}
                   overviewShown={page === agentsPage && !agent}
                   shrink={pages.some((row) => row.id === "settings")}
+                  label={main ? "Side conversations" : "Agents"}
+                  newAgent={main ? agentsOverviewHref : undefined}
                 />
               ) : null
             }
@@ -531,6 +557,8 @@ function DashNav({
   mind,
   pages,
   links,
+  main,
+  mainGroup,
   pinned = [],
   foot = [],
   page,
@@ -543,6 +571,8 @@ function DashNav({
   mind: string;
   pages: DashPage[];
   links: DashLinks[];
+  main?: { path: string; name: string };
+  mainGroup?: AgentGroup;
   pinned?: DashLink[];
   foot?: DashLink[];
   page: DashPage;
@@ -551,9 +581,9 @@ function DashNav({
   /** Undefined until the mind has answered: the alert draws for a count that is known. */
   waiting: number | undefined;
   /** Where a new agent starts: the Agents page, whose composer's first message starts one. The
-   *  sidebar's first row goes there. None for a Dash with no Agents page. */
+   *  sidebar's first row goes there when no `main` conversation is set. */
   newAgent?: string;
-  /** The Agents section, above the foot group, for a Dash with an Agents page. */
+  /** The Agents / Side conversations section, above the foot group, for a Dash with an Agents page. */
   agents: ReactNode;
 }) {
   // the header brand links to pages[0] (Home); with an Agents section, its "View all" is the Agents page's row
@@ -574,11 +604,19 @@ function DashNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      {newAgent || pinned.length > 0 ? (
+      {main || newAgent || pinned.length > 0 ? (
         // in the icon rail, the same gap below it as between the other groups
         <SidebarGroup className="shrink-0 pb-0 group-data-[collapsible=icon]:pb-2">
           <SidebarGroupContent>
             <SidebarMenu>
+              {main ? (
+                <DashMainAgentRow
+                  path={main.path}
+                  name={main.name}
+                  group={mainGroup}
+                  active={isAgentActive(agent, main.path)}
+                />
+              ) : null}
               {newAgent ? (
                 <SidebarMenuItem>
                   <SidebarMenuButton
