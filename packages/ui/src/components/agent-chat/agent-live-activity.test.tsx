@@ -36,3 +36,58 @@ test("a finished answer whose script has not started yet still shows the agent w
   expect(container.textContent).toContain("Working…");
   await act(async () => root.unmount());
 });
+
+test("in-flight codemode responseText never streams into the collapsed chat feed, while expanded rail shows it", async () => {
+  let state = initialAgentUiState();
+  state = reduceAgentUi(state, request(1, { model: "gpt-test" })).endState;
+
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const renderWith = async (toggledIds: ReadonlySet<string>) => {
+    await act(async () =>
+      root.render(
+        <AgentLiveActivity
+          state={state}
+          toggledIds={toggledIds}
+          onToggle={() => {}}
+          inspect={{ llmRequest: () => {}, scriptRun: () => {} }}
+        />,
+      ),
+    );
+  };
+
+  await renderWith(new Set());
+  expect(container.textContent).toContain("Waiting for a response");
+
+  // Reasoning tokens show "Thinking" and stream in italics, still zero code
+  state = reduceAgentUi(
+    state,
+    frame(2, 1, { thinkingDelta: "Planning the script", thinking: true }),
+  ).endState;
+  await renderWith(new Set());
+  expect(container.textContent).toContain("Thinking");
+  expect(container.textContent).toContain("Planning the script");
+
+  // Even a partial `<cod` prefix (before `<codemode>` completes) and full `<codemode>` body stay
+  // hidden from the collapsed chat feed, while status flips to "Writing code"
+  state = reduceAgentUi(state, frame(3, 1, { textDelta: "<cod" })).endState;
+  await renderWith(new Set());
+  expect(container.textContent).toContain("Writing code");
+  expect(container.textContent).not.toContain("<cod");
+
+  state = reduceAgentUi(
+    state,
+    frame(4, 1, { textDelta: "emode>\nawait sendMessage('hello');\n</codemode>" }),
+  ).endState;
+  await renderWith(new Set());
+  expect(container.textContent).toContain("Writing code");
+  expect(container.textContent).not.toContain("sendMessage");
+  expect(container.textContent).not.toContain("<codemode>");
+
+  // Expanding the activity rail DOES show the in-flight `<codemode>` stream
+  const toggleId = `live-activity:${state.live!.id}`;
+  await renderWith(new Set([toggleId]));
+  expect(container.textContent).toContain("sendMessage('hello')");
+
+  await act(async () => root.unmount());
+});

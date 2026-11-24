@@ -215,8 +215,9 @@ export function liveActivityLabel(runningSteps: readonly AgentUiStep[]): string 
   if (runningSteps.some((step) => step.kind === "code")) return "Running code";
   const llm = runningSteps.findLast((step) => step.kind === "llm");
   if (!llm) return "Working…";
-  // the provider says the model reasons, with no words for it yet
-  if (llm.kind === "llm" && llm.thinking && llm.responseText.length === 0) return "Thinking";
+  if (llm.kind === "llm" && llm.responseText.length > 0) return "Writing code";
+  // the provider says the model reasons, or reasoning words have arrived
+  if (llm.kind === "llm" && (llm.thinking || llm.thinkingText.length > 0)) return "Thinking";
   return "Waiting for a response";
 }
 

@@ -639,7 +639,10 @@ test("a chat whose agent's path starts a new version draws the new conversation 
     sent(5, "the earlier answer"),
     runSettled(6, 4, { status: "succeeded", result: 1 }),
     request(7, { itemsAdded: [scriptResult(2, "1")] }),
-    frame(8, 7, { textDelta: "the earlier partial" }),
+    frame(8, 7, {
+      thinkingDelta: "the earlier thinking",
+      textDelta: "<codemode>const earlierSecret = 1;</codemode>",
+    }),
     said(9, "queued behind the request"),
   ];
   using chat = await mount({
@@ -665,12 +668,13 @@ test("a chat whose agent's path starts a new version draws the new conversation 
     bubbles: ["the earlier question", "the earlier answer"],
     rounds: 0,
     roundSoFar: true,
-    live: expect.stringMatching(/^Waiting for a response \d/),
+    live: expect.stringMatching(/^Writing code \d/),
     queued: expect.stringContaining("queued behind the request"),
     stop: true,
     status: "Thinking · m",
   });
-  expect(page()).toContain("the earlier partial");
+  expect(page()).toContain("the earlier thinking");
+  expect(page()).not.toContain("earlierSecret");
 
   // the same live log: the border of the version, and the agent's live state of the new one
   const border = [versionEnded(10, 1), created(11, 2)];

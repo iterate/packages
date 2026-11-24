@@ -551,7 +551,11 @@ function RoundBody({ round, inspect }: { round: AgentUiActivityRound; inspect: I
 }
 
 function llmStepLabel(llm: AgentUiLlmStep): string {
-  if (llm.status === "running") return "Waiting for a response";
+  if (llm.status === "running") {
+    if (llm.responseText.length > 0) return "Writing code";
+    if (llm.thinking || llm.thinkingText.length > 0) return "Thinking";
+    return "Waiting for a response";
+  }
   if (llm.outcome === "failed") return "Request failed";
   if (llm.outcome === "cancelled") {
     if (llm.cancelReason === "expired") return "Request expired";
@@ -864,14 +868,12 @@ export function AgentLiveActivity({
         />
       ) : null}
       {showStepRail ? <LiveStepRail live={live} liveStep={liveStep} inspect={inspect} /> : null}
-      {/* The running answer streams below the status even when the rail is collapsed — this is
-          the whole point of the live tail. A running script's code does not: the status below
-          says what it does, and a press on it opens the script. */}
-      {!showStepRail &&
-      liveStep &&
-      liveStep.kind !== "code" &&
-      liveStepHasVisibleContent(liveStep) ? (
-        <LiveStepStream step={liveStep} />
+      {/* In the codemode-only agent processor, `responseText` is always `<codemode>` script code
+          (words for a person arrive only as `agent-ui/message-sent`). Like a running script's code,
+          it stays out of the collapsed chat feed and streams only inside the expanded rail or trace
+          inspector; reasoning words (`thinkingText`) still stream when present. */}
+      {!showStepRail && liveStep && liveStep.kind === "llm" && liveStep.thinkingText.length > 0 ? (
+        <LiveStepStream step={liveStep} showResponseText={false} />
       ) : null}
       <AgentLiveStatus
         label={status?.statusText || liveActivityLabel(runningSteps)}
@@ -1072,9 +1074,15 @@ function useLivePhaseClock(
   };
 }
 
-/** The running step's text as it streams: thinking in italics, the answer as prose or, once it
- *  reads as code, a plain code block (highlighting belongs to settled output). */
-function LiveStepStream({ step }: { step: AgentUiStep }) {
+/** The running step's text as it streams: thinking in italics, and (inside the expanded rail)
+ *  the `<codemode>` response text as it arrives. */
+function LiveStepStream({
+  step,
+  showResponseText = true,
+}: {
+  step: AgentUiStep;
+  showResponseText?: boolean;
+}) {
   if (step.kind === "code") {
     return (
       <div className="flex flex-col gap-1.5 py-1">
@@ -1089,10 +1097,12 @@ function LiveStepStream({ step }: { step: AgentUiStep }) {
       {step.thinkingText.length === 0 ? null : (
         <div className="max-w-2xl whitespace-pre-wrap px-1.5 text-sm italic leading-relaxed text-muted-foreground">
           <StreamingText text={step.thinkingText} />
-          {step.responseText.length === 0 ? <StreamingCursor /> : null}
+          {!showResponseText || step.responseText.length === 0 ? <StreamingCursor /> : null}
         </div>
       )}
-      {step.responseText.length === 0 ? null : looksLikeCode(step.responseText) ? (
+      {!showResponseText || step.responseText.length === 0 ? null : looksLikeCode(
+          step.responseText,
+        ) ? (
         <StreamingCodeBlock code={step.responseText} />
       ) : (
         <div className="max-w-2xl whitespace-pre-wrap px-1.5 text-sm leading-relaxed">
