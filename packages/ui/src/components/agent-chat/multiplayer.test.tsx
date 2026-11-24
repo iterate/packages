@@ -116,7 +116,7 @@ test("a send ends the typing of the draft it sent, never that of a newer draft w
   expect([
     chat.sent().map((event) => event.payload.typing),
     document.querySelector('[role="textbox"]')?.textContent,
-  ]).toEqual([[true], "Book the table for four"]);
+  ]).toEqual([[true], " for four"]);
 });
 
 test("the mind's transcription of a message draws the message's own words under its sender: words a transcription puts under another person's message are never theirs", () => {

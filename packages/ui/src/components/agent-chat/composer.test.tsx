@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // The composer's paste: image files in a paste are staged as attachments, as from the `+`, and a
 // submit sends them as data URLs; the paste's text still goes into the message editor (CodeMirror,
-// loaded for real). And its round button while a turn runs. Out of scope: drop and the file picker.
+// loaded for real). Its round button while a turn runs, and its send lifecycle: clearing the sent
+// text immediately, keeping typing written while a send is in flight, restoring on failure, and
+// ignoring a second submit while one is already in flight. Out of scope: drop and the file picker.
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
@@ -122,6 +124,93 @@ test("while a turn runs the round button sends a draft, which waits in the queue
   ]);
 });
 
+test("typing while a send is in flight keeps only the new text, never the sent text", async () => {
+  let resolveSend = () => {};
+  const onSubmit = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveSend = resolve;
+      }),
+  );
+  const composer = await renderComposer({ onSubmit });
+
+  await composer.paste({ text: "first message" });
+  await composer.pressEnter();
+  expect(onSubmit.mock).toMatchObject({ calls: [[{ message: "first message", files: [] }]] });
+
+  await composer.paste({ text: "second message" });
+  await act(async () => resolveSend());
+  await act(async () => {});
+
+  expect(composer.draft()).toMatchObject({ message: "second message" });
+  expect(composer.textbox).toMatchObject({ textContent: "second message" });
+});
+
+test("pressing Return twice quickly while a send is in flight submits only once", async () => {
+  let resolveSend = () => {};
+  const onSubmit = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveSend = resolve;
+      }),
+  );
+  const composer = await renderComposer({ onSubmit });
+
+  await composer.paste({ text: "send once" });
+  // two Return presses before React even re-renders with isSubmitting=true
+  await act(async () => {
+    composer.textbox.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    composer.textbox.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+  });
+  // and another Return press while the first send is still in flight with new words in the box
+  await composer.paste({ text: "next message" });
+  await composer.pressEnter();
+
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(onSubmit.mock).toMatchObject({ calls: [[{ message: "send once", files: [] }]] });
+
+  await act(async () => resolveSend());
+  await act(async () => {});
+
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(composer.draft()).toMatchObject({ message: "next message" });
+});
+
+test("a failed send puts the sent text back only when the box was not changed since", async () => {
+  let rejectSend: (error: Error) => void = () => {};
+  const onSubmit = vi.fn(
+    () =>
+      new Promise<void>((_, reject) => {
+        rejectSend = reject;
+      }),
+  );
+  const composer = await renderComposer({ onSubmit });
+
+  await composer.paste({ text: "try again" });
+  await composer.pressEnter();
+  expect(composer.draft()).toMatchObject({ message: "" });
+
+  await act(async () => rejectSend(new Error("network down")));
+  await act(async () => {});
+
+  expect(composer.draft()).toMatchObject({ message: "try again" });
+  expect(composer.textbox).toMatchObject({ textContent: "try again" });
+  expect(composer.container.querySelector('[role="alert"]')?.textContent).toBe("network down");
+
+  // when the person has already started a new draft, a failure leaves the new draft alone
+  await composer.pressEnter();
+  await composer.paste({ text: "replacement" });
+  await act(async () => rejectSend(new Error("still down")));
+  await act(async () => {});
+
+  expect(composer.draft()).toMatchObject({ message: "replacement" });
+  expect(composer.textbox).toMatchObject({ textContent: "replacement" });
+});
+
 type Paste = { files?: File[]; items?: File[]; text?: string };
 
 async function renderComposer(props: Partial<ComponentProps<typeof AgentComposer>> = {}) {
@@ -154,8 +243,16 @@ async function renderComposer(props: Partial<ComponentProps<typeof AgentComposer
 
   const composer = {
     container,
+    textbox,
     onSubmit,
     draft: () => current!,
+    async pressEnter() {
+      await act(async () => {
+        textbox.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        );
+      });
+    },
     async paste({ files = [], items = [], text = "" }: Paste) {
       // jsdom has no DataTransfer, so the event carries a stand-in with the fields a paste reads
       const event = new Event("paste", { bubbles: true, cancelable: true });

@@ -118,7 +118,8 @@ export function ComposerTextareaClient({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- mount focus is captured once.
   }, [placeholder]);
 
-  useEffect(() => {
+  // Sync before paint so keystrokes right after a submit clear land in an empty editor.
+  useLayoutEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const currentText = view.state.doc.toString();

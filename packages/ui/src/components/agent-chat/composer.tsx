@@ -437,10 +437,14 @@ export function AgentComposer({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string>();
-  /** Each change of the words counts one: a send ends what it sent, never a newer draft. */
+  /** Synchronous lock: blocks a second Return or click before React commits `isSubmitting`. */
+  const submitting = useRef(false);
+  /** Each change of the words counts one: a send restores or ends what it sent, never a newer draft. */
   const revision = useRef(0);
 
   async function runSubmit(action: () => Promise<void>): Promise<boolean> {
+    if (submitting.current) return false;
+    submitting.current = true;
     setIsSubmitting(true);
     setSubmitError(undefined);
     try {
@@ -450,25 +454,36 @@ export function AgentComposer({
       setSubmitError(failure instanceof Error ? failure.message : String(failure));
       return false;
     } finally {
+      submitting.current = false;
       setIsSubmitting(false);
     }
   }
 
   async function submitMessage() {
-    const text = message.trim();
+    if (submitting.current) return;
+    const draftMessage = message;
+    const text = draftMessage.trim();
     if (text === "" && attachments.files.length === 0) return;
     const sent = revision.current;
+    // Clear the sent text at once so typing while the send is in flight starts a fresh draft.
+    if (draftMessage)
+      setMessage((current) => {
+        if (!current.startsWith(draftMessage)) return current;
+        return current.slice(draftMessage.length);
+      });
     const didSubmit = await runSubmit(async () =>
       onSubmit({
         message: text || "(see attached)",
         files: await filesToPayload(attachments.files),
       }),
     );
-    if (!didSubmit) return;
+    if (!didSubmit) {
+      if (draftMessage && revision.current === sent) setMessage(draftMessage);
+      return;
+    }
     attachments.clearFiles();
     // what was written while it was sending is the next message, and its person still types
     if (revision.current !== sent) return;
-    setMessage("");
     onTyping?.(false);
   }
 
