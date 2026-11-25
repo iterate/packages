@@ -10,9 +10,10 @@ export function kindIcon(kind: string | null) {
   return BoxIcon;
 }
 
-/** A status's dot: its colour, and a pulse while it works. */
+/** A status's dot: its colour alone. A dot that pulsed while its agent worked made the browser draw
+ *  every frame for as long as any listed agent worked: hours, in every open Dash tab. */
 export const STATUS_DOT: Record<AgentStatus, string> = {
-  working: "bg-success animate-pulse",
+  working: "bg-success",
   waiting: "bg-warning",
   idle: "bg-muted-foreground/60",
   ended: "border border-muted-foreground/60 bg-sidebar",

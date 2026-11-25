@@ -306,7 +306,7 @@ function Analytics({
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="font-medium">Live: the last hour</h2>
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="size-2 animate-pulse rounded-full bg-success" />
+            <span className="size-2 rounded-full bg-success" />
             {live ? `read ${new Date(live.at).toISOString().slice(11, 19)} UTC` : "reading…"}, again
             each 30 s
           </p>

@@ -163,6 +163,7 @@ export function Dash({
     if (firstPageId && asked === firstPageId && address === `/${firstPageId}`)
       go(`/${location.hash}`, true);
   }, [firstPageId, asked, address]);
+  useEffect(markUnwatched, []);
   const Page = page.component;
   // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: the Contexts page shows its
   // awake dots and its Recent list. A platform without it rejects and the rows stay undefined.
@@ -395,6 +396,27 @@ function useAgentRows(itx: Itx, on: boolean, connection: ItxConnection): AgentRo
   const [keep] = useState(() => kept<AgentRow[] | undefined>());
   const last = keep(rows, read, "agents");
   return useMemo(() => last || (failed ? [] : undefined), [last, failed]);
+}
+
+/** `data-unwatched` ON THE ROOT while the Dash's window is not in focus or its tab is hidden, so
+ *  that its animations stand still (styles/globals.css). Focus in a frame of the page (an agent
+ *  kind's view) counts as the page's: by the HTML spec `hasFocus` is true then, and it is read
+ *  after a `blur` has moved the focus. */
+function markUnwatched() {
+  const root = document.documentElement;
+  const mark = () =>
+    root.toggleAttribute("data-unwatched", document.hidden || !document.hasFocus());
+  const markSoon = () => setTimeout(mark);
+  mark();
+  window.addEventListener("focus", mark);
+  window.addEventListener("blur", markSoon);
+  document.addEventListener("visibilitychange", mark);
+  return () => {
+    window.removeEventListener("focus", mark);
+    window.removeEventListener("blur", markSoon);
+    document.removeEventListener("visibilitychange", mark);
+    root.removeAttribute("data-unwatched");
+  };
 }
 
 /** The page's colour scheme, as apps/theme.css set it when the page loaded: shadcn's class

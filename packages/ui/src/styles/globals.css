@@ -57,6 +57,16 @@
   }
 }
 
+/* A page that nobody looks at draws no frames for motion. While `data-unwatched` is on the root
+   (the Dash sets it while its window is not in focus or its tab is hidden), every animation stands
+   still where it is: a spinner of an agent at work would otherwise make the browser draw 60
+   frames a second for as long as the agent works. */
+:root[data-unwatched] *,
+:root[data-unwatched] *::before,
+:root[data-unwatched] *::after {
+  animation-play-state: paused !important;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

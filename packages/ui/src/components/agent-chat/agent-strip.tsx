@@ -135,7 +135,7 @@ function StatusText({ status }: { status: AgentShellStatus }) {
       <CircleIcon
         className={cn(
           "size-2 shrink-0",
-          status.tone === "live" && "animate-pulse fill-success text-success",
+          status.tone === "live" && "fill-success text-success",
           status.tone === "amber" && "fill-warning text-warning",
           status.tone === "muted" && "fill-muted-foreground/40 text-muted-foreground/40",
         )}
