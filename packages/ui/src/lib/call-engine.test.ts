@@ -64,6 +64,18 @@ test("the picker offers the member's own lent Mac, and nothing without one or fo
   expect(facet).not.toHaveBeenCalled();
 });
 
+test("the picker opening asks the member's own Mac to prepare its connection, and no other Mac", async () => {
+  const { invoke, calls } = mindWith([
+    { lend: "jonas.mac", owner: "user_jonas", things: THINGS },
+    { lend: "misha.mac", owner: "user_misha", things: THINGS },
+  ]);
+  const call = createCall({ facet: vi.fn(async () => ({})), page: "sub-1", invoke });
+  await call.listDevices({ macs: true });
+  const prepares = calls.filter((expression) => JSON.stringify(expression).includes('"prepare"'));
+  expect(prepares).toEqual([["itx", ["cd", "/"], "jonas", "mac", "call", ["prepare", {}]]]);
+  call.dispose();
+});
+
 test("a Mac's screen chosen asks its lend to publish into this call for this page; a browser choice and a Leave end it", async () => {
   const { invoke, calls } = mindWith([{ lend: "jonas.mac", owner: "user_jonas", things: THINGS }]);
   const call = createCall({ facet: vi.fn(async () => ({})), page: "sub-1", invoke });

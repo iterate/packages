@@ -642,6 +642,10 @@ export function createCall({
         }),
       );
       macs.list = offered.flat();
+      // a choice may come soon: each Mac that offers something makes its connection to the call
+      // ready now, so that a choice only adds the picture. It reads no screen and no camera.
+      for (const lend of new Set(macs.list.map((mac) => mac.lend)))
+        void Promise.resolve(invoke(lendCall(lend, "prepare", {}))).catch(() => {});
     } catch {
       macs.list = [];
     }
