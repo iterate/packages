@@ -203,14 +203,16 @@ export function AgentsNavRow({
   group: AgentGroup;
   active: boolean;
   className?: string;
-  /** Title from the context catalog (`metadata.title`) when the agent row itself has no title yet. */
+  /** The context's own title in the context catalog (`metadata.title`): shown when the agent's row
+   *  has no name, so before the first words a person sent it (`titleFromWords`). */
   fallbackTitle?: string;
   /** Marks a row pinned via context catalog tag (`pinned-in-dash`). */
   pinned?: boolean;
 }) {
   const { row, subagents } = group;
   const KindIcon = kindIcon(row.kind);
-  const title = row.title || fallbackTitle || "";
+  const title =
+    (row.titleFromWords ? fallbackTitle || row.title : row.title || fallbackTitle) || "";
   const label = title || agentTitle(row);
   const line = [subagentsLine(subagents.length), agentDoing(row)].filter(Boolean).join(" · ");
   return (

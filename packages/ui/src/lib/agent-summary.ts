@@ -24,6 +24,9 @@ export type AgentRow = {
   /** What the agent calls itself, or else the first line of the first thing a person said to it.
    *  Null until either exists. */
   title: string | null;
+  /** True when `title` is only those first words, and no name: a name set anywhere else (the
+   *  context's own title) is shown before it. Absent for a name and for no title. */
+  titleFromWords?: true;
   /** When it was last active. Null until it has been. */
   lastActivityAt: string | null;
 };
@@ -43,6 +46,7 @@ const AgentCatalog = z.object({
       activity: z.string().nullish(),
       description: z.string().nullish(),
       title: z.string().nullish(),
+      titleFromWords: z.boolean().nullish().catch(null),
       lastActivityAt: z.string().nullish(),
     }),
   ),
@@ -62,6 +66,7 @@ export function agentRowsOf(value: unknown): AgentRow[] {
     activity: row.activity || null,
     description: row.description || null,
     title: row.title || null,
+    ...(!!row.title && !!row.titleFromWords && { titleFromWords: true as const }),
     lastActivityAt: row.lastActivityAt || null,
   }));
 }

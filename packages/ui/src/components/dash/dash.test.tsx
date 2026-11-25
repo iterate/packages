@@ -463,6 +463,44 @@ test("Main conversation sits at the top, followed by pinned-in-dash conversation
   ]);
 });
 
+test("a pinned agent's title: the context's own title before the first words a person sent it, and the name the agent gave itself before both", async () => {
+  const now = new Date().toISOString();
+  const context = (path: string, title: string) => ({
+    path,
+    eventCount: 1,
+    eventTypes: {},
+    recentTypes: [],
+    processors: [],
+    metadata: { title, tags: ["pinned-in-dash"] },
+  });
+  await using dash = await draw("/", [], {
+    pages: [
+      pages[0]!,
+      { id: "agents", name: "Agents", icon: BotIcon, component: () => <p>agents</p> },
+    ],
+    contexts: [
+      context("/agents/engineering-manager", "Engineering manager"),
+      context("/agents/reviewer", "A title in the context"),
+    ],
+    agents: {
+      // no name of its own: its row holds the first line of a message
+      "/agents/engineering-manager": {
+        createdAt: now,
+        kind: "agent",
+        title: "Please look at the failing deploy",
+        titleFromWords: true,
+        lastActivityAt: now,
+      },
+      "/agents/reviewer": { createdAt: now, kind: "agent", title: "Reviewer", lastActivityAt: now },
+    },
+  });
+  const { host } = dash;
+  await until(() => host.querySelector("[data-pinned-agent]"));
+  expect(
+    [...host.querySelectorAll("[data-pinned-agent] a")].map((a) => a.getAttribute("aria-label")),
+  ).toEqual(["Engineering manager", "Reviewer"]);
+});
+
 test("sidebar order is alert, New agent & pinned, agents (skipping pinned), then foot links and visible pages", async () => {
   const now = new Date().toISOString();
   await using dash = await draw("/", ["itx.secrets"], {
