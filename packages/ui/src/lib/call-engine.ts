@@ -26,6 +26,12 @@
 // - THE DELEGATION: the voice model's one way out is the agent of the context. Its host tab carries
 //   the model's request to the call's `delegate`, and the answer, from the call's live state, back
 //   to the model to say.
+// - A MEMBER'S MAC: when the member lends a Mac to the mind (the iterate Mac app), the device
+//   picker also offers its camera and its screens (call-rules.ts `liveMacs`, `macSources`). A choice
+//   asks the Mac (`call.publish` of its lend), which joins the call as a page of its own and sends
+//   the picture from its own connection; a browser device chosen again, the page's own camera or
+//   screen turned on, or a Leave ends it (`call.unpublish`). The page that asked leaving the call
+//   ends it on the Mac's side too.
 // - THE VOICE AGENT: the member who invites it hosts it in their tab, which opens GPT-Live over
 //   WebRTC with a session the call made. It hears a mix of the host's microphone and everyone the
 //   host hears, and its voice is published into the call as the host's track `ai`.
@@ -41,6 +47,11 @@ import {
   FIRST_LAYER,
   heardSpeech,
   iceServersOf,
+  lendCall,
+  liveMacs,
+  macOwner,
+  type MacSource,
+  macSources,
   JoinAnswer,
   layerFor,
   type Path,
@@ -167,6 +178,15 @@ export type CallUi = {
     speaker: { id: string; label: string }[];
     chosen: Record<DeviceKind, string>;
     speakerSupported: boolean;
+    /** What the member's lent Macs offer (none without one), and what a Mac sends for this page
+     *  now, by the picker's value (`MacSource.id`). */
+    mac?: {
+      camera: { id: string; label: string }[];
+      screen: { id: string; label: string }[];
+      chosen: { camera: string; screen: string };
+      /** A choice under way: the Mac asks its owner, or connects. */
+      asking: string;
+    };
   };
   videos: CallVideo[];
   /** This page's captions: its microphone transcribed, each finished line to the call. */
@@ -409,7 +429,17 @@ type CallScope = ReturnType<typeof callScope>;
  * change), `subscribe(listener)`, the actions, and `sync(view)`, which `useCall` calls with each
  * live state of the call.
  */
-export function createCall({ facet, page }: { facet: CallFacet; page: string }) {
+export function createCall({
+  facet,
+  page,
+  invoke,
+}: {
+  facet: CallFacet;
+  page: string;
+  /** Any itx expression on the agent's context, as the page holds it: a member's lent Macs are
+   *  read and asked through it. None (or a guest's view, which refuses it): no Mac is offered. */
+  invoke?: (expression: unknown) => Promise<unknown>;
+}) {
   const listeners = new Set<(ui: CallUi) => void>();
   let ui = IDLE;
   const set = (patch: Partial<CallUi>) => {
@@ -552,11 +582,108 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
         speaker: devices.sinkOk ? deviceOptions(devices.list, "speaker") : [],
         chosen: { mic: inUse("mic"), camera: inUse("camera"), speaker: inUse("speaker") },
         speakerSupported: devices.sinkOk,
+        ...((macs.list.length || macs.chosen.camera || macs.chosen.screen) && {
+          mac: {
+            camera: macs.list.filter((one) => one.kind === "camera"),
+            screen: macs.list.filter((one) => one.kind === "screen"),
+            chosen: {
+              camera: macs.chosen.camera?.id || "",
+              screen: macs.chosen.screen?.id || "",
+            },
+            asking: macs.asking,
+          },
+        }),
       },
     });
-  async function listDevices() {
+  /** The browser's devices; with `macs`, also the member's lent Macs (only the picker asks for
+   *  them, when it opens: a join or a camera's start reads no lend, so a call costs no reads for
+   *  people with no Mac, guests too). */
+  async function listDevices({ macs = false }: { macs?: boolean } = {}) {
     devices.list = (await navigator.mediaDevices?.enumerateDevices?.().catch(() => null)) ?? [];
     renderDevices();
+    if (macs) await listMacs();
+  }
+
+  // ── a member's Mac: its camera or a screen, sent by the Mac app itself ──
+  const macs: {
+    list: MacSource[];
+    chosen: Partial<Record<"camera" | "screen", MacSource>>;
+    asking: string;
+    /** The agent's path, as the context says it: the Mac joins this call. */
+    context: string;
+  } = { list: [], chosen: {}, asking: "", context: "" };
+  /** The member's Macs lent now and what each offers: read when the picker opens. A Mac whose
+   *  newest device event is another member's is not offered; a failure offers none. */
+  async function listMacs() {
+    if (!invoke) return;
+    try {
+      const [who, stubs, rows] = await Promise.all([
+        invoke(["itx", ["whoami"]]),
+        invoke(["itx", ["cd", "/"], "rpcStubs", ["list"]]),
+        invoke(["itx", ["cd", "/"], "contexts", ["list", { under: "/devices", limit: 200 }]]),
+      ]);
+      const me = (who as { principal?: { actor?: string } } | null)?.principal?.actor;
+      macs.context = String((who as { path?: string } | null)?.path || "");
+      if (!me || !macs.context || !Array.isArray(stubs) || !Array.isArray(rows))
+        throw new Error("no member");
+      const lent = liveMacs(stubs as string[], rows as { path: string }[]);
+      const offered = await Promise.all(
+        lent.map(async (mac) => {
+          const newest = (await invoke([
+            "itx",
+            ["cd", mac.path],
+            ["readEvents", Math.max(0, mac.events - 100), 100],
+          ]).catch(() => null)) as { events?: unknown[] } | null;
+          if (macOwner(newest?.events || []) !== me) return [];
+          const state = await invoke(["itx", ["cd", "/"], ...mac.lend.split("."), ["state"]]).catch(
+            () => null,
+          );
+          return macSources(mac.lend, state);
+        }),
+      );
+      macs.list = offered.flat();
+    } catch {
+      macs.list = [];
+    }
+    renderDevices();
+  }
+  /** The member chose a Mac's camera or screen (`id`), or "" for none: the Mac that sends this
+   *  kind for this page now stops, and the chosen one is asked. The page's own camera or screen
+   *  goes off first: one picture of each kind. */
+  async function chooseMac(kind: "camera" | "screen", id: string) {
+    const was = macs.chosen[kind];
+    const next = id ? macs.list.find((one) => one.id === id && one.kind === kind) : undefined;
+    if (was?.id === next?.id) return;
+    delete macs.chosen[kind];
+    renderDevices();
+    if (was) await unpublishMac(was);
+    if (!next) return;
+    if (local[kind] || scope.capturing[kind]) await videoOff(kind);
+    macs.chosen[kind] = next;
+    macs.asking = next.label;
+    renderDevices();
+    try {
+      await invoke!(
+        lendCall(next.lend, "publish", { context: macs.context, source: next.source, as: page }),
+      );
+    } catch (error) {
+      if (macs.chosen[kind] === next) delete macs.chosen[kind];
+      fail(`Your Mac did not send its ${kind}: ${messageOf(error)}`);
+    } finally {
+      macs.asking = "";
+      renderDevices();
+    }
+  }
+  function unpublishMac(mac: MacSource) {
+    return Promise.resolve(
+      invoke?.(lendCall(mac.lend, "unpublish", { context: macs.context, source: mac.source })),
+    ).catch(() => {});
+  }
+  /** Every Mac that sends for this page stops: a Leave, or the page goes. */
+  function stopMacs() {
+    const sending = Object.values(macs.chosen);
+    macs.chosen = {};
+    return Promise.all(sending.map((mac) => unpublishMac(mac)));
   }
   /** A device that cannot be opened by its id falls back to the browser's default, and says so. */
   async function openMedia(kind: "mic" | "camera", id: string, call: CallScope) {
@@ -709,6 +836,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
   }
   /** The person chose a device: kept for the next visit, and used now. */
   async function chooseDevice(kind: DeviceKind, id: string) {
+    if (id.startsWith("mac:") && kind === "camera") return chooseMac("camera", id);
+    if (kind === "camera" && macs.chosen.camera) await chooseMac("camera", "");
     const label = devices.list.find((d) => d.deviceId === id)?.label ?? "";
     devices.saved = saveDevice(kind, id, label);
     // the switch says its own failure; one of a call that ended meanwhile is no error to show
@@ -1953,6 +2082,8 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
     // on its way is the leave itself, never a reason to join again
     if (ai.claimed) postAiLines(true);
     teardown();
+    // a Mac that sends for this page stops with it
+    void stopMacs();
     // the voice agent's last lines (queued above) reach the call before the leave that ends it
     await saidQueue;
     // then the call hears it, at once: the leave of this call's admission, which a newer one
@@ -2100,11 +2231,18 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       captionsOn();
     },
     // a press while the kind's picker is open is an Off: the picture it chooses is not sent
+    // the page's own camera or screen on: a Mac that sends that kind for this page stops
     toggleCamera: () =>
-      local.camera || scope.capturing.camera ? videoOff("camera") : videoOn("camera"),
+      local.camera || scope.capturing.camera
+        ? videoOff("camera")
+        : (macs.chosen.camera && void chooseMac("camera", ""), videoOn("camera")),
     toggleScreen: () =>
-      local.screen || scope.capturing.screen ? videoOff("screen") : videoOn("screen"),
+      local.screen || scope.capturing.screen
+        ? videoOff("screen")
+        : (macs.chosen.screen && void chooseMac("screen", ""), videoOn("screen")),
     chooseDevice,
+    /** A member's Mac's camera or screen, by the picker's value; "" stops the Mac's. */
+    chooseMac,
     listDevices,
     tileWidth,
     aiInvite,
@@ -2127,6 +2265,7 @@ export function createCall({ facet, page }: { facet: CallFacet; page: string }) 
       // leave, as at a Leave (a page that closes may not live to send them)
       if (ai.claimed) postAiLines(true);
       teardown();
+      void stopMacs();
       if (call.joinSent)
         void saidQueue.then(() => facet("leave", page, call.admission)).catch(() => {});
     },
@@ -2167,6 +2306,7 @@ export function useCall(
         ? createCall({
             facet: (method, ...args) =>
               context.invoke(["itx", "facets", ["get", "call"], [method, ...args]]),
+            invoke: (expression) => context.invoke(expression),
             page,
           })
         : null,

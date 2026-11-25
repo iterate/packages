@@ -19,6 +19,9 @@
 //   height.
 // - A SWITCH SAYS ON BY ITS FILL. The microphone and the camera are struck through when off, as in
 //   every call app; the screen and the voice agent keep one icon.
+// - A MEMBER'S MAC: with a Mac lent by the member (the iterate Mac app), the devices' Camera picker
+//   lists its camera too, and a Screen picker lists its screens; a choice asks the Mac to send it
+//   (call-engine.ts `chooseMac`). Without one, the pickers are as before.
 // - ON A PHONE (`CallHeaderControls`) Start or Join is its icon alone, and in the call the controls
 //   are behind one button, so the path and the tabs keep the header.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -467,7 +470,8 @@ const PICKERS: [DeviceKind, string][] = [
 ];
 
 /** The microphone, the camera and the speaker, each a picker; the browser lists them when the
- *  pickers open. */
+ *  pickers open, and the member's lent Macs add their cameras and screens (a Screen picker comes
+ *  only with a Mac's screen). */
 export function CallDevices({
   call,
   ui,
@@ -478,8 +482,9 @@ export function CallDevices({
   /** The button's look: "outline" in the call's button group. */
   variant?: "ghost" | "outline";
 }) {
+  const mac = ui.devices.mac;
   return (
-    <Popover onOpenChange={(open) => open && void call.listDevices()}>
+    <Popover onOpenChange={(open) => open && void call.listDevices({ macs: true })}>
       <Tooltip>
         <TooltipTrigger
           render={
@@ -503,18 +508,41 @@ export function CallDevices({
             <label key={kind} className="flex flex-col gap-1 text-xs text-muted-foreground">
               {label}
               <NativeSelect
-                value={ui.devices.chosen[kind]}
+                value={(kind === "camera" && mac?.chosen.camera) || ui.devices.chosen[kind]}
                 onChange={(event) => void call.chooseDevice(kind, event.target.value)}
               >
-                {ui.devices[kind].map((option) => (
-                  <NativeSelectOption key={option.id} value={option.id}>
-                    {option.label}
-                  </NativeSelectOption>
-                ))}
+                {[...ui.devices[kind], ...(kind === "camera" ? mac?.camera || [] : [])].map(
+                  (option) => (
+                    <NativeSelectOption key={option.id} value={option.id}>
+                      {option.label}
+                    </NativeSelectOption>
+                  ),
+                )}
               </NativeSelect>
             </label>
           ),
         )}
+        {mac?.screen.length ? (
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Screen
+            <NativeSelect
+              value={mac.chosen.screen}
+              onChange={(event) => void call.chooseMac("screen", event.target.value)}
+            >
+              <NativeSelectOption value="">Shared from this browser</NativeSelectOption>
+              {mac.screen.map((option) => (
+                <NativeSelectOption key={option.id} value={option.id}>
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+        ) : null}
+        {mac?.asking ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            Asking your Mac: {mac.asking}…
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

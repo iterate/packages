@@ -103,6 +103,74 @@ test("others in the call: Join call, with how many, and its tooltip says so", as
   expect(call.join).toHaveBeenCalledExactlyOnceWith({ orListen: true });
 });
 
+test("the devices: a Screen picker and the Mac's camera only with a member's lent Mac, and a choice asks the engine", async () => {
+  const joined = { ...IDLE, joined: true };
+  const pickers = async (ui: CallUi) => {
+    const call = engine();
+    using row = await mount(<CallControls call={call} ui={ui} live={FRESH} member />);
+    await act(async () => named(row.element, "Devices").click());
+    const selects = await act(() =>
+      vi.waitFor(() => {
+        const found = [...document.querySelectorAll("label")].filter((one) =>
+          one.querySelector("select"),
+        );
+        if (!found.length) throw new Error("no pickers");
+        return found;
+      }),
+    );
+    const seen = selects.map((one) => [
+      one.firstChild?.textContent,
+      [...one.querySelectorAll("option")].map((option) => option.textContent),
+    ]);
+    const screen = selects
+      .find((one) => one.firstChild?.textContent === "Screen")
+      ?.querySelector("select");
+    if (screen)
+      await act(async () => {
+        screen.value = "mac:jonas.mac:screen:0";
+        screen.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    await act(async () =>
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    return { seen, call };
+  };
+  const without = await pickers(joined);
+  expect(without.seen.map(([label]) => label)).toEqual(["Microphone", "Camera", "Speaker"]);
+  const mac = {
+    camera: [
+      {
+        id: "mac:jonas.mac:camera",
+        label: "Your Mac “jonas.mac” (iterate app): FaceTime HD Camera",
+      },
+    ],
+    screen: [
+      {
+        id: "mac:jonas.mac:screen:0",
+        label: "Your Mac “jonas.mac” (iterate app): Built-in Retina Display",
+      },
+    ],
+    chosen: { camera: "", screen: "" },
+    asking: "",
+  };
+  const withMac = await pickers({ ...joined, devices: { ...joined.devices, mac } });
+  expect(withMac).toMatchObject({
+    seen: [
+      ["Microphone", []],
+      ["Camera", ["Your Mac “jonas.mac” (iterate app): FaceTime HD Camera"]],
+      ["Speaker", []],
+      [
+        "Screen",
+        ["Shared from this browser", "Your Mac “jonas.mac” (iterate app): Built-in Retina Display"],
+      ],
+    ],
+  });
+  expect(withMac.call.chooseMac).toHaveBeenCalledExactlyOnceWith(
+    "screen",
+    "mac:jonas.mac:screen:0",
+  );
+});
+
 test("in the call: the switches and the devices in one group, Leave apart from it, and a guest has no voice agent", async () => {
   const ui = { ...IDLE, joined: true };
   {
@@ -273,6 +341,9 @@ function engine({ joins = false } = {}) {
     toggleCamera: vi.fn(async () => void steps.push("camera")),
     toggleScreen: vi.fn(async () => void steps.push("screen")),
     aiInvite: vi.fn(async () => void steps.push("voice")),
+    listDevices: vi.fn(async () => {}),
+    chooseDevice: vi.fn(async () => {}),
+    chooseMac: vi.fn(async () => {}),
     fail: vi.fn(),
     dismiss: vi.fn(),
   };

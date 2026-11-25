@@ -95,8 +95,10 @@ export type CallLive = z.infer<typeof CallLive>;
  *  join would fill; the join itself says so in words when the SFU is missing. */
 export const joinable = (live: CallLive | undefined) => live?.setup?.sfu !== false;
 
-/** A person's name as the call shows it: a guest is marked. */
-const nameOf = (who: CallWho) => (who.kind ? `${who.name} (guest)` : who.name);
+/** A person's name as the call shows it: a guest is marked, and a page that a member's Mac holds
+ *  (the iterate Mac app, `call.publish`) is "<name>'s Mac". */
+const nameOf = (who: CallWho, page = "") =>
+  page.startsWith(MAC_PAGE) ? `${who.name}'s Mac` : who.kind ? `${who.name} (guest)` : who.name;
 
 /** Who came into the call and who left it from one known live state to the next, the voice agent
  *  too, in words for a screen reader; nothing when either state is not known. */
@@ -108,10 +110,10 @@ export function callChanges(before: CallLive | undefined, after: CallLive | unde
   const lines = [
     ...Object.entries(now)
       .filter(([page]) => !Object.hasOwn(was, page))
-      .map(([, { who }]) => `${nameOf(who)} joined the call.`),
+      .map(([page, { who }]) => `${nameOf(who, page)} joined the call.`),
     ...Object.entries(was)
       .filter(([page]) => !Object.hasOwn(now, page))
-      .map(([, { who }]) => `${nameOf(who)} left the call.`),
+      .map(([page, { who }]) => `${nameOf(who, page)} left the call.`),
   ];
   if (!before.voiceAgent && after.voiceAgent) lines.push("The voice agent joined the call.");
   if (before.voiceAgent && !after.voiceAgent) lines.push("The voice agent left the call.");
@@ -127,7 +129,7 @@ export function viewOf(live: CallLive | undefined, page: string) {
     me: { inCall: Object.hasOwn(inCall, page) },
     call: Object.entries(inCall).map(([peer, { who, tracks }]) => ({
       peer,
-      name: nameOf(who),
+      name: nameOf(who, peer),
       tracks,
     })),
     hostPage: live?.voiceAgent?.page || null,
@@ -454,3 +456,109 @@ export function pcm16Base64(samples: Float32Array) {
     binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
   return btoa(binary);
 }
+
+// ── A MEMBER'S MAC: a camera or a screen from the iterate Mac app, in the device picker ──
+// A member who lends a Mac to the mind (the iterate Mac app, `iterate provide` as `itx.<name>`)
+// may send its camera or one of its screens into a call from the picker: the page asks the lend
+// (`call.publish`), and the Mac joins the call as a page of its own, `mac-call-<name>-<id>`, which
+// every page draws as "<the member>'s Mac". Without such a lend the picker is as before.
+
+/** The prefix of a page that a Mac holds in a call (the Mac app's bridge/call.mjs `PAGE_PREFIX`). */
+export const MAC_PAGE = "mac-call-";
+
+/** One source a Mac offers a call: a screen (`screen:<display>`) or its camera. `id` is the
+ *  picker's value. */
+export type MacSource = {
+  id: string;
+  lend: string;
+  source: string;
+  kind: "camera" | "screen";
+  label: string;
+};
+/** The kind of event only a Mac app's bridge writes on its device's context. */
+const MAC_EVENT = "device/presence-changed";
+/** A lend's name, as `itx.rpcStubs.list()` names a live lend: `itx.<name>`, dotted. */
+const LEND = /^itx\.([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*){0,3})$/;
+
+/** The catalog's row of a context, as `contexts.list` answers it: its event types with counts. */
+type DeviceRow = {
+  path: string;
+  eventCount?: number;
+  eventTypes?: Partial<Record<string, number>>;
+};
+/** THE MACS LENT NOW: a live lend `itx.<name>` with a device context `/devices/<name>` that a Mac
+ *  app writes (its presence). Whose each is, is `macOwner`'s. */
+export function liveMacs(stubs: readonly string[], devices: readonly DeviceRow[]) {
+  const written = new Map(devices.map((row) => [row.path, row]));
+  return stubs.flatMap((stub) => {
+    const name = LEND.exec(stub)?.[1];
+    const row = name ? written.get(`/devices/${name}`) : undefined;
+    return name && row?.eventTypes?.[MAC_EVENT]
+      ? [{ lend: name, path: row.path, events: row.eventCount ?? 0 }]
+      : [];
+  });
+}
+
+/** WHOSE A MAC IS: the actor who wrote its newest `device/…` event, the Mac app's bridge, which
+ *  writes as the person who lent the Mac (`events`: a page of the context's newest events). */
+export function macOwner(events: readonly unknown[]) {
+  for (const event of [...events].reverse()) {
+    const parsed = WrittenEvent.safeParse(event);
+    if (parsed.success && parsed.data.type.startsWith("device/"))
+      return parsed.data.source?.principal?.actor;
+  }
+  return undefined;
+}
+const WrittenEvent = z.object({
+  type: z.string(),
+  source: z.object({ principal: z.object({ actor: z.string() }).optional() }).optional(),
+});
+
+/** A Mac's own state (`itx.<name>.state()`): each thing and the owner's choice for it. */
+const MacState = z.object({
+  things: z.array(
+    z.object({
+      kind: z.string(),
+      name: z.string(),
+      sharing: z.string(),
+      permitted: z.boolean().optional(),
+      display: z.number().int().nullable().optional(),
+    }),
+  ),
+});
+
+/** WHAT A MAC OFFERS A CALL: each display and its camera that its owner has not set to Off and
+ *  macOS allows (an Ask asks the owner at the choice). Nothing when its state does not parse. */
+export function macSources(lend: string, state: unknown): MacSource[] {
+  const parsed = MacState.safeParse(state);
+  if (!parsed.success) return [];
+  const on = parsed.data.things.filter(
+    (thing) => thing.sharing !== "off" && thing.permitted !== false,
+  );
+  const mac = `Your Mac “${lend}” (iterate app)`;
+  const screens = on.flatMap((thing) =>
+    thing.kind === "screen" && typeof thing.display === "number"
+      ? [
+          {
+            kind: "screen" as const,
+            source: `screen:${thing.display}`,
+            label: `${mac}: ${thing.name}`,
+          },
+        ]
+      : [],
+  );
+  const camera = on.find((thing) => thing.kind === "camera");
+  const cameras = camera
+    ? [{ kind: "camera" as const, source: "camera", label: `${mac}: ${camera.name}` }]
+    : [];
+  return [...cameras, ...screens].map((one) => ({ ...one, lend, id: `mac:${lend}:${one.source}` }));
+}
+
+/** The itx expression of a call of a lend's method from an agent's context: the lend is the root's. */
+export const lendCall = (lend: string, method: string, input: unknown) => [
+  "itx",
+  ["cd", "/"],
+  ...lend.split("."),
+  "call",
+  [method, input],
+];

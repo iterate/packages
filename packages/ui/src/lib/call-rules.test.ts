@@ -8,6 +8,10 @@ import {
   iceServersOf,
   joinable,
   layerFor,
+  lendCall,
+  liveMacs,
+  macOwner,
+  macSources,
   pathOf,
   pcm16Base64,
   pickDevice,
@@ -195,4 +199,102 @@ test("the level and the audio as the model takes it", () => {
   expect(pcm16Base64(new Float32Array([-1, 0, 1]))).toBe(
     btoa(String.fromCharCode(0x00, 0x80, 0, 0, 0xff, 0x7f)),
   );
+});
+
+test("a member's Mac: a live lend whose device context a Mac app writes, whose newest device event is the member's", () => {
+  const stubs = [
+    "itx.jonas.mac",
+    "itx.zaktop.macApp",
+    "itx.phoneCalls",
+    "subscription:sub-1",
+    "itx.old.mac",
+  ];
+  const devices = [
+    { path: "/devices/jonas.mac", eventCount: 10, eventTypes: { "device/presence-changed": 3 } },
+    { path: "/devices/zaktop.macApp", eventCount: 4, eventTypes: { "device/presence-changed": 1 } },
+    // a lend that is no Mac app's: no presence
+    { path: "/devices/phoneCalls", eventTypes: { "events.iterate.com/itx/created": 1 } },
+    // a Mac lent before, not now: no live stub
+    { path: "/devices/misha.mac", eventTypes: { "device/presence-changed": 9 } },
+  ];
+  expect(liveMacs(stubs, devices)).toEqual([
+    { lend: "jonas.mac", path: "/devices/jonas.mac", events: 10 },
+    { lend: "zaktop.macApp", path: "/devices/zaktop.macApp", events: 4 },
+  ]);
+  expect(liveMacs([], devices)).toEqual([]);
+  const mine = { principal: { actor: "user_jonas" } };
+  expect(
+    macOwner([
+      { type: "device/app-focused", source: { principal: { actor: "user_misha" } } },
+      { type: "device/mouse-moved", source: mine },
+      // the kernel's own event, after it, decides nothing
+      { type: "events.iterate.com/itx/woken", source: { principal: { actor: "system" } } },
+    ]),
+  ).toBe("user_jonas");
+  expect(macOwner([{ type: "events.iterate.com/itx/woken" }])).toBeUndefined();
+});
+
+test("what a Mac offers a call: each display and the camera that are not Off and that macOS allows", () => {
+  const state = {
+    things: [
+      {
+        kind: "screen",
+        name: "Built-in Retina Display",
+        sharing: "shared",
+        permitted: true,
+        display: 0,
+      },
+      { kind: "screen", name: "Studio Display", sharing: "off", permitted: true, display: 1 },
+      { kind: "screen", name: "Sidecar", sharing: "ask", permitted: true, display: 2 },
+      { kind: "camera", name: "FaceTime HD Camera", sharing: "ask", permitted: true },
+      { kind: "microphone", name: "Microphone", sharing: "shared", permitted: true },
+    ],
+  };
+  expect(macSources("jonas.mac", state)).toEqual([
+    {
+      id: "mac:jonas.mac:camera",
+      lend: "jonas.mac",
+      kind: "camera",
+      source: "camera",
+      label: "Your Mac “jonas.mac” (iterate app): FaceTime HD Camera",
+    },
+    {
+      id: "mac:jonas.mac:screen:0",
+      lend: "jonas.mac",
+      kind: "screen",
+      source: "screen:0",
+      label: "Your Mac “jonas.mac” (iterate app): Built-in Retina Display",
+    },
+    {
+      id: "mac:jonas.mac:screen:2",
+      lend: "jonas.mac",
+      kind: "screen",
+      source: "screen:2",
+      label: "Your Mac “jonas.mac” (iterate app): Sidecar",
+    },
+  ]);
+  const cameraOff = {
+    things: [
+      { kind: "camera", name: "C", sharing: "off" },
+      { kind: "camera", name: "D", sharing: "shared", permitted: false },
+    ],
+  };
+  expect(macSources("jonas.mac", cameraOff)).toEqual([]);
+  expect(macSources("jonas.mac", { error: "not running" })).toEqual([]);
+  expect(lendCall("jonas.mac", "publish", { source: "camera" })).toEqual([
+    "itx",
+    ["cd", "/"],
+    "jonas",
+    "mac",
+    "call",
+    ["publish", { source: "camera" }],
+  ]);
+});
+
+test("a Mac's page is named for its owner: in the view and in who came and left", () => {
+  const mac = { who: { actor: "member:jonas", name: "Jonas" }, tracks: { screen: 3 } };
+  const before = CallLive.parse({ ...FRESH, inCall: {} });
+  const after = CallLive.parse({ ...FRESH, inCall: { "mac-call-jonas-mac-ab12": mac } });
+  expect(callChanges(before, after)).toEqual(["Jonas's Mac joined the call."]);
+  expect(viewOf(after, "sub-1").call[0]?.name).toBe("Jonas's Mac");
 });
