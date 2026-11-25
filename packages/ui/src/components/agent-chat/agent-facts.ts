@@ -18,6 +18,9 @@ export const AGENT_FACT = {
   uiAgentRequested: `${T}agent-ui/agent-requested`,
   /** The agent's words for a person in the web or mobile UI: `message`. */
   uiMessageSent: `${T}agent-ui/message-sent`,
+  /** A widget that the agent's script shows a person (widget/widget.ts): `html`, `text`, `key?`,
+   *  `data?`, `title?`, `height?`. */
+  uiWidgetShown: `${T}agent-ui/widget-shown`,
   /** A model is asked: `model`, `purpose`, `instructions?`, `extends`, `itemsAdded`. */
   llmRequested: `${T}llm-request/requested`,
   /** One attempt starts: `llmRequestOffset`, `attempt`, `api`, `transport`, `model`. */

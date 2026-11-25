@@ -35,6 +35,7 @@
         "iterate/packages/itx-session",
         "iterate/packages/presence",
         "iterate/packages/virtual-log",
+        "iterate/packages/widget",
         "popover",
         "sheet",
         "spinner",
@@ -2039,6 +2040,28 @@
         {
           "path": "src/lib/page-tools.ts",
           "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "widget",
+      "type": "registry:component",
+      "description": "An agent's widget: HTML that an agent's script shows a person as one fact on its log, drawn in a sandboxed frame with no network that speaks the MCP Apps messages (data, height, theme, words after a press, the console).",
+      "dependencies": [
+        "cn"
+      ],
+      "files": [
+        {
+          "path": "src/components/widget/widget-frame.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/widget/widget-row.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/widget/widget.ts",
+          "type": "registry:component"
         }
       ]
     }

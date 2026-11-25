@@ -19,6 +19,7 @@ const ESTIMATED_HEIGHT: Record<AgentUiItem["kind"], number> = {
   activity: 36,
   background: 36,
   note: 32,
+  widget: 140,
   "stream-paused": 48,
   "stream-resumed": 48,
 };

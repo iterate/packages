@@ -25,6 +25,13 @@ it reads are named in `agent-facts.ts`.
   from its host.
 - Inputs with `llmRequestPolicy: "dont-trigger-request"` fold into one quiet row per run. They close
   no activity and join no queue. Inputs that start a turn stay bubbles.
+- A WIDGET is a small HTML page that the agent's script appends as one fact,
+  `agent-ui/widget-shown` (`html`, `text`, `key?`, `data?`, `title?`, `height?`). The reducer makes
+  one row for it where its words would be; the row draws the newest widget for its key, which the
+  chat folds apart (`widgetFold`), so a later fact with the same key or an `agent-ui/widget-updated`
+  changes the first row in place. The frame is [`../widget/`](../widget/widget.ts): sandboxed with
+  no same origin, no network, and the MCP Apps messages over `postMessage`; a widget's words go
+  through `onMessage`, and only after a press. The plan is `tasks/dynamic-mcp-ui.md`.
 - `strip={false}` is the chat alone, for a page whose reader is no developer (a mind's own
   sign-up page): no strip and no Events tab, and the agent's status is the feed's last row.
   `aboveComposer` takes a row of the page's own over the composer. `empty` is the page's own

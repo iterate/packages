@@ -61,6 +61,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.t
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { CodeBlock, SerializedObjectCodeBlock } from "#/components/code-block.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { WidgetRow } from "#/components/widget/widget-row.tsx";
 
 /** The two traces a row can open: an LLM request and a script run, each by its request's offset. */
 export type Inspect = {
@@ -169,6 +170,8 @@ export const AgentFeedItemRow = memo(function AgentFeedItemRow({
       );
     case "note":
       return <NoteRow item={item} expanded={expanded} onToggle={onToggle} />;
+    case "widget":
+      return <WidgetRow widgetKey={item.key} offset={item.offset} />;
     case "stream-paused":
     case "stream-resumed": {
       const Icon = item.kind === "stream-paused" ? PauseIcon : PlayIcon;

@@ -151,6 +151,7 @@
       "./components/ui/textarea": "./dist/components/ui/textarea.mjs",
       "./components/ui/tooltip": "./dist/components/ui/tooltip.mjs",
       "./components/virtual-log/virtual-log": "./dist/components/virtual-log/virtual-log.mjs",
+      "./components/widget/widget": "./dist/components/widget/widget.mjs",
       "./lib/agent-summary": "./dist/lib/agent-summary.mjs",
       "./lib/call-engine": "./dist/lib/call-engine.mjs",
       "./lib/call-rules": "./dist/lib/call-rules.mjs",

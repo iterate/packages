@@ -390,8 +390,22 @@ export type AgentUiNoteItem = {
   timestampMs: number;
 };
 
+/** A WIDGET the agent's script showed (widget/widget.ts): a row where its words would be. The row
+ *  draws the newest widget for its key, which the chat folds apart (`widgetFold`): the reducer's
+ *  memory stays one turn long. */
+export type AgentUiWidgetItem = {
+  kind: "widget";
+  id: string;
+  /** Offset of the `agent-ui/widget-shown` fact. */
+  offset: number;
+  /** The widget's key: its `key` or `id`, else `widget-<offset>`. */
+  key: string;
+  timestampMs: number;
+};
+
 export type AgentUiItem =
   | AgentUiMessageItem
+  | AgentUiWidgetItem
   | AgentUiActivity
   | AgentUiStreamPauseItem
   | AgentUiBackgroundItem
@@ -401,7 +415,7 @@ export type AgentUiState = {
   /** The running activity (streaming thinking/code), or null when no work is active. */
   live: AgentUiActivity | null;
   /** Assistant bubbles held until the grouped activity closes. */
-  deferredAssistantMessages: AgentUiMessageItem[];
+  deferredAssistantMessages: (AgentUiMessageItem | AgentUiWidgetItem)[];
   /** User messages that landed while a step ran and that no request has taken up yet. */
   queuedUserMessages: AgentUiMessageItem[];
   /** Inputs that started no turn, held behind the open activity to keep their place in the log.
@@ -611,6 +625,23 @@ function reduceAgentUiEvent(
         offset: event.offset,
         text,
         ...(files.length === 0 ? {} : { files }),
+        timestampMs,
+      });
+    }
+
+    // a widget for a person: a script appends it, as it appends its words, and it stands where they
+    // would
+    case AGENT_FACT.uiWidgetShown: {
+      const payload = readPayloadRecord(event);
+      if (!payload || typeof payload.html !== "string") return state;
+      const named = [payload.key, payload.id].find(
+        (key): key is string => typeof key === "string" && key.trim() !== "",
+      );
+      return emitAssistantMessageItem(state, items, {
+        kind: "widget",
+        id: `widget-${event.offset}`,
+        offset: event.offset,
+        key: named?.slice(0, 200) ?? `widget-${String(event.offset)}`,
         timestampMs,
       });
     }
@@ -1134,7 +1165,7 @@ function emitUserMessageItem(
 function emitAssistantMessageItem(
   state: AgentUiState,
   items: AgentUiItem[],
-  item: AgentUiMessageItem,
+  item: AgentUiMessageItem | AgentUiWidgetItem,
 ): AgentUiState {
   // A live activity that survives settleLive is working.
   const settled = settleLive(state, items);

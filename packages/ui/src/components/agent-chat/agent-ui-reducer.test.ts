@@ -30,6 +30,7 @@ import {
   sent,
   settled,
   succeeded,
+  PATH,
   summary,
   timeOf,
   transcription,
@@ -1277,6 +1278,28 @@ test("a value-settled script of a PAUSED agent settles the activity — never pr
   // And resuming clears the flag for the next real turn.
   const resumedState = reduceAll([request(5), paused(6), resumed(7)]);
   expect(resumedState).toMatchObject({ paused: false });
+});
+
+test("a script's widget stands where its words would: one row, keyed, in the same activity's order", () => {
+  const reduced = reduceAll([
+    request(1),
+    settled(2, 1, succeeded('<codemode status="Drawing">\nreturn 1\n</codemode>')),
+    runRequested(3, 1, "async (itx) => 1"),
+    fact(
+      4,
+      "agent-ui/widget-shown",
+      { key: "clicks", text: "A counter", html: "<button>0</button>" },
+      { origin: PATH },
+    ),
+    sent(5, "Here is a counter."),
+    fact(6, "agent-ui/widget-shown", { html: "<p>no key</p>" }, { origin: PATH }),
+    fact(7, "agent-ui/widget-shown", { text: "no html" }, { origin: PATH }),
+  ]);
+  expect(reduced.items).toMatchObject([
+    { kind: "widget", id: "widget-4", offset: 4, key: "clicks" },
+    { kind: "assistant", text: "Here is a counter." },
+    { kind: "widget", offset: 6, key: "widget-6" },
+  ]);
 });
 
 /** `events` through the reducer: the end state, and every settled item in emission order. */

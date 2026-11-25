@@ -85,6 +85,7 @@ import {
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
 import { remembered } from "#/components/virtual-log/remembered.ts";
+import { WidgetHostProvider } from "#/components/widget/widget-row.tsx";
 import { versionOf } from "#/lib/itx-session.ts";
 import {
   isPresenceEvent,
@@ -286,6 +287,13 @@ export function AgentChat({
       onAppend ? (input) => sendToAgent(input, { onAppend, onMessage, storeFiles }) : onMessage,
     [onAppend, onMessage, storeFiles],
   );
+  // a widget's words go as the person's, through the same send; each press is its own message
+  const sendFromWidget = useCallback(
+    (message: string) => {
+      void send({ message, files: [], key: `widget:${crypto.randomUUID()}` });
+    },
+    [send],
+  );
   // in a voice call the agent is spoken to, not idle: the strip says nothing then
   const status = chatStatus(turn, feed.state, (inCall?.size ?? 0) > 0);
   const here = usePresence({
@@ -341,34 +349,36 @@ export function AgentChat({
       }
     >
       <AgentChoiceProvider onChoice={onChoice} choiceState={choiceState}>
-        <ChatTab
-          feed={feed}
-          conversation={conversation}
-          older={older}
-          logShare={logShare}
-          caughtUp={context.caughtUp}
-          failed={Boolean(hostError || context.error)}
-          readingForFirstRow={readingForFirstRow}
-          toggled={toggled}
-          onToggle={onToggle}
-          inspect={inspect}
-          signedUrl={signedUrl}
-          itemFooter={itemFooter}
-          me={me}
-          agentPath={path}
-          statusRow={strip ? null : chatStatusRow(status, feed.state)}
-          aboveComposer={aboveComposer}
-          empty={empty}
-          placeholder={placeholder}
-          draft={draft}
-          keys={keys}
-          onMessage={send}
-          onAppend={onAppend}
-          attach={attach}
-          typingStatus={presence ? <TypingStatus typing={typing} /> : null}
-          onTyping={presence ? here.typing : undefined}
-          typing={typing}
-        />
+        <WidgetHostProvider events={fold.events} onSend={sendFromWidget}>
+          <ChatTab
+            feed={feed}
+            conversation={conversation}
+            older={older}
+            logShare={logShare}
+            caughtUp={context.caughtUp}
+            failed={Boolean(hostError || context.error)}
+            readingForFirstRow={readingForFirstRow}
+            toggled={toggled}
+            onToggle={onToggle}
+            inspect={inspect}
+            signedUrl={signedUrl}
+            itemFooter={itemFooter}
+            me={me}
+            agentPath={path}
+            statusRow={strip ? null : chatStatusRow(status, feed.state)}
+            aboveComposer={aboveComposer}
+            empty={empty}
+            placeholder={placeholder}
+            draft={draft}
+            keys={keys}
+            onMessage={send}
+            onAppend={onAppend}
+            attach={attach}
+            typingStatus={presence ? <TypingStatus typing={typing} /> : null}
+            onTyping={presence ? here.typing : undefined}
+            typing={typing}
+          />
+        </WidgetHostProvider>
       </AgentChoiceProvider>
     </AgentShell>
   );
