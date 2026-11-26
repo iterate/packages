@@ -32,6 +32,13 @@
 //   the picture from its own connection; a browser device chosen again, the page's own camera or
 //   screen turned on, or a Leave ends it (`call.unpublish`). The page that asked leaving the call
 //   ends it on the Mac's side too.
+// - DRIVE: a member drives a Mac or a Chrome tab that is offered now (call-rules.ts `macTargets`,
+//   `browserTargets`). A Mac: `control.start` of its lend, its screen in the call (`call.publish`,
+//   or the publication it has already), and each batch of input from over its tile to
+//   `control.input`, one batch in flight. A WebRTC data channel straight to the Mac
+//   (`control.connect`) takes the batches once it opens: about 1 ms against about 110 ms through
+//   the mind. A Chrome tab: its picture is a screenshot after each one comes, and its input is CDP's
+//   `Input.dispatch*` through the extension's lend. A guest drives nothing in v0.
 // - THE VOICE AGENT: the member who invites it hosts it in their tab, which opens GPT-Live over
 //   WebRTC with a session the call made. It hears a mix of the host's microphone and everyone the
 //   host hears, and its voice is published into the call as the host's track `ai`.
@@ -47,8 +54,25 @@ import {
   FIRST_LAYER,
   heardSpeech,
   iceServersOf,
+  browserTargets,
+  cdpInput,
+  CONTROL_FACT,
+  type ControlFact,
+  type DriveEvent,
+  type DriveTarget,
   lendCall,
+  lendMethod,
+  liveChromes,
   liveMacs,
+  macCallPage,
+  macTargets,
+  newestOffer,
+  newestOwner,
+  nextBatch,
+  offerFromState,
+  onMac,
+  publicationOf,
+  type Viewport,
   macOwner,
   type MacSource,
   macSources,
@@ -189,8 +213,34 @@ export type CallUi = {
     };
   };
   videos: CallVideo[];
+  /** What this member may drive, and what they drive now. None with nothing offered: no menu. */
+  drive?: DriveUi;
   /** This page's captions: its microphone transcribed, each finished line to the call. */
   captions: { status: "off" | "connecting" | "listening" | "error"; text: string };
+};
+/** The Drive menu and the drive under way. */
+export type DriveUi = {
+  targets: { id: string; label: string }[];
+  /** A start under way: the device asks its owner, or connects. */
+  asking: string;
+  driving: null | {
+    id: string;
+    label: string;
+    kind: "mac" | "browser";
+    /** A Mac's screen in the call: the tile's track (`<page>:screen`). */
+    track?: string;
+    /** A Chrome tab's newest screenshot, as an object URL. */
+    shot?: string;
+    /** The driver's Ctrl is the Mac's Command (a driver not on a Mac). */
+    ctrlIsCommand: boolean;
+    /** The owner's own input wins now: the batch was dropped. */
+    paused: boolean;
+    note: string;
+    /** The batches go on the data channel straight to the Mac. */
+    direct: boolean;
+    /** The round trip of a batch, smoothed. */
+    rttMs: number | null;
+  };
 };
 /** Why the voice agent did not come: a refusal the call answers as such (no key, a spent credit,
  *  another host) has its marks; any other failure is its message alone. */
@@ -689,6 +739,430 @@ export function createCall({
     macs.chosen = {};
     return Promise.all(sending.map((mac) => unpublishMac(mac)));
   }
+  // ── DRIVE: a Mac or a Chrome tab that is offered now, driven from over its picture ──
+  type Driving = {
+    target: DriveTarget;
+    /** A Mac's control session. */
+    session?: string;
+    /** A Mac's screen in the call, and whether this drive put it there (it ends it then). */
+    publication?: string;
+    published?: boolean;
+    track?: string;
+    waiting: DriveEvent[];
+    inFlight: boolean;
+    lastSentAt: number;
+    paused: boolean;
+    note: string;
+    rttMs: number | null;
+    /** The data channel straight to the Mac, once it is open. */
+    pc?: RTCPeerConnection;
+    channel?: RTCDataChannel;
+    answers: Map<number, (answer: Record<string, unknown>) => void>;
+    seq: number;
+    /** A Chrome tab: its viewport, the button held, and its newest screenshot. */
+    viewport?: Viewport;
+    held: { button: 0 | 1 | 2 | null; x: number; y: number };
+    shot?: string;
+    timer?: ReturnType<typeof setInterval>;
+    ended: boolean;
+  };
+  const drive: {
+    targets: DriveTarget[];
+    /** The newest offer of each Mac (by its lend), and the offset its context was read to. */
+    offers: Map<string, { fact: ControlFact; owner: string }>;
+    heads: Map<string, number>;
+    now: Driving | null;
+    asking: string;
+    watch: ReturnType<typeof setInterval> | null;
+    first: ReturnType<typeof setTimeout> | null;
+    /** A list of this call has once succeeded. */
+    listed: boolean;
+  } = {
+    targets: [],
+    offers: new Map(),
+    heads: new Map(),
+    now: null,
+    asking: "",
+    watch: null,
+    first: null,
+    listed: false,
+  };
+  const renderDrive = () => {
+    const now = drive.now;
+    const show = drive.targets.length || now || drive.asking;
+    set({
+      drive: show
+        ? {
+            targets: drive.targets.map(({ id, label }) => ({ id, label })),
+            asking: drive.asking,
+            driving: now
+              ? {
+                  id: now.target.id,
+                  label: now.target.label,
+                  kind: now.target.kind,
+                  track: now.track,
+                  shot: now.shot,
+                  ctrlIsCommand:
+                    now.target.kind === "mac" && !onMac(globalThis.navigator?.platform || ""),
+                  paused: now.paused,
+                  note: now.note,
+                  direct: Boolean(now.channel),
+                  rttMs: now.rttMs === null ? null : Math.round(now.rttMs * 10) / 10,
+                }
+              : null,
+          }
+        : undefined,
+    });
+  };
+  /** THE DRIVE MENU'S LIST: each Mac whose newest fact offers it and whose lend is live, and each
+   *  tab of a lent Chrome. A member's page reads it 2 s after the join and every 30 s in the call; a
+   *  guest's view refuses the reads, and gets no menu. A failure keeps the last list. */
+  async function listDrives() {
+    if (!invoke) return;
+    try {
+      const [who, stubs, rows] = await Promise.all([
+        invoke(["itx", ["whoami"]]),
+        invoke(["itx", ["cd", "/"], "rpcStubs", ["list"]]),
+        invoke(["itx", ["cd", "/"], "contexts", ["list", { under: "/devices", limit: 200 }]]),
+      ]);
+      if (!Array.isArray(stubs) || !Array.isArray(rows)) throw new Error("no member");
+      macs.context ||= String((who as { path?: string } | null)?.path || "");
+      const offered = (rows as { path: string; eventCount?: number; eventTypes?: object }[]).filter(
+        (row) => row.eventTypes && CONTROL_FACT in row.eventTypes,
+      );
+      // a Mac whose lend is not live is not read
+      const live = new Set(stubs as string[]);
+      await Promise.all(
+        offered
+          .filter((row) => live.has(`itx.${row.path.slice("/devices/".length)}`))
+          .map((row) => readOffer(row.path).catch(() => {})),
+      );
+      const chromes = liveChromes(stubs as string[]);
+      const tabs = new Map(
+        await Promise.all(
+          chromes.map(
+            async (chrome) =>
+              [
+                chrome.lend,
+                await invoke(lendMethod(chrome.lend, "tabs")).catch(() => null),
+              ] as const,
+          ),
+        ),
+      );
+      drive.targets = [
+        ...macTargets(stubs as string[], drive.offers),
+        ...browserTargets(chromes, tabs),
+      ];
+      drive.listed = true;
+    } catch {
+      // a guest, or a read that failed: the list stays as it was. A page whose first list fails
+      // (a guest's: no lend is its to read) reads no more in this call.
+      if (!drive.listed) watchDrives(false);
+    }
+    renderDrive();
+  }
+  /** The newest offer on a device's context. `readEvents` cannot filter by type, and a Mac's log
+   *  is mostly window texts and keys, so a page reads few offsets: the first time the newest 200,
+   *  after that the offsets since its last read (at most 2,000). An offer older than that window is
+   *  read from the Mac's own `state()` instead (`offerFromState`). */
+  async function readOffer(path: string) {
+    type Page = { events?: unknown[]; scannedThroughOffset?: number; atHead?: boolean };
+    const read = async (after: number, limit: number) =>
+      ((await invoke!(["itx", ["cd", path], ["readEvents", after, limit]])) ?? {}) as Page;
+    // the offsets (from, to], page by page: a page is cut by count and by bytes
+    const window = async (from: number, to: number) => {
+      const events: unknown[] = [];
+      for (let after = from, pages = 0; after < to && pages < 10; pages++) {
+        const page = await read(after, to - after);
+        events.push(...(page.events || []));
+        if (page.atHead || (page.scannedThroughOffset ?? to) <= after) break;
+        after = page.scannedThroughOffset ?? to;
+      }
+      return events;
+    };
+    const top = (await read(Number.MAX_SAFE_INTEGER, 1)).scannedThroughOffset ?? 0;
+    const head = drive.heads.get(path);
+    const from = head === undefined ? top - 200 : Math.max(head, top - 2_000);
+    const found = newestOffer(await window(Math.max(0, from), top));
+    drive.heads.set(path, top);
+    if (found) return void drive.offers.set(found.fact.lend, found);
+    if (head !== undefined) return;
+    // the first read found none: the Mac's own state says the same, now
+    const lend = path.slice("/devices/".length);
+    const state = await invoke!(lendMethod(lend, "state")).catch(() => null);
+    const fact = offerFromState(lend, state);
+    const owner = newestOwner(await window(Math.max(0, top - 50), top));
+    if (fact) drive.offers.set(lend, { fact, owner });
+  }
+  /** The member chose a target in the Drive menu: the drive before it ends, and this one starts. */
+  async function startDrive(id: string) {
+    const target = drive.targets.find((one) => one.id === id);
+    if (!target || !invoke) return;
+    await stopDrive();
+    const now: Driving = {
+      target,
+      waiting: [],
+      inFlight: false,
+      lastSentAt: Date.now(),
+      paused: false,
+      note: "",
+      rttMs: null,
+      answers: new Map(),
+      seq: 0,
+      held: { button: null, x: 0.5, y: 0.5 },
+      ended: false,
+    };
+    drive.asking = target.label;
+    renderDrive();
+    try {
+      if (target.kind === "mac") await startMac(now);
+      else await startTab(now);
+      if (now.ended) return;
+      drive.now = now;
+    } catch (error) {
+      fail(`${target.label} cannot be driven now: ${messageOf(error)}`);
+    } finally {
+      drive.asking = "";
+      renderDrive();
+    }
+  }
+  /** A Mac: the session (Ask asks its owner), its screen in the call, the direct channel. */
+  async function startMac(now: Driving) {
+    const { lend, display = 0 } = now.target;
+    const me = view?.call.find((one) => one.peer === page)?.name || "A member";
+    const started = (await invoke!(lendMethod(lend, "control.start", { display, by: me }))) as {
+      session?: string;
+    };
+    if (!started?.session) throw new Error("the Mac gave no session");
+    now.session = started.session;
+    const source = `screen:${display}`;
+    if (!macs.context) await listDrives();
+    // its screen in this call already (its owner chose it): this drive shows it, and leaves it
+    const state = await invoke!(lendMethod(lend, "call.state")).catch(() => null);
+    now.publication = publicationOf(state, macs.context, source);
+    if (!now.publication) {
+      const answer = await invoke!(
+        lendMethod(lend, "call.publish", { context: macs.context, source, as: page }),
+      );
+      now.publication = publicationOf(answer, macs.context, source);
+      now.published = true;
+    }
+    if (now.publication) now.track = `${macCallPage(lend, now.publication)}:screen`;
+    // a batch now and then keeps the session (the Mac ends one after 30 s with no call)
+    now.timer = setInterval(() => {
+      if (Date.now() - now.lastSentAt > 10_000) void sendDrive(now, []);
+    }, 5_000);
+    void connectDirect(now);
+  }
+  /** THE DIRECT PATH: a data channel to the Mac, signalled by one call through the mind
+   *  (`control.connect`), with the call's own ICE servers (its TURN relay too). Until it opens,
+   *  and when it closes, the batches go through the mind. A Mac without it answers no method. */
+  async function connectDirect(now: Driving) {
+    let pc: RTCPeerConnection | undefined;
+    try {
+      pc = now.pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" });
+      const channel = pc.createDataChannel("control", { ordered: true });
+      channel.onmessage = (message) => {
+        const answer = JSON.parse(String(message.data)) as Record<string, unknown>;
+        now.answers.get(Number(answer.id))?.(answer);
+      };
+      const lost = () => {
+        if (now.channel !== channel) return;
+        now.channel = undefined;
+        for (const done of now.answers.values()) done({ error: "the direct channel closed" });
+        renderDrive();
+      };
+      channel.onclose = lost;
+      pc.onconnectionstatechange = () =>
+        ["failed", "closed"].includes(pc!.connectionState) && lost();
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc);
+      if (now.ended) return pc.close();
+      const answer = (await invoke!(
+        lendMethod(now.target.lend, "control.connect", {
+          session: now.session,
+          offer: udpOnly(pc.localDescription!.sdp),
+          iceServers: iceServers.map(({ urls, username, credential }) => ({
+            urls,
+            username,
+            credential,
+          })),
+        }),
+      )) as { answer?: string };
+      if (!answer?.answer || now.ended) return pc.close();
+      await pc.setRemoteDescription({ type: "answer", sdp: answer.answer });
+      await new Promise<void>((resolve, reject) => {
+        if (channel.readyState === "open") return resolve();
+        channel.onopen = () => resolve();
+        setTimeout(() => reject(new Error("no channel in 10 s")), 10_000);
+      });
+      if (now.ended) return pc.close();
+      now.channel = channel;
+      renderDrive();
+    } catch {
+      // the mind's path stays: an older Mac app, or a network that lets no peer through
+      if (!now.channel) pc?.close();
+    }
+  }
+  /** A Chrome tab: its viewport, then a screenshot after each one comes. */
+  async function startTab(now: Driving) {
+    const viewport = async () => {
+      const metrics = (await cdp(now, "Page.getLayoutMetrics", {})) as {
+        cssVisualViewport?: { clientWidth: number; clientHeight: number };
+      };
+      const box = metrics?.cssVisualViewport;
+      if (box) now.viewport = { width: box.clientWidth, height: box.clientHeight };
+    };
+    await viewport();
+    if (!now.viewport) throw new Error("the tab gave no size");
+    void (async () => {
+      for (let shots = 0; !now.ended; shots++) {
+        try {
+          if (shots % 20 === 19) await viewport();
+          const shot = (await cdp(now, "Page.captureScreenshot", {
+            format: "jpeg",
+            quality: 60,
+            optimizeForSpeed: true,
+          })) as { data?: string };
+          if (now.ended || !shot?.data) break;
+          const bytes = Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0));
+          const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+          if (now.shot) URL.revokeObjectURL(now.shot);
+          now.shot = url;
+          renderDrive();
+        } catch (error) {
+          now.note = `No picture of the tab: ${messageOf(error)}`;
+          renderDrive();
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+        }
+      }
+    })();
+  }
+  const cdp = (now: Driving, method: string, params: Record<string, unknown>) =>
+    invoke!(lendMethod(now.target.lend, "cdp", now.target.tab, method, params));
+  /** Events from over the picture: they wait while a batch is on its way, and go as the next. */
+  function driveInput(events: DriveEvent[]) {
+    const now = drive.now;
+    if (!now || !events.length) return;
+    now.waiting.push(...events);
+    void pumpDrive(now);
+  }
+  async function pumpDrive(now: Driving) {
+    if (now.inFlight || !now.waiting.length || now.ended) return;
+    const batch = nextBatch(now.waiting);
+    now.waiting = [];
+    await sendDrive(now, batch);
+    void pumpDrive(now);
+  }
+  /** One batch, on the channel when it is open, else through the mind. */
+  async function sendDrive(now: Driving, batch: DriveEvent[]) {
+    now.inFlight = true;
+    now.lastSentAt = Date.now();
+    const sent = performance.now();
+    try {
+      let answer: Record<string, unknown> | null = null;
+      if (now.target.kind === "browser") {
+        for (const event of batch)
+          for (const [method, params] of cdpInput(event, now.viewport!, now.held))
+            await cdp(now, method, params);
+      } else if (now.channel?.readyState === "open") {
+        const id = ++now.seq;
+        const channel = now.channel;
+        answer = await new Promise<Record<string, unknown>>((resolve) => {
+          now.answers.set(id, resolve);
+          channel.send(JSON.stringify({ id, events: batch }));
+          setTimeout(() => resolve({ error: "no answer on the direct channel in 3 s" }), 3_000);
+        }).finally(() => now.answers.delete(id));
+        // a channel that does not answer is given up: the next batch goes through the mind
+        if (answer.error && now.channel === channel && !/session/i.test(String(answer.error))) {
+          now.channel = undefined;
+          channel.close();
+        }
+      } else {
+        answer = (await invoke!(
+          lendMethod(now.target.lend, "control.input", { session: now.session, events: batch }),
+        )) as Record<string, unknown>;
+      }
+      const took = performance.now() - sent;
+      now.rttMs = now.rttMs === null ? took : now.rttMs * 0.8 + took * 0.2;
+      if (answer?.error) throw new Error(String(answer.error));
+      now.paused = answer?.paused === true;
+      now.note = answer?.withheld
+        ? "Keys into a password are not typed."
+        : answer?.problem
+          ? String(answer.problem)
+          : "";
+    } catch (error) {
+      const words = messageOf(error);
+      // the Mac ended the session: its owner, ⌃⌥⌘Esc, Off, 30 s with no call
+      if (/No control session/i.test(words)) {
+        void stopDrive(`The drive of ${now.target.label} ended on its side.`);
+        return;
+      }
+      now.note = words;
+    } finally {
+      now.inFlight = false;
+      if (drive.now === now) renderDrive();
+    }
+  }
+  /** The driver's clipboard text into the device: a Mac's pasteboard and ⌘V, or a tab's typing. */
+  async function drivePaste(text: string) {
+    const now = drive.now;
+    if (!now || !text) return;
+    try {
+      if (now.target.kind === "browser") await cdp(now, "Input.insertText", { text });
+      else {
+        const answer = (await invoke!(
+          lendMethod(now.target.lend, "control.paste", {
+            session: now.session,
+            text,
+            press: true,
+          }),
+        )) as { paused?: boolean; withheld?: number };
+        now.note = answer?.paused
+          ? "Not pasted: the owner uses the Mac."
+          : answer?.withheld
+            ? "Not pasted: the focus is in a password."
+            : "";
+      }
+    } catch (error) {
+      now.note = `Not pasted: ${messageOf(error)}`;
+    }
+    renderDrive();
+  }
+  /** The drive ends: the session, the screen this drive put in the call, the channel. `note`:
+   *  what the person is told. */
+  async function stopDrive(note = "") {
+    const now = drive.now;
+    drive.now = null;
+    if (note) say(note);
+    renderDrive();
+    if (!now) return;
+    now.ended = true;
+    if (now.timer) clearInterval(now.timer);
+    now.pc?.close();
+    if (now.shot) URL.revokeObjectURL(now.shot);
+    if (now.target.kind !== "mac" || !invoke) return;
+    await Promise.all([
+      invoke(lendMethod(now.target.lend, "control.end", { session: now.session })).catch(() => {}),
+      now.published && now.publication
+        ? invoke(
+            lendMethod(now.target.lend, "call.unpublish", { publication: now.publication }),
+          ).catch(() => {})
+        : null,
+    ]);
+  }
+  /** In the call: the list 2 s after the join (the join's own calls go first), then every 30 s.
+   *  Out of it: no reads, and no drive. */
+  function watchDrives(on: boolean) {
+    if (drive.watch) clearInterval(drive.watch);
+    if (drive.first) clearTimeout(drive.first);
+    drive.watch = drive.first = null;
+    if (!on || !invoke) return;
+    drive.first = setTimeout(() => void listDrives(), 2_000);
+    drive.watch = setInterval(() => void listDrives(), 30_000);
+  }
+
   /** A device that cannot be opened by its id falls back to the browser's default, and says so. */
   async function openMedia(kind: "mic" | "camera", id: string, call: CallScope) {
     const base = kind === "mic" ? MIC : CAMERA;
@@ -2005,6 +2479,8 @@ export function createCall({
       joined = true;
       joinedAt = Date.now();
       set({ joined: true, muted: !track?.enabled });
+      // what this member may drive: read soon, and every 30 s in the call
+      watchDrives(true);
       if (noMic)
         fail(
           "The browser did not give this page the microphone, so you only listen. Allow it for this site, then press Unmute.",
@@ -2088,8 +2564,10 @@ export function createCall({
     // on its way is the leave itself, never a reason to join again
     if (ai.claimed) postAiLines(true);
     teardown();
-    // a Mac that sends for this page stops with it
+    // a Mac that sends for this page stops with it, and a drive ends
     void stopMacs();
+    watchDrives(false);
+    void stopDrive();
     // the voice agent's last lines (queued above) reach the call before the leave that ends it
     await saidQueue;
     // then the call hears it, at once: the leave of this call's admission, which a newer one
@@ -2249,6 +2727,13 @@ export function createCall({
     chooseDevice,
     /** A member's Mac's camera or screen, by the picker's value; "" stops the Mac's. */
     chooseMac,
+    /** The Drive menu: read it again (the menu opened), drive a target by its id, stop. */
+    listDrives,
+    drive: startDrive,
+    stopDrive: () => stopDrive(),
+    /** Events from over the driven picture, and the driver's clipboard text. */
+    driveInput,
+    drivePaste,
     listDevices,
     tileWidth,
     aiInvite,
@@ -2272,6 +2757,8 @@ export function createCall({
       if (ai.claimed) postAiLines(true);
       teardown();
       void stopMacs();
+      watchDrives(false);
+      void stopDrive();
       if (call.joinSent)
         void saidQueue.then(() => facet("leave", page, call.admission)).catch(() => {});
     },

@@ -59,6 +59,81 @@ test("a tile's button keeps one name, and says by aria-pressed whether it is lar
   expect(state()).toEqual(["Ana's camera, large", "true"]);
 });
 
+test("the driven Mac's screen comes first and large; a press over its picture is a press at that point, and keys go to it", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  const screen = {
+    key: "s",
+    name: "Jonas's Mac",
+    kind: "screen",
+    local: false,
+    track: "mac-call-jonas-mac-p1:screen",
+  } as CallVideo;
+  // local: jsdom has no ResizeObserver, which a remote tile uses
+  const other = { key: "c", name: "Ana", kind: "camera", local: true } as CallVideo;
+  const driving = {
+    id: "drive:jonas.mac:0",
+    label: "Jonas's Mac",
+    kind: "mac" as const,
+    track: screen.track,
+    ctrlIsCommand: true,
+    paused: false,
+    note: "",
+    direct: true,
+    rttMs: 1.2,
+  };
+  const ui = {
+    joined: true,
+    videos: [screen, other],
+    captions: { status: "off", text: "" },
+    drive: { targets: [], asking: "", driving },
+  } as unknown as CallUi;
+  const driveInput = vi.fn();
+  const call = {
+    ...engine(),
+    driveInput,
+    drivePaste: vi.fn(),
+    stopDrive: vi.fn(),
+  } as unknown as CallEngine;
+  using page = await mount(<CallTiles call={call} ui={ui} live={undefined} member />);
+  const figure = page.host.querySelector("[data-slot=call-drive]")!;
+  expect(figure.textContent).toContain("You drive Jonas's Mac · 1 ms straight to the Mac");
+  // the driven screen is not drawn a second time among the tiles
+  expect(
+    [...page.host.querySelectorAll("figure:not([data-slot]) button")].map((one) =>
+      one.getAttribute("aria-label"),
+    ),
+  ).toEqual(["Ana's camera, large"]);
+  const video = figure.querySelector("video")!;
+  Object.defineProperties(video, { videoWidth: { value: 1440 }, videoHeight: { value: 900 } });
+  video.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900 }) as DOMRect;
+  const surface = video.parentElement!;
+  surface.setPointerCapture = () => {};
+  await act(async () => {
+    surface.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 800,
+        clientY: 450,
+        button: 0,
+        detail: 1,
+      }),
+    );
+  });
+  expect(driveInput).toHaveBeenLastCalledWith([
+    { t: "down", x: 0.5, y: 0.5, button: 0, clicks: 1 },
+  ]);
+  const keys = figure.querySelector("textarea")!;
+  await act(async () => {
+    keys.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, code: "KeyC", key: "c", ctrlKey: true }),
+    );
+  });
+  // Ctrl on a driver that is not a Mac is the Mac's Command
+  expect(driveInput).toHaveBeenLastCalledWith([
+    { t: "key", code: "KeyC", down: true, key: "c", mods: ["meta"] },
+  ]);
+});
+
 // the cast: the tiles call only `tileWidth` and `dismiss` of the engine
 const engine = () => ({ tileWidth() {}, dismiss() {} }) as unknown as CallEngine;
 

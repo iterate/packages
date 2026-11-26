@@ -562,3 +562,399 @@ export const lendCall = (lend: string, method: string, input: unknown) => [
   "call",
   [method, input],
 ];
+
+/** The itx expression of a call of a lend's method by its dotted path, from an agent's context:
+ *  `lendMethod("jonas.mac", "control.input", input)` is `itx.jonas.mac.control.input(input)`. */
+export const lendMethod = (lend: string, method: string, ...args: unknown[]) => {
+  const names = method.split(".");
+  return ["itx", ["cd", "/"], ...lend.split("."), ...names.slice(0, -1), [names.at(-1), ...args]];
+};
+
+// ── DRIVE: a person in the call drives a lent Mac or a lent Chrome tab ──
+// A device that may be driven says so on its own context: the iterate Mac app appends
+// `device/control-configured { kind: "mac", lend, control: "ask" | "shared", displays }` on
+// `/devices/<name>` (and `control: null` when that ends). The page lists each such Mac whose lend
+// is live now, with the person's name. A lent Chrome (`itx.chrome.<person>.<id>`, the iterate
+// browser extension) may be driven in each tab of its tab group: the group is its owner's choice.
+// No list of devices is in a config file.
+
+/** The fact of a Mac that may be driven (the Mac app's ControlOffer.swift). */
+export const CONTROL_FACT = "device/control-configured";
+const ControlFact = z.object({
+  kind: z.string(),
+  lend: z.string(),
+  control: z.enum(["ask", "shared"]).nullable(),
+  displays: z
+    .array(z.object({ display: z.number().int(), name: z.string(), screen: z.string() }))
+    .optional(),
+  why: z.string().optional(),
+});
+export type ControlFact = z.infer<typeof ControlFact>;
+const WrittenFact = z.object({
+  type: z.string(),
+  offset: z.number().optional(),
+  payload: z.unknown(),
+  source: z
+    .object({
+      principal: z
+        .object({ actor: z.string().optional(), email: z.string().optional() })
+        .optional(),
+    })
+    .optional(),
+});
+/** The newest offer in a page of a device context's events (oldest first), and who wrote it (the
+ *  Mac app writes as the person who lent the Mac). Undefined when the page has none. */
+export function newestOffer(events: readonly unknown[]) {
+  for (const event of [...events].reverse()) {
+    const written = WrittenFact.safeParse(event);
+    if (!written.success || written.data.type !== CONTROL_FACT) continue;
+    const fact = ControlFact.safeParse(written.data.payload);
+    if (!fact.success) continue;
+    const principal = written.data.source?.principal;
+    return { offset: written.data.offset ?? 0, fact: fact.data, owner: principal?.email || "" };
+  }
+  return undefined;
+}
+
+/** The offer of a Mac read from its own `state()`, for a Mac whose newest fact is too far back in
+ *  its log to read: Control this Mac's choice and each display that is not Off, as the fact says
+ *  them. Undefined when the state does not parse. */
+export function offerFromState(lend: string, state: unknown): ControlFact | undefined {
+  const parsed = MacState.safeParse(state);
+  if (!parsed.success) return undefined;
+  const control = parsed.data.things.find((thing) => thing.kind === "control");
+  const on = (sharing: string) => sharing === "ask" || sharing === "shared";
+  const displays = parsed.data.things.flatMap((thing) =>
+    thing.kind === "screen" && typeof thing.display === "number" && on(thing.sharing)
+      ? [{ display: thing.display, name: thing.name, screen: thing.sharing }]
+      : [],
+  );
+  const offered = control && on(control.sharing) && control.permitted !== false && displays.length;
+  return offered
+    ? { kind: "mac", lend, control: control.sharing as "ask" | "shared", displays }
+    : { kind: "mac", lend, control: null };
+}
+
+/** Whose a device is, by address: who wrote its newest `device/…` event ("" when none says). */
+export function newestOwner(events: readonly unknown[]) {
+  for (const event of [...events].reverse()) {
+    const written = WrittenFact.safeParse(event);
+    if (written.success && written.data.type.startsWith("device/"))
+      return written.data.source?.principal?.email || "";
+  }
+  return "";
+}
+
+/** A person's first name as a device's label says it: "jonas@nustom.com" is "Jonas". */
+export const firstName = (email: string) => {
+  const name = email.split("@", 1)[0]?.split(/[._+-]/, 1)[0] ?? "";
+  return name ? name[0]!.toUpperCase() + name.slice(1) : "";
+};
+/** A Mac's name in the Drive menu: "Jonas's Mac" when its lend begins with its owner's name
+ *  (`jonas.mac`), else its lend's first word (`zaktop.macApp` is "zaktop"). */
+export function macLabel(lend: string, owner: string) {
+  const first = lend.split(".", 1)[0]!;
+  const name = firstName(owner);
+  return name && first.toLowerCase() === name.toLowerCase() ? `${name}'s Mac` : first;
+}
+
+/** One thing the Drive menu offers: a display of a Mac, or a tab of a lent Chrome. */
+export type DriveTarget = {
+  id: string;
+  kind: "mac" | "browser";
+  lend: string;
+  label: string;
+  /** A Mac's display (`control.start({ display })`, `call.publish`'s `screen:<n>`). */
+  display?: number;
+  /** A Chrome's tab. */
+  tab?: number;
+  /** A Mac's Control this Mac: "ask" asks its owner at the start. */
+  control?: "ask" | "shared";
+};
+/** THE MACS THAT MAY BE DRIVEN NOW: each live lend `itx.<lend>` whose newest fact offers it, one
+ *  entry for each display it offers ("Jonas's Mac", or "Jonas's Mac: <display>" when it offers
+ *  several). `offers`: the newest offer of each lend, read from its context. */
+export function macTargets(
+  stubs: readonly string[],
+  offers: ReadonlyMap<string, { fact: ControlFact; owner: string }>,
+): DriveTarget[] {
+  const live = new Set(stubs.flatMap((stub) => LEND.exec(stub)?.[1] ?? []));
+  return [...offers].flatMap(([lend, { fact, owner }]) => {
+    if (!live.has(lend) || !fact.control || fact.kind !== "mac") return [];
+    const label = macLabel(lend, owner);
+    const displays = fact.displays || [];
+    return displays.map((one) => ({
+      id: `drive:${lend}:${one.display}`,
+      kind: "mac" as const,
+      lend,
+      label: displays.length > 1 ? `${label}: ${one.name}` : label,
+      display: one.display,
+      control: fact.control!,
+    }));
+  });
+}
+/** A lent Chrome's name, as the extension lends it: `chrome.<person>.<browser>`. */
+const CHROME = /^itx\.(chrome\.([A-Za-z0-9-]+)\.([A-Za-z0-9-]+))$/;
+/** The lent Chromes now: `{ lend, person, browser }` for each live `itx.chrome.<person>.<id>`. */
+export const liveChromes = (stubs: readonly string[]) =>
+  stubs.flatMap((stub) => {
+    const match = CHROME.exec(stub);
+    return match ? [{ lend: match[1]!, person: match[2]!, browser: match[3]! }] : [];
+  });
+const ChromeTabs = z.array(
+  z.object({ id: z.number().int(), url: z.string().optional(), title: z.string().optional() }),
+);
+/** THE CHROME TABS THAT MAY BE DRIVEN: each tab in a lent Chrome's group ("Jonas's Chrome: <the
+ *  tab's title>"). A person with two Chromes lent has each named by its browser too. `tabs`: each
+ *  Chrome's `tabs()` answer, by its lend. */
+export function browserTargets(
+  chromes: readonly { lend: string; person: string; browser: string }[],
+  tabs: ReadonlyMap<string, unknown>,
+): DriveTarget[] {
+  return chromes.flatMap((chrome) => {
+    const list = ChromeTabs.safeParse(tabs.get(chrome.lend));
+    if (!list.success) return [];
+    const twin = chromes.filter((one) => one.person === chrome.person).length > 1;
+    const name = `${firstName(chrome.person)}'s Chrome${twin ? ` (${chrome.browser})` : ""}`;
+    return list.data.map((tab) => ({
+      id: `drive:${chrome.lend}:tab:${tab.id}`,
+      kind: "browser" as const,
+      lend: chrome.lend,
+      label: `${name}: ${(tab.title || tab.url || "a tab").slice(0, 60)}`,
+      tab: tab.id,
+    }));
+  });
+}
+
+/** The page of a Mac's picture in the call (bridge/call.mjs `pageOf`): its track is `<page>:screen`. */
+export const macCallPage = (lend: string, publication: string) =>
+  `${MAC_PAGE}${lend.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80)}-${publication.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 12)}`;
+const Publications = z.object({
+  publications: z.array(
+    z.object({ publication: z.string(), context: z.string(), source: z.string() }),
+  ),
+});
+/** The publication of `source` into the call on `context`, in a Mac's `call.publish` or
+ *  `call.state` answer. */
+export function publicationOf(answer: unknown, context: string, source: string) {
+  const parsed = Publications.safeParse(answer);
+  return parsed.success
+    ? parsed.data.publications.find((one) => one.context === context && one.source === source)
+        ?.publication
+    : undefined;
+}
+
+// ── DRIVE: the input, from the tile to the device ──
+/** One event of a Mac's `control.input` (the Mac app's README, "Control"). x and y are 0–1 on the
+ *  display, from its top left. A browser's drive maps the same events to CDP (`cdpInput`). */
+export type DriveEvent =
+  | { t: "move"; x: number; y: number }
+  | { t: "down" | "up"; x: number; y: number; button: 0 | 1 | 2; clicks?: number; mods?: Mod[] }
+  | { t: "scroll"; dx: number; dy: number; x?: number; y?: number }
+  | { t: "key"; code: string; down: boolean; mods?: Mod[]; key?: string }
+  | { t: "text"; text: string };
+type Mod = "shift" | "ctrl" | "alt" | "meta";
+
+/** Where the picture is in its element: a video or an image drawn with `object-fit: contain` in a
+ *  box. `box` is the element's box on the page, `width` and `height` the picture's own size. */
+export function pictureRect(
+  box: { left: number; top: number; width: number; height: number },
+  width: number,
+  height: number,
+) {
+  if (!width || !height || !box.width || !box.height) return box;
+  const scale = Math.min(box.width / width, box.height / height);
+  const w = width * scale;
+  const h = height * scale;
+  return {
+    left: box.left + (box.width - w) / 2,
+    top: box.top + (box.height - h) / 2,
+    width: w,
+    height: h,
+  };
+}
+/** A point of the page as 0–1 on the picture (clamped: a drag out of the picture stays on its
+ *  edge), and whether it is inside it. */
+export function pointOn(
+  rect: { left: number; top: number; width: number; height: number },
+  clientX: number,
+  clientY: number,
+) {
+  const x = (clientX - rect.left) / rect.width;
+  const y = (clientY - rect.top) / rect.height;
+  const clamp = (value: number) => Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+  return { x: clamp(x), y: clamp(y), inside: x >= 0 && x <= 1 && y >= 0 && y <= 1 };
+}
+
+/** The driver's browser runs on a Mac (or an iPad): its Command is the Mac's Command. */
+export const onMac = (platform: string) => /Mac|iPhone|iPad|iPod/i.test(platform);
+/** The modifiers held, as the Mac takes them. A driver not on a Mac presses Ctrl for a shortcut
+ *  (Ctrl+C), which is Command on a Mac: `ctrlIsCommand` maps it. */
+export function modsOf(
+  event: { shiftKey: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean },
+  ctrlIsCommand: boolean,
+): Mod[] {
+  const mods: Mod[] = [];
+  if (event.shiftKey) mods.push("shift");
+  if (event.ctrlKey) mods.push(ctrlIsCommand ? "meta" : "ctrl");
+  if (event.altKey) mods.push("alt");
+  if (event.metaKey && !(ctrlIsCommand && event.ctrlKey))
+    mods.push(ctrlIsCommand ? "ctrl" : "meta");
+  return mods;
+}
+const SWAP: Record<string, string> = {
+  ControlLeft: "MetaLeft",
+  ControlRight: "MetaRight",
+  MetaLeft: "ControlLeft",
+  MetaRight: "ControlRight",
+};
+/** A key of the driver's keyboard as the events of a drive. A printable character with no Ctrl,
+ *  Alt or Command goes as `text`, in the driver's own layout ("ü" is "ü" on any Mac); every other
+ *  key goes as the physical key (`code`), down and up, with its modifiers: shortcuts, arrows,
+ *  Return. A key that only makes a printable character sends nothing on its release. */
+export function keyEvents(
+  event: {
+    type: "keydown" | "keyup";
+    code: string;
+    key: string;
+    shiftKey: boolean;
+    ctrlKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+    isComposing?: boolean;
+  },
+  ctrlIsCommand: boolean,
+): DriveEvent[] {
+  if (event.isComposing || !event.code) return [];
+  const printable =
+    [...event.key].length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+  if (printable) return event.type === "keydown" ? [{ t: "text", text: event.key }] : [];
+  const code = ctrlIsCommand ? (SWAP[event.code] ?? event.code) : event.code;
+  const mods = modsOf(event, ctrlIsCommand);
+  return [
+    {
+      t: "key",
+      code,
+      down: event.type === "keydown",
+      key: event.key,
+      ...(mods.length > 0 && { mods }),
+    },
+  ];
+}
+
+/** ONE BATCH IN FLIGHT: events wait while a batch is on its way, and go together as the next one.
+ *  Consecutive moves are one, the last (the Mac folds them too). Text in a row is one text, at most
+ *  2,000 characters (the Mac's limit). */
+export function nextBatch(waiting: readonly DriveEvent[]): DriveEvent[] {
+  const batch: DriveEvent[] = [];
+  for (const event of waiting) {
+    const last = batch.at(-1);
+    if (event.t === "move" && last?.t === "move") batch[batch.length - 1] = event;
+    else if (
+      event.t === "text" &&
+      last?.t === "text" &&
+      last.text.length + event.text.length <= 2000
+    )
+      batch[batch.length - 1] = { t: "text", text: last.text + event.text };
+    else batch.push(event);
+  }
+  return batch;
+}
+
+/** A browser tab's viewport, in CSS pixels (CDP `Page.getLayoutMetrics`). */
+export type Viewport = { width: number; height: number };
+const CDP_BUTTON = ["left", "middle", "right"] as const;
+const CDP_MODS: Record<Mod, number> = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+const cdpMods = (mods: Mod[] = []) => mods.reduce((sum, mod) => sum | CDP_MODS[mod], 0);
+/** One drive event as the CDP commands of a Chrome tab (`Input.dispatch*`), at the tab's CSS
+ *  pixels. `held`: the button held now (a move while it is held is a drag). */
+export function cdpInput(
+  event: DriveEvent,
+  viewport: Viewport,
+  held: { button: 0 | 1 | 2 | null; x: number; y: number },
+): [string, Record<string, unknown>][] {
+  const at = (x: number, y: number) => ({
+    x: Math.round(x * viewport.width),
+    y: Math.round(y * viewport.height),
+  });
+  switch (event.t) {
+    case "move":
+      held.x = event.x;
+      held.y = event.y;
+      return [
+        [
+          "Input.dispatchMouseEvent",
+          {
+            type: "mouseMoved",
+            ...at(event.x, event.y),
+            button: held.button === null ? "none" : CDP_BUTTON[held.button],
+            buttons: held.button === null ? 0 : [1, 4, 2][held.button],
+          },
+        ],
+      ];
+    case "down":
+    case "up":
+      held.button = event.t === "down" ? event.button : null;
+      return [
+        [
+          "Input.dispatchMouseEvent",
+          {
+            type: event.t === "down" ? "mousePressed" : "mouseReleased",
+            ...at(event.x, event.y),
+            button: CDP_BUTTON[event.button],
+            clickCount: event.clicks ?? 1,
+            modifiers: cdpMods(event.mods),
+          },
+        ],
+      ];
+    case "scroll":
+      return [
+        [
+          "Input.dispatchMouseEvent",
+          {
+            type: "mouseWheel",
+            ...at(event.x ?? held.x, event.y ?? held.y),
+            deltaX: event.dx,
+            deltaY: event.dy,
+          },
+        ],
+      ];
+    case "text":
+      return [["Input.insertText", { text: event.text }]];
+    case "key":
+      return [
+        [
+          "Input.dispatchKeyEvent",
+          {
+            type: event.down ? "rawKeyDown" : "keyUp",
+            code: event.code,
+            key: event.key || "",
+            windowsVirtualKeyCode: VIRTUAL_KEYS[event.code] ?? 0,
+            modifiers: cdpMods(event.mods),
+          },
+        ],
+      ];
+  }
+}
+/** The Windows key codes CDP needs for a key that types nothing (Chrome acts on them). */
+const VIRTUAL_KEYS: Record<string, number> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  NumpadEnter: 13,
+  Escape: 27,
+  Space: 32,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Delete: 46,
+  ...Object.fromEntries(
+    Array.from({ length: 26 }, (_, i) => [`Key${String.fromCharCode(65 + i)}`, 65 + i]),
+  ),
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`Digit${i}`, 48 + i])),
+};

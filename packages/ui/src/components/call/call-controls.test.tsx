@@ -196,6 +196,39 @@ test("in the call: the switches and the devices in one group, Leave apart from i
   }
 });
 
+test("Drive is in the group only when something is offered; a choice drives it, and Stop ends it", async () => {
+  {
+    using row = await mount(
+      <CallControls call={engine()} ui={{ ...IDLE, joined: true }} live={FRESH} member />,
+    );
+    expect(labels(row.element)).not.toContain("Drive");
+  }
+  const call = engine();
+  const drive = {
+    targets: [{ id: "drive:jonas.mac:0", label: "Jonas's Mac" }],
+    asking: "",
+    driving: null,
+  };
+  const ui = { ...IDLE, joined: true, drive };
+  using row = await mount(<CallControls call={call} ui={ui} live={FRESH} member />);
+  expect(labels(row.element)).toEqual([
+    "Microphone",
+    "Camera",
+    "Voice agent",
+    "Devices",
+    "Drive",
+    "Leave the call",
+  ]);
+  expect(await tipOf(named(row.element, "Drive"))).toBe("Drive a computer of the mind");
+  await act(async () => named(row.element, "Drive").click());
+  expect(call.listDrives).toHaveBeenCalled();
+  const choice = [...document.querySelectorAll("button")].find(
+    (one) => one.textContent === "Jonas's Mac",
+  )!;
+  await act(async () => choice.click());
+  expect(call.drive).toHaveBeenCalledWith("drive:jonas.mac:0");
+});
+
 test("Start call's press moves the focus to the microphone once the page is in, and Leave's back to Start call", async () => {
   using _wide = wideScreen();
   const call = engine({ joins: true });
@@ -344,6 +377,9 @@ function engine({ joins = false } = {}) {
     listDevices: vi.fn(async () => {}),
     chooseDevice: vi.fn(async () => {}),
     chooseMac: vi.fn(async () => {}),
+    listDrives: vi.fn(async () => {}),
+    drive: vi.fn(async (_id: string) => {}),
+    stopDrive: vi.fn(async () => {}),
     fail: vi.fn(),
     dismiss: vi.fn(),
   };

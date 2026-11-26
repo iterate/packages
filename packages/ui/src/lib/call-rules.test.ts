@@ -2,8 +2,25 @@
 // page takes, the ICE servers, a saved device, the repair loop, and the simulcast layers.
 import { expect, test } from "vitest";
 import {
+  browserTargets,
   CallLive,
   callChanges,
+  cdpInput,
+  keyEvents,
+  lendMethod,
+  liveChromes,
+  macCallPage,
+  macLabel,
+  macTargets,
+  modsOf,
+  newestOffer,
+  newestOwner,
+  nextBatch,
+  offerFromState,
+  onMac,
+  pictureRect,
+  pointOn,
+  publicationOf,
   cameraLayers,
   iceServersOf,
   joinable,
@@ -298,3 +315,260 @@ test("a Mac's page is named for its owner: in the view and in who came and left"
   expect(callChanges(before, after)).toEqual(["Jonas's Mac joined the call."]);
   expect(viewOf(after, "sub-1").call[0]?.name).toBe("Jonas's Mac");
 });
+
+// ── DRIVE ──
+test("the newest offer on a device's context wins, and a withdrawal is an offer of nothing", () => {
+  const withdrawn = { kind: "mac", lend: "jonas.mac", control: null, why: "the app quits" };
+  expect(newestOffer([offerOf(OFFER, undefined, 3), { type: "device/app-focused" }])).toEqual({
+    offset: 3,
+    fact: OFFER,
+    owner: "jonas@nustom.com",
+  });
+  expect(
+    newestOffer([offerOf(OFFER, undefined, 3), offerOf(withdrawn, undefined, 9)])?.fact,
+  ).toEqual(withdrawn);
+  expect(newestOffer([{ type: "device/presence-changed", payload: {} }])).toBeUndefined();
+  // a payload that is no offer is passed over
+  expect(
+    newestOffer([offerOf(OFFER, undefined, 3), offerOf({ lend: 1 }, undefined, 4)])?.offset,
+  ).toBe(3);
+});
+
+test("a Mac is named by its owner when its lend begins with the owner's name, else by its lend", () => {
+  expect(macLabel("jonas.mac", "jonas@nustom.com")).toBe("Jonas's Mac");
+  expect(macLabel("zaktop.macApp", "zak@nustom.com")).toBe("zaktop");
+  expect(macLabel("misha.mac", "")).toBe("misha");
+});
+
+test("the Drive menu lists each offered Mac whose lend is live, one entry for each display", () => {
+  const offers = new Map([
+    ["jonas.mac", { fact: OFFER as never, owner: "jonas@nustom.com" }],
+    [
+      "zaktop.macApp",
+      {
+        fact: {
+          ...OFFER,
+          lend: "zaktop.macApp",
+          control: "shared",
+          displays: [
+            { display: 0, name: "Built-in", screen: "shared" },
+            { display: 1, name: "LG", screen: "ask" },
+          ],
+        } as never,
+        owner: "zak@nustom.com",
+      },
+    ],
+    ["gone.mac", { fact: OFFER as never, owner: "" }],
+    ["off.mac", { fact: { ...OFFER, control: null } as never, owner: "" }],
+  ]);
+  const stubs = ["itx.jonas.mac", "itx.zaktop.macApp", "itx.off.mac", "subscription:sub-1"];
+  expect(macTargets(stubs, offers)).toEqual([
+    {
+      id: "drive:jonas.mac:0",
+      kind: "mac",
+      lend: "jonas.mac",
+      label: "Jonas's Mac",
+      display: 0,
+      control: "ask",
+    },
+    {
+      id: "drive:zaktop.macApp:0",
+      kind: "mac",
+      lend: "zaktop.macApp",
+      label: "zaktop: Built-in",
+      display: 0,
+      control: "shared",
+    },
+    {
+      id: "drive:zaktop.macApp:1",
+      kind: "mac",
+      lend: "zaktop.macApp",
+      label: "zaktop: LG",
+      display: 1,
+      control: "shared",
+    },
+  ]);
+});
+
+test("each tab of a lent Chrome may be driven, named by its person and its title", () => {
+  const chromes = liveChromes(["itx.chrome.jonas.mac2926", "itx.jonas.mac", "itx.chrome.misha.x1"]);
+  expect(chromes.map((one) => one.lend)).toEqual(["chrome.jonas.mac2926", "chrome.misha.x1"]);
+  const tabs = new Map<string, unknown>([
+    ["chrome.jonas.mac2926", [{ id: 4, url: "https://a.example", title: "Docs" }]],
+    ["chrome.misha.x1", { error: "not lent" }],
+  ]);
+  expect(browserTargets(chromes, tabs)).toEqual([
+    {
+      id: "drive:chrome.jonas.mac2926:tab:4",
+      kind: "browser",
+      lend: "chrome.jonas.mac2926",
+      label: "Jonas's Chrome: Docs",
+      tab: 4,
+    },
+  ]);
+  const twins = liveChromes(["itx.chrome.jonas.a1", "itx.chrome.jonas.b2"]);
+  expect(
+    browserTargets(twins, new Map([["chrome.jonas.b2", [{ id: 1, title: "T" }]]]))[0]?.label,
+  ).toBe("Jonas's Chrome (b2): T");
+});
+
+test("a Mac's screen in the call is the page the Mac app names for its publication", () => {
+  expect(macCallPage("jonas.mac", "ab12cd34")).toBe("mac-call-jonas-mac-ab12cd34");
+  const state = { publications: [{ publication: "p1", context: "/agents/x", source: "screen:0" }] };
+  expect(publicationOf(state, "/agents/x", "screen:0")).toBe("p1");
+  expect(publicationOf(state, "/agents/x", "screen:1")).toBeUndefined();
+  expect(publicationOf({ error: "x" }, "/agents/x", "screen:0")).toBeUndefined();
+  expect(lendMethod("jonas.mac", "control.input", { session: "s" })).toEqual([
+    "itx",
+    ["cd", "/"],
+    "jonas",
+    "mac",
+    "control",
+    ["input", { session: "s" }],
+  ]);
+  expect(lendMethod("chrome.jonas.a1", "cdp", 4, "Page.getLayoutMetrics", {})).toEqual([
+    "itx",
+    ["cd", "/"],
+    "chrome",
+    "jonas",
+    "a1",
+    ["cdp", 4, "Page.getLayoutMetrics", {}],
+  ]);
+});
+
+test("a point over a letterboxed picture is 0–1 on the picture, clamped at its edges", () => {
+  // a 16:10 screen in a 16:9 box: bars left and right
+  const rect = pictureRect({ left: 0, top: 0, width: 1600, height: 900 }, 1440, 900);
+  expect(rect).toEqual({ left: 80, top: 0, width: 1440, height: 900 });
+  expect(pointOn(rect, 800, 450)).toEqual({ x: 0.5, y: 0.5, inside: true });
+  expect(pointOn(rect, 40, 450)).toEqual({ x: 0, y: 0.5, inside: false });
+  // no picture size yet: the box itself
+  expect(pictureRect({ left: 1, top: 2, width: 3, height: 4 }, 0, 0)).toEqual({
+    left: 1,
+    top: 2,
+    width: 3,
+    height: 4,
+  });
+});
+
+test("a driver not on a Mac presses Ctrl for Command; a Mac's driver keeps its keys", () => {
+  expect(onMac("MacIntel")).toBe(true);
+  expect(onMac("Win32")).toBe(false);
+  const ctrlC = {
+    type: "keydown" as const,
+    code: "KeyC",
+    key: "c",
+    shiftKey: false,
+    ctrlKey: true,
+    altKey: false,
+    metaKey: false,
+  };
+  expect(keyEvents(ctrlC, true)).toEqual([
+    { t: "key", code: "KeyC", down: true, key: "c", mods: ["meta"] },
+  ]);
+  expect(keyEvents(ctrlC, false)).toEqual([
+    { t: "key", code: "KeyC", down: true, key: "c", mods: ["ctrl"] },
+  ]);
+  // the Control key itself is the Command key
+  expect(keyEvents({ ...ctrlC, code: "ControlLeft", key: "Control" }, true)[0]).toMatchObject({
+    code: "MetaLeft",
+  });
+  expect(modsOf({ shiftKey: true, ctrlKey: false, altKey: true, metaKey: true }, true)).toEqual([
+    "shift",
+    "alt",
+    "ctrl",
+  ]);
+  // a printable character with no shortcut key is text, in the driver's own layout, once
+  const ue = { ...ctrlC, code: "BracketLeft", key: "ü", ctrlKey: false };
+  expect(keyEvents(ue, true)).toEqual([{ t: "text", text: "ü" }]);
+  expect(keyEvents({ ...ue, type: "keyup" }, true)).toEqual([]);
+  expect(keyEvents({ ...ue, code: "Enter", key: "Enter" }, true)).toEqual([
+    { t: "key", code: "Enter", down: true, key: "Enter" },
+  ]);
+  expect(keyEvents({ ...ue, isComposing: true }, true)).toEqual([]);
+});
+
+test("one batch in flight: moves in a row are the last, text in a row is one", () => {
+  expect(
+    nextBatch([
+      { t: "move", x: 0.1, y: 0.1 },
+      { t: "move", x: 0.2, y: 0.2 },
+      { t: "down", x: 0.2, y: 0.2, button: 0 },
+      { t: "text", text: "a" },
+      { t: "text", text: "b" },
+      { t: "move", x: 0.3, y: 0.3 },
+    ]),
+  ).toEqual([
+    { t: "move", x: 0.2, y: 0.2 },
+    { t: "down", x: 0.2, y: 0.2, button: 0 },
+    { t: "text", text: "ab" },
+    { t: "move", x: 0.3, y: 0.3 },
+  ]);
+});
+
+test("a Chrome tab's input is CDP's Input.dispatch* at the tab's CSS pixels; a move while held drags", () => {
+  const held = { button: null as 0 | 1 | 2 | null, x: 0, y: 0 };
+  const viewport = { width: 1000, height: 500 };
+  expect(cdpInput({ t: "down", x: 0.5, y: 0.5, button: 0, clicks: 2 }, viewport, held)).toEqual([
+    [
+      "Input.dispatchMouseEvent",
+      { type: "mousePressed", x: 500, y: 250, button: "left", clickCount: 2, modifiers: 0 },
+    ],
+  ]);
+  expect(cdpInput({ t: "move", x: 0.6, y: 0.5 }, viewport, held)[0]?.[1]).toMatchObject({
+    type: "mouseMoved",
+    x: 600,
+    button: "left",
+    buttons: 1,
+  });
+  cdpInput({ t: "up", x: 0.6, y: 0.5, button: 0 }, viewport, held);
+  expect(cdpInput({ t: "scroll", dx: 0, dy: 120 }, viewport, held)).toEqual([
+    ["Input.dispatchMouseEvent", { type: "mouseWheel", x: 600, y: 250, deltaX: 0, deltaY: 120 }],
+  ]);
+  expect(cdpInput({ t: "text", text: "hi" }, viewport, held)).toEqual([
+    ["Input.insertText", { text: "hi" }],
+  ]);
+  expect(
+    cdpInput({ t: "key", code: "Enter", down: true, key: "Enter", mods: ["meta"] }, viewport, held),
+  ).toEqual([
+    [
+      "Input.dispatchKeyEvent",
+      { type: "rawKeyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13, modifiers: 4 },
+    ],
+  ]);
+});
+
+test("a Mac whose fact is far back in its log is read from its own state: Control and each display not Off", () => {
+  const things = [
+    { kind: "screen", name: "Built-in", sharing: "shared", permitted: true, display: 0 },
+    { kind: "screen", name: "LG", sharing: "off", permitted: true, display: 1 },
+    { kind: "control", name: "Control this Mac", sharing: "ask", permitted: true },
+  ];
+  expect(offerFromState("jonas.mac", { things })).toEqual({
+    kind: "mac",
+    lend: "jonas.mac",
+    control: "ask",
+    displays: [{ display: 0, name: "Built-in", screen: "shared" }],
+  });
+  const off = things.map((thing) =>
+    thing.kind === "control" ? { ...thing, sharing: "off" } : thing,
+  );
+  expect(offerFromState("jonas.mac", { things: off })?.control).toBeNull();
+  expect(offerFromState("jonas.mac", { error: "x" })).toBeUndefined();
+  expect(
+    newestOwner([offerOf(OFFER, "zak@nustom.com"), { type: "events.iterate.com/itx/woken" }]),
+  ).toBe("zak@nustom.com");
+});
+
+const offerOf = (payload: object, email = "jonas@nustom.com", offset = 7) => ({
+  type: "device/control-configured",
+  offset,
+  payload,
+  source: { principal: { actor: "user_j", email } },
+});
+const OFFER = {
+  kind: "mac",
+  lend: "jonas.mac",
+  control: "ask",
+  displays: [{ display: 0, name: "Built-in Retina Display", screen: "shared" }],
+};

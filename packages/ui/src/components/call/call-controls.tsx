@@ -22,6 +22,10 @@
 // - A MEMBER'S MAC: with a Mac lent by the member (the iterate Mac app), the devices' Camera picker
 //   lists its camera too, and a Screen picker lists its screens; a choice asks the Mac to send it
 //   (call-engine.ts `chooseMac`). Without one, the pickers are as before.
+// - DRIVE: when a Mac or a Chrome tab is offered to be driven now (call-engine.ts `listDrives`),
+//   a Drive button lists them by the person's name ("Jonas's Mac", "zaktop", "Jonas's Chrome:
+//   <tab>"). A choice starts the drive; its picture and its input are the tiles' (call-tiles.tsx).
+//   With nothing offered there is no button.
 // - ON A PHONE (`CallHeaderControls`) Start or Join is its icon alone, and in the call the controls
 //   are behind one button, so the path and the tabs keep the header.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -30,6 +34,7 @@ import {
   MicIcon,
   MicOffIcon,
   MonitorUpIcon,
+  MousePointerClickIcon,
   PhoneIcon,
   PhoneOffIcon,
   Settings2Icon,
@@ -183,6 +188,7 @@ export function CallControls({
             </Switch>
           ) : null}
           <CallDevices call={call} ui={ui} variant="outline" />
+          {ui.drive ? <CallDrive call={call} ui={ui} /> : null}
         </ButtonGroup>
         <Tooltip>
           <TooltipTrigger
@@ -542,6 +548,69 @@ export function CallDevices({
           <p role="status" className="text-xs text-muted-foreground">
             Asking your Mac: {mac.asking}…
           </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** THE DRIVE MENU: each device offered now, and Stop while a drive runs. Its list is read again
+ *  when it opens. */
+function CallDrive({ call, ui }: { call: CallEngine; ui: CallUi }) {
+  const drive = ui.drive;
+  if (!drive) return null;
+  const driving = drive.driving;
+  return (
+    <Popover onOpenChange={(open) => open && void call.listDrives()}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              nativeButton
+              render={
+                <Button
+                  size="icon-sm"
+                  variant={driving ? "default" : "outline"}
+                  aria-label="Drive"
+                  aria-pressed={Boolean(driving)}
+                />
+              }
+            />
+          }
+        >
+          <MousePointerClickIcon />
+        </TooltipTrigger>
+        <TooltipContent>
+          {driving ? `You drive ${driving.label}` : "Drive a computer of the mind"}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="flex w-72 flex-col gap-1">
+        <p className="text-xs text-muted-foreground">Drive</p>
+        {drive.targets.length ? (
+          drive.targets.map((target) => (
+            <Button
+              key={target.id}
+              size="sm"
+              variant={driving?.id === target.id ? "secondary" : "ghost"}
+              className="justify-start truncate"
+              disabled={Boolean(drive.asking)}
+              onClick={() => void call.drive(target.id)}
+            >
+              {target.label}
+            </Button>
+          ))
+        ) : (
+          <p className="text-xs text-muted-foreground">Nothing is offered now.</p>
+        )}
+        {drive.asking ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            Asking {drive.asking}…
+          </p>
+        ) : null}
+        {driving ? (
+          <Button size="sm" variant="destructive" onClick={() => void call.stopDrive()}>
+            Stop driving
+          </Button>
         ) : null}
       </PopoverContent>
     </Popover>
