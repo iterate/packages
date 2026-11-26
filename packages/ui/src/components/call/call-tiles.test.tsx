@@ -17,7 +17,7 @@ test("who comes into the call and who leaves it is said in one polite region tha
   const ui = {
     joined: true,
     videos: [] as CallVideo[],
-    captions: { status: "off", text: "" },
+    captions: { status: "off", text: "", unsaved: 0 },
   } as CallUi;
   const draw = (live: object) => (
     <CallTiles call={engine()} ui={ui} live={CallLive.parse(live)} member />
@@ -35,7 +35,7 @@ test("a live state that did not come says nothing: nobody left, and nobody joins
   const ui = {
     joined: true,
     videos: [] as CallVideo[],
-    captions: { status: "off", text: "" },
+    captions: { status: "off", text: "", unsaved: 0 },
   } as CallUi;
   const draw = (live: object | undefined) => (
     <CallTiles call={engine()} ui={ui} live={live && CallLive.parse(live)} member />
@@ -46,11 +46,37 @@ test("a live state that did not come says nothing: nobody left, and nobody joins
   expect(page.host.querySelector("[aria-live=polite]")?.textContent).toBe("");
 });
 
+test("lines that the call did not take are named as not saved, and how they get saved", async () => {
+  const ui = (unsaved: number, joined = true) =>
+    ({
+      joined,
+      videos: [] as CallVideo[],
+      captions: { status: "listening", text: "", unsaved },
+    }) as CallUi;
+  const draw = (state: CallUi) => <CallTiles call={engine()} ui={state} live={undefined} member />;
+  const notes = (host: HTMLElement) =>
+    [...host.querySelectorAll("[role=status]")].map((note) => note.textContent);
+  using page = await mount(draw(ui(0)));
+  expect(notes(page.host).join(" ")).not.toContain("transcript");
+  await page.render(draw(ui(3)));
+  expect(notes(page.host)).toContain(
+    "The transcript is not being saved: 3 lines that you said wait on this page. The page tries again by itself: keep it open.",
+  );
+  await page.render(draw(ui(1, false)));
+  expect(notes(page.host)).toContain(
+    "The transcript is not being saved: 1 line that you said waits on this page. Join the call again from this page to save them.",
+  );
+});
+
 test("a tile's button keeps one name, and says by aria-pressed whether it is large", async () => {
   // jsdom plays no media
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   const video = { key: "k", name: "Ana", kind: "camera", local: true } as CallVideo;
-  const ui = { joined: true, videos: [video], captions: { status: "off", text: "" } } as CallUi;
+  const ui = {
+    joined: true,
+    videos: [video],
+    captions: { status: "off", text: "", unsaved: 0 },
+  } as CallUi;
   using page = await mount(<CallTiles call={engine()} ui={ui} live={undefined} member />);
   const tile = page.host.querySelector("figure button")!;
   const state = () => [tile.getAttribute("aria-label"), tile.getAttribute("aria-pressed")];
@@ -84,7 +110,7 @@ test("the driven Mac's screen comes first and large; a press over its picture is
   const ui = {
     joined: true,
     videos: [screen, other],
-    captions: { status: "off", text: "" },
+    captions: { status: "off", text: "", unsaved: 0 },
     drive: { targets: [], asking: "", driving },
   } as unknown as CallUi;
   const driveInput = vi.fn();

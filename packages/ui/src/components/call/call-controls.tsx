@@ -364,7 +364,7 @@ const WAITING: CallUi = {
     speakerSupported: true,
   },
   videos: [],
-  captions: { status: "off", text: "" },
+  captions: { status: "off", text: "", unsaved: 0 },
 };
 
 /** THE CALL'S CONTROLS BEFORE THE CALL'S PART HAS LOADED: Start call in the same place, which

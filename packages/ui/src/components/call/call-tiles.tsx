@@ -68,7 +68,14 @@ export function CallTiles({
     if (lines.length && said.current) said.current.textContent = lines.join(" ");
   }, [live]);
   const something = Boolean(
-    ui.videos.length || setup || agent || ui.repair || ui.notice || ui.joined || ui.drive?.driving,
+    ui.videos.length ||
+    setup ||
+    agent ||
+    ui.repair ||
+    ui.notice ||
+    ui.joined ||
+    ui.captions.unsaved ||
+    ui.drive?.driving,
   );
   return (
     <>
@@ -105,6 +112,10 @@ function Tiles({
     ui.repair,
     // the captions, when they are not working: off for a reason, or failing
     ui.captions.status === "error" || ui.captions.status === "off" ? ui.captions.text : "",
+    // lines that the call did not take: they wait on this page, and are in no record yet
+    ui.captions.unsaved
+      ? `The transcript is not being saved: ${ui.captions.unsaved === 1 ? "1 line that you said waits" : `${ui.captions.unsaved} lines that you said wait`} on this page. ${ui.joined ? "The page tries again by itself: keep it open." : "Join the call again from this page to save them."}`
+      : "",
   ].filter(Boolean);
   return (
     <section data-slot="call-tiles" className={cn("flex flex-col gap-2", className)}>

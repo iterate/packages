@@ -351,7 +351,7 @@ const IDLE: CallUi = {
     speakerSupported: true,
   },
   videos: [],
-  captions: { status: "off", text: "" },
+  captions: { status: "off", text: "", unsaved: 0 },
 };
 
 /** An engine of the methods the controls call; each call is kept in `steps`. `joins`: a join takes

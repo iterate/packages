@@ -249,6 +249,120 @@ export function deviceOptions(devices: readonly Device[], kind: DeviceKind) {
   ];
 }
 
+// ── LINES THAT WAIT: a finished line stays on the page until the call has taken it ──
+/** The bounds of the lines a page keeps: how many, how old a line may get before it is given up,
+ *  the waits between tries, and how long one try may stay unanswered. */
+export const UNSENT = {
+  lines: 500,
+  ageMs: 30 * 60_000,
+  waitsMs: [1_000, 2_000, 4_000, 8_000, 15_000],
+  answerMs: 10_000,
+};
+/** What the outbox tells its page at each change: `unsaved` is how many lines wait since a try
+ *  failed (0 while every line goes through), `lost` how many were given up just now (too old, or
+ *  over the bound), `saved` how many that waited through a failure the call has now taken. */
+export type OutboxChange = { unsaved: number; lost: number; saved: number };
+/**
+ * The finished lines of one page, kept in memory until the call takes each one: sent one at a
+ * time, oldest first, each with the time it was heard (`at`). A try that fails or gets no answer
+ * keeps its line at the head, so the order holds, and the next try comes after a wait, while
+ * `ready()` (the page is in the call). A try that was sent may still have landed: the call takes a
+ * line's `id` once. `expendable(line)`: a line that is dropped at its first failure.
+ * `flush()` tries now, and answers when the lines are out or a try failed.
+ */
+export function lineOutbox<Line extends { id: string; at: number }>({
+  send,
+  ready,
+  onChange,
+  expendable = () => false,
+  now = Date.now,
+}: {
+  send: (line: Line) => Promise<unknown>;
+  ready: () => boolean;
+  onChange: (change: OutboxChange) => void;
+  expendable?: (line: Line) => boolean;
+  now?: () => number;
+}) {
+  const lines: Line[] = [];
+  let fails = 0;
+  let failing = false;
+  let recovered = 0;
+  let pass: Promise<void> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const tell = (lost: number, saved = 0) =>
+    onChange({ unsaved: failing ? lines.length : 0, lost, saved });
+  async function run() {
+    let lost = 0;
+    while (lines.length) {
+      const line = lines[0]!;
+      if (now() - line.at > UNSENT.ageMs) {
+        lines.shift();
+        lost += 1;
+        continue;
+      }
+      let unanswered: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          send(line),
+          new Promise((_, reject) => {
+            unanswered = setTimeout(() => reject(new Error("no answer")), UNSENT.answerMs);
+          }),
+        ]);
+      } catch {
+        if (expendable(line)) {
+          if (lines[0] === line) lines.shift();
+          continue;
+        }
+        fails += 1;
+        failing = true;
+        tell(lost);
+        timer = setTimeout(
+          () => {
+            timer = null;
+            if (ready()) void flush();
+          },
+          UNSENT.waitsMs[Math.min(fails, UNSENT.waitsMs.length) - 1],
+        );
+        return;
+      } finally {
+        clearTimeout(unanswered);
+      }
+      // the bound may have taken this line off the head while it was on its way
+      if (lines[0] === line) lines.shift();
+      fails = 0;
+      if (failing) recovered += 1;
+    }
+    const saved = recovered;
+    const changed = failing || lost > 0;
+    failing = false;
+    recovered = 0;
+    if (changed) tell(lost, saved);
+  }
+  function flush() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    pass ||= run().finally(() => {
+      pass = null;
+    });
+    return pass;
+  }
+  return {
+    /** A finished line: it goes at once, or behind the lines that wait. */
+    add(line: Line) {
+      lines.push(line);
+      if (lines.length > UNSENT.lines) {
+        lines.shift();
+        tell(1);
+      } else if (failing) tell(0);
+      if (!timer) void flush();
+    },
+    flush,
+    get waiting() {
+      return lines.length;
+    },
+  };
+}
+
 // ── REPAIR: a connection that failed, or stayed disconnected, is made anew a bounded number of times ──
 export const REPAIR = { waitsMs: [1_000, 2_000, 4_000, 8_000, 16_000], disconnectedMs: 5_000 };
 /** What a change of state asks for: "repair", "wait" (disconnected often heals by itself), or

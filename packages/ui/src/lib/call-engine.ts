@@ -22,7 +22,9 @@
 //   a one-minute key that the call's `transcription` makes) and hands each finished line to the
 //   call's `said`, which tells the agent. It runs only while this page is in the call and not
 //   muted (a mute closes the session), and only speech is sent (call-rules.ts `TurnDetector`).
-//   Each method carries the call's admission.
+//   Each method carries the call's admission. A line that the call did not take waits on this
+//   page, in memory, and goes again with the time it was heard (call-rules.ts `lineOutbox`);
+//   `ui.captions.unsaved` says how many wait.
 // - THE DELEGATION: the voice model's one way out is the agent of the context. Its host tab carries
 //   the model's request to the call's `delegate`, and the answer, from the call's live state, back
 //   to the model to say.
@@ -78,6 +80,7 @@ import {
   macSources,
   JoinAnswer,
   layerFor,
+  lineOutbox,
   type Path,
   PATH_TEXT,
   pathAccepted,
@@ -215,8 +218,14 @@ export type CallUi = {
   videos: CallVideo[];
   /** What this member may drive, and what they drive now. None with nothing offered: no menu. */
   drive?: DriveUi;
-  /** This page's captions: its microphone transcribed, each finished line to the call. */
-  captions: { status: "off" | "connecting" | "listening" | "error"; text: string };
+  /** This page's captions: its microphone transcribed, each finished line to the call. `unsaved`:
+   *  how many finished lines wait on this page because the call did not take one (0 while every
+   *  line goes through): they are in no record until the call takes them. */
+  captions: {
+    status: "off" | "connecting" | "listening" | "error";
+    text: string;
+    unsaved: number;
+  };
 };
 /** The Drive menu and the drive under way. */
 export type DriveUi = {
@@ -267,7 +276,7 @@ const IDLE: CallUi = {
     speakerSupported: true,
   },
   videos: [],
-  captions: { status: "off", text: "" },
+  captions: { status: "off", text: "", unsaved: 0 },
 };
 
 /** Wait for the page's candidates before an offer or answer goes out: until gathering is complete,
@@ -2069,7 +2078,7 @@ export function createCall({
       const done = all || at < ai.lines.length - 1 || Date.now() - line.at >= 4_000;
       if (line.who !== "agent" || line.posted || !done || !line.text.trim()) return;
       line.posted = true;
-      said({ id: line.id, text: line.text.trim(), ai: true });
+      said({ id: line.id, text: line.text.trim(), at: line.at, ai: true });
     });
   }
   /** Everything this tab holds for the voice agent, closed at once, its session at OpenAI first (it
@@ -2125,7 +2134,7 @@ export function createCall({
     // before `withdraw` reads as the plain stop of its (this tab's) agent; an unclaimed one does
     // not, so such a call sends away nobody's agent.
     // the voice agent's last lines reach the call before its stop, while this page still hosts it
-    await saidQueue;
+    await outbox.flush();
     const stop = claimed ? { stop: why, withdraw: invite } : { withdraw: invite, why };
     if (joined && invite && (claimed || starting))
       await facet("voiceAgent", page, stop, call.admission).catch(() => {});
@@ -2137,7 +2146,8 @@ export function createCall({
   const STT_WAITS_MS = [1_000, 2_000, 4_000, 8_000];
   /** Tries in a row before the page stops and says so: joining again starts afresh. */
   const STT_TRIES = 8;
-  type Turn = { id: string; appended: boolean; itemId: string | null };
+  /** `at`: when the turn began, which is its line's time whenever the call takes it. */
+  type Turn = { id: string; at: number; appended: boolean; itemId: string | null };
   const cap: {
     audio: AudioContext | null;
     samples: Float32Array[];
@@ -2165,7 +2175,7 @@ export function createCall({
   };
   const captions = (status: CallUi["captions"]["status"], text: string) => {
     if (ui.captions.status !== status || ui.captions.text !== text)
-      set({ captions: { status, text } });
+      set({ captions: { ...ui.captions, status, text } });
   };
   /** The microphone's samples at 24,000 Hz, through a worklet, in frames of 100 ms. A browser with
    *  no AudioWorklet transcribes nothing, and says so. */
@@ -2222,7 +2232,7 @@ export function createCall({
     const rms = mic?.getAudioTracks()[0]?.enabled ? rmsOf(data) : 0;
     for (const action of cap.detector.push({ rms, ms: data.length / 24, data })) {
       if (action.type === "start")
-        cap.turn = { id: crypto.randomUUID(), appended: false, itemId: null };
+        cap.turn = { id: crypto.randomUUID(), at: Date.now(), appended: false, itemId: null };
       else if (action.type === "send") for (const frame of action.frames) append(frame.data);
       else commitTurn();
     }
@@ -2272,7 +2282,7 @@ export function createCall({
       if (!turn) return;
       cap.items.delete(turn.itemId!);
       const text = String(event.transcript || "").trim();
-      if (text) said({ id: turn.id, text });
+      if (text) said({ id: turn.id, text, at: turn.at });
     } else if (event.type === "error")
       captions(
         "error",
@@ -2358,18 +2368,34 @@ export function createCall({
     if (joined && !ui.muted) void startAudio().then(startStt);
     else stopCaptions();
   }
-  /** Lines go to the call one at a time, in order. A line the call did not take is said once. */
-  let saidQueue: Promise<unknown> = Promise.resolve();
-  function said(line: { id: string; text: string; ai?: true }) {
-    // under the admission of the call that heard it: a line queued just before a stop or a leave
-    // is still sent, before that stop or leave, and the facet refuses one of an earlier admission
-    const call = scope;
-    saidQueue = saidQueue
-      .then(() => facet("said", page, line, call.admission))
-      .catch((error: unknown) => {
-        if (!call.ended)
-          say(`A line of the transcript did not reach the agent: ${messageOf(error)}`);
-      });
+  /** Lines go to the call one at a time, in order, each with the time it was heard. A line that
+   *  the call did not take stays on this page (in memory alone) and is tried again while the page
+   *  is in the call (call-rules.ts `lineOutbox`): a call that could not be reached for a while
+   *  gets every line once it answers again. A line goes under the admission of the call that heard
+   *  it, so one queued just before a stop or a leave is still sent before it; once this page is
+   *  in the call under a newer admission (it joined afresh), under that one, as the facet refuses
+   *  an earlier admission. It is the same page of the same person in the same call: the facet
+   *  names the speaker itself. Another page, or another call's engine, has none of these lines.
+   *  What the voice agent said is tried again only while this page hosts the agent. */
+  const plural = (count: number) => (count === 1 ? "1 line" : `${count} lines`);
+  const outbox = lineOutbox<{ id: string; text: string; at: number; ai?: true; call: CallScope }>({
+    send: ({ call, ...line }) =>
+      facet("said", page, line, joined ? scope.admission : call.admission),
+    ready: () => joined,
+    expendable: (line) => Boolean(line.ai) && !ai.claimed,
+    onChange({ unsaved, lost, saved }) {
+      if (ui.captions.unsaved !== unsaved) set({ captions: { ...ui.captions, unsaved } });
+      if (lost)
+        say(
+          `${plural(lost)} of the transcript did not reach the call in time and ${lost === 1 ? "is" : "are"} lost.`,
+        );
+      else if (saved)
+        say(`The transcript is saved again: ${plural(saved)} that waited reached the call.`);
+    },
+  });
+  function said(line: { id: string; text: string; at: number; ai?: true }) {
+    // no longer than the facet takes: a line that it refuses for its form would hold the others
+    outbox.add({ ...line, text: line.text.slice(0, 4_000), call: scope });
   }
 
   /** The first Unmute of a page that only listened: the microphone opens now, by the person's
@@ -2479,6 +2505,8 @@ export function createCall({
       joined = true;
       joinedAt = Date.now();
       set({ joined: true, muted: !track?.enabled });
+      // the lines that waited while this page was out of the call
+      void outbox.flush();
       // what this member may drive: read soon, and every 30 s in the call
       watchDrives(true);
       if (noMic)
@@ -2568,8 +2596,9 @@ export function createCall({
     void stopMacs();
     watchDrives(false);
     void stopDrive();
-    // the voice agent's last lines (queued above) reach the call before the leave that ends it
-    await saidQueue;
+    // the lines not yet sent (the voice agent's last ones, queued above, too) reach the call
+    // before the leave that ends it; one that fails stays here for a join from this page
+    await outbox.flush();
     // then the call hears it, at once: the leave of this call's admission, which a newer one
     // outlives, and which ends the voice agent this page hosted (call/rules.ts `#remove`). One
     // whose join is still on its way takes it out as soon as the facet takes it in.
@@ -2760,7 +2789,10 @@ export function createCall({
       watchDrives(false);
       void stopDrive();
       if (call.joinSent)
-        void saidQueue.then(() => facet("leave", page, call.admission)).catch(() => {});
+        void outbox
+          .flush()
+          .then(() => facet("leave", page, call.admission))
+          .catch(() => {});
     },
   };
 }

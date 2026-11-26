@@ -1,6 +1,6 @@
 // The pure rules of a call in a page: Join on a fresh call, the view the engine follows, the path a
 // page takes, the ICE servers, a saved device, the repair loop, and the simulcast layers.
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   browserTargets,
   CallLive,
@@ -25,6 +25,7 @@ import {
   iceServersOf,
   joinable,
   layerFor,
+  lineOutbox,
   lendCall,
   liveMacs,
   macOwner,
@@ -35,6 +36,7 @@ import {
   repairLoop,
   rmsOf,
   TurnDetector,
+  UNSENT,
   udpOnly,
   viewOf,
 } from "./call-rules.ts";
@@ -560,6 +562,111 @@ test("a Mac whose fact is far back in its log is read from its own state: Contro
   ).toBe("zak@nustom.com");
 });
 
+test("lines that the call did not take wait on the page and reach it later: each once, in order, with the time it was heard", async () => {
+  using call = callThatTakes();
+  const { room, outbox } = call;
+  const start = Date.now();
+  outbox.add({ id: "a", at: Date.now() });
+  await outbox.flush();
+  expect([room.taken, room.told]).toEqual([[{ id: "a", at: start }], []]);
+  // the call stops answering: the lines said meanwhile wait, and the page is told how many
+  room.down = true;
+  outbox.add({ id: "b", at: Date.now() });
+  await vi.advanceTimersByTimeAsync(500);
+  outbox.add({ id: "c", at: Date.now() });
+  outbox.add({ id: "d", at: Date.now() });
+  expect(room.told.at(-1)).toEqual({ unsaved: 3, lost: 0, saved: 0 });
+  // a new line makes no try of its own: the tries follow the waits
+  await vi.advanceTimersByTimeAsync(600 + 2_000 + 4_000);
+  expect([room.tries, outbox.waiting]).toEqual([["a", "b", "b", "b", "b"], 3]);
+  // it answers again: every line that waited, oldest first, with its own time
+  room.down = false;
+  await vi.advanceTimersByTimeAsync(8_000);
+  expect(room).toMatchObject({
+    taken: [
+      { id: "a", at: start },
+      { id: "b", at: start },
+      { id: "c", at: start + 500 },
+      { id: "d", at: start + 500 },
+    ],
+  });
+  expect(room.told.at(-1)).toEqual({ unsaved: 0, lost: 0, saved: 3 });
+  // and nothing is sent again afterwards
+  const tries = room.tries.length;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect([room.tries.length, outbox.waiting]).toEqual([tries, 0]);
+});
+
+test("a try with no answer counts as failed, and the line that had landed is not taken twice", async () => {
+  using call = callThatTakes();
+  const { room } = call;
+  let hang = true;
+  const outbox = lineOutbox<{ id: string; at: number }>({
+    send: (line) => {
+      room.tries.push(line.id);
+      if (!room.taken.some((one) => one.id === line.id)) room.taken.push(line);
+      // the call took the line, and its answer never came
+      return hang ? new Promise(() => {}) : Promise.resolve();
+    },
+    ready: () => true,
+    onChange: (change) => room.told.push(change),
+  });
+  outbox.add({ id: "a", at: Date.now() });
+  await vi.advanceTimersByTimeAsync(UNSENT.answerMs);
+  expect(room.told.at(-1)).toMatchObject({ unsaved: 1 });
+  hang = false;
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect([room.tries, room.taken.length, outbox.waiting]).toEqual([["a", "a"], 1, 0]);
+  expect(room.told.at(-1)).toEqual({ unsaved: 0, lost: 0, saved: 1 });
+});
+
+test("a page out of the call tries nothing by itself, and sends what waits when it is in again", async () => {
+  using call = callThatTakes();
+  const { room, outbox } = call;
+  room.down = true;
+  outbox.add({ id: "a", at: Date.now() });
+  await outbox.flush();
+  room.in = false;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(room).toMatchObject({ tries: ["a"] });
+  // the join's own flush
+  room.in = true;
+  room.down = false;
+  await outbox.flush();
+  expect(room.taken.map((line) => line.id)).toEqual(["a"]);
+});
+
+test("what waits is bounded, each outbox holds its own lines, and a line of the voice agent is dropped at its first failure", async () => {
+  using call = callThatTakes();
+  const { room, outbox } = call;
+  room.down = true;
+  outbox.add({ id: "voice", at: Date.now(), ai: true });
+  await outbox.flush();
+  expect([outbox.waiting, room.told]).toEqual([0, []]);
+  // more than the bound: the oldest goes, and the page is told
+  outbox.add({ id: "line-0", at: Date.now() });
+  await outbox.flush();
+  for (let n = 1; n <= UNSENT.lines; n++) outbox.add({ id: `line-${n}`, at: Date.now() });
+  expect([outbox.waiting, room.told.at(-1)]).toEqual([
+    UNSENT.lines,
+    { unsaved: UNSENT.lines, lost: 1, saved: 0 },
+  ]);
+  // a line older than the bound is given up, never sent late
+  room.in = false;
+  await vi.advanceTimersByTimeAsync(UNSENT.ageMs + 1);
+  room.in = true;
+  room.down = false;
+  room.tries.length = 0;
+  await outbox.flush();
+  expect([room.tries, outbox.waiting]).toEqual([[], 0]);
+  expect(room.told.at(-1)).toEqual({ unsaved: 0, lost: UNSENT.lines, saved: 0 });
+  // another page's outbox, or another call's, got none of them
+  const other = callThatTakes(Date.now());
+  other.outbox.add({ id: "theirs", at: Date.now() });
+  await other.outbox.flush();
+  expect(other.room.taken.map((line) => line.id)).toEqual(["theirs"]);
+});
+
 const offerOf = (payload: object, email = "jonas@nustom.com", offset = 7) => ({
   type: "device/control-configured",
   offset,
@@ -572,3 +679,28 @@ const OFFER = {
   control: "ask",
   displays: [{ display: 0, name: "Built-in Retina Display", screen: "shared" }],
 };
+
+/** A call that takes lines, or refuses them while `down`: what it took, each try, and what the
+ *  page was told. */
+function callThatTakes(start = Date.parse("2026-11-26T10:48:00Z")) {
+  vi.useFakeTimers({ now: start });
+  const room = {
+    down: false,
+    in: true,
+    taken: [] as { id: string; at: number }[],
+    tries: [] as string[],
+    told: [] as { unsaved: number; lost: number; saved: number }[],
+  };
+  const outbox = lineOutbox<{ id: string; at: number; ai?: true }>({
+    send: async (line) => {
+      room.tries.push(line.id);
+      if (room.down) throw new Error("the call did not answer");
+      // the call takes an id once
+      if (!room.taken.some((one) => one.id === line.id)) room.taken.push(line);
+    },
+    ready: () => room.in,
+    expendable: (line) => Boolean(line.ai),
+    onChange: (change) => room.told.push(change),
+  });
+  return { room, outbox, [Symbol.dispose]: () => void vi.useRealTimers() };
+}
