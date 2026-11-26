@@ -61,6 +61,13 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   look are in [src/styles/AGENTS.md](src/styles/AGENTS.md).
 - The repo IDE, the virtual log, the context view and the agent chat score 100 on React Doctor.
   Keep them there. The commands are in the folders' `AGENTS.md` files.
+- The Dash and the context catalog score 100 on React Doctor too. Keep them there (run from
+  `packages/ui`):
+
+  ```sh
+  npx react-doctor@latest --yes src/components/dash/*.tsx src/components/dash/*.ts src/components/context-catalog/*.tsx src/components/context-catalog/*.ts
+  ```
+
 - The browser specs of this package (`test/playwright/ui/*.spec.ts`) left the repo with `core/os`.
   `git show cbf560aa7:test/playwright/ui/<name>.spec.ts` shows what they held.
 

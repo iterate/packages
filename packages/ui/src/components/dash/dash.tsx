@@ -198,6 +198,7 @@ export function Dash({
   const catalogPinned = useMemo(() => {
     const tagged = new Map<string, string | undefined>();
     for (const row of catalog.rows || []) {
+      // react-doctor-disable-next-line react-doctor/js-set-map-lookups -- each row's own short list of tags: no one list is searched for every row
       if (row.path !== MAIN_AGENT && contextTags(row).includes(PINNED_IN_DASH_TAG))
         tagged.set(row.path, contextTitle(row));
     }

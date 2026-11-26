@@ -85,10 +85,10 @@ export function DashAgentsNav({
       </SidebarGroupLabel>
       <SidebarGroupAction
         title="New conversation"
-        aria-label="New conversation"
         render={
           <a
-            {...newLink}
+            href={newLink.href}
+            aria-label="New conversation"
             onClick={(event) => {
               newLink.onClick(event);
               event.currentTarget.blur();
