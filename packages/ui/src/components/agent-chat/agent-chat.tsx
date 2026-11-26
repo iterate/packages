@@ -85,6 +85,7 @@ import {
   type OlderPages,
 } from "#/components/virtual-log/older-pages.ts";
 import { remembered } from "#/components/virtual-log/remembered.ts";
+import type { WidgetMcpCalls } from "#/components/widget/widget-mcp.ts";
 import { WidgetHostProvider } from "#/components/widget/widget-row.tsx";
 import { versionOf } from "#/lib/itx-session.ts";
 import {
@@ -189,6 +190,7 @@ export function AgentChat({
   presence = false,
   inCall,
   mind,
+  widgetCalls,
 }: {
   /** The agent's path, the Events tab's title. */
   path: string;
@@ -264,6 +266,9 @@ export function AgentChat({
   inCall?: InCall;
   /** With `presence`: the mind, the first face of the stack of who is here. */
   mind?: MindFace;
+  /** Another server's MCP App in the feed calls its server through these, as this agent
+   *  (widget-mcp.ts `widgetMcpHost`). Absent: an app's view can call nothing. */
+  widgetCalls?: WidgetMcpCalls;
 }) {
   // the chat and its traces read each committed row as the reducer does; the Events tab takes the
   // raw log untouched
@@ -287,12 +292,19 @@ export function AgentChat({
       onAppend ? (input) => sendToAgent(input, { onAppend, onMessage, storeFiles }) : onMessage,
     [onAppend, onMessage, storeFiles],
   );
-  // a widget's words go as the person's, through the same send; each press is its own message
+  // a widget's words go as the person's, through the same send; each press is its own message,
+  // and names the widget it came from (with no `onAppend`, `message()` carries the words alone)
   const sendFromWidget = useCallback(
-    (message: string) => {
-      void send({ message, files: [], key: `widget:${crypto.randomUUID()}` });
+    (message: string, widget: { key: string; offset: number }) => {
+      void send({ message, files: [], key: `widget:${crypto.randomUUID()}`, widget });
     },
     [send],
+  );
+  // another server's words go into the composer, after what the person has typed: they send them
+  const { setMessage } = draft;
+  const draftFromWidget = useCallback(
+    (text: string) => setMessage((typed) => (typed.trim() ? `${typed}\n\n${text}` : text)),
+    [setMessage],
   );
   // in a voice call the agent is spoken to, not idle: the strip says nothing then
   const status = chatStatus(turn, feed.state, (inCall?.size ?? 0) > 0);
@@ -349,7 +361,14 @@ export function AgentChat({
       }
     >
       <AgentChoiceProvider onChoice={onChoice} choiceState={choiceState}>
-        <WidgetHostProvider events={fold.events} onSend={sendFromWidget}>
+        <WidgetHostProvider
+          events={fold.events}
+          onSend={sendFromWidget}
+          onDraft={draftFromWidget}
+          path={path}
+          calls={widgetCalls}
+          onAppend={onAppend}
+        >
           <ChatTab
             feed={feed}
             conversation={conversation}
@@ -397,7 +416,9 @@ AgentChat.contextOptions = {
 /** The person's words and files, as the composer hands them over. */
 type OutgoingMessage = Parameters<ComponentProps<typeof AgentComposer>["onSubmit"]>[0];
 /** What a host does with them. */
-type SendMessage = (input: OutgoingMessage & { key: string }) => Promise<void>;
+type SendMessage = (
+  input: OutgoingMessage & { key: string; widget?: { key: string; offset: number } },
+) => Promise<void>;
 
 /** Everyone but the viewer who wrote in the rows the page holds, once each, in the order they
  *  first wrote. */

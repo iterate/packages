@@ -247,6 +247,21 @@ test("the composer: a host that cannot store files sends words with files throug
   });
 });
 
+test("a press in a widget names the widget in its message-received", async () => {
+  const appended: unknown[][] = [];
+  const host = {
+    onAppend: async (events: unknown[]) => appended.push(events),
+    onMessage: async () => {},
+  };
+  await sendToAgent(
+    { message: "Adopt Goldie", files: [], key: "widget:1", widget: { key: "pets", offset: 12 } },
+    host,
+  );
+  expect(appended).toMatchObject([
+    [{ payload: { message: "Adopt Goldie", widget: { key: "pets", offset: 12 } } }],
+  ]);
+});
+
 // ── the log ──
 
 const SCRIPT =

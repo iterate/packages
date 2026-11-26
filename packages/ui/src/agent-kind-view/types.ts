@@ -97,6 +97,24 @@ export type AgentKindViewProps = {
   /** The viewer's actor id or address, when the page knows it: `AgentChat` draws no sender line
    *  under their own messages. */
   me?: string;
+  /** Another server's MCP App in the feed calls its server through these, as this agent: pass
+   *  them on to `AgentChat` as `widgetCalls`. None: a page older than these verbs. */
+  widgetCalls?: {
+    callTool(call: {
+      path: string;
+      key: string;
+      server: string;
+      headers?: Record<string, string>;
+      name: string;
+      args: Record<string, unknown>;
+    }): Promise<unknown>;
+    readResource(read: {
+      path: string;
+      server: string;
+      headers?: Record<string, string>;
+      uri: string;
+    }): Promise<unknown>;
+  };
   /** `true`: `AgentChat` shows who else is here and who is typing. A kind's view that wants it
    *  also names `PRESENCE_EVENT_TYPES` (the kit's `lib/presence`) in its `ephemeralEvents`: the
    *  host's row of the log is then a page, and the view hears the others' status. */

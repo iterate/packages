@@ -5,7 +5,8 @@
 //                 go as the pages added at either end, never the whole log again.
 //   host → frame  `start(input)`: the kind's `newAgent.start`, for the Dash's New agent.
 //   frame → host  `loaded(…)` once (what the live read should include), then the verbs: message,
-//                 append, fileUrl, storeFiles, setState, loadOlder. Each acts on the one agent the host shows;
+//                 append, fileUrl, storeFiles, setState, loadOlder, and an MCP App's callTool and
+//                 readResource. Each acts on the one agent the host shows;
 //                 the host never hands over its context stub, whose `invoke` and `cd` reach the
 //                 whole mind.
 import type { AgentChatState } from "../components/agent-chat/agent-chat-search.ts";
@@ -79,6 +80,14 @@ export interface AgentKindViewHostApi {
   ): ReturnType<NonNullable<AgentKindViewProps["storeFiles"]>>;
   setState(patch: Partial<AgentChatState>): void;
   loadOlder(): void;
+  /** An MCP App's tool call, made as the agent at `path` (the host's own agent alone). */
+  callTool(
+    call: Parameters<NonNullable<AgentKindViewProps["widgetCalls"]>["callTool"]>[0],
+  ): Promise<unknown>;
+  /** An MCP App's resource read, likewise. */
+  readResource(
+    read: Parameters<NonNullable<AgentKindViewProps["widgetCalls"]>["readResource"]>[0],
+  ): Promise<unknown>;
 }
 
 export interface AgentKindViewFrameApi {

@@ -85,6 +85,9 @@ export function agentUiMessage(input: {
   files: readonly StoredFile[];
   key?: string;
   client?: "web" | "mobile";
+  /** The widget a press in it sent these words from: its key, and the offset of the
+   *  `widget-shown` fact that its row draws. */
+  widget?: { key: string; offset: number };
 }) {
   return {
     type: AGENT_FACT.uiMessageReceived,
@@ -93,6 +96,7 @@ export function agentUiMessage(input: {
       message: input.message,
       ...(input.files.length > 0 && { files: [...input.files] }),
       client: input.client || clientOfBrowser(),
+      widget: input.widget,
     },
   };
 }
@@ -116,7 +120,12 @@ export type StoreFiles = (files: OutgoingFile[], key?: string) => Promise<Stored
  *  with the words and the files, through `onAppend`. A host that cannot store files sends words
  *  with files through `onMessage` (the platform's `message()`, which stores them). */
 export async function sendToAgent<
-  Input extends { message: string; files: OutgoingFile[]; key?: string },
+  Input extends {
+    message: string;
+    files: OutgoingFile[];
+    key?: string;
+    widget?: { key: string; offset: number };
+  },
 >(
   input: Input,
   host: {
@@ -128,5 +137,7 @@ export async function sendToAgent<
   if (input.files.length > 0 && !host.storeFiles) return await host.onMessage(input);
   const files =
     input.files.length > 0 && host.storeFiles ? await host.storeFiles(input.files, input.key) : [];
-  await host.onAppend([agentUiMessage({ message: input.message, files, key: input.key })]);
+  await host.onAppend([
+    agentUiMessage({ message: input.message, files, key: input.key, widget: input.widget }),
+  ]);
 }

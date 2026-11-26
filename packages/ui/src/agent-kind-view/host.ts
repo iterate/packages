@@ -21,8 +21,11 @@ import {
 
 /** What the frame may do, all of it to the one agent the page shows. A page that does not give
  *  `storeFiles` refuses a message with files that a kind appends itself. */
-export type AgentKindViewVerbs = Omit<AgentKindViewHostApi, "loaded" | "storeFiles"> &
-  Partial<Pick<AgentKindViewHostApi, "storeFiles">>;
+export type AgentKindViewVerbs = Omit<
+  AgentKindViewHostApi,
+  "loaded" | "storeFiles" | "callTool" | "readResource"
+> &
+  Partial<Pick<AgentKindViewHostApi, "storeFiles" | "callTool" | "readResource">>;
 
 /** One frame's link to the page: its handshake, its session, what it reported, what it holds. */
 export class AgentKindViewLink {
@@ -137,6 +140,16 @@ class HostTarget extends RpcTarget implements AgentKindViewHostApi {
   }
   loadOlder() {
     this.#verbs().loadOlder();
+  }
+  callTool(call: Parameters<AgentKindViewHostApi["callTool"]>[0]) {
+    const { callTool } = this.#verbs();
+    if (!callTool) throw new Error("This page cannot call an MCP App's server for this agent.");
+    return callTool(call);
+  }
+  readResource(read: Parameters<AgentKindViewHostApi["readResource"]>[0]) {
+    const { readResource } = this.#verbs();
+    if (!readResource) throw new Error("This page cannot read an MCP App's server for this agent.");
+    return readResource(read);
   }
 }
 

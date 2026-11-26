@@ -2063,9 +2063,10 @@
     {
       "name": "widget",
       "type": "registry:component",
-      "description": "An agent's widget: HTML that an agent's script shows a person as one fact on its log, drawn in a sandboxed frame with no network that speaks the MCP Apps messages (data, height, theme, words after a press, the console).",
+      "description": "An agent's widget: HTML that an agent's script shows a person as one fact on its log, drawn in a sandboxed frame that speaks the MCP Apps messages (data, height, theme, words after a press, the console), with no network but the origins its csp declares. The same frame draws another server's MCP App, whose tool calls the page makes as the agent.",
       "dependencies": [
-        "cn"
+        "cn",
+        "zod"
       ],
       "files": [
         {
@@ -2078,6 +2079,10 @@
         },
         {
           "path": "src/components/widget/widget.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/widget/widget-mcp.ts",
           "type": "registry:component"
         }
       ]

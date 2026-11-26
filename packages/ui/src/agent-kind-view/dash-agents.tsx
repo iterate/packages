@@ -40,6 +40,7 @@ import {
   fileUrl,
   messageAgent,
   storeAgentFiles,
+  widgetCallsOf,
   withAgents,
 } from "./dash-agent-calls.ts";
 import {
@@ -897,6 +898,7 @@ function IterateChat({
   const callLive = context.liveState.call?.value;
   // one function while the agent is the same: Share turns the call on at most once by it
   const enableCall = useCallback(() => call!.enable(itx, path), [call, itx, path]);
+  const widgetCalls = useMemo(() => widgetCallsOf(itx, path), [itx, path]);
   const inCall = useMemo(() => callKit && callKit.inCallOf(callLive), [callKit, callLive]);
   useEffect(() => {
     if (!opener || !stub || !empty) return;
@@ -967,6 +969,7 @@ function IterateChat({
         presence={presence}
         inCall={inCall}
         mind={use(PageMind)}
+        widgetCalls={widgetCalls}
       />
     </>
   );
@@ -1169,6 +1172,9 @@ function kindViewVerbs({
     },
     // under this agent's path alone: the frame names no path
     storeFiles: (files, key) => storeAgentFiles(itx, path, files, key),
+    // as this agent alone: a call that names another path is refused (widget-mcp.ts)
+    callTool: (call) => widgetCallsOf(itx, path).callTool(call),
+    readResource: (read) => widgetCallsOf(itx, path).readResource(read),
     setState,
     loadOlder,
   };

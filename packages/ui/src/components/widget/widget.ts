@@ -9,17 +9,29 @@
 //   - the facts, and the fold of the newest widget for each key (`widgetFold`);
 //   - the frame's document: the policy, the theme, the data, the client script (`widgetDocument`);
 //   - the host's half of the bridge, as a pure answer to one message (`widgetAnswer`).
+//
+// TWO KINDS OF WIDGET, ONE FRAME. Our agent's own widget is a fragment or a document, and the kit
+// adds its client script. ANOTHER SERVER'S MCP APP (`app` in the fact) is that server's `ui://`
+// resource as it served it: the kit adds no script, only the policy, first. Its view calls its
+// own server's tools (`tools/call`), which the page makes through the agent's own context.
 
 const T = "events.iterate.com/";
 /** The facts. A script appends `widget-shown`; `widget-updated` gives a shown widget new data. */
 export const WIDGET_FACT = {
   shown: `${T}agent-ui/widget-shown`,
   updated: `${T}agent-ui/widget-updated`,
+  /** An app's view called a tool of its server: `{ key, server, tool, ok, ms, error? }`. */
+  toolCalled: `${T}agent-ui/widget-tool-called`,
+  /** A view's words for the agent's next turn: `{ key, server?, content }`. */
+  context: `${T}agent-ui/widget-context`,
 } as const;
 /** The version of the MCP Apps messages that the frame and the host speak. */
 const WIDGET_PROTOCOL = "2026-01-26";
 /** A widget's HTML is at most this many characters. Past it, the row shows the widget's `text`. */
 export const WIDGET_HTML_MAX = 256 * 1024;
+/** Another server's MCP App document is at most this many characters: such documents are 0.1 to
+ *  5 MB as a rule, and one event holds up to 8 million characters. */
+export const WIDGET_APP_HTML_MAX = 4 * 1024 * 1024;
 /** A frame is at most this tall; a taller widget scrolls inside it. */
 export const WIDGET_HEIGHT_MAX = 2000;
 /** A frame's height before its widget reports one, when the fact names none. */
@@ -38,12 +50,113 @@ export type Widget = {
   height?: number;
   /** The offset of the newest `widget-shown` for this key. */
   offset: number;
+  /** The origins the widget may reach, in the MCP Apps spec's names (`_meta.ui.csp`). */
+  csp?: WidgetCsp;
+  /** Another server's MCP App: the call that made it. None: our agent's own widget. */
+  app?: WidgetApp;
+};
+
+/** The MCP Apps spec's `_meta.ui.csp`: origins, or host patterns like `https://*.example.com`. */
+export type WidgetCsp = {
+  connectDomains?: string[];
+  resourceDomains?: string[];
+  frameDomains?: string[];
+  baseUriDomains?: string[];
+};
+
+/** The tool call that made another server's MCP App, and the resource it read. */
+export type WidgetApp = {
+  /** The MCP endpoint, an https URL. */
+  server: string;
+  /** Headers for the endpoint: `getSecret("/secrets/…")` placeholders, never a secret. */
+  headers?: Record<string, string>;
+  tool: string;
+  resourceUri: string;
+  input: Record<string, unknown>;
+  result: {
+    content?: unknown[];
+    structuredContent?: unknown;
+    isError?: boolean;
+    _meta?: Record<string, unknown>;
+  };
+  permissions?: Record<string, unknown>;
+  prefersBorder?: boolean;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const words = (value: unknown, most: number) =>
   typeof value === "string" && value.trim() !== "" ? value.slice(0, most) : undefined;
+
+const strings = (value: unknown, most: number) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").slice(0, most)
+    : undefined;
+const textRecord = (value: unknown) =>
+  isRecord(value)
+    ? Object.fromEntries(
+        Object.entries(value).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      )
+    : undefined;
+
+/** A fact's `csp`, each list kept to its strings (each one is checked when the policy is built). */
+function cspOf(value: unknown): WidgetCsp | undefined {
+  if (!isRecord(value)) return undefined;
+  const csp: WidgetCsp = {};
+  for (const name of [
+    "connectDomains",
+    "resourceDomains",
+    "frameDomains",
+    "baseUriDomains",
+  ] as const) {
+    const list = strings(value[name], 50);
+    if (list?.length) csp[name] = list;
+  }
+  return Object.keys(csp).length ? csp : undefined;
+}
+
+/** A fact's `app`, or none when it names no https server, tool and resource: a row must say whose
+ *  UI it is, and a call must know where it goes. */
+function appOf(value: unknown): WidgetApp | undefined {
+  if (!isRecord(value)) return undefined;
+  const server = words(value.server, 2000);
+  const tool = words(value.tool, 200);
+  const resourceUri = words(value.resourceUri, 2000);
+  if (!server || !tool || !resourceUri || !isHttpsUrl(server)) return undefined;
+  const result = isRecord(value.result) ? value.result : {};
+  return {
+    server,
+    headers: textRecord(value.headers),
+    tool,
+    resourceUri,
+    input: isRecord(value.input) ? value.input : {},
+    result: {
+      content: Array.isArray(result.content) ? result.content : undefined,
+      structuredContent: result.structuredContent,
+      isError: result.isError === true || undefined,
+      _meta: isRecord(result._meta) ? result._meta : undefined,
+    },
+    permissions: isRecord(value.permissions) ? value.permissions : undefined,
+    prefersBorder: typeof value.prefersBorder === "boolean" ? value.prefersBorder : undefined,
+  };
+}
+
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** The host name of an app's server, for its row's header: whose UI it is. */
+export const widgetServerHost = (app: WidgetApp) => new URL(app.server).host;
+
+/** The most characters of HTML the frame draws for this widget. */
+export const widgetHtmlMax = (widget: Pick<Widget, "app">) =>
+  widget.app ? WIDGET_APP_HTML_MAX : WIDGET_HTML_MAX;
 
 /** The key a widget fact names: `key`, or `id` (the pet shop's word), else none. */
 function keyOf(payload: Record<string, unknown>) {
@@ -53,6 +166,9 @@ function keyOf(payload: Record<string, unknown>) {
 /** The widget that one `widget-shown` fact shows, or null for a payload that shows none. */
 export function widgetOf(payload: unknown, offset: number): Widget | null {
   if (!isRecord(payload) || typeof payload.html !== "string") return null;
+  const app = appOf(payload.app);
+  // a fact that says it is another server's app, and names no server, shows nothing
+  if (payload.app !== undefined && !app) return null;
   const title = words(payload.title, 200);
   const height =
     typeof payload.height === "number" && payload.height > 0 ? payload.height : undefined;
@@ -64,6 +180,8 @@ export function widgetOf(payload: unknown, offset: number): Widget | null {
     title,
     height: height && Math.min(height, WIDGET_HEIGHT_MAX),
     offset,
+    csp: cspOf(payload.csp),
+    app,
   };
 }
 
@@ -100,6 +218,47 @@ export function widgetFold(facts: readonly unknown[], held: WidgetFold = new Map
 /** The frame's policy: inline script and style, images and fonts from data, and no network. */
 export const WIDGET_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+/** One entry of a `csp` list that the policy takes: an https or wss origin, or one with a
+ *  `*.` subdomain pattern (`https://*.example.com`), with an optional port; http and ws only for
+ *  the computer's own host. No quote, semicolon, space, path or bare `*` can pass: each would
+ *  change the policy's meaning, not widen it by one origin. */
+const CSP_SOURCE =
+  /^(?:(?:https|wss):\/\/(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*|(?:http|ws):\/\/(?:localhost|127\.0\.0\.1))(?::\d{1,5})?$/i;
+
+/** The entries of a `csp` list that the policy takes, and the ones it refused. */
+export function widgetCspSources(list: readonly string[] | undefined) {
+  const taken: string[] = [];
+  const refused: string[] = [];
+  for (const entry of list || []) (CSP_SOURCE.test(entry) ? taken : refused).push(entry);
+  return { taken, refused };
+}
+
+/** THE FRAME'S POLICY FOR A WIDGET: `WIDGET_POLICY` widened by exactly the declared origins, by
+ *  the spec's mapping. `connectDomains` → `connect-src`; `resourceDomains` → `script-src`,
+ *  `style-src`, `img-src`, `font-src` and `media-src`; `frameDomains` → `frame-src`;
+ *  `baseUriDomains` → `base-uri`. An entry that is no origin or host pattern is left out. */
+export function widgetPolicy(csp: WidgetCsp | undefined): string {
+  if (!csp) return WIDGET_POLICY;
+  const connect = widgetCspSources(csp.connectDomains).taken;
+  const resource = widgetCspSources(csp.resourceDomains).taken;
+  const frame = widgetCspSources(csp.frameDomains).taken;
+  const baseUri = widgetCspSources(csp.baseUriDomains).taken;
+  const widened = (name: string, base: string, more: string[]) => [name, base, ...more].join(" ");
+  return [
+    "default-src 'none'",
+    widened("script-src", "'unsafe-inline'", resource),
+    widened("style-src", "'unsafe-inline'", resource),
+    widened("img-src", "data: blob:", resource),
+    widened("media-src", "data: blob:", resource),
+    widened("font-src", "data:", resource),
+    connect.length ? `connect-src ${connect.join(" ")}` : "connect-src 'none'",
+    ...(frame.length ? [`frame-src ${frame.join(" ")}`] : []),
+    "object-src 'none'",
+    baseUri.length ? `base-uri ${baseUri.join(" ")}` : "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+}
 
 /** The theme the host gives a widget: `light` or `dark`, and the spec's CSS variables. */
 export type WidgetTheme = { theme: "light" | "dark"; variables: Record<string, string> };
@@ -264,10 +423,19 @@ export const WIDGET_CLIENT = `(function () {
 /** THE FRAME'S WHOLE DOCUMENT, in this order: the doctype, the policy, the theme, the base style,
  *  the host's color scheme on every element, the data, the client, then the author's HTML as
  *  written. The data and the theme are in it, so the widget draws while it parses. */
-export function widgetDocument(widget: Pick<Widget, "html" | "data">, theme: WidgetTheme): string {
+export function widgetDocument(
+  widget: Pick<Widget, "html" | "data" | "csp" | "app">,
+  theme: WidgetTheme,
+): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${widgetPolicy(widget.csp)}">`;
+  // ANOTHER SERVER'S DOCUMENT, as it served it, after the policy: the policy is the first element
+  // whatever the document says. Its own doctype, `<html>` and `<head>` after it are parsed into
+  // the same document (a second doctype is ignored; the `<html>` attributes are kept), so no
+  // comment or script in it can stand before the policy. Its theme comes in `ui/initialize`.
+  if (widget.app) return `<!doctype html><meta charset="utf-8">${policy}${widget.html}`;
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
-    `<meta http-equiv="Content-Security-Policy" content="${WIDGET_POLICY}">` +
+    policy +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<style>:root{${cssVariables(theme.variables)}}${BASE_STYLE}</style>` +
     // the host's scheme on every element, over the author's own `color-scheme: light dark`: a
@@ -295,6 +463,8 @@ export type WidgetAct = {
   height?: number;
   /** The widget sent the person's words to the agent. */
   send?: string;
+  /** Another server's view offered words: they go into the composer, for the person to send. */
+  draft?: string;
   /** An https link to open in a new tab. */
   open?: string;
   /** The widget finished its handshake: send it its data. */
@@ -304,6 +474,14 @@ export type WidgetAct = {
   scrolled?: { wheel: number } | { touch: "start" | "end" } | { touch: "move"; by: number };
   /** One line of the widget's console or an uncaught error (`notifications/message`). */
   log?: { level: "log" | "info" | "warn" | "error" | "debug"; text: string };
+  /** An app's view calls a tool of its own server (`tools/call`): the host makes the call and
+   *  posts the reply to `id` itself. */
+  callTool?: { id: string | number; name: string; arguments: Record<string, unknown> };
+  /** An app's view reads a resource of its own server (`resources/read`), likewise. */
+  readResource?: { id: string | number; uri: string };
+  /** Words from the view for the agent's next turn (`ui/update-model-context`): that server's or
+   *  that widget's words, never the person's. */
+  modelContext?: { content: unknown[]; structuredContent?: unknown };
 };
 
 /** Where the host stands when a message comes. `pressed`: the browser says a person pressed
@@ -315,6 +493,12 @@ export type WidgetHostState = {
   pressed: boolean;
   /** The host takes words from the widget (the page gave the chat a way to send them). */
   canSend: boolean;
+  /** The host puts an app's words into the chat's composer (the chat has one). */
+  canDraft?: boolean;
+  /** The host makes an app's tool calls and resource reads (the page gave a way). */
+  canCallServer?: boolean;
+  /** The host takes a widget's words for the agent's next turn. */
+  canModelContext?: boolean;
 };
 
 const ok = (id: unknown, result: unknown): WidgetAct["reply"] => ({ jsonrpc: "2.0", id, result });
@@ -323,6 +507,21 @@ const refused = (id: unknown, code: number, message: string): WidgetAct["reply"]
   id,
   error: { code, message },
 });
+
+/** The origins of a widget's `csp` that its frame's policy took (widgetPolicy). */
+function appliedCsp(csp: WidgetCsp | undefined): WidgetCsp {
+  const applied: WidgetCsp = {};
+  for (const name of [
+    "connectDomains",
+    "resourceDomains",
+    "frameDomains",
+    "baseUriDomains",
+  ] as const) {
+    const { taken } = widgetCspSources(csp?.[name]);
+    if (taken.length) applied[name] = taken;
+  }
+  return applied;
+}
 
 /** The host's context for `ui/initialize`: the theme, inline display, and the width. */
 function widgetHostContext(state: Pick<WidgetHostState, "theme" | "width">) {
@@ -335,11 +534,20 @@ function widgetHostContext(state: Pick<WidgetHostState, "theme" | "width">) {
   };
 }
 
-/** The tool result that carries a widget's data: its words and its data. */
-export const widgetResult = (widget: Pick<Widget, "text" | "data">) => ({
-  content: [{ type: "text", text: widget.text }],
-  structuredContent: widget.data ?? null,
-});
+/** The tool result that carries a widget's data: its words and its data. An app's is the call's
+ *  own result, with the newest data (a `widget-updated`) as its structured content. */
+export const widgetResult = (widget: Pick<Widget, "text" | "data" | "app">) =>
+  widget.app
+    ? {
+        ...widget.app.result,
+        structuredContent:
+          widget.data === undefined ? widget.app.result.structuredContent : widget.data,
+      }
+    : { content: [{ type: "text", text: widget.text }], structuredContent: widget.data ?? null };
+
+/** The arguments the view was shown with: an app's call's input, our widget's data. */
+export const widgetInput = (widget: Pick<Widget, "data" | "app">) =>
+  widget.app ? widget.app.input : (widget.data ?? {});
 
 /** THE HOST'S ANSWER TO ONE MESSAGE of a widget. A send or a link wants a press: a widget that
  *  sends words at load, with no press, is refused. A link is https only. */
@@ -351,15 +559,27 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
   // a JSON-RPC id is a string or a number, and 0 is one
   const request = typeof id === "string" || typeof id === "number";
   switch (method) {
-    case "ui/initialize":
+    case "ui/initialize": {
+      const server = Boolean(state.widget.app && state.canCallServer);
       return {
         reply: ok(id, {
           protocolVersion: WIDGET_PROTOCOL,
           hostInfo: { name: "iterate", version: "1" },
-          hostCapabilities: { openLinks: {}, ...(state.canSend && { message: {} }) },
+          hostCapabilities: {
+            openLinks: {},
+            logging: {},
+            ...((state.widget.app ? state.canDraft : state.canSend) && { message: { text: {} } }),
+            ...(state.canModelContext && {
+              updateModelContext: { text: {}, structuredContent: {} },
+            }),
+            ...(server && { serverTools: {}, serverResources: {} }),
+            // what the frame grants: the origins its policy took, and no device permission
+            sandbox: { permissions: {}, csp: appliedCsp(state.widget.csp) },
+          },
           hostContext: widgetHostContext(state),
         }),
       };
+    }
     case "ui/notifications/initialized":
       return { initialized: true };
     case "ui/notifications/size-changed": {
@@ -381,8 +601,20 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
         .trim()
         .slice(0, 4000);
       if (!request) return {};
-      if (!state.canSend)
-        return { reply: refused(id, -32601, "This chat takes no words from a widget.") };
+      // ANOTHER SERVER'S WORDS ARE A DRAFT: a press shows that the person touched the frame, not
+      // that they approved the words. The composer shows the exact text, and the person sends it
+      // or not. Our own widget's words are ones our agent wrote: a press sends them.
+      const app = Boolean(state.widget.app);
+      if (app ? !state.canDraft : !state.canSend)
+        return {
+          reply: refused(
+            id,
+            -32601,
+            app
+              ? "This chat has no composer for a widget's words."
+              : "This chat takes no words from a widget.",
+          ),
+        };
       if (!state.pressed)
         return {
           reply: refused(
@@ -392,7 +624,7 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
           ),
         };
       if (text === "") return { reply: refused(id, -32602, "The message has no words.") };
-      return { reply: ok(id, {}), send: text };
+      return app ? { reply: ok(id, {}), draft: text } : { reply: ok(id, {}), send: text };
     }
     case "ui/open-link": {
       const url = typeof params.url === "string" ? params.url : "";
@@ -435,6 +667,33 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
         typeof params.data === "string" ? params.data : JSON.stringify(params.data ?? null);
       return { log: { level: mapped, text: String(data).slice(0, 2048) } };
     }
+    case "tools/call": {
+      if (!request) return {};
+      if (!state.widget.app || !state.canCallServer)
+        return { reply: refused(id, -32601, "This widget has no server to call.") };
+      const name = words(params.name, 200);
+      if (!name) return { reply: refused(id, -32602, "A tool call names its tool.") };
+      const args = isRecord(params.arguments) ? params.arguments : {};
+      return { callTool: { id, name, arguments: args } };
+    }
+    case "resources/read": {
+      if (!request) return {};
+      if (!state.widget.app || !state.canCallServer)
+        return { reply: refused(id, -32601, "This widget has no server to read.") };
+      const uri = words(params.uri, 2000);
+      if (!uri) return { reply: refused(id, -32602, "A read names its resource.") };
+      return { readResource: { id, uri } };
+    }
+    case "ui/update-model-context": {
+      if (!request) return {};
+      if (!state.canModelContext)
+        return { reply: refused(id, -32601, "This chat takes no context from a widget.") };
+      const content = Array.isArray(params.content) ? params.content.slice(0, 20) : [];
+      return {
+        reply: ok(id, {}),
+        modelContext: { content, structuredContent: params.structuredContent },
+      };
+    }
     case "ui/request-display-mode":
       return request ? { reply: ok(id, { mode: "inline" }) } : {};
     case "ping":
@@ -446,7 +705,7 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
 
 /** The spec's theme variables from the page's own tokens (the kit's CSS variables), read where the
  *  frame stands. A token the page lacks is left out. */
-export const WIDGET_THEME_TOKENS: Record<string, string> = {
+const WIDGET_THEME_TOKENS: Record<string, string> = {
   "--color-background-primary": "--background",
   "--color-background-secondary": "--muted",
   "--color-text-primary": "--foreground",
@@ -455,3 +714,17 @@ export const WIDGET_THEME_TOKENS: Record<string, string> = {
   "--color-ring-primary": "--ring",
   "--border-radius-md": "--radius",
 };
+
+/** The page's theme where `element` stands: `dark` when an ancestor has the class, and the spec's
+ *  variables from the kit's tokens. */
+export function widgetThemeAt(element: Element | null): WidgetTheme {
+  if (!element || typeof getComputedStyle !== "function") return { theme: "light", variables: {} };
+  const style = getComputedStyle(element);
+  const variables: Record<string, string> = {};
+  for (const [name, token] of Object.entries(WIDGET_THEME_TOKENS)) {
+    const value = style.getPropertyValue(token).trim();
+    if (value) variables[name] = value;
+  }
+  variables["--font-sans"] = style.fontFamily;
+  return { theme: element.closest(".dark") ? "dark" : "light", variables };
+}

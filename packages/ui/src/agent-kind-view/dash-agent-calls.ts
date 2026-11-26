@@ -5,6 +5,11 @@
 import { z } from "zod";
 import type { AuthenticatedApp } from "iterate/app";
 import type { OutgoingFile, StoredFile } from "#/components/agent-chat/agent-facts.ts";
+import {
+  widgetMcpHost,
+  type WidgetMcpCalls,
+  type WidgetMcpConnection,
+} from "#/components/widget/widget-mcp.ts";
 
 type Itx = AuthenticatedApp["itx"];
 
@@ -132,4 +137,42 @@ export async function storeAgentFiles(
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** One host of MCP App calls for each agent the page has shown, kept while the page lives: its
+ *  connections stay open for the next call (widget-mcp.ts). */
+const widgetHosts = new WeakMap<Itx, Map<string, WidgetMcpCalls>>();
+
+/** THE CALLS OF THE MCP APPS IN AN AGENT'S FEED, made as that agent: `itx.cd(path)` holds the
+ *  connection, so a widget reaches what the agent at `path` reaches. Its context and its
+ *  connections are held from an app's first call while the page lives, one connection for each
+ *  server and headers. */
+export function widgetCallsOf(itx: Itx, path: string): WidgetMcpCalls {
+  let byPath = widgetHosts.get(itx);
+  if (!byPath) widgetHosts.set(itx, (byPath = new Map()));
+  let host = byPath.get(path);
+  if (!host) {
+    // opened at an app's first call, not when the chat draws: most feeds have no app
+    let opened: Promise<Awaited<ReturnType<Itx["cd"]>>> | undefined;
+    const context = () => {
+      opened ||= Promise.resolve(itx.cd(path));
+      // a context that did not open is opened again by the next call
+      opened.catch(() => (opened = undefined));
+      return opened;
+    };
+    host = widgetMcpHost({
+      path,
+      // The connection's type is the platform's `McpConnectionApi`; a mind whose platform predates
+      // `callToolResult` and `readResource` refuses those calls over RPC, and the refusal reaches
+      // the widget as its call's error. So the structural type is safe to assume and cannot be
+      // checked here.
+      open: async (server, headers) =>
+        (await (
+          await context()
+        ).connectToMcp(server, { headers })) as unknown as WidgetMcpConnection,
+      append: async (events) => await appendEvents(await context(), events),
+    });
+    byPath.set(path, host);
+  }
+  return host;
 }

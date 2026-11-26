@@ -91,7 +91,7 @@ function verbsOf(
   host: Host,
 ): Pick<
   AgentKindViewProps,
-  "onStateChange" | "onMessage" | "onAppend" | "signedUrl" | "storeFiles"
+  "onStateChange" | "onMessage" | "onAppend" | "signedUrl" | "storeFiles" | "widgetCalls"
 > {
   return {
     onStateChange: (patch) => void host.setState(patch),
@@ -99,6 +99,10 @@ function verbsOf(
     onAppend: async (events) => await host.append(events),
     signedUrl: async (path) => await host.fileUrl(path),
     storeFiles: async (files, key) => await host.storeFiles(files, key),
+    widgetCalls: {
+      callTool: async (call) => await host.callTool(call),
+      readResource: async (read) => await host.readResource(read),
+    },
   };
 }
 
