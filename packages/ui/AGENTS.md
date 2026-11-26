@@ -99,6 +99,15 @@ imports from esm.sh. Main publishes it under the `main` dist-tag.
   `/<id>/<rest>` (the pure codec is `components/dash/dash-paths.ts`, registered by
   `components/dash/dash-href.ts`). Every part reads `usePageParam` and builds `pageHref`,
   `agentViewHref` or `rawViewHref`: never read `location` or write a `?page=` link by hand.
+- `components/context-catalog` reads the mind's catalog of its contexts. The mind pushes it:
+  `catalog-collection.ts` is the catalog as TanStack DB collections over `itx.contexts.watch`, on
+  the page's one socket (an on-demand collection whose live queries become catalog queries, and
+  one collection for one named query, such as the awake list), and `context-catalog-live.ts` is
+  the hook that the Dash reads its rows with (`useWatchedContextCatalog`) and the one set of
+  collections for an `itx` (`catalogOf`). A page writes its own live query of
+  `catalogOf(itx).contexts` with TanStack DB from the `db` entry (`@iterate-com/ui/db`), never
+  from an import-map line of its own: the collections and the query must be of one copy. A mind
+  whose platform has no `contexts.watch` is asked for `contexts.list` every ten seconds, as before.
 - `components/page-tools` lends the agent that a page shows tools that run in that page (a
   banner, Playwright's locators). `lib/page-tools.ts` says how a call travels, who may call and
   what each refusal is worth: read its header before you add a tool or loosen a rule. The Dash

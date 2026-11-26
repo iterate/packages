@@ -58,6 +58,8 @@ export function browserEntries(): Record<string, string> {
     // react-query for a page, from this package and not from an import-map line of its own
     // (src/browser/query.ts)
     query: "src/browser/query.ts",
+    // TanStack DB for a page, from this package (src/browser/db.ts)
+    db: "src/browser/db.ts",
     react: "src/browser/react.ts",
     "react/jsx-runtime": "src/browser/react-jsx-runtime.ts",
     "react/compiler-runtime": "src/browser/react-compiler-runtime.ts",
@@ -138,6 +140,9 @@ export const vendorChunks = [
   // react-query, which a page takes from the `query` entry: one client for the page and for
   // this package's components
   { name: "vendor-query", test: /node_modules[\\/]@tanstack[\\/](react-query|query-core)[\\/]/ },
+  // TanStack DB, which a page takes from the `db` entry: a page's live query and this package's
+  // collections (the mind's catalog) are of one copy
+  { name: "vendor-db", test: /node_modules[\\/]@tanstack[\\/](db|db-ivm|react-db)[\\/]/ },
   { name: "vendor-yjs", test: /node_modules[\\/](yjs|lib0|y-protocols|y-codemirror\.next)[\\/]/ },
   // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
   { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },

@@ -24,5 +24,7 @@ export { ContextIcon, ContextIconTooltipContent } from "./context-icon.tsx";
 export * from "./context-catalog-rows.ts";
 export * from "./context-palette-rows.ts";
 export { ContextCatalog, ContextCatalogList, useContextCatalog } from "./context-catalog-list.tsx";
+export * from "./catalog-collection.ts";
+export { catalogOf, useWatchedContextCatalog } from "./context-catalog-live.ts";
 export { ContextAbout, ContextFacts } from "./context-about.tsx";
 export { ContextPalette } from "./context-palette.tsx";

@@ -753,8 +753,10 @@
     {
       "name": "context-catalog",
       "type": "registry:component",
-      "description": "A mind's catalog of its contexts: the most recently active as a filtered list, what one context says about itself (description, processors, event types, metadata), a ⌘K palette of the contexts active in the last five minutes that searches every context, and the hook that reads the catalog.",
+      "description": "A mind's catalog of its contexts: the most recently active as a filtered list, what one context says about itself (description, processors, event types, metadata), a ⌘K palette of the contexts active in the last five minutes that searches every context, the catalog as TanStack DB collections that the mind pushes (on demand, with live joins), and the hooks that read it.",
       "dependencies": [
+        "@tanstack/db",
+        "@tanstack/react-db",
         "@tanstack/react-virtual",
         "cmdk",
         "cn",
@@ -771,6 +773,7 @@
         "iterate/packages/agents-nav",
         "iterate/packages/context-path-text",
         "iterate/packages/context-view",
+        "iterate/packages/itx-session",
         "iterate/packages/list-row-text",
         "iterate/packages/px-per-rem",
         "popover",
@@ -792,6 +795,14 @@
       "files": [
         {
           "path": "src/components/context-catalog/context-catalog.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-catalog/catalog-collection.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-catalog/context-catalog-live.ts",
           "type": "registry:component"
         },
         {

@@ -46,13 +46,15 @@ test.for([
   expect(vendorChunks.find(({ test }) => test.test(file))?.name).toBe(chunk);
 });
 
-test("the icons and react-query that a page takes from the kit are entries of their own", () => {
+test("the icons, react-query and TanStack DB that a page takes from the kit are entries of their own", () => {
   expect(browserEntries()).toMatchObject({
     icons: "src/browser/icons.ts",
     query: "src/browser/query.ts",
+    db: "src/browser/db.ts",
   });
   expect(publishExports(browserEntries(), [])).toMatchObject({
     "./icons": "./dist/icons.mjs",
     "./query": "./dist/query.mjs",
+    "./db": "./dist/db.mjs",
   });
 });

@@ -49,7 +49,8 @@ import {
 } from "./dash-pages.tsx";
 import { AppShell, AppShellBrand } from "#/components/app-shell.tsx";
 import { ApprovalsAlert } from "#/components/approvals-alert.tsx";
-import { useContextCatalog } from "#/components/context-catalog/context-catalog-list.tsx";
+import type { CatalogItx } from "#/components/context-catalog/catalog-collection.ts";
+import { useWatchedContextCatalog } from "#/components/context-catalog/context-catalog-live.ts";
 import { contextTags, contextTitle } from "#/components/context-catalog/context-catalog-rows.ts";
 import { ReconnectingMark } from "#/components/reconnecting-mark.tsx";
 import { DropdownMenuItem } from "#/components/ui/dropdown-menu.tsx";
@@ -91,6 +92,13 @@ type Itx = AuthenticatedApp["itx"];
 
 /** The mind's main conversation path, always anchored at the top of the Dash sidebar. */
 const MAIN_AGENT = "/agents/main";
+
+/** The member's `itx` as the catalog's watcher calls it. `contexts.watch` is of a newer platform
+ *  than this package's copy of iterate/api, so that type does not name it yet: a platform
+ *  without it refuses the call, and the Dash then asks for the list. */
+function watchedContexts(itx: Itx): CatalogItx {
+  return itx as Itx & CatalogItx;
+}
 
 /** Context catalog tag (`itx/described` `metadata.tags`) that pins a conversation right under
  *  Main conversation in the Dash sidebar. */
@@ -166,9 +174,11 @@ export function Dash({
   useEffect(markUnwatched, []);
   const Page = page.component;
   // THE CATALOG OF THE MIND'S CONTEXTS, read once for every page: the Contexts page shows its
-  // awake dots and its Recent list. A platform without it rejects and the rows stay undefined.
+  // awake dots and its Recent list. The mind pushes it (`contexts.watch`); a platform without
+  // the watch is asked for the list every ten seconds, and one without the catalog rejects and
+  // the rows stay undefined.
   const listContexts = useCallback(() => itx.contexts.list({ limit: 500 }), [itx]);
-  const catalog = useContextCatalog(listContexts, { of: mind });
+  const catalog = useWatchedContextCatalog(watchedContexts(itx), listContexts, { of: mind });
   // THE PAGE'S SESSION. The Dash subscribes to it, so the page lives on when a socket closes and
   // a new session opens: the Dash then opens again what it holds itself, and mounts anew each
   // page that does not say that it does the same (`staysOverReconnect`).
