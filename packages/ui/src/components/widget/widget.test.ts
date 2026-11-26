@@ -209,6 +209,21 @@ test("the policy is WIDGET_POLICY widened by exactly the declared origins, by th
   expect(directive("form-action")).toBe("'none'");
 });
 
+test("an app that names blob: may run the modules it builds itself (tldraw's MCP app)", () => {
+  // tldraw's resource as its server lists it, 26 Nov 2026: it runs an agent's code as a blob module
+  const policy = widgetPolicy({
+    connectDomains: ["https://cdn.tldraw.com", "https://tldraw-mcp-app.tldraw.workers.dev"],
+    resourceDomains: ["https://cdn.tldraw.com", "https://fonts.gstatic.com", "blob:"],
+  });
+  const scriptSrc = policy.split("; ").find((part) => part.startsWith("script-src "));
+  expect(scriptSrc).toBe(
+    "script-src 'unsafe-inline' https://cdn.tldraw.com https://fonts.gstatic.com blob:",
+  );
+  expect(policy).toContain(
+    "connect-src https://cdn.tldraw.com https://tldraw-mcp-app.tldraw.workers.dev;",
+  );
+});
+
 test("a csp entry that is no origin or host pattern is refused, and widens nothing", () => {
   const bad = [
     "*",
@@ -231,6 +246,7 @@ test("a csp entry that is no origin or host pattern is refused, and widens nothi
     "https://*.a.com",
     "http://localhost:8787",
     "ws://127.0.0.1:9000",
+    "blob:",
   ];
   expect(widgetCspSources([...bad, ...good])).toEqual({ taken: good, refused: bad });
   expect(widgetPolicy({ connectDomains: bad, resourceDomains: bad, frameDomains: bad })).toBe(

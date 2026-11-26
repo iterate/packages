@@ -310,9 +310,13 @@ export const WIDGET_POLICY =
 /** One entry of a `csp` list that the policy takes: an https or wss origin, or one with a
  *  `*.` subdomain pattern (`https://*.example.com`), with an optional port; http and ws only for
  *  the computer's own host. No quote, semicolon, space, path or bare `*` can pass: each would
- *  change the policy's meaning, not widen it by one origin. */
+ *  change the policy's meaning, not widen it by one origin.
+ *
+ *  And `blob:`, the frame's own blob URLs, which an app names to run code it builds as a module
+ *  (tldraw's app runs an agent's script so). It gives no reach: a frame that runs inline script
+ *  can already run any code it builds, and a blob URL holds only what the frame itself made. */
 const CSP_SOURCE =
-  /^(?:(?:https|wss):\/\/(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*|(?:http|ws):\/\/(?:localhost|127\.0\.0\.1))(?::\d{1,5})?$/i;
+  /^(?:(?:(?:https|wss):\/\/(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*|(?:http|ws):\/\/(?:localhost|127\.0\.0\.1))(?::\d{1,5})?|blob:)$/i;
 
 /** The entries of a `csp` list that the policy takes, and the ones it refused. */
 export function widgetCspSources(list: readonly string[] | undefined) {
@@ -364,9 +368,14 @@ const cssVariables = (variables: Record<string, string>) =>
     .map(([name, value]) => `${name}:${value}`)
     .join(";");
 
-/** The style every widget starts with: plain HTML looks like the page around it. */
+/** The style every widget starts with: plain HTML looks like the page around it. The feed draws
+ *  no box around a widget, so its words line up with the agent's: 2px of padding (room for a
+ *  button's focus ring at the edge), and no margin above the first element or below the last one
+ *  that shows, as the agent's own messages do (agent-chat/message.tsx). */
 const BASE_STYLE =
-  "html{height:auto}body{margin:0;padding:12px;font:14px/1.5 var(--font-sans,system-ui,sans-serif);color:var(--color-text-primary,CanvasText);background:transparent;overflow-wrap:anywhere}" +
+  "html{height:auto}body{margin:0;padding:2px;font:14px/1.5 var(--font-sans,system-ui,sans-serif);color:var(--color-text-primary,CanvasText);background:transparent;overflow-wrap:anywhere}" +
+  "body>:not(script,style,template):not(:not(script,style,template)~*){margin-top:0}" +
+  "body>:not(script,style,template):not(:has(~:not(script,style,template))){margin-bottom:0}" +
   "button{font:inherit;color:inherit;background:var(--color-background-secondary,ButtonFace);border:1px solid var(--color-border-primary,ButtonBorder);border-radius:var(--border-radius-md,8px);padding:6px 12px;cursor:pointer}" +
   "table{border-collapse:collapse}td,th{border:1px solid var(--color-border-primary,GrayText);padding:4px 8px;text-align:left}";
 
