@@ -102,6 +102,8 @@ function verbsOf(
     widgetCalls: {
       callTool: async (call) => await host.callTool(call),
       readResource: async (read) => await host.readResource(read),
+      // a page older than this verb refuses the call, and the widget hears the refusal
+      readContext: async (read) => await host.readContext(read),
     },
   };
 }

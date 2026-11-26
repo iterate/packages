@@ -14,6 +14,18 @@
 // adds its client script. ANOTHER SERVER'S MCP APP (`app` in the fact) is that server's `ui://`
 // resource as it served it: the kit adds no script, only the policy, first. Its view calls its
 // own server's tools (`tools/call`), which the page makes through the agent's own context.
+//
+// A WIDGET THAT SHOWS A LOG. Our agent's own widget may name contexts of the mind in its fact
+// (`contexts: ["/agents/claude/x"]`). Its HTML then reads their logs with `ui.readContext(path,
+// { after, limit })` (`iterate/context/read`): the page reads for it, with the session of the
+// person who looks at the feed, so the frame holds no credential. A path the fact does not name
+// is refused, and so is another server's app, whose document is not ours.
+// WHO MAY NAME A CONTEXT. A jailed agent holds less than the person who reads its feed, and it can
+// write a `widget-shown` fact. So `contexts` counts only on a fact that the agent's OWN SCRIPT
+// wrote in its own context (`widgetFold`, `ownContextWrote`): the platform's stamp says so. A
+// jailed agent's script runs in its jail and reaches its log through a door of the mind's config,
+// whose stamp names another origin; a session's append (a page, a kind's frame) names its person. That holds for good: a jail that is undone later leaves the old fact
+// without its contexts. The page also refuses while the agent is jailed now (widget-mcp.ts).
 
 const T = "events.iterate.com/";
 /** The facts. A script appends `widget-shown`; `widget-updated` gives a shown widget new data. */
@@ -54,6 +66,8 @@ export type Widget = {
   csp?: WidgetCsp;
   /** Another server's MCP App: the call that made it. None: our agent's own widget. */
   app?: WidgetApp;
+  /** The contexts whose logs our agent's own widget may read (`ui.readContext`). */
+  contexts?: string[];
 };
 
 /** The MCP Apps spec's `_meta.ui.csp`: origins, or host patterns like `https://*.example.com`. */
@@ -115,6 +129,26 @@ function cspOf(value: unknown): WidgetCsp | undefined {
     if (list?.length) csp[name] = list;
   }
   return Object.keys(csp).length ? csp : undefined;
+}
+
+/** A widget names at most this many contexts to read. */
+const WIDGET_CONTEXTS_MAX = 8;
+/** One read answers at most this many events. */
+export const WIDGET_CONTEXT_READ_MAX = 500;
+/** A context's path as a fact may name it: absolute, with no `.` or `..` part. */
+const CONTEXT_PATH = /^(?:\/[A-Za-z0-9._~@:-]+)+$/;
+const isContextPath = (path: string) =>
+  path.length <= 400 &&
+  CONTEXT_PATH.test(path) &&
+  path.split("/").every((part) => part !== "." && part !== "..");
+
+/** A fact's `contexts`: the paths that are paths, each once. */
+function contextsOf(value: unknown): string[] | undefined {
+  const paths = [...new Set(strings(value, 50)?.filter(isContextPath))].slice(
+    0,
+    WIDGET_CONTEXTS_MAX,
+  );
+  return paths.length ? paths : undefined;
 }
 
 /** A fact's `app`, or none when it names no https server, tool and resource: a row must say whose
@@ -182,22 +216,64 @@ export function widgetOf(payload: unknown, offset: number): Widget | null {
     offset,
     csp: cspOf(payload.csp),
     app,
+    // our own widget alone: another server's document reads no log of the mind
+    contexts: app ? undefined : contextsOf(payload.contexts),
   };
 }
 
 /** Each key's newest widget, and the offset of the first fact that showed it: the row stays there. */
 export type WidgetFold = Map<string, { first: number; widget: Widget }>;
 
+/** WHETHER THE AGENT'S OWN CODE WROTE A FACT of its log at `path`, by the platform's stamp
+ *  (`source`, core/itx/src/caller.ts). All of these hold for a script that the agent ran in its
+ *  own context, and for nothing else:
+ *    - its origin is that context;
+ *    - NO SESSION wrote it: a member's handle on the context (a page's append, a kind's frame, a
+ *      bridge) stamps its `principal` and `grant`, with this same origin;
+ *    - nobody stood behind the write (`onBehalfOf`), and it is no copy of another log's event
+ *      (`copiedFrom`);
+ *    - an event of this same log caused it (`cause.parent` is `<path>@<offset>`): the run of the
+ *      script.
+ *  A jailed agent's script runs in its jail, and its write comes through a door of the mind's
+ *  config, so its origin is another context. */
+function ownContextWrote(fact: Record<string, unknown>, path: string): boolean {
+  const source = fact.source;
+  if (!isRecord(source) || source.origin !== path) return false;
+  if (source.principal !== undefined || source.grant !== undefined) return false;
+  if (source.onBehalfOf !== undefined || source.copiedFrom !== undefined) return false;
+  const parent = isRecord(source.cause) ? source.cause.parent : undefined;
+  return typeof parent === "string" && parent.startsWith(`${path}@`);
+}
+
+/** Whether an event is a widget fact that asks to read a context: one that a page never appends
+ *  for a frame it does not trust (a kind's view). The stamp of such an append would refuse the
+ *  grant anyway (`ownContextWrote`); the page says no at the door too. */
+export function asksToReadContext(event: unknown): boolean {
+  return (
+    isRecord(event) &&
+    event.type === WIDGET_FACT.shown &&
+    isRecord(event.payload) &&
+    event.payload.contexts !== undefined
+  );
+}
+
 /** THE NEWEST WIDGET FOR EACH KEY, over the facts the page holds. A later `widget-shown` with the
  *  same key replaces the widget; `widget-updated { key, data, text? }` gives it new data. The row
- *  stays where the key was first shown. A pure fold: the same facts give the same map. */
-export function widgetFold(facts: readonly unknown[], held: WidgetFold = new Map()): WidgetFold {
+ *  stays where the key was first shown. A pure fold: the same facts give the same map.
+ *  `path`: the agent whose log the facts are. A widget keeps its `contexts` only from a fact that
+ *  the agent's own code wrote (`ownContextWrote`); with no `path`, no widget reads a context. */
+export function widgetFold(
+  facts: readonly unknown[],
+  held: WidgetFold = new Map(),
+  path?: string,
+): WidgetFold {
   const fold: WidgetFold = new Map(held);
   for (const fact of facts as { type?: unknown; offset?: unknown; payload?: unknown }[]) {
     if (!isRecord(fact) || typeof fact.offset !== "number") continue;
     if (fact.type === WIDGET_FACT.shown) {
       const widget = widgetOf(fact.payload, fact.offset);
       if (!widget) continue;
+      if (widget.contexts && !(path && ownContextWrote(fact, path))) delete widget.contexts;
       fold.set(widget.key, { first: fold.get(widget.key)?.first ?? fact.offset, widget });
     } else if (fact.type === WIDGET_FACT.updated && isRecord(fact.payload)) {
       const key = keyOf(fact.payload);
@@ -211,6 +287,18 @@ export function widgetFold(facts: readonly unknown[], held: WidgetFold = new Map
     }
   }
   return fold;
+}
+
+/** Whether the widget `key`, as the facts of the log at `path` show it now, names `context` to
+ *  read. The page asks this of the facts that IT holds before it reads for a frame it does not
+ *  trust (a kind's view): that frame names the key and the context, and proves neither. */
+export function widgetNamesContext(
+  facts: readonly unknown[],
+  path: string,
+  key: string,
+  context: string,
+): boolean {
+  return Boolean(widgetFold(facts, undefined, path).get(key)?.widget.contexts?.includes(context));
 }
 
 // ── THE FRAME'S DOCUMENT ────────────────────────────────────────────────────────────────────────
@@ -288,12 +376,18 @@ const BASE_STYLE =
  *    ui.send(text)      words to the agent, as the person (the host wants a press)
  *    ui.open(url)       an https link in a new tab (the host wants a press)
  *    ui.theme           "light" | "dark"
+ *    ui.readContext(path, { after, limit })
+ *                       one page of the log of a context that the widget's fact names in
+ *                       `contexts`: `{ events, scannedThroughOffset }`, the events with an offset
+ *                       over `after`, oldest first (iterate's own, not MCP Apps')
  *  It does the handshake (`ui/initialize`, then `ui/notifications/initialized`), reports its height
  *  (`ui/notifications/size-changed`) and takes the host's theme. It sends its console and its
  *  uncaught errors as MCP's log message (`notifications/message`), at most 50 a minute, so the host
  *  can keep them. No dependency. */
 /** The widget's wheel or finger, for the host's list (not MCP Apps': iterate's own). */
 export const WIDGET_SCROLLED = "iterate/notifications/scrolled";
+/** Our own widget reads one page of a context's log (iterate's own, not MCP Apps'). */
+export const WIDGET_CONTEXT_READ = "iterate/context/read";
 
 export const WIDGET_CLIENT = `(function () {
   var boot = JSON.parse(document.getElementById("iterate-widget-boot").textContent);
@@ -388,6 +482,9 @@ export const WIDGET_CLIENT = `(function () {
     },
     send: function (text) { return request("ui/message", { role: "user", content: [{ type: "text", text: String(text) }] }); },
     open: function (url) { return request("ui/open-link", { url: String(url) }); },
+    readContext: function (path, options) {
+      return request("${WIDGET_CONTEXT_READ}", { path: String(path), after: options && options.after, limit: options && options.limit });
+    },
   });
   addEventListener("message", function (event) {
     if (event.source !== parent) return;
@@ -479,6 +576,9 @@ export type WidgetAct = {
   callTool?: { id: string | number; name: string; arguments: Record<string, unknown> };
   /** An app's view reads a resource of its own server (`resources/read`), likewise. */
   readResource?: { id: string | number; uri: string };
+  /** Our own widget reads a page of a context's log that its fact names (WIDGET_CONTEXT_READ):
+   *  the host reads and posts the reply to `id` itself. */
+  readContext?: { id: string | number; context: string; after: number; limit: number };
   /** Words from the view for the agent's next turn (`ui/update-model-context`): that server's or
    *  that widget's words, never the person's. */
   modelContext?: { content: unknown[]; structuredContent?: unknown };
@@ -499,6 +599,8 @@ export type WidgetHostState = {
   canCallServer?: boolean;
   /** The host takes a widget's words for the agent's next turn. */
   canModelContext?: boolean;
+  /** The host reads a context's log for our own widget (the page gave a way). */
+  canReadContext?: boolean;
 };
 
 const ok = (id: unknown, result: unknown): WidgetAct["reply"] => ({ jsonrpc: "2.0", id, result });
@@ -573,6 +675,9 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
               updateModelContext: { text: {}, structuredContent: {} },
             }),
             ...(server && { serverTools: {}, serverResources: {} }),
+            // iterate's own: the contexts this widget may read
+            ...(state.canReadContext &&
+              state.widget.contexts && { contexts: { read: state.widget.contexts } }),
             // what the frame grants: the origins its policy took, and no device permission
             sandbox: { permissions: {}, csp: appliedCsp(state.widget.csp) },
           },
@@ -683,6 +788,33 @@ export function widgetAnswer(message: unknown, state: WidgetHostState): WidgetAc
       const uri = words(params.uri, 2000);
       if (!uri) return { reply: refused(id, -32602, "A read names its resource.") };
       return { readResource: { id, uri } };
+    }
+    case WIDGET_CONTEXT_READ: {
+      if (!request) return {};
+      if (state.widget.app || !state.canReadContext)
+        return { reply: refused(id, -32601, "This widget reads no context.") };
+      const context = typeof params.path === "string" ? params.path : "";
+      // the fact's own list alone: the widget's HTML chooses among its paths, never a new one
+      if (!state.widget.contexts?.includes(context))
+        return {
+          reply: refused(
+            id,
+            -32602,
+            "This widget's fact does not name that context in `contexts`.",
+          ),
+        };
+      const whole = (value: unknown, least: number, most: number, otherwise: number) =>
+        typeof value === "number" && Number.isFinite(value)
+          ? Math.min(Math.max(Math.floor(value), least), most)
+          : otherwise;
+      return {
+        readContext: {
+          id,
+          context,
+          after: whole(params.after, 0, Number.MAX_SAFE_INTEGER, 0),
+          limit: whole(params.limit, 1, WIDGET_CONTEXT_READ_MAX, 200),
+        },
+      };
     }
     case "ui/update-model-context": {
       if (!request) return {};

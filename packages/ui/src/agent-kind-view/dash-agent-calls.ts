@@ -171,6 +171,23 @@ export function widgetCallsOf(itx: Itx, path: string): WidgetMcpCalls {
           await context()
         ).connectToMcp(server, { headers })) as unknown as WidgetMcpConnection,
       append: async (events) => await appendEvents(await context(), events),
+      // the agent's own rules, read at each of a widget's reads of a context (widget-mcp.ts)
+      rules: async () =>
+        (await (await context()).rewriteRules.list(0)).map(({ match, target }) => ({
+          match,
+          target,
+        })),
+      // THROUGH THE AGENT'S OWN CONTEXT, never from the page's root: the kernel resolves this `cd`
+      // by the agent's rules, so the widget reads a context only when the agent's own scripts
+      // could open it (and the person who looks holds the session that asks)
+      readEvents: async (target, after, limit) => {
+        const read = await (await context()).cd(target);
+        try {
+          return await read.readEvents(after, limit);
+        } finally {
+          read[Symbol.dispose]();
+        }
+      },
     });
     byPath.set(path, host);
   }

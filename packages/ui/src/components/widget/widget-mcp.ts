@@ -5,7 +5,7 @@
 // so a widget reaches what that agent reaches, and no more. Each tool call is one fact on that
 // path (`widget-tool-called`).
 import { z } from "zod";
-import { WIDGET_FACT } from "./widget.ts";
+import { WIDGET_CONTEXT_READ_MAX, WIDGET_FACT } from "./widget.ts";
 
 /** The connection that `itx.connectToMcp` answers, as far as an app's view uses it. */
 export type WidgetMcpConnection = {
@@ -31,10 +31,47 @@ export type WidgetResourceRead = {
   uri: string;
 };
 
+/** One read of a context's log for our own widget: `path` is the agent whose feed shows the
+ *  widget, `key` the widget, `context` the context to read. The frame of the page's own code took
+ *  `context` from the widget's fact (widget.ts `widgetAnswer`); a page that reads for a frame it
+ *  does not trust checks the key and the context against its own facts first
+ *  (`widgetNamesContext`). */
+export type WidgetContextRead = {
+  path: string;
+  key: string;
+  context: string;
+  after: number;
+  limit: number;
+};
+
 /** What a chat's host does for the apps in its feed. */
 export type WidgetMcpCalls = {
   callTool(call: WidgetToolCall): Promise<unknown>;
   readResource(read: WidgetResourceRead): Promise<unknown>;
+  /** One page of a context's log, read with the page's own session. None: a host that reads no
+   *  context for a widget. */
+  readContext?(read: WidgetContextRead): Promise<unknown>;
+};
+
+/** One row of a context's rewrite rules, as far as `widgetAuthorJailed` reads it. */
+type RuleRow = { match: string; target: string | null };
+
+/** WHETHER THE AGENT THAT SHOWS A WIDGET HOLDS LESS THAN THE MIND'S WHOLE REACH, by its context's
+ *  own rules (`rewriteRules.list(0)`): the rule of lib/page-tools.ts `jailOf`. An agent whose
+ *  scripts run in its own context with the kernel's own `itx.run` and `itx.cd` reaches every
+ *  context already, so a read for its widget shows it nothing new. A jailed agent can still write
+ *  a `widget-shown` fact that names any context, and a member's page would then read for it. */
+// THREE RULES STAND BEHIND ONE READ, and each closes what the others leave open:
+//   - the fact's stamp (widget.ts `ownContextWrote`): the agent's own context wrote the widget.
+//     A jail that runs the agent's scripts elsewhere never writes such a fact;
+//   - this check, at each read: the agent's scripts run in its own context now;
+//   - the read itself goes through the agent's context (`readEvents`, below), so a jail that
+//     is IN the agent's context (a bare `itx` mask with `run` and `cd` given back, and a rule
+//     that denies some context) refuses the very context that it denies its scripts.
+export const widgetAuthorJailed = (rows: readonly RuleRow[]) => {
+  const kernels = (name: string) =>
+    rows.some((row) => row.match === `itx.${name}` && row.target === `itx.builtins.${name}`);
+  return !(kernels("run") && kernels("cd"));
 };
 
 /** A tool as the server lists it: its name, and the spec's `_meta.ui.visibility`. */
@@ -63,6 +100,8 @@ export function widgetMcpHost({
   open,
   append,
   now = Date.now,
+  rules,
+  readEvents,
 }: {
   path: string;
   /** The clock a listing's age is read by. */
@@ -72,6 +111,13 @@ export function widgetMcpHost({
     headers: Record<string, string> | undefined,
   ) => Promise<WidgetMcpConnection>;
   append: (events: unknown[]) => Promise<unknown>;
+  /** The rules of the agent's own context (`rewriteRules.list(0)`), and one page of a context's
+   *  log, READ THROUGH THE AGENT'S OWN CONTEXT (`itx.cd(path).cd(context).readEvents(after,
+   *  limit)`): the kernel resolves that `cd` by the agent's rules, so a context that the agent's
+   *  own scripts cannot open is refused there, whatever rows the agent has. Both, or the host
+   *  reads no context. */
+  rules?: () => Promise<readonly RuleRow[]>;
+  readEvents?: (context: string, after: number, limit: number) => Promise<unknown>;
 }): WidgetMcpCalls {
   const connections = new Map<
     string,
@@ -153,5 +199,25 @@ export function widgetMcpHost({
       own(asked);
       return await (await held(server, headers).connection).readResource(uri);
     },
+    ...(rules &&
+      readEvents && {
+        async readContext({ path: asked, context, after, limit }: WidgetContextRead) {
+          own(asked);
+          // before every read: the agent's context may have become a jail since the last one, and
+          // rules that cannot be read (a throw here) read nothing
+          if (widgetAuthorJailed(await rules()))
+            throw new Error(
+              `The agent at ${path} is jailed: its widget reads no context of the mind.`,
+            );
+          // the cap and the floor here too: a kind's frame sends its numbers as they are
+          const whole = (value: number, least: number, most: number) =>
+            Number.isFinite(value) ? Math.min(Math.max(Math.floor(value), least), most) : least;
+          return await readEvents(
+            context,
+            whole(after, 0, Number.MAX_SAFE_INTEGER),
+            whole(limit, 1, WIDGET_CONTEXT_READ_MAX),
+          );
+        },
+      }),
   };
 }

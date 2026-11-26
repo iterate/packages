@@ -59,6 +59,7 @@ import {
   type KindFile,
   type KindStarter,
 } from "./default-kind.ts";
+import { asksToReadContext, widgetNamesContext } from "#/components/widget/widget.ts";
 import { useHeldContext } from "#/hooks/use-itx-session.ts";
 import { useHasSavedTail, useSavedContext, type TailsOfMember } from "#/lib/saved-context.ts";
 import { AgentChatState } from "#/components/agent-chat/agent-chat-search.ts";
@@ -1089,6 +1090,7 @@ function KindChat({
     stub,
     setState: patchView,
     loadOlder: log.older.loadOlder,
+    facts: log.events,
   });
   const { hasChat } = load;
   return (
@@ -1155,15 +1157,21 @@ function kindViewVerbs({
   stub,
   setState,
   loadOlder,
+  facts,
 }: Pick<AgentKindViewVerbs, "setState" | "loadOlder"> & {
   itx: Itx;
   path: string;
+  /** The agent's facts as the page holds them now: what a widget's read is checked against. */
+  facts: readonly unknown[];
   stub: Parameters<typeof appendEvents>[0] | undefined;
 }): AgentKindViewVerbs {
   return {
     message: ({ message, files, key }) => messageAgent(itx, path, { message, files }, key),
     append: async (events) => {
       if (!stub) throw new Error("not connected");
+      // a frame never writes the fact that the page would then read a context for
+      if (events.some(asksToReadContext))
+        throw new Error("A view appends no widget that names contexts to read.");
       await appendEvents(stub, events);
     },
     fileUrl: async (filePath) => {
@@ -1175,6 +1183,16 @@ function kindViewVerbs({
     // as this agent alone: a call that names another path is refused (widget-mcp.ts)
     callTool: (call) => widgetCallsOf(itx, path).callTool(call),
     readResource: (read) => widgetCallsOf(itx, path).readResource(read),
+    // THE FRAME NAMES A WIDGET AND A CONTEXT, AND PROVES NEITHER: a kind's view is code in a
+    // sandbox. The page reads only when the facts that it holds itself say that this widget of
+    // this agent names that context (widget.ts `widgetNamesContext`).
+    readContext: async (read) => {
+      const { readContext } = widgetCallsOf(itx, path);
+      if (!readContext) throw new Error("This page reads no context for a widget.");
+      if (!widgetNamesContext(facts, path, read.key, read.context))
+        throw new Error(`No widget ${read.key} of ${path} names the context ${read.context}.`);
+      return await readContext(read);
+    },
     setState,
     loadOlder,
   };

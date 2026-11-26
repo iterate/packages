@@ -23,9 +23,9 @@ import {
  *  `storeFiles` refuses a message with files that a kind appends itself. */
 export type AgentKindViewVerbs = Omit<
   AgentKindViewHostApi,
-  "loaded" | "storeFiles" | "callTool" | "readResource"
+  "loaded" | "storeFiles" | "callTool" | "readResource" | "readContext"
 > &
-  Partial<Pick<AgentKindViewHostApi, "storeFiles" | "callTool" | "readResource">>;
+  Partial<Pick<AgentKindViewHostApi, "storeFiles" | "callTool" | "readResource" | "readContext">>;
 
 /** One frame's link to the page: its handshake, its session, what it reported, what it holds. */
 export class AgentKindViewLink {
@@ -150,6 +150,11 @@ class HostTarget extends RpcTarget implements AgentKindViewHostApi {
     const { readResource } = this.#verbs();
     if (!readResource) throw new Error("This page cannot read an MCP App's server for this agent.");
     return readResource(read);
+  }
+  readContext(read: Parameters<AgentKindViewHostApi["readContext"]>[0]) {
+    const { readContext } = this.#verbs();
+    if (!readContext) throw new Error("This page reads no context for a widget of this agent.");
+    return readContext(read);
   }
 }
 

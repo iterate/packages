@@ -41,7 +41,8 @@ export function WidgetHostProvider({
   onAppend?: (events: unknown[]) => Promise<unknown>;
   children: ReactNode;
 }) {
-  const fold = useMemo(() => widgetFold(events), [events]);
+  // with the path: a widget's `contexts` count only from a fact that this agent's context wrote
+  const fold = useMemo(() => widgetFold(events, undefined, path), [events, path]);
   const server = useMemo(() => serverCallsOf(path, calls, onAppend), [path, calls, onAppend]);
   const host = useMemo(
     () => ({ fold, onSend, onDraft, ...server }),
@@ -51,7 +52,7 @@ export function WidgetHostProvider({
 }
 
 export function WidgetRow({ widgetKey, offset }: { widgetKey: string; offset: number }) {
-  const { fold, onSend, onDraft, onCallTool, onReadResource, onModelContext } =
+  const { fold, onSend, onDraft, onCallTool, onReadResource, onReadContext, onModelContext } =
     useContext(WidgetHostContext);
   const held = fold.get(widgetKey);
   if (!held || held.first !== offset) return null;
@@ -62,6 +63,7 @@ export function WidgetRow({ widgetKey, offset }: { widgetKey: string; offset: nu
       onDraft={onDraft}
       onCallTool={onCallTool}
       onReadResource={onReadResource}
+      onReadContext={onReadContext}
       onModelContext={onModelContext}
     />
   );
@@ -89,6 +91,12 @@ function serverCallsOf(
           const { server, headers } = appOf(widget);
           return calls.readResource({ path, server, headers, uri });
         },
+      }),
+    // a host older than this verb has none: the widget's read is then refused in words
+    ...(path &&
+      calls?.readContext && {
+        onReadContext: ({ widget, context, after, limit }) =>
+          calls.readContext!({ path, key: widget.key, context, after, limit }),
       }),
     ...(onAppend && {
       onModelContext: ({ widget, content }) => {

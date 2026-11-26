@@ -114,6 +114,14 @@ export type AgentKindViewProps = {
       headers?: Record<string, string>;
       uri: string;
     }): Promise<unknown>;
+    /** Our own widget's read of a context that its fact names. None: a page older than it. */
+    readContext?(read: {
+      path: string;
+      key: string;
+      context: string;
+      after: number;
+      limit: number;
+    }): Promise<unknown>;
   };
   /** `true`: `AgentChat` shows who else is here and who is typing. A kind's view that wants it
    *  also names `PRESENCE_EVENT_TYPES` (the kit's `lib/presence`) in its `ephemeralEvents`: the

@@ -3,7 +3,12 @@
 // refused, and each call one `widget-tool-called` fact on the agent's log.
 import { expect, test, vi } from "vitest";
 import { WIDGET_FACT } from "./widget.ts";
-import { WIDGET_TOOLS_KEPT_MS, widgetMcpHost, type WidgetMcpConnection } from "./widget-mcp.ts";
+import {
+  WIDGET_TOOLS_KEPT_MS,
+  widgetAuthorJailed,
+  widgetMcpHost,
+  type WidgetMcpConnection,
+} from "./widget-mcp.ts";
 
 test("a tool call goes through one connection, and each call is one fact on the agent's log", async () => {
   const { host, open, appended, connection } = fake();
@@ -107,6 +112,81 @@ test("a listing is kept 30 s: a tool that turns model-only is refused after that
 
 const SERVER = "https://petshop.iterate.com/mcp";
 const HEADERS = { authorization: 'Bearer getSecret("/secrets/petshop")' };
+
+test("a widget's read of a context goes to the page's own read, for an agent with the mind's reach", async () => {
+  const readEvents = vi.fn(async () => ({ events: [{ offset: 41 }], scannedThroughOffset: 41 }));
+  const host = widgetMcpHost({
+    path: "/agents/main",
+    open: async () => fake().connection,
+    append: async () => undefined,
+    rules: async () => FREE,
+    readEvents,
+  });
+  const read = {
+    path: "/agents/main",
+    key: "log",
+    context: "/agents/claude/x",
+    after: 40,
+    limit: 200,
+  };
+  expect(await host.readContext!(read)).toEqual({
+    events: [{ offset: 41 }],
+    scannedThroughOffset: 41,
+  });
+  expect(readEvents).toHaveBeenCalledWith("/agents/claude/x", 40, 200);
+  await expect(host.readContext!({ ...read, path: "/agents/other" })).rejects.toThrow(
+    "A widget of /agents/main cannot call as /agents/other.",
+  );
+  // the host holds the cap itself: a kind's frame sends its numbers as they are
+  await host.readContext!({ ...read, after: -5, limit: 1000 });
+  expect(readEvents).toHaveBeenLastCalledWith("/agents/claude/x", 0, 500);
+  await host.readContext!({ ...read, after: Number.NaN, limit: 0.2 });
+  expect(readEvents).toHaveBeenLastCalledWith("/agents/claude/x", 0, 1);
+});
+
+test("a jailed agent's widget reads nothing, and neither do rules that cannot be read", async () => {
+  const readEvents = vi.fn(async () => ({ events: [] }));
+  let rows = JAILED;
+  let fails = false;
+  const host = widgetMcpHost({
+    path: "/agents/public",
+    open: async () => fake().connection,
+    append: async () => undefined,
+    rules: async () => {
+      if (fails) throw new Error("no rules");
+      return rows;
+    },
+    readEvents,
+  });
+  const read = {
+    path: "/agents/public",
+    key: "log",
+    context: "/agents/engineering-manager",
+    after: 0,
+    limit: 10,
+  };
+  await expect(host.readContext!(read)).rejects.toThrow("is jailed");
+  // the rules are read at every read: a context that becomes a jail reads no more
+  rows = FREE;
+  await host.readContext!(read);
+  rows = JAILED;
+  await expect(host.readContext!(read)).rejects.toThrow("is jailed");
+  fails = true;
+  await expect(host.readContext!(read)).rejects.toThrow("no rules");
+  expect(readEvents).toHaveBeenCalledTimes(1);
+  expect(widgetAuthorJailed([])).toBe(true);
+  // a host that was given no way to read has no such call
+  expect(fake().host.readContext).toBeUndefined();
+});
+
+const FREE = [
+  { match: "itx.run", target: "itx.builtins.run" },
+  { match: "itx.cd", target: "itx.builtins.cd" },
+];
+const JAILED = [
+  { match: "itx", target: "null" },
+  { match: "itx.run", target: 'itx.cd("/jails/public").run' },
+];
 
 function fake(now?: () => number) {
   const connection = {

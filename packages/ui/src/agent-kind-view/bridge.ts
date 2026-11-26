@@ -88,6 +88,15 @@ export interface AgentKindViewHostApi {
   readResource(
     read: Parameters<NonNullable<AgentKindViewProps["widgetCalls"]>["readResource"]>[0],
   ): Promise<unknown>;
+  /** A widget's read of a context, for the widget `key` of the agent at `path`. The page reads
+   *  only when ITS OWN facts say that this widget names the context: the frame proves nothing. */
+  readContext(read: {
+    path: string;
+    key: string;
+    context: string;
+    after: number;
+    limit: number;
+  }): Promise<unknown>;
 }
 
 export interface AgentKindViewFrameApi {

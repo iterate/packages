@@ -6,7 +6,8 @@
 //
 // Another server's MCP App (`widget.app`) is drawn by the same frame: its row names the server, and
 // its view's `tools/call` and `resources/read` go to `onCallTool` and `onReadResource`, which the
-// page makes through the agent's own context.
+// page makes through the agent's own context. Our own widget's read of a context that its fact
+// names (`ui.readContext`) goes to `onReadContext`, which the page answers with its own session.
 "use client";
 
 import {
@@ -43,6 +44,14 @@ export type WidgetServerCalls = {
     arguments: Record<string, unknown>;
   }) => Promise<unknown>;
   onReadResource?: (read: { widget: Widget; uri: string }) => Promise<unknown>;
+  /** Our own widget's read of a context's log that its fact names (`ui.readContext`): one page,
+   *  as the context's `readEvents` answers it. */
+  onReadContext?: (read: {
+    widget: Widget;
+    context: string;
+    after: number;
+    limit: number;
+  }) => Promise<unknown>;
   /** A view's words for the agent's next turn (`ui/update-model-context`), from that widget. */
   onModelContext?: (update: {
     widget: Widget;
@@ -108,6 +117,7 @@ export function WidgetFrame({
   onLog,
   onCallTool,
   onReadResource,
+  onReadContext,
   onModelContext,
   onDraft,
   className,
@@ -220,9 +230,19 @@ export function WidgetFrame({
       canDraft: Boolean(onDraft),
       canCallServer: Boolean(onCallTool && onReadResource),
       canModelContext: Boolean(onModelContext),
+      canReadContext: Boolean(onReadContext),
     });
     if (act.reply) post(act.reply);
-    const { callTool, readResource } = act;
+    const { callTool, readResource, readContext } = act;
+    if (readContext && onReadContext)
+      answerFromServer(readContext.id, () =>
+        onReadContext({
+          widget,
+          context: readContext.context,
+          after: readContext.after,
+          limit: readContext.limit,
+        }),
+      );
     if (callTool && onCallTool)
       answerFromServer(callTool.id, () =>
         onCallTool({ widget, name: callTool.name, arguments: callTool.arguments }),

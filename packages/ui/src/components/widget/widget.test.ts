@@ -2,8 +2,10 @@
 // policy and data, and the host's answers to the MCP Apps messages.
 import { expect, test } from "vitest";
 import {
+  asksToReadContext,
   WIDGET_APP_HTML_MAX,
   WIDGET_CLIENT,
+  WIDGET_CONTEXT_READ,
   WIDGET_FACT,
   WIDGET_HEIGHT_MAX,
   WIDGET_HTML_MAX,
@@ -15,6 +17,7 @@ import {
   widgetFold,
   widgetHtmlMax,
   widgetInput,
+  widgetNamesContext,
   widgetOf,
   widgetPolicy,
   widgetResult,
@@ -403,6 +406,123 @@ const APP: NonNullable<Widget["app"]> = {
   input: { species: "cat" },
   result: { content: [{ type: "text", text: "3 pets" }], structuredContent: { pets: 3 } },
 };
+test("our own widget reads the contexts that its fact names, and no other", () => {
+  const widget = widgetOf(
+    {
+      html: "<p>log</p>",
+      contexts: ["/agents/claude/x", "/agents/claude/x", "../secrets", "/a/../b", 7],
+    },
+    3,
+  )!;
+  expect(widget).toMatchObject({ contexts: ["/agents/claude/x"] });
+  const reading = state({ widget, canReadContext: true });
+  expect(
+    widgetAnswer(
+      rpc(WIDGET_CONTEXT_READ, { path: "/agents/claude/x", after: 40.9, limit: 9999 }, 5),
+      reading,
+    ),
+  ).toEqual({ readContext: { id: 5, context: "/agents/claude/x", after: 40, limit: 500 } });
+  expect(
+    widgetAnswer(rpc(WIDGET_CONTEXT_READ, { path: "/agents/claude/x" }), reading),
+  ).toMatchObject({
+    readContext: { id: 1, context: "/agents/claude/x", after: 0, limit: 200 },
+  });
+  // a path that the fact does not name, a host with no way, and a notification
+  expect(
+    widgetAnswer(rpc(WIDGET_CONTEXT_READ, { path: "/secrets" }), reading).reply?.error?.code,
+  ).toBe(-32602);
+  expect(
+    widgetAnswer(rpc(WIDGET_CONTEXT_READ, { path: "/agents/claude/x" }), state({ widget })).reply
+      ?.error?.code,
+  ).toBe(-32601);
+  expect(
+    widgetAnswer(
+      { jsonrpc: "2.0", method: WIDGET_CONTEXT_READ, params: { path: "/agents/claude/x" } },
+      reading,
+    ),
+  ).toEqual({});
+  // the host says which contexts in its handshake, and the client has the call
+  const hello = widgetAnswer(rpc("ui/initialize"), reading).reply?.result as {
+    hostCapabilities: { contexts?: { read: string[] } };
+  };
+  expect(hello.hostCapabilities).toMatchObject({ contexts: { read: ["/agents/claude/x"] } });
+  expect(WIDGET_CLIENT).toContain(WIDGET_CONTEXT_READ);
+});
+
+test("a widget keeps its contexts only from a fact that the agent's own context wrote", () => {
+  const payload = { key: "log", html: "<p>log</p>", contexts: ["/agents/claude/x"] };
+  const script = { origin: "/agents/main", cause: { depth: 2, parent: "/agents/main@1" } };
+  const own = { ...shown(3, payload), source: script };
+  const contextsOf = (facts: unknown[], path?: string) =>
+    widgetFold(facts, undefined, path).get("log")?.widget.contexts;
+  expect(contextsOf([own], "/agents/main")).toEqual(["/agents/claude/x"]);
+  // no path, another origin (a jailed agent's write comes through the config's door), a
+  // session's own append (a page, a kind's frame: the member's handle stamps its person), a write
+  // that someone stood behind, a copy of another log's event, a cause in another log or none,
+  // and no stamp at all
+  expect(contextsOf([own])).toBeUndefined();
+  for (const source of [
+    { ...script, origin: "/" },
+    { ...script, origin: "/jails/public/1/a" },
+    { ...script, principal: { actor: "user_1", email: "member@example.com" }, grant: "g1" },
+    { ...script, grant: "g1" },
+    { ...script, onBehalfOf: { principal: { actor: "guest" } } },
+    { ...script, copiedFrom: { path: "/agents/other", offset: 1, type: "x" } },
+    { origin: "/agents/main", cause: { depth: 0, parent: "/agents/other@4" } },
+    { origin: "/agents/main", cause: { depth: 0 } },
+    { origin: "/agents/main" },
+    undefined,
+  ])
+    expect(contextsOf([{ ...shown(3, payload), source }], "/agents/main")).toBeUndefined();
+  // the widget is still drawn, and a later fact of the agent's own replaces it with its contexts
+  expect(widgetFold([{ ...shown(3, payload), source: { origin: "/" } }]).get("log")).toBeDefined();
+  expect(
+    contextsOf(
+      [
+        { ...shown(3, payload), source: { origin: "/" } },
+        { ...own, offset: 9 },
+      ],
+      "/agents/main",
+    ),
+  ).toEqual(["/agents/claude/x"]);
+  // what the page asks before it reads for a frame it does not trust
+  expect(widgetNamesContext([own], "/agents/main", "log", "/agents/claude/x")).toBe(true);
+  expect(widgetNamesContext([own], "/agents/main", "log", "/agents/engineering-manager")).toBe(
+    false,
+  );
+  expect(widgetNamesContext([own], "/agents/main", "other", "/agents/claude/x")).toBe(false);
+  expect(widgetNamesContext([own], "/agents/other", "log", "/agents/claude/x")).toBe(false);
+  expect(widgetNamesContext([], "/agents/main", "log", "/agents/claude/x")).toBe(false);
+  // what a page refuses to append for a kind's frame
+  expect(asksToReadContext(shown(1, payload))).toBe(true);
+  expect(asksToReadContext(shown(1, { html: "<p>x</p>" }))).toBe(false);
+  expect(asksToReadContext({ type: WIDGET_FACT.updated, payload: { contexts: ["/x"] } })).toBe(
+    false,
+  );
+});
+
+test("another server's app reads no context, whatever its fact says", () => {
+  const widget = widgetOf(
+    {
+      html: "<p>x</p>",
+      contexts: ["/agents/claude/x"],
+      app: {
+        server: "https://shop.example.com/mcp",
+        tool: "show",
+        resourceUri: "ui://shop/x.html",
+      },
+    },
+    4,
+  )!;
+  expect(widget.contexts).toBeUndefined();
+  expect(
+    widgetAnswer(
+      rpc(WIDGET_CONTEXT_READ, { path: "/agents/claude/x" }),
+      state({ widget, canReadContext: true }),
+    ).reply?.error?.code,
+  ).toBe(-32601);
+});
+
 const appState = (more: Partial<WidgetHostState> = {}) =>
   state({
     widget: {
