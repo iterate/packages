@@ -5,7 +5,7 @@ import type { AgentStatus } from "#/lib/agent-summary.ts";
 
 /** What runs the agent: iterate's own, a coding session, or something else. */
 export function kindIcon(kind: string | null) {
-  if (!kind || kind === "iterate") return BotIcon;
+  if (!kind || kind === "iterate" || kind === "agent") return BotIcon;
   if (kind === "claude" || kind === "codex" || kind === "opencode") return SquareTerminalIcon;
   return BoxIcon;
 }

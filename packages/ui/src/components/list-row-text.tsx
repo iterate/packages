@@ -22,7 +22,7 @@ export function ListRowText({
   title?: string | null;
   path: string;
   /** The last line, when the row has one. */
-  line?: string | null;
+  line?: ReactNode;
   /** At the right of the first line: when the row was last active, as the list says it. */
   time?: ReactNode;
   className?: string;
@@ -41,7 +41,10 @@ export function ListRowText({
         <ContextPathText path={path} truncate className="text-2xs text-muted-foreground" />
       ) : null}
       {line ? (
-        <span className="truncate text-2xs text-muted-foreground" title={line}>
+        <span
+          className="truncate text-2xs text-muted-foreground"
+          title={typeof line === "string" ? line : undefined}
+        >
           {line}
         </span>
       ) : null}

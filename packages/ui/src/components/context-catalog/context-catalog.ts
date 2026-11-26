@@ -14,6 +14,13 @@
 //
 // The kit's `Dash` (components/dash) reads the catalog and gives AppShell the palette for every
 // mind's Dash.
+export * from "./context-activity-stack.ts";
+export {
+  ContextActivityIcon,
+  ContextActivityStack,
+  useActiveContextActivities,
+} from "./context-activity-stack-view.tsx";
+export { ContextIcon, ContextIconTooltipContent } from "./context-icon.tsx";
 export * from "./context-catalog-rows.ts";
 export * from "./context-palette-rows.ts";
 export { ContextCatalog, ContextCatalogList, useContextCatalog } from "./context-catalog-list.tsx";

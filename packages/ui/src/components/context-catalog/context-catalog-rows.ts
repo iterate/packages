@@ -2,6 +2,7 @@
 // and the plain functions every view of it shares: the filter and the words of a row. No React
 // here.
 import { z } from "zod";
+import { activeContextActivities, ContextActivity } from "./context-activity-stack.ts";
 
 /** One context as the catalog lists it (iterate/api `ContextListing`). */
 export const ContextListing = z.object({
@@ -17,8 +18,22 @@ export const ContextListing = z.object({
   storageBytes: z.number().optional(),
   description: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  activities: z.array(ContextActivity).optional(),
 });
 export type ContextListing = z.infer<typeof ContextListing>;
+
+const MetadataActivities = z.array(ContextActivity);
+
+/** Active items on `row`'s activity stack at `nowMs`: from `row.activities` when the catalog
+ *  carries it, or from `row.metadata.activities` when mirrored in userland. */
+export function contextActivitiesOf(
+  row: ContextListing | undefined,
+  nowMs = Date.now(),
+): ContextActivity[] {
+  if (!row) return [];
+  const raw = row.activities || MetadataActivities.safeParse(row.metadata?.activities).data;
+  return activeContextActivities(raw, nowMs);
+}
 
 /** The rows of an answer; a row that is no listing is left out. */
 export function contextListingsOf(answer: unknown): ContextListing[] {
@@ -44,11 +59,13 @@ export function filterContextListings(
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return [...rows];
   return rows.filter((row) => {
+    const activities = row.activities || [];
     const haystack = [
       row.path,
       row.description || "",
       ...Object.keys(row.eventTypes),
       ...row.processors,
+      ...activities.flatMap((item) => [item.text, item.key, ...(item.tags || [])]),
       row.metadata ? JSON.stringify(row.metadata) : "",
     ]
       .join(" ")
@@ -85,6 +102,7 @@ export function formatBytes(bytes: number): string {
 
 /** The longest title a row shows. */
 const TITLE_LIMIT = 80;
+const ICON_LIMIT = 256;
 
 /** The tags on a context's newest `itx/described` (`metadata.tags`, non-empty strings only). */
 export function contextTags(row: Pick<ContextListing, "metadata">): string[] {
@@ -101,40 +119,80 @@ export function contextTitle(row: ContextListing): string | undefined {
   return title.trim().slice(0, TITLE_LIMIT).trim() || undefined;
 }
 
+/** A context's icon (`metadata.icon` of its newest `itx/described`): an emoji, a symbolic icon
+ *  name (`"terminal"`, `"shield"`, `"globe"`, …), or an image/favicon URL; undefined when unset. */
+export function contextIcon(row: ContextListing | undefined): string | undefined {
+  const icon = row?.metadata?.icon;
+  if (typeof icon !== "string") return undefined;
+  return icon.trim().slice(0, ICON_LIMIT).trim() || undefined;
+}
+
+export type ContextIconSize = "xs" | "sm" | "md" | "lg" | "xl";
+
+/** Quick icon choices offered in `<ContextAbout />` and settings panels. */
+export const CONTEXT_ICON_PRESETS = [
+  "🧭",
+  "🚀",
+  "🛡️",
+  "⚡",
+  "🔧",
+  "📡",
+  "📬",
+  "🎯",
+  "terminal",
+  "globe",
+  "git-branch",
+  "shield",
+  "database",
+  "sparkles",
+] as const;
+
 /** The catalog keeps a context's metadata only while it prints this short
  *  (core/itx/src/context/context-summary.ts): a longer record is dropped whole, its title too. */
 const METADATA_MAX_CHARS = 4_000;
 
-/** The payload of the `events.iterate.com/itx/described` that writes `description` and, when it
- *  is given, `title`. Without a title it names no metadata, so the metadata stays. `metadata` is
- *  one record and the newest stands, so a title goes in with the rest of the row's metadata, and
- *  an empty title takes the `title` key out. It throws for a context with no row, whose metadata
- *  is not known here, and for a record the catalog would drop. */
+/** The payload of the `events.iterate.com/itx/described` that writes `description` and, when
+ *  given, `title` and/or `icon`. Omitted `title` and `icon` leave `metadata` untouched. `metadata`
+ *  is one record and the newest stands, so an empty string removes that key while keeping the rest
+ *  of the row's metadata. It throws for a context with no row, whose metadata is not known here,
+ *  and for a record the catalog would drop. */
 export function describedPayload(
   row: ContextListing | undefined,
   description: string,
   title?: string,
+  icon?: string,
 ): { description: string | null; metadata?: Record<string, unknown> | null } {
-  // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty title removes it; absent keeps the metadata
-  if (title === undefined) return { description: description || null };
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty string removes the key; absent keeps the metadata
+  if (title === undefined && icon === undefined) return { description: description || null };
   if (!row)
     throw new Error("The catalog does not list this context yet, so its title cannot be set here.");
-  const { title: _title, ...rest } = row.metadata || {};
-  const metadata = title.trim() ? { ...rest, title: title.trim() } : rest;
-  if (JSON.stringify(metadata).length > METADATA_MAX_CHARS)
+  const next: Record<string, unknown> = { ...(row.metadata || {}) };
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty string removes the key; absent keeps the metadata
+  if (title !== undefined) {
+    if (title.trim()) next.title = title.trim().slice(0, TITLE_LIMIT);
+    else delete next.title;
+  }
+  // oxlint-disable-next-line iterate/simple-truthiness-check -- an empty string removes the key; absent keeps the metadata
+  if (icon !== undefined) {
+    if (icon.trim()) next.icon = icon.trim().slice(0, ICON_LIMIT);
+    else delete next.icon;
+  }
+  if (JSON.stringify(next).length > METADATA_MAX_CHARS)
     throw new Error("This context's metadata is too long for the catalog to keep with a title.");
   // a record with nothing left is cleared (null), not kept as an empty one
   return {
     description: description || null,
-    metadata: Object.keys(metadata).length ? metadata : null,
+    metadata: Object.keys(next).length ? next : null,
   };
 }
 
 /** The event families of the kinds of agent: an iterate agent's own (`agent/*`, its birth and the
- *  messages it is sent, which a codex session also gets), and the events the bridges write on a
- *  coding session's context. */
+ *  messages it is sent, which a codex session also gets), the UI channel (`agent-ui/*`),
+ *  and the events the bridges write on a coding session's context. */
 const AGENT_EVENT_PREFIXES = [
   "events.iterate.com/agent/",
+  "events.iterate.com/agent-ui/",
+  "events.iterate.com/llm-request/",
   "events.iterate.com/claude-code/",
   "events.iterate.com/acp/",
   "herdr/",
@@ -150,13 +208,6 @@ export function isAgentContext(row: ContextListing | undefined): row is ContextL
   );
 }
 
-/** The `agent/summary-updated` that tells the agent list what a person wrote in About, when they
- *  changed the title or the description: the title when it is not empty, and always the
- *  description as it now stands. The catalog writes the agent's line (its description, or else its
- *  title) back to the context, so a title sent alone would replace a description the list never
- *  had. Undefined when nothing changed, and for a description longer than the list keeps whole
- *  (`LIST_DESCRIPTION_MAX_CHARS`): the list keeps what it has, and the context the full text. The
- *  event cannot clear a field: an emptied one leaves the agent's own summary as it stands. */
 /** The longest description an agent's copy row carries whole: the row of the mind's own agent
  *  (core/configs/default/agent-start.ts `CATALOG_ROWS`) cuts at 500 characters, and the
  *  catalog would write the cut text back over the context's own. */
@@ -188,12 +239,13 @@ export async function describeContext(
   row: ContextListing | undefined,
   description: string,
   title?: string,
+  icon?: string,
 ): Promise<void> {
   const writes = [
     (async () =>
       append({
         type: "events.iterate.com/itx/described",
-        payload: describedPayload(row, description, title),
+        payload: describedPayload(row, description, title, icon),
       }))(),
   ];
   const summary = isAgentContext(row) ? aboutSummaryPayload(row, description, title) : undefined;

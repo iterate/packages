@@ -1,14 +1,15 @@
-// The mind's contexts as a list, the most recently active first: each row a dot while it is awake,
-// its title when it has one, its path, how long ago it was active, and its description or its last
-// event types (`ListRowText`, as the Agents list draws a row). One input over it narrows the rows
-// by any word of a path, a description, an event type, a processor or the metadata. Pure: the rows
-// (`useContextCatalog`), the current path and where a path links are props, so a sidebar, a page
-// and a dialog draw the same list. `useContextCatalog` reads the rows.
+// The mind's contexts as a list, the most recently active first: each row its icon and status,
+// its title when it has one, its path, how long ago it was active, and its live activity stack,
+// description or last event types (`ListRowText`, as the Agents list draws a row). One input over
+// it narrows the rows by any word of a path, a description, an event type, a processor or the
+// metadata. Pure: the rows (`useContextCatalog`), the current path and where a path links are
+// props, so a sidebar, a page and a dialog draw the same list. `useContextCatalog` reads the rows.
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "cn";
 import {
   activeAtOf,
+  contextActivitiesOf,
   contextListingsOf,
   contextRowDetail,
   contextTitle,
@@ -16,7 +17,8 @@ import {
   timeAgo,
   type ContextListing,
 } from "./context-catalog-rows.ts";
-import { AwakeDot } from "#/components/context-view/awake-dot.tsx";
+import { ContextActivityStack } from "./context-activity-stack-view.tsx";
+import { ContextIcon } from "./context-icon.tsx";
 import { PathLink, type ContextPathLinks } from "#/components/context-view/context-path.tsx";
 import { ListRowText } from "#/components/list-row-text.tsx";
 import { pxPerRem } from "#/lib/px-per-rem.ts";
@@ -53,11 +55,11 @@ export function ContextCatalog({
       />
       <ContextCatalogList rows={shown} current={current} links={links} nowMs={nowMs} />
       <p className="px-2 text-2xs text-muted-foreground">
-        {!rows
-          ? "Loading contexts…"
-          : query.trim()
+        {rows
+          ? query.trim()
             ? `${String(shown.length)} of ${String(rows.length)} contexts`
-            : `${String(rows.length)} contexts, ${String(rows.filter((row) => row.awake).length)} awake`}
+            : `${String(rows.length)} contexts, ${String(rows.filter((row) => row.awake).length)} awake`
+          : "Loading contexts…"}
       </p>
     </nav>
   );
@@ -111,8 +113,8 @@ export function ContextCatalogList({
   );
 }
 
-/** One row of the list: its dot while it is awake, then its title when it has one, its path and
- *  its description, else its last event types, else how many events it has (`ListRowText`). */
+/** One row of the list: its icon and status, then its title when it has one, its path and its
+ *  live activity stack or description, else its last event types, else how many events it has. */
 export function ContextCatalogRow({
   row,
   current,
@@ -125,6 +127,7 @@ export function ContextCatalogRow({
   nowMs: number;
 }) {
   const activeAt = activeAtOf(row);
+  const activities = contextActivitiesOf(row, nowMs);
   return (
     <PathLink
       path={row.path}
@@ -132,12 +135,25 @@ export function ContextCatalogRow({
       aria-current={row.path === current ? "page" : undefined}
       className="flex h-full min-w-0 flex-col justify-center rounded-md px-2 hover:bg-muted/60 aria-[current=page]:bg-muted"
     >
-      <span className="flex min-w-0 items-start gap-1.5">
-        <AwakeDot awake={Boolean(row.awake)} className="mt-1.5" />
+      <span className="flex min-w-0 items-start gap-2">
+        <ContextIcon
+          row={row}
+          activities={activities}
+          size="sm"
+          showTooltip
+          nowMs={nowMs}
+          className="mt-0.5"
+        />
         <ListRowText
           title={contextTitle(row)}
           path={row.path}
-          line={contextRowDetail(row) || `${String(row.eventCount)} events`}
+          line={
+            activities.length > 0 ? (
+              <ContextActivityStack activities={activities} nowMs={nowMs} mode="inline" />
+            ) : (
+              contextRowDetail(row) || `${String(row.eventCount)} events`
+            )
+          }
           className="text-foreground/90"
           time={
             <time
@@ -145,7 +161,7 @@ export function ContextCatalogRow({
               title={activeAt}
               className="shrink-0 text-2xs text-muted-foreground tabular-nums"
             >
-              {row.awake ? "awake" : timeAgo(activeAt, nowMs)}
+              {row.awake || activities.length > 0 ? "awake" : timeAgo(activeAt, nowMs)}
             </time>
           }
         />
