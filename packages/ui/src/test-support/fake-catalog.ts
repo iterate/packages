@@ -1,3 +1,8 @@
+// WHERE IT IS NOT THE ENGINE: a fact matches by strict equality (the engine matches a value as its
+// text), there is no limit of watches or of keys, and `putAwake` sends a row and the awake list in
+// one batch, which the engine does not. The proof against the engine itself is a test that runs in
+// a checkout of /repos/kernel (the pull request of this file says where).
+//
 // A MIND'S CATALOG IN MEMORY, for a test of what watches it (components/context-catalog): it
 // answers `contexts.watch` as iterate/api says a watch does. The first frame is a `reset`, or a
 // `resume` for a cursor of this generation and this query; then one `change` for each write that
@@ -31,6 +36,9 @@ export function fakeCatalog() {
   let gen = "g1";
   let connection: ItxConnection = { epoch: 1, state: "open" };
   const sessionListeners = new Set<() => void>();
+  /** The codes that the next calls of `watch` are refused with, one each ("" is an error with no
+   *  code). */
+  const refusals: string[] = [];
 
   const revOf = (row: Row) => ("rev" in row ? row.rev : 0);
   function answerOf(query: CatalogQuery): Row[] {
@@ -45,7 +53,15 @@ export function fakeCatalog() {
           return Array.isArray(held) ? held.includes(value) : held === value;
         }),
       )
-      .filter((row) => !query.under || row.path.startsWith(query.under))
+      .filter(
+        (row) => !query.under || row.path === query.under || row.path.startsWith(`${query.under}/`),
+      )
+      .filter(
+        (row) =>
+          !query.childrenOf ||
+          (row.path.startsWith(`${query.childrenOf === "/" ? "" : query.childrenOf}/`) &&
+            !row.path.slice(query.childrenOf.length + 1).includes("/")),
+      )
       .toSorted((a, b) => compareCatalogRows(a, b, order))
       .slice(0, query.limit ?? 50);
   }
@@ -83,7 +99,16 @@ export function fakeCatalog() {
         await Promise.resolve();
         if (query.where && "refused" in query.where)
           throw Object.assign(new Error("the catalog refuses this"), { code: "INVALID_INPUT" });
-        const q = JSON.stringify(query);
+        if (refusals.length > 0) {
+          const code = refusals.shift();
+          throw Object.assign(
+            new Error(`the catalog says ${code || "nothing"}`),
+            code ? { code } : {},
+          );
+        }
+        // as the engine names a query: by what it selects, not by its keys and not by its limit
+        const { keys: _keys, limit: _limit, ...selects } = query;
+        const q = JSON.stringify(query.keys ? "keys" : selects);
         const answer = answerOf(query);
         const watch: Watching = {
           query,
@@ -122,10 +147,13 @@ export function fakeCatalog() {
             full: answer.length === query.limit,
             rows: answer,
           });
+        const ended = Promise.withResolvers<string>();
         return {
           [Symbol.dispose]: () => {
             watching.delete(watch);
+            ended.resolve("the watcher ended it");
           },
+          ended: () => ended.promise,
         };
       },
     },
@@ -167,6 +195,17 @@ export function fakeCatalog() {
       if (newGeneration) gen = "g2";
       connection = { epoch: connection.epoch + 1, state: "open" };
       for (const changed of sessionListeners) changed();
+    },
+    /** The next calls of `watch` are refused with these codes, one each. */
+    refuseNext(...codes: string[]) {
+      refusals.push(...codes);
+    },
+    /** The catalog made its tables again: another generation, whose revisions count from 0, so
+     *  a row can have the revision that it had before with other content. `edit` changes rows
+     *  and keeps each revision. */
+    madeAgain(edit: (rows: Map<string, CatalogRow>) => void) {
+      edit(rows);
+      gen = `${gen}'`;
     },
     /** A frame that the catalog never sent: the next change then comes with a gap. */
     skipFrame() {

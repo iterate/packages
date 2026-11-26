@@ -30,6 +30,7 @@ import {
   contextsCollectionOptions,
   watchedQueryCollectionOptions,
   type CatalogItx,
+  type CatalogWatcher,
 } from "./catalog-collection.ts";
 import { useContextCatalog } from "./context-catalog-list.tsx";
 import type { ContextListing } from "./context-catalog-rows.ts";
@@ -37,8 +38,7 @@ import type { ContextListing } from "./context-catalog-rows.ts";
 /** A window's order and a join's key are read through an index of the rows that are here. */
 const INDEXED = { defaultIndexType: BasicIndex, autoIndex: "eager" } as const;
 
-function collectionsOf(itx: CatalogItx) {
-  const watcher = catalogWatcher(itx);
+function collectionsOf(watcher: CatalogWatcher) {
   /** The whole catalog, on demand: a live query of it is a query of the catalog. */
   const contexts = createCollection(contextsCollectionOptions({ watcher, index: INDEXED }));
   /** The contexts that have work now. A join reads it by path, through an index. */
@@ -64,22 +64,53 @@ function collectionsOf(itx: CatalogItx) {
       .from({ context: recent })
       .join({ awake }, ({ context, awake: row }) => eq(context.path, row.path), "left"),
   );
-  return { watcher, contexts, awake, listings };
+  return { contexts, awake, listings };
 }
 
-const catalogs = new WeakMap<object, ReturnType<typeof collectionsOf>>();
+/** One mind's catalog as a page holds it: the watcher, and the collections that read through it. */
+export type MindCatalog = { watcher: CatalogWatcher } & Readonly<ReturnType<typeof collectionsOf>>;
+
+const catalogs = new WeakMap<object, MindCatalog>();
 
 /** THE CATALOG OF ONE MIND, for the life of the page, whoever asks: one watcher and one set of
- *  collections for an `itx`. A collection that no query reads holds no watch. */
-export function catalogOf(itx: CatalogItx): ReturnType<typeof collectionsOf> {
-  const held = catalogs.get(itx) ?? collectionsOf(itx);
-  catalogs.set(itx, held);
-  return held;
+ *  collections for an `itx`. A collection that no query reads holds no watch. WHEN THE CATALOG
+ *  IS A SOURCE AGAIN after it was none, the collections are made anew: a watch that the catalog
+ *  refused has ended, and its collection would hold rows that nothing keeps true. So read
+ *  `catalogOf(itx).contexts` where the query is written, and keep no collection in a variable. */
+export function catalogOf(itx: CatalogItx): MindCatalog {
+  const held = catalogs.get(itx);
+  if (held) return held;
+  const watcher = catalogWatcher(itx);
+  let collections = collectionsOf(watcher);
+  let wasNone = false;
+  // for the page's life, as the watcher is: nothing ends this subscription
+  watcher.subscribe(() => {
+    const support = watcher.support();
+    if (support === "none") wasNone = true;
+    if (support !== "live" || !wasNone) return;
+    wasNone = false;
+    collections = collectionsOf(watcher);
+  });
+  const made: MindCatalog = {
+    watcher,
+    get contexts() {
+      return collections.contexts;
+    },
+    get awake() {
+      return collections.awake;
+    },
+    get listings() {
+      return collections.listings;
+    },
+  };
+  catalogs.set(itx, made);
+  return made;
 }
 
 /** The catalog's rows, pushed by the mind: the 500 most recently active contexts, the newest
  *  first, each with `awake` and `activities` when it has work now. `rows` is undefined until the
- *  first answer. On a platform without `contexts.watch` the rows are `list`'s, asked again every
+ *  first answer. While the catalog is no source (`CatalogSupport`: a platform without
+ *  `contexts.watch`, a catalog that cannot be reached) the rows are `list`'s, asked again every
  *  `pollMs` (`useContextCatalog`). `of` names whose catalog it is (the mind's address). */
 export function useWatchedContextCatalog(
   itx: CatalogItx,
@@ -92,19 +123,24 @@ export function useWatchedContextCatalog(
     catalog.watcher.support,
     catalog.watcher.support,
   );
-  // WHETHER THE MIND ANSWERS A WATCH is asked with one watch of the awake list, before a
-  // collection reads anything: a refusal is then an answer here, and no failed load of a query.
-  // The watch ends with the answer, and the awake collection then starts its own.
+  // WHETHER THE CATALOG IS A SOURCE is asked before a collection reads anything: a refusal is
+  // then an answer here, and no failed load of a query. While the page reads the list, it asks
+  // again each minute: after a deploy the catalog cannot be reached for up to a minute, and a
+  // session at its limit of watches gets room again.
   useEffect(() => {
-    if (support !== "asking") return;
-    const asked = catalog.watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
+    if (support === "asking") catalog.watcher.probe();
+    if (support !== "none") return;
+    const timer = setInterval(() => {
+      catalog.watcher.probe();
+    }, 60_000);
     return () => {
-      asked.stop();
+      clearInterval(timer);
     };
   }, [catalog, support]);
   const polled = useContextCatalog(support === "none" ? list : null, { of, pollMs });
+  const listings = support === "live" ? catalog.listings : undefined;
   const live = useLiveQuery({
-    query: (q) => (support === "live" ? q.from({ listing: catalog.listings }) : undefined),
+    query: (q) => (listings ? q.from({ listing: listings }) : undefined),
   });
   const data = live.isReady ? live.data : undefined;
   const rows = useMemo(

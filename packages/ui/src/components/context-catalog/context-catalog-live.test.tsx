@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import type { CatalogItx } from "./catalog-collection.ts";
-import { useWatchedContextCatalog } from "./context-catalog-live.ts";
+import { catalogOf, useWatchedContextCatalog } from "./context-catalog-live.ts";
 import type { ContextListing } from "./context-catalog-rows.ts";
 import { fakeCatalog } from "#/test-support/fake-catalog.ts";
 
@@ -33,8 +33,8 @@ test("the rows are the catalog's window, the newest first, each with its awake r
     ["/agents/b", undefined],
   ]);
   expect(page.last()?.error).toBeUndefined();
-  // one watch that asks whether the mind answers one; then two for the page's life, the window
-  // and the awake list; and no poll
+  // one watch that asks whether the catalog is a source; then two for the page's life, the
+  // window and the awake list; and no poll
   expect(catalog.calls.map((call) => call.query)).toEqual([
     { awake: true },
     { order: "active", limit: 500 },
@@ -65,6 +65,35 @@ test("a mind without contexts.watch is asked for the list, and the page says no 
   expect(list).toHaveBeenCalledTimes(1);
   // the refusal is an answer: nothing failed, so nothing is said on the console
   expect(errors).not.toHaveBeenCalled();
+});
+
+test.for(["UNAVAILABLE", "WATCH_LIMIT", ""])(
+  "a mind that refuses the first watch with %j is asked for the list too",
+  async (code) => {
+    const catalog = fakeCatalog();
+    catalog.put("/agents/a", 10);
+    catalog.refuseNext(code);
+    const list = vi.fn(() => Promise.resolve([]));
+    using page = await drawn(catalog.itx, list);
+    expect(page.last()).toEqual({ rows: [], error: undefined });
+    expect(list).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("when the catalog is a source again, the rows are pushed again, from collections made anew", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/agents/a", 10);
+  const list = vi.fn(() => Promise.resolve([]));
+  catalog.refuseNext("UNAVAILABLE");
+  using page = await drawn(catalog.itx, list);
+  expect(page.last()?.rows).toEqual([]);
+  const before = catalogOf(catalog.itx).contexts;
+  await act(async () => {
+    catalogOf(catalog.itx).watcher.probe();
+    await settled();
+  });
+  expect(page.last()?.rows?.map((row) => row.path)).toEqual(["/agents/a"]);
+  expect(catalogOf(catalog.itx).contexts === before).toBe(false);
 });
 
 /** Draws the hook, and answers what it last returned. */

@@ -31,6 +31,14 @@
 // guessed window gives wrong rows. With no limit, the facts go to the catalog and TanStack DB
 // filters the rest in the page.
 //
+// THE CATALOG'S MATCH OF A FACT IS WIDER THAN THE PAGE'S: it matches a value as its text (`1` and
+// `"1"`) and as an item of a list. TanStack DB filters the rows again with the query's own `eq`
+// or `inArray`, which are strict. So write the form that the stored value has: `eq` for a scalar,
+// `inArray(value, c.metadata.x)` for a list, a number for a number. A window with a limit whose
+// query uses the other form holds rows that the page then drops, and shows fewer rows than exist.
+// `eq(c.activeMs, x)` and `eq(c.createdMs, x)` load no row: they are what TanStack DB asks for
+// the rows that tie with a window's last, which the catalog has sent already.
+//
 // A MIND WHOSE PLATFORM HAS NO `contexts.watch` refuses the first watch: `watcher.support()` then
 // says "none", and the page reads the catalog as before (`useContextCatalog` polls
 // `contexts.list`).
@@ -168,7 +176,15 @@ export function compareCatalogRows(a: Sortable, b: Sortable, order: CatalogOrder
 /** What a watch tells its holder after each frame is in `rows`: the paths that left and the rows
  *  that came or changed. `answer` marks the answer to a watch that started. `error` is a refusal:
  *  the watch has ended. */
-export type CatalogChange<Row> = { del: string[]; put: Row[]; answer?: true; error?: string };
+export type CatalogChange<Row> = {
+  del: string[];
+  put: Row[];
+  answer?: true;
+  /** The answer is the whole truth (a `reset`): a row's revision may be one that this page has
+   *  seen for other content, since a catalog that made its tables again counts from 0. */
+  whole?: true;
+  error?: string;
+};
 
 /** One query that the catalog keeps answering. `rows` is its answer now. */
 export type CatalogWatch<Row> = {
@@ -187,9 +203,12 @@ export type CatalogWatch<Row> = {
 };
 
 /** Whether the mind's catalog answers a watch: "asking" until the first frame or the first
- *  refusal, then "live". "none" for a platform without `contexts.watch`, and from then on for a
- *  catalog that stopped being a source (it refused a watch for a reason that is not the query's,
- *  or a watch lost its place three times in half a minute): the page then reads the list. */
+ *  refusal, then "live". "none" while it is no source: a platform without `contexts.watch`
+ *  (`NOT_A_METHOD`), a catalog that could not be reached (`UNAVAILABLE`) or that failed (an error
+ *  with no code), or a watch that lost its place three times in half a minute. The page then
+ *  reads the list, and `probe()` asks again. `INVALID_INPUT` (this query cannot be answered) and
+ *  `WATCH_LIMIT` (the session has 64 watches, or the mind 512 live queries) refuse one watch
+ *  and say nothing of the catalog. */
 export type CatalogSupport = "asking" | "live" | "none";
 
 export type CatalogWatcher = {
@@ -205,7 +224,13 @@ export type CatalogWatcher = {
   /** `end()` runs after the last frame of each batch. One write of the catalog is one batch over
    *  all of this page's queries, so a holder applies it as one transaction. */
   onBatch(end: () => void): () => void;
+  /** True between a frame that says `more` and the end of its batch. */
+  batchOpen(): boolean;
   support(): CatalogSupport;
+  /** Asks, with one watch of the awake list that ends with its answer, whether the catalog is a
+   *  source now: `support()` then says "live", or "none" for any refusal. A page asks at its
+   *  start, and again later while it reads the list. */
+  probe(): void;
   /** For `useSyncExternalStore`: `changed` runs when `support()` answers another word. */
   subscribe(changed: () => void): () => void;
   /** Ends every watch and leaves the session. */
@@ -277,6 +302,16 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
     return { ...base, bound: last ? sortKeyOf(last, order) : null };
   }
 
+  // ONE WRITE IS ONE BATCH: every frame but the last says `more`. A batch also gets an end of
+  // this page's own, since the catalog cuts a very long message in two and a frame can be lost
+  // with its session: a transaction must not stay open.
+  let batchTimer: ReturnType<typeof setTimeout> | undefined;
+  const endBatch = () => {
+    clearTimeout(batchTimer);
+    batchTimer = undefined;
+    for (const end of batchEnds) end();
+  };
+
   function refuse(held: Held<{ path: string }>, error: string) {
     held.error = error;
     release(held);
@@ -319,9 +354,10 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       if (held.start !== started) return;
       // the session went away under the call: its next epoch starts the watch again
       if (sessionNow() !== asked || session.get().state !== "open") return;
-      // INVALID_INPUT is the refusal of this query. Any other refusal is of the watch itself: a
-      // platform that has no `contexts.watch`, or a catalog that does not answer.
-      if (Coded.safeParse(caught).data?.code !== "INVALID_INPUT") say("none");
+      // INVALID_INPUT and WATCH_LIMIT refuse this watch alone. Any other refusal says that the
+      // catalog is no source now (`CatalogSupport`).
+      const code = Coded.safeParse(caught).data?.code;
+      if (code !== "INVALID_INPUT" && code !== "WATCH_LIMIT") say("none");
       refuse(held, caught instanceof Error ? caught.message : String(caught));
     });
     // The catalog ended the watch and this page did not: watch again. A session that went away
@@ -337,6 +373,10 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
         () => {},
       );
   }
+
+  /** A window is full when it holds its limit: more rows may match than it holds. */
+  const fullOf = (held: Held<{ path: string }>) =>
+    kindOf(held.query) === "window" && held.rows.size >= (held.query.limit || 50);
 
   /** Starts a watch that lost its place, or gives the catalog up with `reason`. */
   function startAgain(held: Held<{ path: string }>, reason: string) {
@@ -365,7 +405,10 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       }
     }
     // The batch ends with its last frame, whoever that frame was for.
-    if (!parsed.success || !parsed.data.more) for (const end of batchEnds) end();
+    if (parsed.success && parsed.data.more) {
+      clearTimeout(batchTimer);
+      batchTimer = setTimeout(endBatch, 50);
+    } else endBatch();
   }
 
   function apply(held: Held<{ path: string }>, frame: z.infer<typeof Frame>) {
@@ -384,11 +427,12 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       for (const row of rows) held.rows.set(row.path, row);
       held.rev = frame.rev;
       held.frames += 1;
+      held.full = fullOf(held);
       held.onChange({ del: frame.del, put: rows });
       return;
     }
-    // The answer to a start: every row (`reset`), or every path with only the rows that this
-    // page lacks (`resume`).
+    // An answer: every row (`reset`, which may come at any time and is the whole truth), or every
+    // path with only the rows that this page lacks (`resume`).
     const keep = new Set(frame.type === "reset" ? rows.map((row) => row.path) : frame.ids);
     const del = [...held.rows.keys()].filter((path) => !keep.has(path));
     for (const path of del) held.rows.delete(path);
@@ -399,13 +443,14 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
     held.full = frame.full;
     held.error = undefined;
     held.answers += 1;
-    held.onChange({ del, put: rows, answer: true });
+    held.onChange({ del, put: rows, answer: true, ...(frame.type === "reset" && { whole: true }) });
     held.resolveReady();
   }
 
   // A new session: every watch of the last one ended with it. The watcher is in the session's
   // list only while it holds a watch, since a page with a subscriber is one that lives on over
   // a new session (#/lib/itx-session.ts).
+  let probing = false;
   let leave: (() => void) | undefined;
   const follow = () => {
     epoch = sessionNow();
@@ -454,6 +499,8 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
         stop() {
           if (!watches.delete(erased)) return;
           release(erased);
+          // whoever waits for its first answer hears that none comes
+          settle.reject(new Error("the watch was stopped"));
           unfollow();
         },
       };
@@ -477,7 +524,26 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       batchEnds.add(end);
       return () => batchEnds.delete(end);
     },
+    batchOpen: () => Boolean(batchTimer),
     support: () => support,
+    probe() {
+      if (probing) return;
+      probing = true;
+      const asked = this.watch({ awake: true }, z.object({ path: z.string() }), () => {});
+      void asked.ready
+        .then(
+          () => {
+            say("live");
+          },
+          () => {
+            say("none");
+          },
+        )
+        .finally(() => {
+          probing = false;
+          asked.stop();
+        });
+    },
     subscribe(changed) {
       supportListeners.add(changed);
       return () => supportListeners.delete(changed);
@@ -698,7 +764,15 @@ export function contextsCollectionOptions({
     utils: { demands: describe },
     sync: {
       rowUpdateMode: "full",
-      sync: ({ begin, write, commit, markReady, collection }: SyncParams<ContextRow>) => {
+      sync: ({
+        begin,
+        write,
+        commit,
+        markReady,
+        reportError,
+        reportHealthy,
+        collection,
+      }: SyncParams<ContextRow>) => {
         // One batch of the catalog is one write over ALL of this page's queries: it becomes one
         // transaction here, so a join of two of this collection's queries never sees half of it.
         let open = false;
@@ -719,12 +793,13 @@ export function contextsCollectionOptions({
         const stopBatches = watcher.onBatch(finish);
         const revOf = (path: string) =>
           written.has(path) ? written.get(path) : (collection.get(path)?.rev ?? false);
-        const hold = (demand: object, row: CatalogRow) => {
+        const hold = (demand: object, row: CatalogRow, whole: boolean) => {
           const held = holders.get(row.path) ?? new Set();
           holders.set(row.path, held);
           held.add(demand);
           const now = revOf(row.path);
-          if (now === row.rev) return;
+          // a row of a whole answer is written whatever its revision says (`CatalogChange`)
+          if (now === row.rev && !whole) return;
           transaction();
           const value = contextRow(row);
           if (now === false) write({ type: "insert", value });
@@ -750,7 +825,24 @@ export function contextsCollectionOptions({
           for (const path of change.del) release(demand, path);
           // an answer is the query's whole set: also the rows that the cursor said are here
           const rows = change.answer ? (watch()?.rows.values() ?? change.put) : change.put;
-          for (const row of rows) hold(demand, row);
+          for (const row of rows) hold(demand, row, Boolean(change.whole));
+        };
+        /** A query with no limit shows every row that matches, or says that it cannot: the
+         *  catalog holds 500 of them, and takes the least active out when one more enters. */
+        const tooMany = new Map<object, Error>();
+        const checkAll = (demand: Demand) => {
+          if (!demand.unlimited) return;
+          const said = tooMany.get(demand);
+          if (demand.watch.full && !said) {
+            const error = new Error(
+              `more than ${String(demand.watch.rows.size - 1)} rows match a query with no limit, and the catalog holds ${String(demand.watch.rows.size)}: say an order and a limit`,
+            );
+            tooMany.set(demand, error);
+            reportError(error);
+          } else if (!demand.watch.full && said) {
+            tooMany.delete(demand);
+            reportHealthy(said);
+          }
         };
         const end = (demand: object, watch: CatalogWatch<CatalogRow> | undefined) => {
           watch?.stop();
@@ -765,10 +857,16 @@ export function contextsCollectionOptions({
           if (keys.length === 0) {
             keysDemand.watch = undefined;
             end(keysDemand, before);
-            finish();
+            // a batch that is open commits at its own end
+            if (!watcher.batchOpen()) finish();
             return;
           }
-          if (JSON.stringify(before?.query.keys) === JSON.stringify(keys)) return before?.ready;
+          if (JSON.stringify(before?.query.keys) === JSON.stringify(keys)) return;
+          // The watch before stays, and its rows stay true, when the catalog cannot take this one.
+          if (keys.length > CATALOG_WINDOW_LIMIT)
+            throw new Error(
+              `the joins of this page ask for ${String(keys.length)} contexts by path, and the catalog watches ${String(CATALOG_WINDOW_LIMIT)} at most: join fewer rows`,
+            );
           const watch = watcher.watch(
             { keys },
             CatalogRow,
@@ -780,7 +878,18 @@ export function contextsCollectionOptions({
           keysDemand.watch = watch;
           // the new query's answer names every row it holds: what only the old one held goes
           before?.stop();
-          await watch.ready;
+        };
+        /** Until the keys watch that is current has answered. A load that waited for a watch
+         *  which another load replaced waits for the newer one. */
+        const keysAnswered = async (): Promise<void> => {
+          const watch = keysDemand.watch;
+          if (!watch) return;
+          try {
+            await watch.ready;
+          } catch (caught) {
+            if (keysDemand.watch === watch) throw caught;
+          }
+          if (keysDemand.watch !== watch) return keysAnswered();
         };
         const demandKeys = (keys: readonly string[], by: 1 | -1) => {
           for (const key of keys) {
@@ -790,7 +899,7 @@ export function contextsCollectionOptions({
           }
           if (keysDemand.scheduled) return keysDemand.settled;
           keysDemand.scheduled = true;
-          keysDemand.settled = Promise.resolve().then(sendKeys);
+          keysDemand.settled = Promise.resolve().then(sendKeys).then(keysAnswered);
           // an unload waits for nothing: its refusal is the load's to hear
           keysDemand.settled.catch(() => {});
           return keysDemand.settled;
@@ -831,6 +940,7 @@ export function contextsCollectionOptions({
                   CatalogRow,
                   (change) => {
                     apply(made, () => made.watch, change);
+                    checkAll(made);
                   },
                   like,
                 ),
@@ -839,18 +949,9 @@ export function contextsCollectionOptions({
               demands.set(key, demand);
             }
             demand.holds += 1;
-            const { watch, unlimited } = demand;
-            const check = () => {
-              if (unlimited && watch.full)
-                throw new Error(
-                  `more than ${String(watch.rows.size)} rows match and the query has no limit: say an order and a limit`,
-                );
-            };
-            if (watch.answers > 0 && receipt === true) {
-              check();
-              return true;
-            }
-            return watch.ready.then(check).then(visible);
+            const { watch } = demand;
+            if (watch.answers > 0 && receipt === true) return true;
+            return watch.ready.then(visible);
           },
           unloadSubset: (options) => {
             let asked: ReturnType<typeof catalogQueryOf>;
@@ -870,8 +971,12 @@ export function contextsCollectionOptions({
             demand.holds -= 1;
             if (demand.holds > 0) return;
             demands.delete(key);
+            const said = tooMany.get(demand);
+            tooMany.delete(demand);
+            if (said) reportHealthy(said);
             end(demand, demand.watch);
-            finish();
+            // a batch that is open commits at its own end
+            if (!watcher.batchOpen()) finish();
           },
           cleanup: () => {
             stopBatches();
@@ -919,9 +1024,12 @@ export function watchedQueryCollectionOptions<Row extends { path: string }>({
         const stopBatches = watcher.onBatch(() => {
           if (!open) return;
           open = false;
+          pending.clear();
           commit();
           markReady();
         });
+        const pending = new Map<string, boolean>();
+        const here = (path: string) => pending.get(path) ?? collection.has(path);
         const watch = watcher.watch(query, row, ({ del, put, error }) => {
           if (error) {
             fail(new Error(error));
@@ -929,9 +1037,16 @@ export function watchedQueryCollectionOptions<Row extends { path: string }>({
           }
           if (!open) begin();
           open = true;
-          for (const path of del) if (collection.has(path)) write({ type: "delete", key: path });
-          for (const value of put)
-            write({ type: collection.has(value.path) ? "update" : "insert", value });
+          // what the open transaction did is not in the collection yet
+          for (const path of del)
+            if (here(path)) {
+              write({ type: "delete", key: path });
+              pending.set(path, false);
+            }
+          for (const value of put) {
+            write({ type: here(value.path) ? "update" : "insert", value });
+            pending.set(value.path, true);
+          }
         });
         return () => {
           stopBatches();

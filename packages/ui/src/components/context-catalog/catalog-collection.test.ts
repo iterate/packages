@@ -263,6 +263,126 @@ test("a platform without contexts.watch says so once, and the watch ends with th
   expect(said).toEqual(["none"]);
 });
 
+test("two key loads that overlap both settle: the first waits for the watch that replaced its own", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/a", 10);
+  catalog.put("/b", 20);
+  const { contexts } = page(catalog);
+  const one = createLiveQueryCollection((q) =>
+    q.from({ c: contexts }).where(({ c }) => eq(c.path, "/a")),
+  );
+  const first = one.preload();
+  // the first keys watch is sent, and its answer is not here yet
+  await Promise.resolve();
+  await Promise.resolve();
+  const two = createLiveQueryCollection((q) =>
+    q.from({ c: contexts }).where(({ c }) => eq(c.path, "/b")),
+  );
+  await Promise.all([first, two.preload()]);
+  expect(one.toArray.map((row) => row.path)).toEqual(["/a"]);
+  expect(two.toArray.map((row) => row.path)).toEqual(["/b"]);
+  expect(catalog.calls.map((call) => call.query.keys)).toEqual([["/a"], ["/a", "/b"]]);
+});
+
+test("a row that has its old revision after the catalog made its tables again is written again", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/a", 10, { description: "before" });
+  const { contexts } = page(catalog);
+  const recent = createLiveQueryCollection((q) =>
+    q
+      .from({ c: contexts })
+      .orderBy(({ c }) => c.activeMs, "desc")
+      .limit(5),
+  );
+  await recent.preload();
+  expect(contexts.get("/a")).toMatchObject({ description: "before", rev: 1 });
+  catalog.madeAgain((rows) => {
+    const row = rows.get("/a");
+    if (row) rows.set("/a", { ...row, description: "after" });
+  });
+  catalog.newSession();
+  await tick();
+  expect(contexts.get("/a")).toMatchObject({ description: "after", rev: 1 });
+});
+
+test("a query with no limit says so when more rows match than the catalog holds, and stops saying it", async () => {
+  const catalog = fakeCatalog();
+  for (let n = 0; n < 499; n++) catalog.put(`/t/${String(n)}`, n, { metadata: { kind: "t" } });
+  const { contexts } = page(catalog);
+  const all = createLiveQueryCollection((q) =>
+    q.from({ c: contexts }).where(({ c }) => eq(c.metadata?.kind, "t")),
+  );
+  await all.preload();
+  expect(contexts.utils.demands()).toMatchObject([{ rows: 499, full: false }]);
+  catalog.put("/t/more", 1_000, { metadata: { kind: "t" } });
+  await tick();
+  expect(contexts.utils.demands()).toMatchObject([{ rows: 500, full: true }]);
+  catalog.remove("/t/more");
+  await tick();
+  expect(contexts.utils.demands()).toMatchObject([{ rows: 499, full: false }]);
+});
+
+test("more keys than the catalog watches are refused with the reason, and the keys watch before stays", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/a", 10, { description: "one" });
+  const { contexts } = page(catalog);
+  const one = createLiveQueryCollection((q) =>
+    q.from({ c: contexts }).where(({ c }) => eq(c.path, "/a")),
+  );
+  await one.preload();
+  const many = createLiveQueryCollection((q) =>
+    q.from({ c: contexts }).where(({ c }) =>
+      inArray(
+        c.path,
+        Array.from({ length: 500 }, (_, n) => `/k/${String(n)}`),
+      ),
+    ),
+  );
+  await expect(many.preload()).rejects.toThrow(/501 contexts by path/);
+  catalog.put("/a", 20, { description: "two" });
+  await tick();
+  expect(one.toArray).toMatchObject([{ description: "two" }]);
+});
+
+test("a refusal that is not the query's makes the catalog no source, a limit of watches does not, and a later probe makes it live", async () => {
+  const catalog = fakeCatalog();
+  const watcher = catalogWatcher(catalog.itx);
+  catalog.refuseNext("UNAVAILABLE");
+  watcher.probe();
+  await tick();
+  expect(watcher.support()).toBe("none");
+  watcher.probe();
+  await tick();
+  expect(watcher.support()).toBe("live");
+  // the session is at its limit: this watch is refused, and the catalog is a source as before
+  catalog.refuseNext("WATCH_LIMIT");
+  const refused = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
+  await expect(refused.ready).rejects.toThrow();
+  expect(watcher.support()).toBe("live");
+  // the catalog itself failed: an error with no code
+  catalog.refuseNext("");
+  const failed = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
+  await expect(failed.ready).rejects.toThrow();
+  expect(watcher.support()).toBe("none");
+});
+
+test("a batch whose last frame never comes is ended by the page itself", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/a", 10);
+  const watcher = catalogWatcher(catalog.itx);
+  const watch = watcher.watch({ order: "active", limit: 10 }, CatalogRow, () => {});
+  await watch.ready;
+  let ends = 0;
+  watcher.onBatch(() => (ends += 1));
+  const [live] = catalog.watching;
+  live?.onFrame({ type: "change", gen: "g1", from: 1, rev: 2, del: ["/a"], rows: [], more: true });
+  expect(watcher.batchOpen()).toBe(true);
+  expect(ends).toBe(0);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(watcher.batchOpen()).toBe(false);
+  expect(ends).toBe(1);
+});
+
 test("a watch asked before the page's first socket is open is asked once, and a platform without the watch is heard", async () => {
   // a page's session as memberItx says it: no socket yet, then the socket, then the proof
   let connection: ItxConnection = { epoch: 0, state: "opening" };
