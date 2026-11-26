@@ -42,7 +42,10 @@ test("the row of a key's first fact draws the newest widget in a sandboxed frame
   expect(frame.getAttribute("title")).toBe("A counter");
   expect(frame.getAttribute("srcdoc")).toContain("<button>new</button>");
   expect(frame.getAttribute("srcdoc")).not.toContain("<button>old</button>");
-  expect(host.querySelector("figcaption")?.textContent).toBe("A counter");
+  // our widget has no chrome: no caption, no border, no card; its title is the frame's alone
+  expect(host.querySelector("figcaption")).toBeNull();
+  expect(host.querySelector("[data-widget-border]")).toBeNull();
+  expect(host.querySelector("figure")?.className).not.toMatch(/border|bg-card|rounded/);
   await act(async () => root.unmount());
   host.remove();
 });
@@ -288,7 +291,31 @@ test("a widget-shown with the same document and another server is a new frame: t
   host.remove();
 });
 
-const APP = {
+test("an app's row has the host line, and a border only when its resource prefers one", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  for (const prefersBorder of [undefined, false, true]) {
+    await act(async () => {
+      root.render(<WidgetFrame widget={appWidget({ ...APP, prefersBorder })} />);
+    });
+    expect(host.querySelector("[data-widget-server]")?.textContent).toBe("petshop.iterate.com");
+    expect(host.querySelector("figcaption")?.className).not.toMatch(/border/);
+    expect(host.querySelector("figure")?.className).not.toMatch(/border|bg-card|rounded/);
+    expect(Boolean(host.querySelector("[data-widget-border]"))).toBe(prefersBorder === true);
+  }
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+const APP: {
+  server: string;
+  tool: string;
+  resourceUri: string;
+  input: Record<string, unknown>;
+  result: { content: unknown[] };
+  prefersBorder?: boolean;
+} = {
   server: "https://petshop.iterate.com/mcp",
   tool: "show_pets",
   resourceUri: "ui://petshop/pets.html",

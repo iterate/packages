@@ -276,50 +276,54 @@ export function WidgetFrame({
   useEffect(() => sendResult(), [data, text]);
 
   return (
+    // NO CHROME AROUND A WIDGET: it sits in the feed as its document draws itself. The figure is
+    // the focus target of the press rule (widget.ts `widgetAnswer`), with no look of its own.
     <figure
       ref={box}
-      className={cn("my-2 overflow-hidden rounded-xl border bg-card outline-none", className)}
+      className={cn("my-2 outline-none", className)}
       tabIndex={-1}
       data-kind="widget"
       data-widget={widget.key}
     >
       {widget.app ? (
-        // whose UI it is: the server's host, always, beside the widget's own title
-        <figcaption className="flex gap-1.5 border-b px-3 py-1.5 text-xs text-muted-foreground">
+        // whose UI it is: the server's host, always, one small line above its view
+        <figcaption className="flex gap-1.5 pb-1 text-xs text-muted-foreground">
           <span className="font-medium text-foreground" data-widget-server>
             {widgetServerHost(widget.app)}
           </span>
           {widget.title ? <span className="truncate">· {widget.title}</span> : null}
         </figcaption>
-      ) : widget.title ? (
-        <figcaption className="border-b px-3 py-1.5 text-xs text-muted-foreground">
-          {widget.title}
-        </figcaption>
       ) : null}
-      {!theme ? (
-        <div style={{ height }} />
-      ) : too || gone ? (
-        <p className="whitespace-pre-wrap px-3 py-2 text-sm">{widget.text}</p>
-      ) : (
-        <iframe
-          key={identity}
-          ref={frame}
-          title={widget.title || widget.text}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={doc}
-          className="block w-full border-0 bg-transparent"
-          style={{ height }}
-          // the srcdoc's own load is the first; a second is the widget gone elsewhere
-          onLoad={() => {
-            loads.current += 1;
-            if (loads.current > 1) {
-              away.current = true;
-              setGone(true);
-            }
-          }}
-        />
-      )}
+      <div
+        // a border only for an app whose resource asks for one (`_meta.ui.prefersBorder`)
+        className={cn(widget.app?.prefersBorder && "overflow-hidden rounded-xl border")}
+        data-widget-border={widget.app?.prefersBorder ? "" : undefined}
+      >
+        {!theme ? (
+          <div style={{ height }} />
+        ) : too || gone ? (
+          <p className="whitespace-pre-wrap py-1 text-sm">{widget.text}</p>
+        ) : (
+          <iframe
+            key={identity}
+            ref={frame}
+            title={widget.title || widget.text}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            srcDoc={doc}
+            className="block w-full border-0 bg-transparent"
+            style={{ height }}
+            // the srcdoc's own load is the first; a second is the widget gone elsewhere
+            onLoad={() => {
+              loads.current += 1;
+              if (loads.current > 1) {
+                away.current = true;
+                setGone(true);
+              }
+            }}
+          />
+        )}
+      </div>
     </figure>
   );
 }
