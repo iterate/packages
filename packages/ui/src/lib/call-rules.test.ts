@@ -90,12 +90,24 @@ test("the view: this page in the call or not, every page by its row, a guest mar
     ],
     hostPage: "page-a",
     delegation: { id: "del_1", status: "answered", answer: "At three." },
+    offer: null,
   });
+  // the voice agent offered to a page is that page's offer alone
+  const offered = CallLive.parse({
+    since: 1,
+    inCall: {},
+    voiceAgent: null,
+    setup: null,
+    voiceOffer: { id: "offer-1", page: "page-b", why: "take-over" },
+  });
+  expect(viewOf(offered, "page-b")).toMatchObject({ offer: "offer-1" });
+  expect(viewOf(offered, "page-a")).toMatchObject({ offer: null });
   expect(viewOf(undefined, "page-c")).toEqual({
     me: { inCall: false },
     call: [],
     hostPage: null,
     delegation: null,
+    offer: null,
   });
   // a page named as a prototype's key is not in the call
   for (const page of ["constructor", "__proto__", "toString"])

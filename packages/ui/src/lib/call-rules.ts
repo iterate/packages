@@ -77,6 +77,13 @@ export const CallLive = z.object({
     })
     .nullable()
     .default(null),
+  /** The voice agent is offered to a member's page, which starts it with no press: the call's
+   *  settings say that it joins by itself, or its host left and that page is asked to take it
+   *  over. A call that makes no offers has none. */
+  voiceOffer: z
+    .object({ id: z.string(), page: z.string(), why: z.string() })
+    .nullable()
+    .default(null),
   links: z
     .array(
       z.object({
@@ -134,6 +141,8 @@ export function viewOf(live: CallLive | undefined, page: string) {
     })),
     hostPage: live?.voiceAgent?.page || null,
     delegation: live?.delegation || null,
+    // an offer of the voice agent to this page, by its id; another page's is not this page's
+    offer: live?.voiceOffer?.page === page ? live.voiceOffer.id : null,
   };
 }
 export type CallView = ReturnType<typeof viewOf>;

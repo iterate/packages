@@ -1888,7 +1888,7 @@ export function createCall({
   /** The last voice agent start this page asked of the call: its call, and its answer (or
    *  failure). A later call's admission is another row's, so it waits for none of it. */
   let aiStart: { call: CallScope; answered: Promise<void> } | null = null;
-  async function aiInvite() {
+  async function aiInvite(offer?: string) {
     const call = scope;
     // a press while the microphone is still on its way to the call waits for it
     await call.send.settled();
@@ -1980,7 +1980,8 @@ export function createCall({
       const asking = facet(
         "voiceAgent",
         page,
-        { start: pc.localDescription!.sdp, invite: invite.id },
+        // `offer`: the call's offer that this start answers; the call refuses one that is over
+        { start: pc.localDescription!.sdp, invite: invite.id, offer },
         call.admission,
       );
       aiStart = {
@@ -2008,7 +2009,9 @@ export function createCall({
       // closed with it, and another invite may stand now
       if (!current()) return;
       await aiStop("it could not join", { quiet: true });
-      if (!call.ended) set({ aiRefusal: refused || { message: messageOf(error) } });
+      // an offer that was over when this page answered it is no failure to show: the page pressed
+      // nothing
+      if (!call.ended && !offer) set({ aiRefusal: refused || { message: messageOf(error) } });
     }
   }
   /** The open delegations of this tab, each waiting for its answer in the call's live state. */
@@ -2058,6 +2061,37 @@ export function createCall({
       if (timer) clearTimeout(timer);
       answers.delete(id);
     }
+  }
+  /** The offers of the voice agent that this page took. */
+  const offersTaken = new Set<string>();
+  /** The carried requests whose end this tab's model was told. */
+  const carriedTold = new Set<string>();
+  /** A REQUEST OF THE VOICE AGENT'S SESSION BEFORE THIS ONE, which the call marks by its id
+   *  (call/rules.ts `CARRIED`): its host left, and this tab took the voice agent over. This tab's
+   *  model made no such request, so the answer goes to it as words to say that belong to no
+   *  request of its own (`delegation_id: null`), once. An answer that is there before the model
+   *  is connected waits for it, 20 s at most. */
+  function sayCarried(
+    done: { id: string; status: string; answer?: string; reason?: string },
+    tries = 0,
+  ) {
+    if (!done.id.startsWith("carried:") || carriedTold.has(done.id) || ai.state === "off") return;
+    if (ai.state !== "on" || ai.events?.readyState !== "open") {
+      if (tries < 40) setTimeout(() => sayCarried(done, tries + 1), 500);
+      return;
+    }
+    carriedTold.add(done.id);
+    ai.events.send(
+      JSON.stringify({
+        type: "session.commentary.append",
+        event_id: crypto.randomUUID(),
+        delegation_id: null,
+        content:
+          done.status === "answered" && done.answer
+            ? `The agent of this call has answered the request that you made before your connection moved. Say its answer now: ${done.answer}`
+            : "The agent gave no answer to the request that you made before your connection moved. Say that plainly.",
+      }),
+    );
   }
   /** Words of the voice model: a line goes on while its speaker goes on, within 4 s. */
   function heard(who: "heard" | "agent", words: string) {
@@ -2667,6 +2701,22 @@ export function createCall({
     // the answer to this tab's delegation, once the call has it
     const delegation = next.delegation;
     if (delegation && delegation.status !== "waiting") answers.get(delegation.id)?.(delegation);
+    if (delegation && delegation.status !== "waiting") sayCarried(delegation);
+    // THE VOICE AGENT IS OFFERED TO THIS PAGE (the call's `voiceOffer`): the page starts it as a
+    // press on its button would, once for each offer. A page that is not in the call, or that
+    // only listens (the voice agent hears its host's microphone), leaves the offer: the call
+    // asks the next page.
+    if (
+      known &&
+      next.offer &&
+      !offersTaken.has(next.offer) &&
+      joined &&
+      mic &&
+      ai.state === "off"
+    ) {
+      offersTaken.add(next.offer);
+      void aiInvite(next.offer);
+    }
     if (known && ai.state === "on" && next.hostPage !== page && Date.now() - ai.startedAt > 8_000)
       void aiStop("it was sent away");
     else if (ai.state === "on" && Date.now() - ai.lastSpeechAt > AI_IDLE_MS)
@@ -2765,7 +2815,7 @@ export function createCall({
     drivePaste,
     listDevices,
     tileWidth,
-    aiInvite,
+    aiInvite: () => aiInvite(),
     /** Send the voice agent away: this tab's own, or another tab's (the call tells its host). */
     aiDismiss: () =>
       ai.state === "off"
