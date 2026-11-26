@@ -14,7 +14,6 @@ import {
   CodeIcon,
   ExternalLinkIcon,
   GlobeIcon,
-  LayersIcon,
   SearchIcon,
   SquareTerminalIcon,
 } from "lucide-react";
@@ -397,15 +396,9 @@ function ActivityPopoverBody({
 }) {
   return (
     <>
-      <div className="flex items-center justify-between gap-2 px-1">
-        <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-          <LayersIcon className="size-3.5 text-muted-foreground" aria-hidden />
-          Active work ({active.length})
-        </span>
-        {visibleStatus ? (
-          <span className="truncate text-2xs text-muted-foreground">{visibleStatus.text}</span>
-        ) : null}
-      </div>
+      {visibleStatus ? (
+        <div className="px-2 pt-0.5 text-2xs text-muted-foreground">{visibleStatus.text}</div>
+      ) : null}
       <ul className="flex flex-col gap-0.5" data-slot="activity-stack-list">
         {active.map((item) => (
           <ActivityStackRow

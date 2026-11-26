@@ -70,6 +70,25 @@ test("a window that comes after the last picture went is closed, and the tiles s
   expect(page.host.querySelector("#tiles")).not.toBeNull();
 });
 
+test("dresses the floating window from parsed document.styleSheets in memory with zero FOUC", async () => {
+  const hostStyle = document.head.appendChild(document.createElement("style"));
+  hostStyle.textContent = ".pip-tile { display: flex; }";
+  try {
+    const floating = document.implementation.createHTMLDocument("pip");
+    const window = { document: floating, close: vi.fn(), addEventListener: () => {} };
+    using _api = documentPip({ requestWindow: vi.fn(async () => window) });
+    using page = await mount({ videos: [CAMERA] } as CallUi);
+    await act(async () => page.host.querySelector("button")!.click());
+    const copiedText = Array.from(floating.head.querySelectorAll("style"))
+      .map((s) => s.textContent || "")
+      .join("\n");
+    expect(copiedText).toContain(".pip-tile");
+    expect(floating.head.querySelector('link[rel="stylesheet"]')).toBeNull();
+  } finally {
+    hostStyle.remove();
+  }
+});
+
 /** The button's fixed name, whether it is on, and what a press does (its title's first words). */
 function pressed(host: HTMLElement) {
   const button = host.querySelector("button")!;

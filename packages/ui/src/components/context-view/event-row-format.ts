@@ -21,11 +21,10 @@ export function formatDelta(ms: number): string {
   return `+${String(Math.floor(minutes / 60))}h${String(minutes % 60)}m`;
 }
 
-/** The frame every row shares: full width, the columns on one line from `sm` (a phone wraps the
- *  body above the rest), 26px tall, the hover, the inspected row's left bar. Rows are buttons
- *  (inspect, or open a fold). */
+/** The frame every row shares: full width, columns on one line from `@md` (`448px` container width;
+ *  narrower containers wrap the body above the meta line), 26px tall, hover, and inspected left bar. */
 export const rowClass = (selected?: boolean) =>
   cn(
-    "flex w-full min-w-0 flex-wrap items-baseline gap-x-3.5 px-3 sm:px-4 py-[3px] text-left hover:bg-muted/60 max-sm:gap-x-2 max-sm:py-1.5 sm:flex-nowrap",
+    "flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-2.5 py-[3px] text-left hover:bg-muted/60 @max-md:py-1 @md:flex-nowrap @2xl:px-4 @3xl:gap-x-3.5",
     selected && "bg-muted shadow-[inset_2px_0_0_var(--color-foreground)] hover:bg-muted",
   );

@@ -26,12 +26,13 @@ export const labelOf = (principal: ShownPrincipal) =>
 export const shortLabelOf = (principal: ShownPrincipal) =>
   guestMarked(principal, principal.email?.split("@", 1)[0] || principal.name || principal.actor);
 
-/** What a face is drawn from (`Face`'s `who` and `name`): `who` gives its colour and must never
- *  change for one person, so it is the email, else the actor id; the initials come from the name
- *  of a person who has no email. */
+/** What a face is drawn from (`Face`'s `who`, `name` and `kind`): `who` gives its colour and must
+ *  never change for one person, so it is the email, else the actor id; the initials come from the
+ *  name of a person who has no email; a mind (`kind: "mind"`) is drawn as a rounded square. */
 export const faceOf = (principal: ShownPrincipal) => ({
   who: principal.email || principal.actor,
   name: principal.email ? undefined : principal.name,
+  ...(principal.kind === "mind" && { kind: "mind" as const }),
 });
 
 const guestMarked = (principal: ShownPrincipal, words: string) =>

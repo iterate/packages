@@ -840,6 +840,49 @@
       ]
     },
     {
+      "name": "context-stream",
+      "type": "registry:component",
+      "description": "Base Slack-proportioned stream view and two-window sparse event pager for any context: actors post stacked messages, react, and open nested subcontext thread bars in a virtualized log.",
+      "dependencies": [
+        "cn",
+        "lucide-react",
+        "streamdown"
+      ],
+      "registryDependencies": [
+        "iterate/packages/call",
+        "iterate/packages/virtual-log",
+        "popover"
+      ],
+      "cssVars": {
+        "theme": {
+          "color-success": "var(--success)",
+          "text-2xs": "0.6875rem",
+          "text-2xs--line-height": "calc(1 / 0.6875)"
+        },
+        "light": {
+          "success": "light-dark(oklch(0.508 0.118 165.612), oklch(0.765 0.177 163.223))"
+        }
+      },
+      "files": [
+        {
+          "path": "src/components/context-stream/context-stream.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-stream/context-stream-model.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-stream/context-stream-view.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/context-stream/windowed-pager.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
       "name": "context-view",
       "type": "registry:component",
       "description": "One context's event stream, its processors' live state and who is here: the Contexts page's view.",

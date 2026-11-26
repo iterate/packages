@@ -14,6 +14,17 @@ export const OLDER_EXHAUSTED: OlderPages = { loadOlder: () => {}, loading: false
 /** The read failed: nothing older is asked for, and nothing is said of what the log holds. */
 export const OLDER_FAILED: OlderPages = { ...OLDER_EXHAUSTED, failed: true };
 
+/** Reading a log above what is loaded, toward the live head, when viewing a detached history window. */
+export type NewerPages = {
+  loadNewer(): void;
+  loading: boolean;
+  exhausted: boolean;
+  failed?: boolean;
+};
+
+/** Attached to the newest end of the log: nothing newer to page. */
+export const NEWER_EXHAUSTED: NewerPages = { loadNewer: () => {}, loading: false, exhausted: true };
+
 /** How much of a log is held, from 0 to 1. Offsets stand in for bytes: the lowest held against
  *  `head`, the newest known. */
 export function heldShare(events: readonly { offset: number }[], head = 0): number {

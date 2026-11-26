@@ -26,7 +26,7 @@ export const DaySeparator = memo(function DaySeparator({ date }: { date: Date })
             year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
           });
   return (
-    <div className="flex items-baseline gap-x-3.5 px-3 sm:px-4 pt-3 pb-1">
+    <div className="flex items-baseline gap-x-2 px-2.5 pt-3 pb-1 @2xl:px-4 @3xl:gap-x-3.5">
       <RowGutter />
       <span className="text-xs font-semibold text-foreground/75">{label}</span>
     </div>
@@ -65,7 +65,7 @@ export const RunRow = memo(function RunRow({
     >
       <RowOffset offset={first.offset} />
       <RowTimes event={first} previous={previous} />
-      <span className={cn(rowBody, rowLine, "gap-x-1.5 max-sm:flex-row")}>
+      <span className={cn(rowBody, rowLine, "gap-x-1.5")}>
         <span className="min-w-0 truncate tabular-nums">
           {runLabel(events.map((event) => event.type))}
         </span>

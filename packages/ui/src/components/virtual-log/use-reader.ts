@@ -3,6 +3,8 @@
 // with no one asking, and while the virtualizer catches up the position alone says "behind". Being
 // there again is all it takes to be back.
 import {
+  useCallback,
+  useEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -35,7 +37,11 @@ const shortOfEnd = ({ scrollHeight, clientHeight, scrollTop }: Element) =>
 
 const nearEnd = (scroller: Element) => Math.abs(shortOfEnd(scroller)) <= SCROLL_END_THRESHOLD;
 
-export function useReader(footerRef: RefObject<HTMLElement | null>, rowCount: number) {
+export function useReader(
+  footerRef: RefObject<HTMLElement | null>,
+  rowCount: number,
+  onAtEndChange?: (atEnd: boolean) => void,
+) {
   /** Following the tail: the view stays at the end through whatever changes below it. */
   const atEndRef = useRef(true);
   /** The top bubble was pressed: on up, page after page, until the log runs out or the reader acts. */
@@ -51,14 +57,34 @@ export function useReader(footerRef: RefObject<HTMLElement | null>, rowCount: nu
   const scrollingRef = useRef<"up" | "somewhere" | null>(null);
   const touchYRef = useRef(0);
   const lastScrollTopRef = useRef(0);
+  const ownWriteRef = useRef(false);
   const [atEnd, setAtEnd] = useState(true);
   const [atTop, setAtTop] = useState(true);
+  const onAtEndChangeRef = useRef(onAtEndChange);
+  useEffect(() => {
+    onAtEndChangeRef.current = onAtEndChange;
+  }, [onAtEndChange]);
 
-  const follow = (following: boolean) => {
+  const follow = useCallback((following: boolean) => {
+    const changed = atEndRef.current !== following;
     atEndRef.current = following;
     setAtEnd(following);
     if (following) scrollingRef.current = null;
-  };
+    if (changed) onAtEndChangeRef.current?.(following);
+  }, []);
+
+  /** Marks a programmatic scroll write so `trackEdges` can distinguish our own `scrollTo*` calls
+   *  from a scroll initiated inside a child `<iframe>` (whose `wheel` event never bubbles out). */
+  const runOwnScroll = useCallback((fn: () => void) => {
+    ownWriteRef.current = true;
+    try {
+      fn();
+    } finally {
+      queueMicrotask(() => {
+        ownWriteRef.current = false;
+      });
+    }
+  }, []);
 
   /** A reader setting off from the end. The browser animates a key's scroll, whose first steps are
    *  too small to leave the threshold, and a jump's own scroll event can land after the key: neither
@@ -76,20 +102,28 @@ export function useReader(footerRef: RefObject<HTMLElement | null>, rowCount: nu
     if (pressed && height > pressed.height && height > (instance.scrollRect?.height ?? Infinity)) {
       pressedRef.current = null;
       follow(false);
-      instance.scrollToIndex(Number(pressed.row.dataset.index), { align: "start" });
-    } else instance.scrollToEnd();
+      runOwnScroll(() =>
+        instance.scrollToIndex(Number(pressed.row.dataset.index), { align: "start" }),
+      );
+    } else runOwnScroll(() => instance.scrollToEnd());
   };
 
   const trackEdges = ({ currentTarget }: UIEvent<HTMLDivElement>) => {
     const { scrollTop } = currentTarget;
-    const movedUp = scrollTop < lastScrollTopRef.current;
+    const movedUp = scrollTop < lastScrollTopRef.current - SCROLL_END_THRESHOLD;
+    const anyMovedUp = scrollTop < lastScrollTopRef.current;
     lastScrollTopRef.current = scrollTop;
     setAtTop(scrollTop <= 4);
     if (settingOff(currentTarget)) return;
     if (nearEnd(currentTarget)) follow(true);
     // nobody leaves by a bounce, whose way back moves up
     else if (shortOfEnd(currentTarget) < 0) return;
-    else if (scrollingRef.current === "up" || (scrollingRef.current && movedUp)) follow(false);
+    else if (
+      scrollingRef.current === "up" ||
+      (scrollingRef.current && anyMovedUp) ||
+      (!ownWriteRef.current && movedUp)
+    )
+      follow(false);
   };
 
   /** What the scroller listens to. */
@@ -120,8 +154,9 @@ export function useReader(footerRef: RefObject<HTMLElement | null>, rowCount: nu
       onTouchCancel: liftFinger,
       onTouchMove: (event: TouchEvent<HTMLDivElement>) => {
         const y = event.touches[0]!.clientY;
-        // a finger going down brings older rows in
-        if (!inFooter(event.target)) readerScrolls(y > touchYRef.current ? "up" : "somewhere");
+        // a finger going down brings older rows in; ignore 0px stationary move before touchend
+        if (!inFooter(event.target) && y !== touchYRef.current)
+          readerScrolls(y > touchYRef.current ? "up" : "somewhere");
         touchYRef.current = y;
       },
       onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
@@ -151,6 +186,7 @@ export function useReader(footerRef: RefObject<HTMLElement | null>, rowCount: nu
     scrollingRef,
     follow,
     keepAtEnd,
+    runOwnScroll,
     scrollerProps,
   };
 }

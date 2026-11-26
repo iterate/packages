@@ -67,6 +67,8 @@ function AgentPillComposer({
   isInterrupting = false,
   onInterrupt,
   attach = true,
+  topLip,
+  below,
 }: {
   mode: AgentComposerMode;
   onModeChange: (mode: AgentComposerMode) => void;
@@ -80,6 +82,10 @@ function AgentPillComposer({
   onInterrupt?: () => Promise<void> | void;
   /** `false`: words only: no `+` (no files, no raw mode), and a paste or drop adds no file. */
   attach?: boolean;
+  /** Optional unified status / activity-stack lip attached directly to the top of the composer card. */
+  topLip?: ReactNode;
+  /** Quiet bar rendered below the composer pill (context utilization, model settings, sticky notices). */
+  below?: ReactNode;
 }) {
   // the raw editor while it is the open mode; otherwise the message editor is
   const openRaw = mode === "raw" ? raw : undefined;
@@ -110,49 +116,79 @@ function AgentPillComposer({
     <div className="w-full">
       <ComposerError error={error} />
       <div
-        {...dropHandlers}
-        data-drop-active={isDragging ? "true" : undefined}
         className={cn(
-          "flex items-end gap-1 rounded-3xl border bg-background p-1 shadow-sm transition-shadow sm:py-2 sm:pr-2 sm:pl-1.5",
-          isDragging && "ring-2 ring-primary/40 border-primary/40",
+          "group/composer-card rounded-3xl transition-shadow has-[[data-composer-lip]]:border has-[[data-composer-lip]]:border-border has-[[data-composer-lip]]:bg-muted/45 has-[[data-composer-lip]]:shadow-sm",
+          isDragging &&
+            "has-[[data-composer-lip]]:border-primary/40 has-[[data-composer-lip]]:ring-2 has-[[data-composer-lip]]:ring-primary/40",
         )}
       >
-        {attach ? (
-          <ComposerModeMenu
-            mode={mode}
-            onModeChange={onModeChange}
-            hasRaw={Boolean(raw)}
+        <ComposerSlot className="px-3.5 py-1">{topLip}</ComposerSlot>
+        <div
+          {...dropHandlers}
+          data-drop-active={isDragging ? "true" : undefined}
+          className={cn(
+            "flex items-end gap-1 rounded-3xl border bg-background p-1 shadow-sm transition-shadow sm:py-2 sm:pr-2 sm:pl-1.5 group-has-[[data-composer-lip]]/composer-card:border-x-0 group-has-[[data-composer-lip]]/composer-card:border-b-0 group-has-[[data-composer-lip]]/composer-card:shadow-none",
+            isDragging &&
+              "border-primary/40 ring-2 ring-primary/40 group-has-[[data-composer-lip]]/composer-card:ring-0",
+          )}
+        >
+          {attach ? (
+            <ComposerModeMenu
+              mode={mode}
+              onModeChange={onModeChange}
+              hasRaw={Boolean(raw)}
+              isSubmitting={isSubmitting}
+              onAttach={message.onAttach}
+            />
+          ) : null}
+          {openRaw ? (
+            <CodeEditor
+              value={openRaw.value}
+              onValueChange={openRaw.onValueChange}
+              onSubmit={submit}
+              focusOnMount
+              placeholder={"type: events.iterate.com/note/added\npayload:\n  text: hello"}
+              className="min-w-0 flex-1 px-2 py-1.5"
+            />
+          ) : (
+            <ComposerMessageEditor
+              message={message}
+              onSubmit={submit}
+              focusOnMount={autoFocusMessage}
+              takesFiles={takesFiles}
+            />
+          )}
+          <ComposerRoundButton
+            stops={stops}
+            sendTitle={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
+            canSubmit={canSubmit}
             isSubmitting={isSubmitting}
-            onAttach={message.onAttach}
-          />
-        ) : null}
-        {openRaw ? (
-          <CodeEditor
-            value={openRaw.value}
-            onValueChange={openRaw.onValueChange}
+            isInterrupting={isInterrupting}
             onSubmit={submit}
-            focusOnMount
-            placeholder={"type: events.iterate.com/note/added\npayload:\n  text: hello"}
-            className="min-w-0 flex-1 px-2 py-1.5"
+            onInterrupt={interrupt}
           />
-        ) : (
-          <ComposerMessageEditor
-            message={message}
-            onSubmit={submit}
-            focusOnMount={autoFocusMessage}
-            takesFiles={takesFiles}
-          />
-        )}
-        <ComposerRoundButton
-          stops={stops}
-          sendTitle={mode === "raw" ? "Append events (⌘↵)" : "Send message"}
-          canSubmit={canSubmit}
-          isSubmitting={isSubmitting}
-          isInterrupting={isInterrupting}
-          onSubmit={submit}
-          onInterrupt={interrupt}
-        />
+        </div>
       </div>
+      <ComposerSlot dataSlot="composer-below" className="px-2 pt-1.5">
+        {below}
+      </ComposerSlot>
+    </div>
+  );
+}
+
+function ComposerSlot({
+  dataSlot,
+  className,
+  children,
+}: {
+  dataSlot?: string;
+  className: string;
+  children: ReactNode;
+}) {
+  if (!children) return null;
+  return (
+    <div data-slot={dataSlot} className={cn(className, "empty:hidden")}>
+      {children}
     </div>
   );
 }
@@ -413,6 +449,8 @@ export function AgentComposer({
   autoFocusMessage = false,
   attach = true,
   onTyping,
+  topLip,
+  below,
 }: {
   draft: ComposerDraft;
   /** The empty editor's text, which also names its textbox. */
@@ -429,6 +467,10 @@ export function AgentComposer({
   /** The person writes (`true`, on each change that leaves words in the box), or has stopped:
    *  the box is empty, or the words were sent. For a page that shows the others who is typing. */
   onTyping?: (isTyping: boolean) => void;
+  /** Optional unified status / activity-stack lip attached directly to the top of the composer card. */
+  topLip?: ReactNode;
+  /** Optional slot rendered directly below the composer pill (context management, sticky notices). */
+  below?: ReactNode;
 }) {
   const { message, setMessage, attachments } = draft;
   const [mode, setMode] = useState<AgentComposerMode>("message");
@@ -539,6 +581,8 @@ export function AgentComposer({
         error={error}
         isInterrupting={interrupt?.isInterrupting}
         onInterrupt={interrupt?.run}
+        topLip={topLip}
+        below={below}
       />
     </>
   );

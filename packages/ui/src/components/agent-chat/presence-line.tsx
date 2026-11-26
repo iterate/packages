@@ -210,8 +210,8 @@ export function ConversationAccessWaiting({ mind, viewer }: { mind?: MindFace; v
   );
 }
 
-/** THE MIND'S FACE: its logo in a circle of a face's size, or iterate's mark. Its name is its
- *  tooltip and what a screen reader says. */
+/** THE MIND'S FACE: its logo in a rounded square of a face's size, or iterate's mark. Its name is
+ *  its tooltip and what a screen reader says. */
 function MindFaceMark({ mind, className }: { mind: MindFace; className?: string }) {
   return (
     <Avatar
@@ -219,7 +219,10 @@ function MindFaceMark({ mind, className }: { mind: MindFace; className?: string 
       title={mind.name}
       aria-label={mind.name}
       role="img"
-      className={cn("size-6 overflow-hidden bg-background *:size-full! *:rounded-none!", className)}
+      className={cn(
+        "size-6 overflow-hidden rounded-[22.37%] bg-background after:rounded-[22.37%] *:size-full! *:rounded-none!",
+        className,
+      )}
     >
       {mind.logo ?? <IterateLogo alt="" />}
     </Avatar>

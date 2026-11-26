@@ -498,6 +498,7 @@ function RoundRow({
   inspect: Inspect;
 }) {
   const [toggled, setToggled] = useState<boolean | null>(null);
+  const running = round.code?.status === "running" || round.llm?.status === "running";
   const expanded = toggled ?? round.code?.status === "running";
   const failed = round.code?.success === false || round.llm?.outcome === "failed";
   return (
@@ -520,7 +521,12 @@ function RoundRow({
         >
           Round {index + 1}
         </span>
-        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground/70">
+        <span
+          className={cn(
+            "min-w-0 truncate font-mono text-xs text-muted-foreground/70",
+            running && !failed && "shimmer text-foreground/85",
+          )}
+        >
           {roundHeaderMeta(round)}
         </span>
         <ChevronRightIcon
@@ -898,7 +904,7 @@ export function AgentTurnStatus({ text, working }: { text: string; working: bool
       role="status"
     >
       {working ? <Spinner className="size-3 shrink-0" /> : null}
-      <span className="truncate">{text}</span>
+      <span className={cn("truncate", working && "shimmer")}>{text}</span>
     </div>
   );
 }
@@ -1036,11 +1042,20 @@ function AgentLiveStatus({
       )}
       <span
         className={cn(
-          "text-sm font-medium tabular-nums text-primary",
+          "min-w-0 truncate text-sm font-medium text-primary",
+          !phaseClock.deadlineExceeded && "shimmer",
           phaseClock.deadlineExceeded && "text-destructive",
         )}
       >
-        {phaseLabel} {phaseClock.elapsedLabel}
+        {phaseLabel}
+      </span>{" "}
+      <span
+        className={cn(
+          "shrink-0 text-sm font-medium tabular-nums text-primary/80",
+          phaseClock.deadlineExceeded && "text-destructive",
+        )}
+      >
+        {phaseClock.elapsedLabel}
       </span>
       {onInspect ? (
         <ChevronRightIcon

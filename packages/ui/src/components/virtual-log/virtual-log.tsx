@@ -52,7 +52,12 @@ import {
   type Virtualizer,
 } from "@tanstack/react-virtual";
 import { cn } from "cn";
-import { OLDER_EXHAUSTED, type OlderPages } from "./older-pages.ts";
+import {
+  NEWER_EXHAUSTED,
+  OLDER_EXHAUSTED,
+  type NewerPages,
+  type OlderPages,
+} from "./older-pages.ts";
 import { SCROLL_END_THRESHOLD, useReader } from "./use-reader.ts";
 
 /** Rows kept mounted at the edge the view is bound for: a view's worth at the smallest rows on a
@@ -80,6 +85,8 @@ export type VirtualLogRowInfo<Row> = {
   /** Where a row sits in the log: what the pill counts and what `reveal` finds. A row that is not
    *  in the log (a day mark, the work in flight) has none. */
   offset: (row: Row) => number | undefined;
+  /** Optional inclusive `[from, to]` offset span covered by a folded row so `reveal` lands on it. */
+  span?: (row: Row) => readonly [from: number, to: number] | undefined;
 };
 
 export function VirtualLog<Row>({
@@ -87,6 +94,7 @@ export function VirtualLog<Row>({
   rowInfo,
   renderRow,
   older = OLDER_EXHAUSTED,
+  newer = NEWER_EXHAUSTED,
   readingOlder,
   empty,
   label,
@@ -95,6 +103,8 @@ export function VirtualLog<Row>({
   footer,
   followTail,
   reveal,
+  onJumpToLatest,
+  onAtEndChange,
   paddingStart = 0,
   paddingEnd = 0,
   columnClassName,
@@ -104,6 +114,8 @@ export function VirtualLog<Row>({
   rowInfo: VirtualLogRowInfo<Row>;
   renderRow: (row: Row, index: number) => ReactNode;
   older?: OlderPages;
+  /** Pages toward the live head when viewing a detached history window. */
+  newer?: NewerPages;
   /** What shows at the top of the view while an older page is read. */
   readingOlder?: ReactNode;
   /** What shows when there are no rows. */
@@ -126,6 +138,10 @@ export function VirtualLog<Row>({
    *  again as rows arrive, so a reader who scrolled away from it stays there. One not loaded yet is
    *  brought in when a page brings it: reading that far is the caller's. */
   reveal?: number;
+  /** Swaps a detached history window back to the live tail window when the bottom bubble is pressed. */
+  onJumpToLatest?: () => void;
+  /** Reports whether the reader is currently at the bottom (`true`) or scrolled up in history (`false`). */
+  onAtEndChange?: (atEnd: boolean) => void;
   paddingStart?: number;
   paddingEnd?: number;
   /** The column the rows sit in, inside the scroller, so its scrollbar stays at the edge. */
@@ -134,9 +150,11 @@ export function VirtualLog<Row>({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
-  const reader = useReader(footerRef, rows.length);
-  const { atEnd, atTop, atEndRef, goingToTopRef, touchingRef, pressedRef, scrollingRef, follow } =
+  const reader = useReader(footerRef, rows.length, onAtEndChange);
+  const { atEnd, atTop, atEndRef, goingToTopRef, touchingRef, pressedRef, follow, runOwnScroll } =
     reader;
+  const attachedToHead = newer.exhausted;
+  const visibleTail = attachedToHead ? tail : undefined;
   const rangeExtractor = useCallback(
     (range: Range) => {
       const indexes = defaultRangeExtractor(range);
@@ -156,7 +174,7 @@ export function VirtualLog<Row>({
     (index: number) => (index < rows.length ? rowInfo.estimateSize(rows[index]!) : TAIL_ESTIMATE),
     [rowInfo, rows],
   );
-  const count = rows.length + (tail ? 1 : 0);
+  const count = rows.length + (visibleTail ? 1 : 0);
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
@@ -174,16 +192,19 @@ export function VirtualLog<Row>({
     onChange: reader.keepAtEnd,
   });
 
+  const prevFollowTailRef = useRef(followTail);
   useLayoutEffect(() => {
-    atEndRef.current = true;
+    if (Object.is(prevFollowTailRef.current, followTail)) return;
+    prevFollowTailRef.current = followTail;
+    follow(true);
     goingToTopRef.current = false;
-    scrollingRef.current = null;
-    virtualizer.scrollToEnd();
-  }, [followTail, virtualizer, atEndRef, goingToTopRef, scrollingRef]);
+    runOwnScroll(() => virtualizer.scrollToEnd());
+  }, [followTail, virtualizer, follow, goingToTopRef, runOwnScroll]);
 
   useLayoutEffect(() => {
-    if (atEndRef.current && !touchingRef.current) virtualizer.scrollToEnd();
-  }, [rows, count, paddingEnd, virtualizer, atEndRef, touchingRef]);
+    if (attachedToHead && atEndRef.current && !touchingRef.current)
+      runOwnScroll(() => virtualizer.scrollToEnd());
+  }, [rows, count, paddingEnd, attachedToHead, virtualizer, atEndRef, touchingRef, runOwnScroll]);
   // rows arriving: the press is over, and what opens later is not its doing
   useLayoutEffect(() => {
     pressedRef.current = null;
@@ -191,33 +212,21 @@ export function VirtualLog<Row>({
 
   useLayoutEffect(() => {
     if (!goingToTopRef.current) return;
-    virtualizer.scrollToOffset(0);
+    runOwnScroll(() => virtualizer.scrollToOffset(0));
     goingToTopRef.current = !older.exhausted;
   });
 
-  // After every render, from where the DOM stands: the layout effects have already opened the view
-  // at the end, and at the very top no scroll event comes to say so. A log shorter than this is
-  // always near its top, and a page that adds no rows leads to the next.
-  useEffect(() => {
-    if (older.loading || older.exhausted) return;
-    if (scrollRef.current!.scrollTop < LOAD_OLDER_WITHIN_PX) older.loadOlder();
-  });
-
-  const revealRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    revealRef.current = reveal;
-  }, [reveal]);
-  useEffect(() => {
-    const offset = revealRef.current;
-    if (offset === undefined || rows.length === 0) return;
-    const index = rows.findIndex((row) => rowInfo.offset(row) === offset);
-    // not loaded yet: it is wanted until the pages run out (folded away, it never comes)
-    if (index < 0 && !older.exhausted) return;
-    revealRef.current = undefined;
-    if (index < 0) return;
-    goingToTopRef.current = false;
-    follow(false);
-    virtualizer.scrollToIndex(index, { align: "auto" });
+  usePageEdges(scrollRef, older, newer);
+  useRevealRow({
+    rows,
+    rowInfo,
+    reveal,
+    older,
+    newer,
+    goingToTopRef,
+    follow,
+    runOwnScroll,
+    virtualizer,
   });
 
   const arrived = useArrivedSince(
@@ -238,27 +247,18 @@ export function VirtualLog<Row>({
         className,
       )}
     >
-      <div className={cn("sticky top-0 z-10 h-0 shrink-0", columnClassName)}>
-        {older.loading && rows.length > 0 ? (
-          <div className="flex h-6 items-center bg-background animate-in fade-in-0 fill-mode-both delay-300">
-            {readingOlder}
-          </div>
-        ) : null}
-        {atTop || atEnd ? null : (
-          <ScrollBubble
-            label="Scroll to top"
-            className="absolute top-8 right-3 sm:right-auto sm:left-1/2 sm:-translate-x-1/2"
-            onClick={() => {
-              follow(false);
-              goingToTopRef.current = true;
-              scrollRef.current!.focus({ preventScroll: true });
-              virtualizer.scrollToOffset(0);
-            }}
-          >
-            <ArrowUpIcon className="size-3.5" />
-          </ScrollBubble>
-        )}
-      </div>
+      <VirtualLogTopChrome
+        columnClassName={columnClassName}
+        showReadingOlder={older.loading && rows.length > 0}
+        readingOlder={readingOlder}
+        showScrollToTop={!atTop && !atEnd}
+        onScrollToTop={() => {
+          follow(false);
+          goingToTopRef.current = true;
+          scrollRef.current!.focus({ preventScroll: true });
+          runOwnScroll(() => virtualizer.scrollToOffset(0));
+        }}
+      />
       <div
         role={label ? "log" : undefined}
         aria-label={label}
@@ -277,33 +277,82 @@ export function VirtualLog<Row>({
               >
                 {virtualItem.index < rows.length
                   ? renderRow(rows[virtualItem.index]!, virtualItem.index)
-                  : tail}
+                  : visibleTail}
               </div>
             ))}
           </div>
         )}
       </div>
       <div ref={footerRef} className="sticky bottom-0 z-10 shrink-0">
-        {atEnd ? null : (
-          <ScrollBubble
-            label={arrived > 0 ? `Scroll to bottom, ${String(arrived)} new` : "Scroll to bottom"}
-            className="absolute right-3 bottom-full mb-1 sm:right-auto sm:left-1/2 sm:-translate-x-1/2"
-            onClick={() => {
-              goingToTopRef.current = false;
-              scrollRef.current!.focus({ preventScroll: true });
-              follow(true);
-              virtualizer.scrollToEnd();
-            }}
-          >
-            <ArrowDownIcon className="size-3.5" />
-            {arrived > 0 ? (
-              <span className="tabular-nums text-foreground">{arrived} new</span>
-            ) : null}
-          </ScrollBubble>
-        )}
+        <VirtualLogBottomBubble
+          visible={!atEnd || !attachedToHead}
+          arrived={arrived}
+          onScrollToBottom={() => {
+            goingToTopRef.current = false;
+            scrollRef.current!.focus({ preventScroll: true });
+            onJumpToLatest?.();
+            follow(true);
+            runOwnScroll(() => virtualizer.scrollToEnd());
+          }}
+        />
         {footer}
       </div>
     </div>
+  );
+}
+
+function VirtualLogTopChrome({
+  columnClassName,
+  showReadingOlder,
+  readingOlder,
+  showScrollToTop,
+  onScrollToTop,
+}: {
+  columnClassName: string | undefined;
+  showReadingOlder: boolean;
+  readingOlder: ReactNode;
+  showScrollToTop: boolean;
+  onScrollToTop: () => void;
+}) {
+  return (
+    <div className={cn("sticky top-0 z-10 h-0 shrink-0", columnClassName)}>
+      {showReadingOlder ? (
+        <div className="flex h-6 items-center bg-background animate-in fade-in-0 fill-mode-both delay-300">
+          {readingOlder}
+        </div>
+      ) : null}
+      {showScrollToTop ? (
+        <ScrollBubble
+          label="Scroll to top"
+          className="absolute top-8 right-3 sm:right-auto sm:left-1/2 sm:-translate-x-1/2"
+          onClick={onScrollToTop}
+        >
+          <ArrowUpIcon className="size-3.5" />
+        </ScrollBubble>
+      ) : null}
+    </div>
+  );
+}
+
+function VirtualLogBottomBubble({
+  visible,
+  arrived,
+  onScrollToBottom,
+}: {
+  visible: boolean;
+  arrived: number;
+  onScrollToBottom: () => void;
+}) {
+  if (!visible) return null;
+  return (
+    <ScrollBubble
+      label={arrived > 0 ? `Scroll to bottom, ${String(arrived)} new` : "Scroll to bottom"}
+      className="absolute right-3 bottom-full mb-1 sm:right-auto sm:left-1/2 sm:-translate-x-1/2"
+      onClick={onScrollToBottom}
+    >
+      <ArrowDownIcon className="size-3.5" />
+      {arrived > 0 ? <span className="tabular-nums text-foreground">{arrived} new</span> : null}
+    </ScrollBubble>
   );
 }
 
@@ -330,6 +379,76 @@ function observeRowsRect(
   observer.observe(scroller);
   observer.observe(footer);
   return () => observer.disconnect();
+}
+
+/** Loads older or newer pages when the scroll position stands within `LOAD_OLDER_WITHIN_PX` of an unexhausted edge. */
+function usePageEdges(
+  scrollRef: { current: HTMLDivElement | null },
+  older: OlderPages,
+  newer: NewerPages,
+) {
+  useEffect(() => {
+    const el = scrollRef.current!;
+    if (!older.loading && !older.exhausted && el.scrollTop < LOAD_OLDER_WITHIN_PX)
+      older.loadOlder();
+    if (
+      !newer.loading &&
+      !newer.exhausted &&
+      el.scrollHeight - el.clientHeight - el.scrollTop < LOAD_OLDER_WITHIN_PX
+    )
+      newer.loadNewer();
+  });
+}
+
+function findRowForOffset<Row>(
+  rows: readonly Row[],
+  rowInfo: VirtualLogRowInfo<Row>,
+  offset: number,
+): number {
+  return rows.findIndex((row) => {
+    if (rowInfo.offset(row) === offset) return true;
+    const range = rowInfo.span?.(row);
+    return Boolean(range && range[0] <= offset && offset <= range[1]);
+  });
+}
+
+function useRevealRow<Row>({
+  rows,
+  rowInfo,
+  reveal,
+  older,
+  newer,
+  goingToTopRef,
+  follow,
+  runOwnScroll,
+  virtualizer,
+}: {
+  rows: readonly Row[];
+  rowInfo: VirtualLogRowInfo<Row>;
+  reveal: number | undefined;
+  older: OlderPages;
+  newer: NewerPages;
+  goingToTopRef: { current: boolean };
+  follow: (toEnd: boolean) => void;
+  runOwnScroll: (fn: () => void) => void;
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
+}) {
+  const revealRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    revealRef.current = reveal;
+  }, [reveal]);
+  useEffect(() => {
+    const offset = revealRef.current;
+    if (offset === undefined || rows.length === 0) return;
+    const index = findRowForOffset(rows, rowInfo, offset);
+    // not loaded yet: it is wanted until the pages run out (folded away, it never comes)
+    if (index < 0 && (!older.exhausted || !newer.exhausted)) return;
+    revealRef.current = undefined;
+    if (index < 0) return;
+    goingToTopRef.current = false;
+    follow(false);
+    runOwnScroll(() => virtualizer.scrollToIndex(index, { align: "auto" }));
+  });
 }
 
 /** How many entries came in since the reader left the tail. */

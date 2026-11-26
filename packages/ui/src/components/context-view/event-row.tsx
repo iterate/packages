@@ -27,9 +27,10 @@ function deltaColor(ms: number): string {
 }
 
 const OFFSET =
-  "shrink-0 text-xs text-muted-foreground/60 tabular-nums sm:w-[var(--offset-width,6ch)] sm:text-right";
-const CLOCK = "shrink-0 text-xs text-muted-foreground tabular-nums sm:w-[8ch]";
-const GAP = "shrink-0 text-xs tabular-nums max-sm:empty:hidden sm:w-[7ch] sm:text-right";
+  "shrink-0 text-xs text-muted-foreground/60 tabular-nums @md:w-[var(--offset-width,6ch)] @md:text-right";
+const CLOCK = "shrink-0 text-xs text-muted-foreground tabular-nums @3xl:w-[8ch]";
+const GAP =
+  "shrink-0 text-xs tabular-nums empty:hidden @3xl:empty:inline @3xl:w-[7ch] @3xl:text-right";
 
 /** `#123`, right-aligned in the gutter the view sizes to its largest offset (`--offset-width`). */
 export function RowOffset({ offset }: { offset: number }) {
@@ -41,21 +42,21 @@ export function RowOffset({ offset }: { offset: number }) {
 export function RowGutter({ times }: { times?: boolean }) {
   return (
     <>
-      <span aria-hidden className={cn(OFFSET, "max-sm:hidden")} />
+      <span aria-hidden className={cn(OFFSET, "@max-md:hidden")} />
       {times ? (
         <>
-          <span aria-hidden className={cn(CLOCK, "max-sm:hidden")} />
-          <span aria-hidden className={cn(GAP, "max-sm:hidden")} />
+          <span aria-hidden className={cn(CLOCK, "@max-md:hidden")} />
+          <span aria-hidden className={cn(GAP, "@max-3xl:hidden")} />
         </>
       ) : null}
     </>
   );
 }
 
-/** Who acted, when it changes hands: the right edge on a desktop, the meta line on a phone. */
+/** Who acted, when it changes hands: the right edge in wide containers, the meta line in narrow ones. */
 export function RowWho({ who }: { who: string }) {
   return (
-    <span className="max-w-48 min-w-0 truncate text-xs text-muted-foreground sm:ml-auto sm:shrink-0">
+    <span className="max-w-36 min-w-0 truncate text-xs text-muted-foreground @md:ml-auto @md:shrink-0 @3xl:max-w-48">
       {who}
     </span>
   );
@@ -84,15 +85,16 @@ export function RowTimes({
   );
 }
 
-/** The body column: first on a phone, where it takes the whole first line. */
-export const rowBody = "min-w-0 flex-1 max-sm:order-first max-sm:basis-full";
+/** The body column: first in narrow containers, where it takes the whole first line. */
+export const rowBody = "min-w-0 flex-1 @max-md:order-first @max-md:basis-full";
 
-/** The body of every row, in the page's font. On a desktop it is one line, and the type has a
- *  column of its own, so the payloads start in line. On a phone the payload is under the type. */
-export const rowLine = "flex min-w-0 items-baseline gap-x-3 text-sm leading-5 max-sm:flex-col";
+/** The body of every row, in the page's font. Wide containers give the type a fixed column so
+ *  payloads align; medium split panes size the type to its own words so the payload gets the rest. */
+export const rowLine = "flex min-w-0 items-baseline gap-x-2 text-sm leading-5 @3xl:gap-x-3";
 
 /** The type's column. */
-export const rowType = "min-w-0 shrink-0 truncate max-sm:max-w-full sm:w-60";
+export const rowType =
+  "min-w-0 shrink-0 truncate @max-md:max-w-[65%] @md:max-w-[13.5rem] @3xl:w-60 @3xl:max-w-none";
 
 /** The body: the type as stored, then the payload's fields in one line. */
 export function EventLine({ event }: { event: ContextViewEvent }) {
@@ -103,9 +105,7 @@ export function EventLine({ event }: { event: ContextViewEvent }) {
         {shortEventType(event.type)}
       </span>
       {glance ? (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground max-sm:w-full">
-          {glance}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{glance}</span>
       ) : null}
     </span>
   );

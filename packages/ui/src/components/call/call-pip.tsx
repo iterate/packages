@@ -22,16 +22,30 @@ declare global {
 }
 const documentPip = () => globalThis.documentPictureInPicture;
 
-/** The page's stylesheets and theme, in the floating window, so the tiles look the same there. */
+/** The page's stylesheets and theme, materialised synchronously from `document.styleSheets` in
+ *  memory so the floating window paints styled on its very first frame without waiting on network
+ *  revalidation (`Cache-Control: no-cache`); falls back to cloning `<link>` for cross-origin sheets. */
 function dress(floating: Window) {
-  const head = floating.document.head;
-  for (const sheet of document.head.querySelectorAll('link[rel="stylesheet"], style'))
-    head.append(sheet.cloneNode(true));
-  const body = floating.document.createElement("style");
+  const doc = floating.document;
+  const head = doc.head;
+  const base = doc.createElement("base");
+  base.href = document.baseURI;
+  head.append(base);
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      const cssText = Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
+      const inline = doc.createElement("style");
+      inline.textContent = cssText;
+      head.append(inline);
+    } catch {
+      if (sheet.ownerNode instanceof Element) head.append(sheet.ownerNode.cloneNode(true));
+    }
+  }
+  const body = doc.createElement("style");
   body.textContent = "body{margin:0;padding:0.5rem;background:var(--background)}";
   head.append(body);
-  floating.document.documentElement.className = document.documentElement.className;
-  floating.document.title = document.title;
+  doc.documentElement.className = document.documentElement.className;
+  doc.title = document.title;
 }
 
 /** The call's floating window for `ui` (what `useCall` answers). */

@@ -14,6 +14,7 @@ import { IterateLogo } from "#/components/iterate-logo.tsx";
 export function Face({
   who,
   agent = "iterate",
+  kind,
   className,
   small = false,
   label,
@@ -22,15 +23,22 @@ export function Face({
   who: string;
   name?: string;
   agent?: string;
+  kind?: "mind" | "guest";
   className?: string;
   small?: boolean;
   label?: string;
 }) {
   const size = small ? "size-5" : "size-8";
   if (who === agent) return <IterateLogo alt={agent} className={cn(size, className)} />;
+  const isMind = kind === "mind";
   return (
     <Avatar
-      className={cn(size, "shrink-0", className)}
+      className={cn(
+        size,
+        "shrink-0",
+        isMind && "rounded-[22.37%] after:rounded-[22.37%]",
+        className,
+      )}
       title={label}
       aria-label={label}
       role={label ? "img" : undefined}
@@ -41,7 +49,7 @@ export function Face({
           depends on the theme. */}
       <AvatarFallback
         style={{ background: colourOf(who), color: inkOf(who) }}
-        className={cn("font-medium", small ? "text-2xs" : "text-xs")}
+        className={cn("font-medium", small ? "text-2xs" : "text-xs", isMind && "rounded-[22.37%]")}
       >
         {initialsOf(name || who)}
       </AvatarFallback>

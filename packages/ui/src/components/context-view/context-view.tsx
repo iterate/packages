@@ -145,7 +145,7 @@ export function ContextView({
     "--offset-width": `${String(String(events.at(-1)?.offset ?? 0).length + 1)}ch`,
   } as CSSProperties;
   return (
-    <div className={cn("flex min-h-0 min-w-0 flex-col", className)} style={gutter}>
+    <div className={cn("@container flex min-h-0 min-w-0 flex-col", className)} style={gutter}>
       <div className={columnClassName}>
         <ContextStrip
           title={title}
@@ -303,9 +303,9 @@ function ContextStrip({
   onStateChange: (patch: Partial<ContextViewState>) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-1.5">
-      <div className="flex min-w-0 items-baseline gap-4">
-        <div className="min-w-0 truncate text-sm">{title}</div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5 @2xl:px-4">
+      <div className="flex min-w-0 items-baseline gap-3">
+        {title ? <div className="min-w-0 truncate text-sm">{title}</div> : null}
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {count}
           {caughtUp ? "" : " · loading"}
@@ -313,12 +313,12 @@ function ContextStrip({
         </span>
       </div>
       <PresenceStrip
-        className="hidden min-w-0 xl:flex"
+        className="hidden min-w-0 @3xl:flex"
         actors={presence.actors}
         rpcStubs={presence.rpcStubs}
         onPick={(actor) => onStateChange({ actor: pickedActor === actor ? undefined : actor })}
       />
-      <div className="ml-auto flex items-center gap-3 text-xs">
+      <div className="ml-auto flex items-center gap-2 text-xs">
         <button
           type="button"
           onClick={() => onStateChange({ filter: filtering ? undefined : true })}
