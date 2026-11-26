@@ -1075,7 +1075,10 @@ export function createCall({
     sub = { pc, connected: null };
     return sub;
   }
-  /** Answer the SFU's offer on the receiving connection. */
+  /** Answer the SFU's offer on the receiving connection, at once: no wait for this page's
+   *  candidates. The SFU is ICE-lite, so this page sends every connectivity check, and the SFU
+   *  answers each check where it came from (a relay too). Measured with the Mac app's call-run:
+   *  a cold receiver's first frame 2.27 s instead of 2.87 s (median of 6). */
   async function answerOffer(
     s: { pc: RTCPeerConnection },
     sdp: string | undefined,
@@ -1084,7 +1087,6 @@ export function createCall({
     if (!sdp) return;
     await s.pc.setRemoteDescription({ type: "offer", sdp: udpOnly(sdp) });
     await s.pc.setLocalDescription(await s.pc.createAnswer());
-    await gathered(s.pc);
     await signal({ renegotiate: udpOnly(s.pc.localDescription!.sdp) }, call);
   }
   function dropPlayer(mid: string) {
