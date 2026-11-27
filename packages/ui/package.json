@@ -41,6 +41,7 @@
     "./agent-kind-view/frame": "./src/agent-kind-view/frame.ts",
     "./agent-kind-view/host": "./src/agent-kind-view/host.ts",
     "./agent-kind-view/load": "./src/agent-kind-view/load.ts",
+    "./agent-kind-view/dash-agent-calls": "./src/agent-kind-view/dash-agent-calls.ts",
     "./lib/agent-progress": "./src/components/agent-chat/agent-progress.ts"
   },
   "files": [
@@ -62,6 +63,7 @@
       "./react-dom/client": "./dist/react-dom/client.mjs",
       "./agent-kind-view/host": "./dist/agent-kind-view/host.mjs",
       "./agent-kind-view/dash-agents": "./dist/agent-kind-view/dash-agents.mjs",
+      "./agent-kind-view/dash-agent-calls": "./dist/agent-kind-view/dash-agent-calls.mjs",
       "./change-my-mind": "./dist/change-my-mind.mjs",
       "./components/agent-chat/chat-parts": "./dist/components/agent-chat/chat-parts.mjs",
       "./components/agent-chat/agent-shell": "./dist/components/agent-chat/agent-shell.mjs",

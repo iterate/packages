@@ -70,6 +70,10 @@ export function browserEntries(): Record<string, string> {
     "agent-kind-view/host": "src/agent-kind-view/host.ts",
     // a mind's Dash's Home and Agents pages, which host kinds' frames (src/agent-kind-view/dash-agents.tsx)
     "agent-kind-view/dash-agents": "src/agent-kind-view/dash-agents.tsx",
+    // the Dash's calls for a widget in an agent's feed (`widgetCallsOf`: an app's tool calls, and a
+    // widget's read of a context that its fact names), for another page that draws `AgentChat`
+    // for a member: Meet
+    "agent-kind-view/dash-agent-calls": "src/agent-kind-view/dash-agent-calls.ts",
     // `<change-my-mind>`, the button for a page with no React: one script tag defines it
     "change-my-mind": "src/browser/change-my-mind.ts",
     // the chat's parts for a page of its own (a call's log, a room's chat): `Feed`, `MessageBubble`,
