@@ -26,7 +26,8 @@ test("the rows are the catalog's window, the newest first, each with its awake r
 
   await act(async () => {
     catalog.putAwake("/agents/a", 30);
-    await settled();
+    // the page commits the catalog's changes at most once in 250 ms
+    await new Promise((resolve) => setTimeout(resolve, 300));
   });
   expect(page.last()?.rows?.map((row) => [row.path, row.awake?.since])).toEqual([
     ["/agents/a", 30],

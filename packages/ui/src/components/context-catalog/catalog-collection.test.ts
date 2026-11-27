@@ -212,7 +212,7 @@ test("a new session starts each watch again with its cursor, and gets only what 
   catalog.put("/a", 10);
   catalog.put("/b", 20);
   catalog.put("/c", 30);
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   const changes: { del: string[]; put: string[] }[] = [];
   const watch = watcher.watch({ order: "active", limit: 10 }, CatalogRow, ({ del, put }) =>
     changes.push({ del, put: put.map((row) => row.path) }),
@@ -239,7 +239,7 @@ test("a new session starts each watch again with its cursor, and gets only what 
 test("a change that comes with a gap starts the watch again", async () => {
   const catalog = fakeCatalog();
   catalog.put("/a", 10);
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   const watch = watcher.watch({ order: "active", limit: 10 }, CatalogRow, () => {});
   await watch.ready;
   const [live] = catalog.watching;
@@ -255,7 +255,7 @@ test("a platform without contexts.watch says so once, and the watch ends with th
   const itx: CatalogItx = {
     contexts: { watch: () => Promise.reject(new TypeError("watch is not a function")) },
   };
-  const watcher = catalogWatcher(itx);
+  const watcher = catalogWatcher(itx, { commitEveryMs: 0 });
   const said: string[] = [];
   watcher.subscribe(() => said.push(watcher.support()));
   const watch = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
@@ -346,7 +346,7 @@ test("more keys than the catalog watches are refused with the reason, and the ke
 
 test("a refusal that is not the query's makes the catalog no source, a limit of watches does not, and a later probe makes it live", async () => {
   const catalog = fakeCatalog();
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   catalog.refuseNext("UNAVAILABLE");
   watcher.probe();
   await tick();
@@ -366,10 +366,29 @@ test("a refusal that is not the query's makes the catalog no source, a limit of 
   expect(watcher.support()).toBe("none");
 });
 
+test("the catalog's changes are committed at most once in the time given, and an answer at once", async () => {
+  const catalog = fakeCatalog();
+  catalog.put("/a", 10);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 120 });
+  let commits = 0;
+  watcher.onBatch(() => (commits += 1));
+  const watch = watcher.watch({ order: "active", limit: 10 }, CatalogRow, () => {});
+  await watch.ready;
+  expect(commits).toBe(1);
+  for (const at of [20, 30, 40, 50]) catalog.put("/a", at);
+  // the frames are in the watch at once; their commit waits
+  expect(watch).toMatchObject({ frames: 4 });
+  expect(commits).toBe(1);
+  expect(watcher.batchOpen()).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  expect(commits).toBe(2);
+  expect(watcher.batchOpen()).toBe(false);
+});
+
 test("a batch whose last frame never comes is ended by the page itself", async () => {
   const catalog = fakeCatalog();
   catalog.put("/a", 10);
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   const watch = watcher.watch({ order: "active", limit: 10 }, CatalogRow, () => {});
   await watch.ready;
   let ends = 0;
@@ -409,7 +428,7 @@ test("a watch asked before the page's first socket is open is asked once, and a 
       },
     },
   };
-  const watcher = catalogWatcher(itx);
+  const watcher = catalogWatcher(itx, { commitEveryMs: 0 });
   const watch = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
   say({ epoch: 1, state: "opening" });
   say({ epoch: 1, state: "open" });
@@ -433,7 +452,7 @@ test("a watch that the catalog ends is watched again, and a catalog that ends it
       },
     },
   };
-  const watcher = catalogWatcher(itx);
+  const watcher = catalogWatcher(itx, { commitEveryMs: 0 });
   const watch = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
   await watch.ready;
   for (const _ of [1, 2, 3]) {
@@ -449,7 +468,7 @@ test("a watch that the catalog ends is watched again, and a catalog that ends it
 
 test("a query that the catalog refuses ends its watch alone", async () => {
   const catalog = fakeCatalog();
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   const awake = watcher.watch({ awake: true }, CatalogAwakeRow, () => {});
   await awake.ready;
   const refused = watcher.watch({ where: { refused: true } }, CatalogRow, () => {});
@@ -461,7 +480,7 @@ test("a query that the catalog refuses ends its watch alone", async () => {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function page(catalog: ReturnType<typeof fakeCatalog>) {
-  const watcher = catalogWatcher(catalog.itx);
+  const watcher = catalogWatcher(catalog.itx, { commitEveryMs: 0 });
   // with indexes, as the Dash makes it (context-catalog-live.ts)
   const contexts = createCollection(
     contextsCollectionOptions({

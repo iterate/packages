@@ -78,8 +78,9 @@ export type CatalogCursor = {
 /** One context as a watch sends it (iterate/api `CatalogRow`): a listing without `awake` and
  *  `activities`, with the two numbers that the orders sort by and the catalog's revision at which
  *  the row last changed. `activeMs` is when it was last active (`lastActivityAt || lastEventAt`)
- *  and `createdMs` when its first event was written, in milliseconds. A row changes at each
- *  summary that its context sends: at most one in 15 s while it works. */
+ *  and `createdMs` when its first event was written, in milliseconds. A row changes when
+ *  its context's summary changed (its events, its last activity, its size): for a context whose
+ *  log grows, as often as once in 100 ms. */
 export const CatalogRow = ContextListing.omit({ awake: true, activities: true }).extend({
   activeMs: z.number(),
   createdMs: z.number(),
@@ -224,7 +225,8 @@ export type CatalogWatcher = {
   /** `end()` runs after the last frame of each batch. One write of the catalog is one batch over
    *  all of this page's queries, so a holder applies it as one transaction. */
   onBatch(end: () => void): () => void;
-  /** True between a frame that says `more` and the end of its batch. */
+  /** True while changes wait for their commit: between a frame that says `more` and the end of
+   *  its batch, and until a commit that is held back (`commitEveryMs`). */
   batchOpen(): boolean;
   support(): CatalogSupport;
   /** Asks, with one watch of the awake list that ends with its answer, whether the catalog is a
@@ -264,7 +266,7 @@ type Held<Row> = {
   error: string | undefined;
   /** The start that this watch listens to: a frame of an earlier start is of no watch. */
   start: object | undefined;
-  handle: PromiseLike<CatalogWatchHandle> | undefined;
+  handle: Promise<CatalogWatchHandle> | undefined;
   ready: Promise<void>;
   resolveReady(): void;
   rejectReady(error: Error): void;
@@ -274,7 +276,17 @@ type Held<Row> = {
 /** THE CATALOG'S WATCHES OF ONE PAGE. A watch is of one session and ends with it: when a new
  *  session opens, each watch starts again with its cursor, and the catalog sends every path of
  *  the answer and only the rows that this page lacks. */
-export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
+export function catalogWatcher(
+  itx: CatalogItx,
+  {
+    commitEveryMs = 250,
+  }: {
+    /** A page's collections commit the catalog's changes at most this often: a busy mind sends
+     *  ten frames a second and more, and each commit is a run of every live query and a draw of
+     *  the page. An answer to a watch is committed at once. */
+    commitEveryMs?: number;
+  } = {},
+): CatalogWatcher {
   const session = itxSessionOf(itx);
   const watches = new Set<Held<{ path: string }>>();
   const batchEnds = new Set<() => void>();
@@ -306,11 +318,24 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
   // this page's own, since the catalog cuts a very long message in two and a frame can be lost
   // with its session: a transaction must not stay open.
   let batchTimer: ReturnType<typeof setTimeout> | undefined;
-  const endBatch = () => {
-    clearTimeout(batchTimer);
-    batchTimer = undefined;
+  /** The commit that waits for its time (`commitEveryMs`), and when the last one was. */
+  let commitTimer: ReturnType<typeof setTimeout> | undefined;
+  let committedAt = 0;
+  const commitNow = () => {
+    clearTimeout(commitTimer);
+    commitTimer = undefined;
+    committedAt = Date.now();
     for (const end of batchEnds) end();
   };
+  /** The end of a batch. `answered`: the batch held an answer, which a load waits for. */
+  const endBatch = (answered: boolean) => {
+    clearTimeout(batchTimer);
+    batchTimer = undefined;
+    const wait = committedAt + commitEveryMs - Date.now();
+    if (answered || wait <= 0) commitNow();
+    else commitTimer ||= setTimeout(commitNow, wait);
+  };
+  let answeredInBatch = false;
 
   function refuse(held: Held<{ path: string }>, error: string) {
     held.error = error;
@@ -325,8 +350,10 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
     held.start = undefined;
     held.handle = undefined;
     // a call that failed left nothing to end
-    void Promise.resolve(handle).then(
-      (answered) => answered?.[Symbol.dispose](),
+    void handle?.then(
+      (answered) => {
+        answered[Symbol.dispose]();
+      },
       () => {},
     );
   }
@@ -349,8 +376,11 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
     } catch (caught) {
       handle = Promise.reject(caught);
     }
-    held.handle = handle;
-    void Promise.resolve(handle).then(undefined, (caught: unknown) => {
+    // ONE resolution of the call, for every reader: each `then` on a capnweb promise can answer a
+    // stub of its own, and a watch ends only when every stub of its handle is disposed.
+    const answered = Promise.resolve(handle);
+    held.handle = answered;
+    void answered.then(undefined, (caught: unknown) => {
       if (held.start !== started) return;
       // the session went away under the call: its next epoch starts the watch again
       if (sessionNow() !== asked || session.get().state !== "open") return;
@@ -362,9 +392,9 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
     });
     // The catalog ended the watch and this page did not: watch again. A session that went away
     // rejects here, and its next epoch starts the watch.
-    void Promise.resolve(handle)
+    void answered
       // a platform whose handle has no `ended` never says that a watch ended
-      .then((answered) => (answered.ended ? answered.ended() : new Promise<never>(() => {})))
+      .then((stub) => (stub.ended ? stub.ended() : new Promise<never>(() => {})))
       .then(
         () => {
           if (held.start === started && session.get().state === "open")
@@ -405,10 +435,16 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       }
     }
     // The batch ends with its last frame, whoever that frame was for.
+    if (parsed.success && parsed.data.type !== "change") answeredInBatch = true;
+    const end = () => {
+      const answered = answeredInBatch;
+      answeredInBatch = false;
+      endBatch(answered);
+    };
     if (parsed.success && parsed.data.more) {
       clearTimeout(batchTimer);
-      batchTimer = setTimeout(endBatch, 50);
-    } else endBatch();
+      batchTimer = setTimeout(end, 50);
+    } else end();
   }
 
   function apply(held: Held<{ path: string }>, frame: z.infer<typeof Frame>) {
@@ -524,7 +560,7 @@ export function catalogWatcher(itx: CatalogItx): CatalogWatcher {
       batchEnds.add(end);
       return () => batchEnds.delete(end);
     },
-    batchOpen: () => Boolean(batchTimer),
+    batchOpen: () => Boolean(batchTimer || commitTimer),
     support: () => support,
     probe() {
       if (probing) return;
