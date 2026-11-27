@@ -4,15 +4,15 @@ The packages built on [iterate](https://iterate.com)'s platform ([iterate/core](
 
 `pnpm install` installs every package. The `iterate` SDK they depend on is iterate/core's `core/lib`, which this repo doesn't hold: `pnpm-workspace.yaml` pins one build of it.
 
-The rendered components in `packages/ui` are a [shadcn GitHub registry](https://ui.shadcn.com/docs/registry/github): in an app set up with `shadcn init` and a Base UI style such as `base-nova`, install a component as your app's own copy.
+The UI kit that the apps use, `@iterate-com/ui`, has a repo of its own: [git.iterate.com/repos/ui](https://git.iterate.com/repos/ui). Its rendered components are a shadcn registry at `ui.iterate.com`: in an app set up with `shadcn init` and a Base UI style such as `base-nova`, install a component as your app's own copy.
 
 ```sh
-npx shadcn@latest add iterate/packages/context-view
+npx shadcn@latest add https://ui.iterate.com/r/context-view.json
 ```
 
-`npx shadcn@latest list iterate/packages` lists the components.
+[ui.iterate.com/r/registry.json](https://ui.iterate.com/r/registry.json) lists the components.
 
-Licenses: Apache-2.0 for every package with a LICENSE of its own (all but `packages/shared` and the apps), the `packages/ui` components included, and for the templates in `configs/`; AGPL-3.0 ([LICENSE](LICENSE)) for the rest.
+Licenses: Apache-2.0 for every package with a LICENSE of its own (all but `packages/shared` and the apps), and for the templates in `configs/`; AGPL-3.0 ([LICENSE](LICENSE)) for the rest.
 
 This repo is a read-only copy of `packages/` and `configs/` from iterate's own repo, made by [Copybara](https://github.com/google/copybara) after each change to them. Paths are the same in both, and each commit ends in `GitOrigin-RevId: <sha>`, naming the commit it came from.
 

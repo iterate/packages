@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@iterate-com/shared": "workspace:*",
-    "@iterate-com/ui": "workspace:*",
+    "@iterate-com/ui": "catalog:",
     "@iterate-com/voice": "workspace:*",
     "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-router": "catalog:",

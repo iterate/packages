@@ -1,9 +1,0 @@
-/* The docs editor's page's stylesheet (dist/docs-editor.css), which that page links IN PLACE OF
-   styles.css, never beside it: stylesheet.css with the docs editor's classes too (styles.css leaves
-   them out), and Atomic's live preview, which Rich mode draws with classes
-   (src/components/docs-editor/extensions.ts). One Tailwind build orders every utility against every
-   variant; two sheets in one `utilities` layer would not (a second sheet's `.hidden` comes after
-   the first's `md:block`, and wins). scripts/check-docs-editor-css.ts checks after the build that
-   this sheet holds all of styles.css, in its order. */
-@import "./stylesheet.css";
-@import "@atomic-editor/editor/styles.css";

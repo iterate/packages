@@ -1,4 +1,0 @@
-/* The published stylesheet (dist/styles.css), which every page links: stylesheet.css without the
-   docs editor's classes. The docs editor's page links docs-editor.css in its place. */
-@import "./stylesheet.css";
-@source not "../components/docs-editor";
