@@ -50,7 +50,6 @@ catalog:
   fflate: 0.8.3
   lucide-react: ^1.48.0
   pako: ^3.0.2
-  posthog-js: 1.434.12
   react: ^19.3.0
   react-dom: ^19.3.0
   shadcn: 4.21.0

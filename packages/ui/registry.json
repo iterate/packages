@@ -378,7 +378,6 @@
         "dropdown-menu",
         "iterate/packages/iterate-logo",
         "iterate/packages/plain-left-click",
-        "iterate/packages/posthog",
         "iterate/packages/saved-log-tail",
         "sidebar",
         "skeleton"
@@ -1298,20 +1297,6 @@
       ]
     },
     {
-      "name": "not-recorded",
-      "type": "registry:component",
-      "description": "A block PostHog's session replay never records, for a secret shown on screen.",
-      "dependencies": [
-        "cn"
-      ],
-      "files": [
-        {
-          "path": "src/components/not-recorded.tsx",
-          "type": "registry:component"
-        }
-      ]
-    },
-    {
       "name": "context-path-text",
       "type": "registry:component",
       "description": "A context path as one plain path from the root, in the fixed-width face; a short line keeps its end.",
@@ -1385,21 +1370,6 @@
         {
           "path": "src/lib/page-url.ts",
           "type": "registry:lib"
-        }
-      ]
-    },
-    {
-      "name": "posthog",
-      "type": "registry:component",
-      "description": "PostHog in the browser: init, identity and exception capture, with secrets redacted from URLs.",
-      "dependencies": [
-        "iterate",
-        "posthog-js"
-      ],
-      "files": [
-        {
-          "path": "src/components/posthog.tsx",
-          "type": "registry:component"
         }
       ]
     },
@@ -1685,7 +1655,6 @@
       ],
       "registryDependencies": [
         "button",
-        "iterate/packages/posthog",
         "spinner"
       ],
       "files": [

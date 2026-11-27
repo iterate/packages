@@ -71,7 +71,6 @@ import {
   useSidebar,
 } from "#/components/ui/sidebar.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { resetPosthog } from "#/components/posthog.tsx";
 import { wipeSavedLogTails } from "#/lib/saved-log-tail.ts";
 
 /** Nothing to subscribe to: the cookie has no change event, and `SidebarProvider` reads
@@ -831,7 +830,6 @@ function AccountMenu({
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     onClick={() => {
-                      resetPosthog();
                       // the next member of this browser sees none of this one's saved rows
                       void wipeSavedLogTails().then(() => logout.current?.requestSubmit());
                     }}

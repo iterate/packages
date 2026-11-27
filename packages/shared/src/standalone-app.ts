@@ -1,7 +1,6 @@
 // standalone-app.ts — A FIRST-PARTY APP AS A WORKER OF ITS OWN, hosted apart from any mind
 // (tasks/project-stack.md, "Headless Workers"): no envs.ts entry, no Doppler, no issuer, no default
-// mind and no PostHog. A person opens it, types a mind's address, and signs in there. Each
-// app's `scripts/standalone.ts` runs `runStandaloneDeploy`, and its `vite.config.ts` builds
+// mind. A person opens it, types a mind's address, and signs in there. Each app's `scripts/standalone.ts` runs `runStandaloneDeploy`, and its `vite.config.ts` builds
 // `standaloneWorkerConfig` when `ITERATE_STANDALONE_WORKER` names the Worker. The Worker is on
 // `https://<worker-name>.<account subdomain>.workers.dev`, its only hostname, and binds the gate's
 // `BrowserSession` class and the assets, nothing else. The deploy is wrangler's, over the config
@@ -33,7 +32,7 @@ export function standaloneWorkerConfig(appRoot: URL, name: string) {
     compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
     durable_objects: { bindings: [{ name: "BROWSER_SESSION", class_name: "BrowserSession" }] },
     exports: { BrowserSession: { type: "durable-object" as const, storage: "sqlite" as const } },
-    // no issuer, no other apps, no PostHog (./start-app-config.ts)
+    // no issuer, no other apps (./start-app-config.ts)
     vars: { ITERATE_APP: "{}" },
     observability: { enabled: true },
     workers_dev: true,

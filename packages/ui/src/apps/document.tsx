@@ -29,9 +29,9 @@ export function AppDocumentShell(props: { icon: string; basePath?: string; child
 
 /** Every app's root route `component`, inside `AppDocumentShell`: the app's providers around its
  *  pages. */
-export function AppRoot(props: { posthogProjectKey: string | null }) {
+export function AppRoot() {
   return (
-    <AppProviders posthogApiKey={props.posthogProjectKey || undefined}>
+    <AppProviders>
       <Outlet />
     </AppProviders>
   );
@@ -39,14 +39,10 @@ export function AppRoot(props: { posthogProjectKey: string | null }) {
 
 /** The document and the providers in one root `component`: for an app outside this repo that
  *  names no `shellComponent` yet. Its root loader's failure renders no document. */
-export function AppDocument(props: {
-  icon: string;
-  posthogProjectKey: string | null;
-  basePath?: string;
-}) {
+export function AppDocument(props: { icon: string; basePath?: string }) {
   return (
     <AppDocumentShell icon={props.icon} basePath={props.basePath}>
-      <AppRoot posthogProjectKey={props.posthogProjectKey} />
+      <AppRoot />
     </AppDocumentShell>
   );
 }

@@ -1,13 +1,9 @@
 import type { ReactNode } from "react";
-import { initPosthog } from "#/components/posthog.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { TooltipProvider } from "#/components/ui/tooltip.tsx";
 
-/** Every client app's root providers. PostHog starts when the app has a key (envs.ts hands one to
- *  prd only). */
-export function AppProviders(props: { children: ReactNode; posthogApiKey?: string }) {
-  initPosthog(props.posthogApiKey);
-
+/** Every client app's root providers. */
+export function AppProviders(props: { children: ReactNode }) {
   return (
     // Base UI tooltips are intended to share a provider; setting delay=0
     // here makes hover tooltips feel immediate across the app.

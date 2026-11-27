@@ -1,5 +1,5 @@
-// Which part of an app's Worker answers a request (appServerEntry): its health check, the PostHog
-// proxy, the app's own routes, the sign-in gate, the assets and the pages.
+// Which part of an app's Worker answers a request (appServerEntry): its health check,
+// the app's own routes, the sign-in gate, the assets and the pages.
 // The gate's own behaviour is iterate/app-server's (app-server.test.ts).
 import { env } from "cloudflare:workers";
 import { expect, test, vi } from "vitest";
@@ -12,12 +12,6 @@ test.for([
     path: "/healthz",
     owns: "*",
     expected: "ok",
-  },
-  {
-    name: "PostHog's files come from PostHog through /e/, before the app's own routes",
-    path: "/e/static/array.js",
-    owns: "*",
-    expected: "fetched https://eu-assets.i.posthog.com/static/array.js",
   },
   {
     name: "the app's own routes answer before the gate",

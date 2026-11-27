@@ -16,14 +16,14 @@ import { createAppRouter } from "./router.tsx";
 
 test("a root loader that fails still renders the document: the head the root names, the failure and a retry", async () => {
   const root = createRootRoute({
-    loader: (): { posthogProjectKey: string | null } => {
+    loader: (): null => {
       throw new Error("the deployment's configuration could not be read");
     },
     head: () => appHead({ title: "Agents", stylesheet: "/assets/styles.css" }),
     shellComponent: ({ children }) => (
       <AppDocumentShell icon="/client-logo.svg">{children}</AppDocumentShell>
     ),
-    component: () => <AppRoot posthogProjectKey={root.useLoaderData().posthogProjectKey} />,
+    component: AppRoot,
   });
   const router = createAppRouter({
     routeTree: root,
@@ -42,7 +42,7 @@ test("a root loader that fails still renders the document: the head the root nam
 });
 
 test("a mind whose first read fails keeps the app's frame, and says which mind and what failed, with a retry", async () => {
-  const root = createRootRoute({ component: () => <AppRoot posthogProjectKey={null} /> });
+  const root = createRootRoute({ component: AppRoot });
   const mind = createRoute({
     getParentRoute: () => root,
     path: "minds/$mind",

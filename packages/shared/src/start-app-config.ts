@@ -3,7 +3,7 @@
 // else — but notes, which a mind's config worker serves under its hosts, on the host's sign-in. The platform's mechanism (iterate/app-config): one `ITERATE_APP` object, and any key set alone
 // as an `ITERATE_APP__*` var merged on top. iterate/docs' Docs app keeps its own copy of this file, with two fields (`denyZones`, `pkgPrNewRef`) that it reads and no app here does.
 //
-//   { urls: { os, agents, notes, admin, voice, kit }, posthogProjectKey }
+//   { urls: { os, agents, notes, admin, voice, kit } }
 //
 // scripts/lib/start-app.ts writes it from envs.ts as the Worker's one `ITERATE_APP` var
 // (`startAppWorkerConfig`), and a per-PR preview swaps in the same PR's origins
@@ -41,9 +41,6 @@ export const StartAppConfig = z.object({
       kit: optionalOrigin,
     })
     .prefault({}),
-  /** PostHog's project key (envs.ts `posthogProjectKey`, prd only): the app's pages start
-   *  posthog-js with it. A public key, not a secret. Blank ⇒ no PostHog. */
-  posthogProjectKey: z.string().trim().default(""),
 });
 
 export type StartAppConfig = z.output<typeof StartAppConfig>;

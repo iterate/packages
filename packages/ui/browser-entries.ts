@@ -146,7 +146,6 @@ export const vendorChunks = [
   { name: "vendor-yjs", test: /node_modules[\\/](yjs|lib0|y-protocols|y-codemirror\.next)[\\/]/ },
   // Atomic's live preview holds CodeMirror state fields and facets: one copy, beside CodeMirror's
   { name: "vendor-atomic", test: /node_modules[\\/]@atomic-editor[\\/]/ },
-  { name: "vendor-posthog", test: /node_modules[\\/]posthog-js[\\/]/ },
   // Prettier's browser build, which prettifies a script in the Agents app's Script tab
   // (lib/format-script.ts): only a page that shows a script loads it
   { name: "vendor-prettier", test: /node_modules[\\/]prettier[\\/]/ },

@@ -1,7 +1,6 @@
 // server.ts — EVERY APP'S WORKER (dash, agents, notes, voice, admin): its src/server.ts, Start's
 // server entry, is `appServerEntry(handler, { … })` with only what the app does differently.
 import { env } from "cloudflare:workers";
-import { proxyPosthogRequest } from "@iterate-com/shared/posthog";
 import { startAppConfigOf, type StartAppConfig } from "@iterate-com/shared/start-app-config";
 import { appAuth } from "iterate/app-server";
 import type { BrowserSession } from "iterate/app-session";
@@ -13,7 +12,7 @@ declare global {
       ASSETS: Fetcher;
       BROWSER_SESSION: DurableObjectNamespace<BrowserSession>;
       /** THE APP'S CONFIGURATION, JSON (@iterate-com/shared/start-app-config): its platform, the
-       *  other apps' origins, our own zones and its PostHog key — from envs.ts (startAppWorkerConfig) */
+       *  other apps' origins and our own zones — from envs.ts (startAppWorkerConfig) */
       ITERATE_APP: string;
     }
   }
@@ -50,9 +49,6 @@ export function appServerEntry(
       const config = startAppConfigOf(env);
       const url = new URL(request.url);
       if (url.pathname === "/healthz") return new Response("ok");
-      // posthog-js's `api_host` (packages/ui posthog.tsx): PostHog EU through our own origin
-      if (url.pathname.startsWith("/e/"))
-        return proxyPosthogRequest({ request, proxyPrefix: "/e" });
       const own = await app.before?.(request, config);
       if (own) return own;
       if (!app.proxied) {
