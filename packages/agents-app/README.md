@@ -40,8 +40,8 @@ See [packages/voice/README.md](../../packages/voice/README.md) for voice setup. 
 
 Dev: `pnpm dev`. The app signs in at the mind its URL names (`/minds/<address>`), at that mind's
 own issuer; `/connect` points it at a mind. The prd deploy is
-`doppler run --project agents --config prd -- pnpm run deploy --env prd`; its CI workflow
-(`.depot/workflows/deploy-agents.yml`) is off, so agents.iterate.com keeps the build that serves
-os.iterate.com's minds. Deploy on its own, as `iterate-app-agents` on its `workers.dev` address:
+`doppler run --project agents --config prd -- pnpm run deploy --env prd`. No workflow deploys it:
+the app is retired, and agents.iterate.com keeps the build that serves os.iterate.com's minds until
+its Worker is deleted. Deploy on its own, as `iterate-app-agents` on its `workers.dev` address:
 `CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… pnpm deploy:standalone` (`scripts/standalone.ts`
 says how to destroy it).
