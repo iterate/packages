@@ -107,6 +107,6 @@ overrides:
   workerd: 1.20261116.1
   ws: "catalog:"
   # allow-high-entropy-next-line: a build of iterate, which this workspace doesn't hold
-  iterate: https://pkg.pr.new/iterate/private/iterate@9b5fc11ebc52b552de3006e93e91552ebe6da9fb
+  iterate: 0.4.1-main.20261126T094512Z-d43677f
 patchedDependencies:
   zod@4.6.5: patches/zod@4.6.5.patch
